@@ -347,7 +347,12 @@ router.put('/admin/task/:id', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const before = await snapshotRow('tasks', 'id', req.params.id);
-    const { supplement_name, batch_number, operator, started_at, ended_at, bottles } = req.body;
+    if (!before) return res.status(404).json({ error: 'Task not found' });
+    const {
+      supplement_name, batch_number, operator, started_at, ended_at, bottles,
+      // Entrega 2 expansions:
+      helpers, task_type, status, description, closed_by,
+    } = req.body;
 
     // Build dynamic SET clause for task fields
     const sets = ['updated_at = NOW()'];
@@ -355,6 +360,11 @@ router.put('/admin/task/:id', async (req, res) => {
     if (supplement_name !== undefined) { sets.push(`supplement_name = NULLIF($${params.length+1},'')`); params.push(supplement_name || ''); }
     if (batch_number    !== undefined) { sets.push(`batch_number    = NULLIF($${params.length+1},'')`); params.push(batch_number || ''); }
     if (operator        !== undefined) { sets.push(`operator        = NULLIF($${params.length+1},'')`); params.push(operator || ''); }
+    if (helpers         !== undefined) { sets.push(`helpers         = NULLIF($${params.length+1},'')`); params.push(helpers || ''); }
+    if (task_type       !== undefined) { sets.push(`task_type       = NULLIF($${params.length+1},'')`); params.push(task_type || ''); }
+    if (description     !== undefined) { sets.push(`description     = $${params.length+1}`); params.push(description); }
+    if (closed_by       !== undefined) { sets.push(`closed_by       = NULLIF($${params.length+1},'')`); params.push(closed_by || ''); }
+    if (status          !== undefined) { sets.push(`status          = $${params.length+1}`); params.push(status); }
     if (started_at) {
       sets.push(`started_at = ($${params.length+1}::timestamp AT TIME ZONE 'America/New_York')`);
       params.push(started_at);
@@ -703,6 +713,55 @@ router.delete('/admin/count/:id', async (req, res) => {
     await db.query('UPDATE production_counts SET deleted_at = NOW() WHERE id = $1', [req.params.id]);
     const after = await snapshotRow('production_counts', 'id', req.params.id);
     await auditAction({ req, action: 'production_count.delete', entityType: 'production_count',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ===== Admin: Task lifecycle (delete + reopen) =====
+
+// POST /api/admin/task/:id/reopen — closed task → open, clears ended_at and duration
+router.post('/admin/task/:id/reopen', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('tasks', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Task not found' });
+    if (before.status === 'open')    return res.status(400).json({ error: 'Task já está aberta' });
+    if (before.status === 'deleted') return res.status(400).json({ error: 'Task está deletada — restaure via PUT primeiro' });
+
+    await db.query(
+      `UPDATE tasks SET
+         status = 'open',
+         ended_at = NULL,
+         duration_seconds = NULL,
+         active_duration_seconds = NULL,
+         closed_by = NULL,
+         slack_end_ts = NULL,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [req.params.id]
+    );
+    const after = await snapshotRow('tasks', 'id', req.params.id);
+    await auditAction({ req, action: 'task.reopen', entityType: 'task',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/task/:id — soft delete (status='deleted')
+router.delete('/admin/task/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('tasks', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Task not found' });
+    if (before.status === 'deleted') return res.status(400).json({ error: 'Task já está deletada' });
+
+    await db.query(
+      `UPDATE tasks SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+    const after = await snapshotRow('tasks', 'id', req.params.id);
+    await auditAction({ req, action: 'task.delete', entityType: 'task',
                         entityId: req.params.id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
