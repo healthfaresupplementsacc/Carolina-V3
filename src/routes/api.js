@@ -483,6 +483,135 @@ router.put('/admin/formulation/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== Admin: Pauses / Breaks CRUD (B17 — admin tira pessoa de break) =====
+
+// GET /api/admin/pauses?date=YYYY-MM-DD&pin=XXX — list pauses for a date (defaults today, ET)
+router.get('/admin/pauses', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const date = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
+    const dateExpr = date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+    const result = await db.query(
+      `SELECT p.id, p.task_id, p.operator, p.reason,
+              p.started_at, p.ended_at, p.ended_reason,
+              p.slack_ts, p.created_at, p.deleted_at,
+              t.supplement_name AS task_supplement
+       FROM pauses p
+       LEFT JOIN tasks t ON t.id = p.task_id
+       WHERE (p.started_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}
+         AND p.deleted_at IS NULL
+       ORDER BY p.started_at ASC`
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/pause/create — retroactive break
+router.post('/admin/pause/create', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const { operator, reason, started_at, ended_at, task_id } = req.body;
+    if (!operator) return res.status(400).json({ error: 'operator é obrigatório' });
+    if (!started_at) return res.status(400).json({ error: 'started_at é obrigatório' });
+
+    // Insert with NULL ended_at first, then UPDATE if ended_at was provided.
+    // Avoids string-interpolating a SQL fragment based on user-controlled data.
+    const insert = await db.query(
+      `INSERT INTO pauses (operator, reason, started_at, task_id, slack_ts)
+       VALUES ($1, $2, ($3::timestamp AT TIME ZONE 'America/New_York'), $4, 'manual')
+       RETURNING id`,
+      [operator, reason || null, started_at, task_id || null]
+    );
+    const newId = insert.rows[0].id;
+    if (ended_at) {
+      await db.query(
+        `UPDATE pauses SET ended_at = ($1::timestamp AT TIME ZONE 'America/New_York') WHERE id = $2`,
+        [ended_at, newId]
+      );
+    }
+    const after = await snapshotRow('pauses', 'id', newId);
+    await auditAction({ req, action: 'pause.create', entityType: 'pause',
+                        entityId: newId, before: null, after });
+    res.json({ ok: true, id: newId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/admin/pause/:id — edit any field
+router.put('/admin/pause/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('pauses', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Pause not found' });
+
+    const { operator, reason, started_at, ended_at, ended_reason, task_id } = req.body;
+    const sets = [];
+    const params = [];
+    if (operator      !== undefined) { sets.push(`operator      = NULLIF($${params.length+1},'')`); params.push(operator || ''); }
+    if (reason        !== undefined) { sets.push(`reason        = NULLIF($${params.length+1},'')`); params.push(reason || ''); }
+    if (ended_reason  !== undefined) { sets.push(`ended_reason  = NULLIF($${params.length+1},'')`); params.push(ended_reason || ''); }
+    if (task_id       !== undefined) { sets.push(`task_id       = $${params.length+1}`); params.push(task_id || null); }
+    if (started_at) {
+      sets.push(`started_at = ($${params.length+1}::timestamp AT TIME ZONE 'America/New_York')`);
+      params.push(started_at);
+    }
+    if (ended_at) {
+      sets.push(`ended_at = ($${params.length+1}::timestamp AT TIME ZONE 'America/New_York')`);
+      params.push(ended_at);
+    } else if (ended_at === null) {
+      // Explicit null → reopen the pause
+      sets.push(`ended_at = NULL`);
+      sets.push(`ended_reason = NULL`);
+    }
+    if (sets.length === 0) return res.status(400).json({ error: 'Nada para atualizar' });
+
+    params.push(req.params.id);
+    await db.query(`UPDATE pauses SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('pauses', 'id', req.params.id);
+    await auditAction({ req, action: 'pause.edit', entityType: 'pause',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/pause/:id/close — admin force-closes an open break (B17)
+router.post('/admin/pause/:id/close', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('pauses', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Pause not found' });
+    if (before.ended_at) return res.status(400).json({ error: 'Pause já encerrada' });
+
+    const endedAt = req.body.ended_at || new Date().toISOString();
+    await db.query(
+      `UPDATE pauses
+       SET ended_at = ($1::timestamp AT TIME ZONE 'America/New_York'),
+           ended_reason = 'admin_force_close'
+       WHERE id = $2`,
+      [endedAt, req.params.id]
+    );
+    const after = await snapshotRow('pauses', 'id', req.params.id);
+    await auditAction({ req, action: 'pause.close', entityType: 'pause',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/pause/:id — soft delete (sets deleted_at)
+router.delete('/admin/pause/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('pauses', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Pause not found' });
+    if (before.deleted_at) return res.status(400).json({ error: 'Pause já deletada' });
+
+    await db.query('UPDATE pauses SET deleted_at = NOW() WHERE id = $1', [req.params.id]);
+    const after = await snapshotRow('pauses', 'id', req.params.id);
+    await auditAction({ req, action: 'pause.delete', entityType: 'pause',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ===== Admin Create Task =====
 router.post('/admin/task/create', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
