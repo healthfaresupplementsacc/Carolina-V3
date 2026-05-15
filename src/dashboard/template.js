@@ -476,6 +476,13 @@ function generateDashboard() {
 <!-- Loading overlay -->
 <div id="loading-overlay"><div class="spinner"></div></div>
 
+<!-- Floating merge bar (admin only — Entrega 2 commit 13) -->
+<div id="merge-bar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1d4f91;color:#fff;padding:10px 18px;border-radius:24px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:50;font-size:14px">
+  <span id="merge-bar-count" style="margin-right:12px"></span>
+  <button class="btn" style="background:#fff;color:#1d4f91;padding:6px 14px;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="mergeSelected()">Mesclar</button>
+  <button class="btn" style="background:transparent;color:#fff;padding:6px 8px;border:1px solid rgba(255,255,255,0.4);border-radius:6px;margin-left:6px;cursor:pointer" onclick="clearMergeSel()">Cancelar</button>
+</div>
+
 <!-- PIN MODAL -->
 <div id="pin-modal" class="modal-overlay">
   <div class="modal-box">
@@ -525,6 +532,8 @@ function generateDashboard() {
              color:white;padding:4px 8px;border-radius:8px;font-size:12px;cursor:pointer;
              color-scheme:dark">
     <button class="lang-btn" onclick="toggleLang()" id="lang-btn">🇧🇷 PT</button>
+    <a id="admin-link" href="/admin" target="_blank" title="Painel admin" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Admin</a>
+    <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Audit</a>
     <button class="lock-btn" onclick="toggleAdmin()" id="lock-btn" title="Admin">🔒</button>
     <div class="live-badge" id="live-badge">
       <div class="live-dot" id="live-dot"></div>
@@ -1007,6 +1016,9 @@ function toggleAdmin() {
     if (ctBtn) ctBtn.style.display = 'none';
     document.getElementById('supp-catalog-section').style.display = 'none';
     document.getElementById('broadcast-section').style.display = 'none';
+    const adminLink = document.getElementById('admin-link'); if (adminLink) adminLink.style.display = 'none';
+    const auditLink = document.getElementById('audit-link'); if (auditLink) auditLink.style.display = 'none';
+    const mergeBar = document.getElementById('merge-bar'); if (mergeBar) mergeBar.style.display = 'none';
     const ctBtn2 = document.getElementById('create-task-btn');
     if (ctBtn2) ctBtn2.style.display = 'inline-flex';
     document.getElementById('supp-catalog-section').style.display = '';
@@ -1044,6 +1056,8 @@ function submitPin() {
     btn.textContent = '🔓';
     btn.classList.add('unlocked');
     btn.title = 'Admin ativo — clique para sair';
+    const adminLink = document.getElementById('admin-link'); if (adminLink) adminLink.style.display = 'inline-block';
+    const auditLink = document.getElementById('audit-link'); if (auditLink) auditLink.style.display = 'inline-block';
     const ctBtn = document.getElementById('create-task-btn');
     if (ctBtn) ctBtn.style.display = 'none';
     document.getElementById('supp-catalog-section').style.display = 'none';
@@ -1375,6 +1389,47 @@ async function deleteCount(id) {
                        confirm: 'Apagar essa contagem?' });
 }
 
+// ===== Merge UI (commit 13) =====
+function onMergeSelChange() {
+  const checks = document.querySelectorAll('.task-merge-check:checked');
+  const bar = document.getElementById('merge-bar');
+  const count = checks.length;
+  if (count >= 2) {
+    bar.style.display = '';
+    document.getElementById('merge-bar-count').textContent = count + ' tarefas selecionadas';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+function clearMergeSel() {
+  document.querySelectorAll('.task-merge-check:checked').forEach(c => { c.checked = false; });
+  document.getElementById('merge-bar').style.display = 'none';
+}
+async function mergeSelected() {
+  if (!adminUnlocked) return;
+  const ids = Array.from(document.querySelectorAll('.task-merge-check:checked'))
+    .map(c => parseInt(c.dataset.id))
+    .filter(n => !isNaN(n));
+  if (ids.length < 2) { alert('Selecione 2 ou mais tarefas'); return; }
+  if (!confirm('Mesclar ' + ids.length + ' tarefas? A mais antiga será a sobrevivente; as outras serão deletadas.')) return;
+  try {
+    const res = await fetch('/api/admin/task/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: _adminPin, taskIds: ids }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || ('Erro ' + res.status)); return; }
+    clearMergeSel();
+    let msg = 'Sobrevivente: #' + data.survivor_id + '. Deletadas: ' + (data.merged_ids||[]).join(', ');
+    if (data.learned_aliases && data.learned_aliases.length) {
+      msg += '\\nSinônimos aprendidos: ' + data.learned_aliases.map(a => a.canonical + ' ↔ ' + a.alias).join('; ');
+    }
+    alert(msg);
+    await fetchAndRender();
+  } catch (err) { alert('Erro de conexão'); }
+}
+
 // ===== CREATE TASK (admin) =====
 function openCreateTask() {
   document.getElementById('create-task-error').textContent = '';
@@ -1593,7 +1648,8 @@ function renderOpenTasks(tasks) {
     const batchLabel = task.batch_number ? \` #\${task.batch_number}\` : '';
     const operatorLabel = task.operator ? \` • \${task.operator}\` : '';
     const adminBtns = adminUnlocked
-      ? \`<button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:""})})'>\${tr('editBtn')}</button>
+      ? \`<input type="checkbox" class="task-merge-check" data-id="\${task.id}" onchange="onMergeSelChange()" title="Selecionar para mesclar">
+         <button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:""})})'>\${tr('editBtn')}</button>
          <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick="closeTask(\${task.id})">Fechar</button>
          <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
       : '';
@@ -1682,7 +1738,8 @@ function renderProd(tasks, counts) {
     }
 
     const adminBtns = adminUnlocked
-      ? \`<button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:task.ended_at?new Date(task.ended_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):""})})'>\${tr('editBtn')}</button>
+      ? \`<input type="checkbox" class="task-merge-check" data-id="\${task.id}" onchange="onMergeSelChange()" title="Selecionar para mesclar">
+         <button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:task.ended_at?new Date(task.ended_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):""})})'>\${tr('editBtn')}</button>
          <button class="edit-btn" style="background:#3b82f6;color:#fff;border:none" onclick="reopenTask(\${task.id})">Reabrir</button>
          <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
       : '';

@@ -316,4 +316,181 @@ router.get('/admin', async (req, res) => {
 </html>`);
 });
 
+// Audit log viewer — Entrega 2 commit 13
+router.get('/admin/audit', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Audit Log — HealthFare</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 24px; max-width: 1100px; margin: 0 auto; color: #1f2937; background:#f5f7fb; }
+    h1 { color: #1d4f91; margin-bottom: 24px; }
+    .filters { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px; display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin-bottom:16px; }
+    .filters label { display:flex; flex-direction:column; font-size:11px; color:#6b7280; text-transform:uppercase; font-weight:600; }
+    .filters input, .filters select { padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:13px; margin-top:4px; }
+    .btn { background:#1d4f91; color:white; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+    .row { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-size:13px; }
+    .row-head { display:flex; gap:12px; align-items:center; }
+    .action-pill { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+    .action-pill.delete { background:#fee2e2; color:#991b1b; }
+    .action-pill.create { background:#d1fae5; color:#065f46; }
+    .action-pill.merge  { background:#fef3c7; color:#92400e; }
+    .ts { color:#6b7280; font-size:11px; }
+    .entity { font-weight:600; }
+    .details { margin-top:8px; font-size:11px; color:#374151; max-height:160px; overflow:auto; white-space:pre-wrap; background:#f9fafb; padding:8px; border-radius:4px; display:none; }
+    .row.open .details { display:block; }
+    a { color: #1d4f91; }
+    .back { display: inline-block; margin-bottom: 20px; color: #1d4f91; text-decoration: none; }
+    .pager { display:flex; justify-content:center; gap:8px; padding:16px 0; }
+    .pager span { color:#6b7280; font-size:13px; align-self:center; }
+    #pin-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+    #pin-overlay .box { background:#fff; padding:24px; border-radius:10px; min-width:280px; }
+    #pin-overlay input { width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin:8px 0; }
+    .err { color:#ef4444; font-size:12px; margin-top:6px; min-height:14px; }
+  </style>
+</head>
+<body>
+  <div id="pin-overlay">
+    <div class="box">
+      <strong>Admin PIN</strong>
+      <input id="pin-input" type="password" autocomplete="off" autofocus>
+      <div class="err" id="pin-err"></div>
+      <button class="btn" onclick="unlock()" style="width:100%">Entrar</button>
+    </div>
+  </div>
+
+  <a href="/" class="back">← Voltar ao dashboard</a>
+  <h1>Audit Log</h1>
+
+  <div class="filters">
+    <label>Entidade
+      <select id="f-entity">
+        <option value="">(todas)</option>
+        <option>task</option>
+        <option>pause</option>
+        <option>orders_session</option>
+        <option>production_count</option>
+        <option>operator</option>
+        <option>supplement</option>
+        <option>note</option>
+        <option>formulation_session</option>
+        <option>app_state</option>
+        <option>broadcast</option>
+        <option>cleanup</option>
+      </select>
+    </label>
+    <label>Ação
+      <input id="f-action" type="text" placeholder="ex: task.edit">
+    </label>
+    <label>ID
+      <input id="f-id" type="text" placeholder="ex: 42">
+    </label>
+    <label>Desde
+      <input id="f-since" type="date">
+    </label>
+    <button class="btn" onclick="reload()">Filtrar</button>
+    <button class="btn" style="background:#6b7280" onclick="clearFilters()">Limpar</button>
+  </div>
+
+  <div id="results">Carregando...</div>
+  <div class="pager">
+    <button class="btn" onclick="prev()" id="prev-btn">← Anterior</button>
+    <span id="page-info">—</span>
+    <button class="btn" onclick="next()" id="next-btn">Próxima →</button>
+  </div>
+
+  <script>
+    let _pin = '';
+    let _offset = 0;
+    const PAGE = 50;
+    let _total = 0;
+
+    async function unlock() {
+      const pin = document.getElementById('pin-input').value.trim();
+      try {
+        const r = await fetch('/api/admin/audit?pin=' + encodeURIComponent(pin) + '&limit=1');
+        if (r.status === 403) { document.getElementById('pin-err').textContent = 'PIN incorreto'; return; }
+        if (!r.ok) { document.getElementById('pin-err').textContent = 'Erro ' + r.status; return; }
+        _pin = pin;
+        document.getElementById('pin-overlay').style.display = 'none';
+        reload();
+      } catch (err) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
+    }
+    document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
+
+    function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+    function classFor(action) {
+      if (/delete|deactivate/.test(action)) return 'delete';
+      if (/create/.test(action))            return 'create';
+      if (/merge/.test(action))             return 'merge';
+      return '';
+    }
+
+    function reload() { _offset = 0; load(); }
+    function prev() { if (_offset > 0) { _offset -= PAGE; load(); } }
+    function next() { if (_offset + PAGE < _total) { _offset += PAGE; load(); } }
+
+    function clearFilters() {
+      ['f-entity','f-action','f-id','f-since'].forEach(id => document.getElementById(id).value = '');
+      reload();
+    }
+
+    async function load() {
+      const params = new URLSearchParams({ pin: _pin, limit: PAGE, offset: _offset });
+      const ent  = document.getElementById('f-entity').value;
+      const act  = document.getElementById('f-action').value.trim();
+      const id   = document.getElementById('f-id').value.trim();
+      const sin  = document.getElementById('f-since').value;
+      if (ent) params.set('entity_type', ent);
+      if (act) params.set('action', act);
+      if (id)  params.set('entity_id', id);
+      if (sin) params.set('since', sin);
+
+      try {
+        const r = await fetch('/api/admin/audit?' + params.toString());
+        const data = await r.json();
+        if (!r.ok) { document.getElementById('results').innerHTML = '<div style="color:#ef4444">Erro: ' + (data.error || r.status) + '</div>'; return; }
+        _total = data.total;
+        document.getElementById('page-info').textContent =
+          (_total === 0 ? '0 resultados' : (_offset + 1) + '–' + Math.min(_offset + PAGE, _total) + ' de ' + _total);
+        document.getElementById('prev-btn').disabled = _offset === 0;
+        document.getElementById('next-btn').disabled = _offset + PAGE >= _total;
+
+        if (data.rows.length === 0) {
+          document.getElementById('results').innerHTML = '<div style="text-align:center;color:#6b7280;padding:32px">Nenhum evento</div>';
+          return;
+        }
+
+        document.getElementById('results').innerHTML = data.rows.map(row => {
+          const cls = classFor(row.action);
+          const when = new Date(row.created_at).toLocaleString('pt-BR', { timeZone: 'America/New_York' });
+          // before/after come back already as JSON objects (pg JSONB)
+          const beforeStr = row.before_data ? JSON.stringify(row.before_data, null, 2) : '(null)';
+          const afterStr  = row.after_data  ? JSON.stringify(row.after_data,  null, 2) : '(null)';
+          return \`
+            <div class="row" id="row-\${row.id}">
+              <div class="row-head" onclick="document.getElementById('row-\${row.id}').classList.toggle('open')" style="cursor:pointer">
+                <span class="action-pill \${cls}">\${esc(row.action)}</span>
+                <span class="entity">\${esc(row.entity_type)}\${row.entity_id ? ' #' + esc(row.entity_id) : ''}</span>
+                <span style="flex:1"></span>
+                <span class="ts">\${esc(when)}</span>
+              </div>
+              <div class="details"><strong>Before:</strong>
+\${esc(beforeStr)}
+
+<strong>After:</strong>
+\${esc(afterStr)}</div>
+            </div>
+          \`;
+        }).join('');
+      } catch (err) {
+        document.getElementById('results').innerHTML = '<div style="color:#ef4444">Erro de conexão</div>';
+      }
+    }
+  </script>
+</body>
+</html>`);
+});
+
 module.exports = router;
