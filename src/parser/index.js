@@ -374,14 +374,22 @@ function resolveOperator(userId, userName, text, isSharedAccount, prefixOperator
   let operator = null;
   let remainingText = text.trim();
 
+  // Priority order:
+  //  1. Inline prefix on the body (paranoid fallback — parseMessage usually
+  //     strips it before calling us).
+  //  2. prefixOperator passed in (extracted by parseMessage from cleanText).
+  //     Bug N1 fix: this MUST beat the account owner. Previously the owner
+  //     branch ran first on non-shared accounts, silently discarding the
+  //     prefix and attributing 'Ana - voltei' from Vitor's laptop to Vitor.
+  //  3. Account owner (only when no prefix was provided at all).
   const prefixMatch = remainingText.match(OPERATOR_PREFIX_REGEX);
   if (prefixMatch) {
     operator = capitalize(prefixMatch[1]);
     remainingText = remainingText.slice(prefixMatch[0].length).trim();
-  } else if (!isSharedAccount) {
-    operator = resolveNameFromUserId(userId, userName);
   } else if (prefixOperator) {
     operator = prefixOperator;
+  } else if (!isSharedAccount) {
+    operator = resolveNameFromUserId(userId, userName);
   }
 
   if (operator === 'Bruno' && !BRUNO_ALLOWED_ACCOUNTS.includes(userId)) {
