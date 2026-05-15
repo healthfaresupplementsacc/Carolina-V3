@@ -23,7 +23,7 @@ describe('B15 — F without match becomes a point-event', () => {
   test('"F: Limpeza" with no open Limpeza → INSERT closed task duration=0', async () => {
     db.query = jest.fn().mockImplementation((sql) => {
       // First SELECT for operator+supplement match — empty
-      if (/SELECT id, started_at, slack_start_ts FROM tasks/.test(sql)) {
+      if (/SELECT id, started_at, slack_start_ts.* FROM tasks/.test(sql)) {
         return Promise.resolve({ rows: [] });
       }
       // Pauses subquery (called later but won't reach here)
@@ -84,7 +84,7 @@ describe('B15 — F without match becomes a point-event', () => {
     let insertHappened = false;
     let updateHappened = false;
     db.query = jest.fn().mockImplementation((sql) => {
-      if (/SELECT id, started_at, slack_start_ts FROM tasks/.test(sql)) {
+      if (/SELECT id, started_at, slack_start_ts.* FROM tasks/.test(sql)) {
         return Promise.resolve({
           rows: [{ id: 42, started_at: '2026-05-14T10:00:00Z', slack_start_ts: '1699996400.000000' }],
         });

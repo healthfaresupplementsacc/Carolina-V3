@@ -205,6 +205,15 @@ const JOIN_YES_MSGS = [
   (op, supp) => `Ok, ${op} adicionado ao ${supp}.`,
 ];
 
+// B9: announce when one operator closes another operator's open task
+const CROSS_OPERATOR_FINISH_ANNOUNCE = [
+  (closer, starter, supp) => `🔴 ${closer} fechou ${supp} que ${starter} tinha aberto.`,
+  (closer, starter, supp) => `🔴 ${closer} encerrou o ${supp} do ${starter}.`,
+  (closer, starter, supp) => `🔴 ${closer} fechou a tarefa de ${supp} (iniciada por ${starter}).`,
+  (closer, starter, supp) => `🔴 Registrado: ${closer} finalizou ${supp} do ${starter}.`,
+  (closer, starter, supp) => `🔴 ${closer} fechou ${supp} (era do ${starter}).`,
+];
+
 // B8: announce automatic Linha de Produção join
 const JOIN_PRODUCAO_ANNOUNCE = [
   (op, partner, supp) => `🤝 ${op} entrou na Linha de Produção do ${supp} junto com ${partner}.`,
@@ -658,7 +667,7 @@ async function handleFinish(parsed, rawMsg) {
 
   // Find the most recent open task matching operator+supplement
   let taskQuery = `
-    SELECT id, started_at, slack_start_ts FROM tasks
+    SELECT id, started_at, slack_start_ts, operator, supplement_name FROM tasks
     WHERE status = 'open'
   `;
   const params = [];
@@ -677,12 +686,13 @@ async function handleFinish(parsed, rawMsg) {
 
   let result = await db.query(taskQuery, params);
 
-  // Cross-operator fallback: "Vitor F: Fenugreek" closes Bruno's open Fenugreek task.
-  // Also handles: supplement name only (no operator found) — close most recent open with that supplement.
+  // B9 — cross-operator fallback: "Vitor F: Fenugreek" closes Bruno's open
+  // Fenugreek task. Also handles: supplement name only (no operator) — close
+  // most recent open with that supplement.
   if (result.rows.length === 0 && supplement) {
     console.log(`[Tasks] Trying cross-operator fallback for ${supplement}`);
     result = await db.query(
-      `SELECT id, started_at, slack_start_ts FROM tasks
+      `SELECT id, started_at, slack_start_ts, operator, supplement_name FROM tasks
        WHERE status = 'open' AND supplement_name = $1
        ORDER BY started_at DESC LIMIT 1`,
       [supplement]
@@ -693,7 +703,7 @@ async function handleFinish(parsed, rawMsg) {
   if (result.rows.length === 0 && !supplement && operator) {
     console.log(`[Tasks] No supplement in F: — closing most recent open task for ${operator}`);
     result = await db.query(
-      `SELECT id, started_at, slack_start_ts FROM tasks
+      `SELECT id, started_at, slack_start_ts, operator, supplement_name FROM tasks
        WHERE status = 'open' AND operator = $1
        ORDER BY started_at DESC LIMIT 1`,
       [operator]
@@ -745,6 +755,19 @@ async function handleFinish(parsed, rawMsg) {
   );
 
   console.log(`[Tasks] Finished: task #${task.id}, ${durationSeconds}s (${activeDuration}s active)`);
+
+  // B9: announce when the closer is different from the starter
+  if (operator && task.operator && operator !== task.operator) {
+    try {
+      const supp = task.supplement_name || 'tarefa';
+      await slackClient.postMessage(
+        pick(CROSS_OPERATOR_FINISH_ANNOUNCE)(operator, task.operator, supp)
+      );
+      console.log(`[Tasks] Cross-operator finish: ${operator} closed ${task.operator}'s ${supp}`);
+    } catch (err) {
+      console.error('[Tasks] cross-operator announce error:', err.message);
+    }
+  }
 
   // Compound message: operator said "terminei + estou fazendo [new supplement]"
   // Auto-open the next supplement so they don't have to send a second message
