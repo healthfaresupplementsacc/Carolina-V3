@@ -13,6 +13,7 @@ const orders = require('../orders');
 const formulation = require('../formulation');
 const parser = require('../parser');
 const { auditAction, snapshotRow, checkPin, getAdminPin } = require('../admin/audit');
+const { mergeTasks } = require('../admin/merge');
 
 /**
  * Load custom supplements from DB into the parser at startup.
@@ -716,6 +717,19 @@ router.delete('/admin/count/:id', async (req, res) => {
                         entityId: req.params.id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ===== Admin: Task merge =====
+// POST /api/admin/task/merge — body: { pin, taskIds: [int...] }
+router.post('/admin/task/merge', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const result = await mergeTasks(req.body?.taskIds, req);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message });
+  }
 });
 
 // ===== Admin: Task lifecycle (delete + reopen) =====
