@@ -1053,6 +1053,69 @@ router.post('/admin/move-operator', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── Operator panel (Fase 7.1) ──────────────────────────────────────────
+
+// GET /api/operator-panel — live per-operator strip for the dashboard top.
+// One row per active operator: current activity + today's mini-stats.
+router.get('/operator-panel', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const ops = await db.query(`SELECT id, name FROM operators WHERE active = TRUE ORDER BY name`);
+    const out = [];
+    for (const op of ops.rows) {
+      const cur = await db.query(
+        `SELECT oal.activity_type, oal.started_at,
+                pi.phase_name, wi.product_name,
+                ati.task_name
+         FROM operator_activity_log oal
+         LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
+         LEFT JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+         LEFT JOIN ad_hoc_task_instances ati ON ati.id = oal.ad_hoc_task_instance_id
+         WHERE oal.operator_id = $1 AND oal.ended_at IS NULL
+         ORDER BY oal.id DESC LIMIT 1`,
+        [op.id]
+      );
+      const c = cur.rows[0] || null;
+      const stats = await db.query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN activity_type IN ('phase','ad_hoc') THEN duration_seconds ELSE 0 END), 0)::int AS worked_secs,
+           COALESCE(SUM(CASE WHEN activity_type = 'break' THEN duration_seconds ELSE 0 END), 0)::int AS break_secs,
+           COUNT(*) FILTER (WHERE activity_type = 'phase' AND ended_at IS NOT NULL)::int AS phases_done
+         FROM operator_activity_log
+         WHERE operator_id = $1
+           AND (started_at AT TIME ZONE 'America/New_York')::date = $2::date`,
+        [op.id, date]
+      );
+      const bottles = await db.query(
+        `SELECT COALESCE(SUM(pi.final_bottle_count), 0)::int AS n
+         FROM phase_instances pi
+         WHERE pi.closed_by_operator_id = $1
+           AND (pi.ended_at AT TIME ZONE 'America/New_York')::date = $2::date`,
+        [op.id, date]
+      );
+      out.push({
+        operator_id: op.id,
+        name: op.name,
+        status: c ? c.activity_type : 'idle',
+        current: c ? {
+          type: c.activity_type,
+          label: c.phase_name
+            ? `${c.phase_name}${c.product_name ? ' · ' + c.product_name : ''}`
+            : (c.task_name || (c.activity_type === 'break' ? 'break' : 'sem atividade')),
+          since: c.started_at,
+        } : null,
+        today: {
+          worked_seconds: stats.rows[0].worked_secs,
+          break_seconds: stats.rows[0].break_secs,
+          phases_done: stats.rows[0].phases_done,
+          bottles: bottles.rows[0].n,
+        },
+      });
+    }
+    res.json(out);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── Legacy migration trigger (Fase 4.2) ────────────────────────────────
 
 // POST /api/admin/migrate-legacy  body: { pin, limit? }

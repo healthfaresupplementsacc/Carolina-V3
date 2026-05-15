@@ -613,4 +613,92 @@ router.get('/admin/silent-log', (req, res) => {
 </html>`);
 });
 
+// Individual operator page — Entrega 3 Fase 7.1
+// Timeline of today + week stats + insights, read from operator_activity_log.
+router.get('/operator/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).send('id inválido');
+  const opRes = await db.query('SELECT id, name, role FROM operators WHERE id = $1', [id]);
+  if (opRes.rows.length === 0) return res.status(404).send('Operador não encontrado');
+  const op = opRes.rows[0];
+  const date = req.query.date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
+  const timeline = await db.query(`
+    SELECT oal.activity_type, oal.started_at, oal.ended_at, oal.duration_seconds,
+           oal.role, pi.phase_name, wi.product_name, wi.batch_number,
+           ati.task_name
+    FROM operator_activity_log oal
+    LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
+    LEFT JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+    LEFT JOIN ad_hoc_task_instances ati ON ati.id = oal.ad_hoc_task_instance_id
+    WHERE oal.operator_id = $1
+      AND (oal.started_at AT TIME ZONE 'America/New_York')::date = $2::date
+    ORDER BY oal.started_at ASC
+  `, [id, date]);
+
+  const week = await db.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN activity_type IN ('phase','ad_hoc') THEN duration_seconds ELSE 0 END),0)::int AS worked,
+      COALESCE(SUM(CASE WHEN activity_type='break' THEN duration_seconds ELSE 0 END),0)::int AS brk,
+      COUNT(*) FILTER (WHERE activity_type='phase' AND ended_at IS NOT NULL)::int AS phases
+    FROM operator_activity_log
+    WHERE operator_id = $1
+      AND started_at >= date_trunc('week', NOW() AT TIME ZONE 'America/New_York')
+  `, [id]);
+
+  const byPhase = await db.query(`
+    SELECT pi.phase_name,
+           COUNT(*)::int AS n,
+           ROUND(AVG(oal.duration_seconds)/60.0)::int AS avg_min
+    FROM operator_activity_log oal
+    JOIN phase_instances pi ON pi.id = oal.phase_instance_id
+    WHERE oal.operator_id = $1 AND oal.duration_seconds IS NOT NULL
+      AND oal.started_at >= date_trunc('week', NOW() AT TIME ZONE 'America/New_York')
+    GROUP BY pi.phase_name
+    ORDER BY n DESC
+  `, [id]);
+
+  const fmtT = (ts) => ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
+  const fmtD = (s) => s == null ? '—' : (s >= 3600 ? `${Math.floor(s/3600)}h${Math.floor((s%3600)/60)}m` : `${Math.floor(s/60)}min`);
+  const w = week.rows[0] || { worked: 0, brk: 0, phases: 0 };
+
+  const rows = timeline.rows.map((r) => {
+    const what = r.phase_name
+      ? `${r.phase_name}${r.product_name ? ' · ' + r.product_name : ''}${r.batch_number ? ' #' + r.batch_number : ''}`
+      : (r.task_name || (r.activity_type === 'break' ? '☕ break' : r.activity_type));
+    const roleTag = r.role ? ` <span style="color:#6b7280">(${r.role})</span>` : '';
+    return `<tr><td>${fmtT(r.started_at)}–${fmtT(r.ended_at)}</td>
+      <td>${what}${roleTag}</td><td>${fmtD(r.duration_seconds)}</td></tr>`;
+  }).join('');
+
+  res.send(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>${op.name} — HealthFare</title>
+<style>
+  body{font-family:-apple-system,sans-serif;padding:24px;max-width:760px;margin:0 auto;color:#1f2937;background:#f5f7fb}
+  h1{color:#1d4f91} h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:24px 0 10px}
+  .card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13px} td{padding:7px 10px;border-bottom:1px solid #f3f4f6}
+  .stat{display:inline-block;margin-right:24px}.stat b{display:block;font-size:22px;color:#1d4f91}
+  a{color:#1d4f91;text-decoration:none}.back{display:inline-block;margin-bottom:18px}
+</style></head><body>
+<a href="/" class="back">← Dashboard</a>
+<h1>${op.name}${op.role ? ` <span style="font-size:14px;color:#6b7280">· ${op.role}</span>` : ''}</h1>
+
+<div class="card">
+  <span class="stat"><b>${fmtD(w.worked)}</b>trabalhado (semana)</span>
+  <span class="stat"><b>${fmtD(w.brk)}</b>break (semana)</span>
+  <span class="stat"><b>${w.phases}</b>fases concluídas (semana)</span>
+</div>
+
+<h2>Timeline de ${date}</h2>
+<div class="card"><table>${rows || '<tr><td colspan="3" style="color:#6b7280">Sem atividade nesse dia</td></tr>'}</table></div>
+
+<h2>Médias por fase (semana)</h2>
+<div class="card"><table>
+  <tr><td><b>Fase</b></td><td><b>Qtd</b></td><td><b>Média</b></td></tr>
+  ${byPhase.rows.map((p)=>`<tr><td>${p.phase_name}</td><td>${p.n}</td><td>${p.avg_min} min</td></tr>`).join('') || '<tr><td colspan="3" style="color:#6b7280">Sem dados</td></tr>'}
+</table></div>
+</body></html>`);
+});
+
 module.exports = router;
