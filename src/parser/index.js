@@ -227,12 +227,83 @@ const FORMULATION_FINISH_PATTERNS = [
   /\bc[a]psula\s+(?:pronta|finalizad|terminad)/i,
 ];
 
+// Legacy (kept for reference; replaced by detectTag below).
 const TAG_PATTERNS = {
   start:  /^(?:S[:\-]|INICIO\s*:|INICIO\s*:)\s*/i,
   finish: /^(?:F[:\-]|FIM\s*:)\s*/i,
   count:  /^(?:P:|PRODU[C][A]O\s*:|PROD\s*:)\s*/i,
   note:   /^(?:N:|NOTA\s*:|OBS\s*:)\s*/i,
 };
+
+// ─── Tag detection (any separator, any position) ─────────────────────────────
+// Accepts S/F/P/N tags with separators :, ;, /, -, or just whitespace.
+// Position: start of message OR end of message (only S/F at end realistically).
+// Isolation rule: the letter must be surrounded by separators/whitespace/boundaries,
+// not inside a word like "Saw" or "Fenugreek".
+
+const TAG_LETTER_TO_TYPE = { S: 'start', F: 'finish', P: 'count', N: 'note' };
+
+// "S:", "S-", "S;", "S/" or "S " at the start (case-insensitive).
+// Requires either a separator OR whitespace after the letter — bare "Sapo" is NOT a tag.
+const TAG_START_LETTER_RE = /^([SFPN])(?:\s*[:;/\-]\s*|\s+)/i;
+
+// Word forms at the start: "INICIO:", "FIM:", "PRODUCAO:", "PROD:", "NOTA:", "OBS:"
+const TAG_START_WORD_RE = /^(INICIO|FIM|PRODU[CÇ][AÃ]O|PROD|NOTA|OBS)\s*:\s*/i;
+
+// "...-S", "... S", "...;F", "... :F" — letter at end preceded by separator/space.
+// Only S/F at end are recognized (P/N at end are too ambiguous).
+const TAG_END_LETTER_RE = /(?:^|[\s:;/\-])([SF])\s*$/i;
+
+function detectTag(text) {
+  if (!text) return null;
+  const t = text.trim();
+  if (!t) return null;
+
+  // Word form at start (INICIO/FIM/PRODUCAO/PROD/NOTA/OBS).
+  let m = t.match(TAG_START_WORD_RE);
+  if (m) {
+    const word = m[1].toUpperCase();
+    let type = null;
+    if (/^PRODU/i.test(word) || word === 'PROD') type = 'count';
+    else if (word === 'INICIO') type = 'start';
+    else if (word === 'FIM') type = 'finish';
+    else if (word === 'NOTA' || word === 'OBS') type = 'note';
+    if (type) {
+      return { tag: word, type, body: t.slice(m[0].length).trim(), position: 'start' };
+    }
+  }
+
+  // Letter form at start.
+  m = t.match(TAG_START_LETTER_RE);
+  if (m) {
+    const tag = m[1].toUpperCase();
+    return {
+      tag,
+      type: TAG_LETTER_TO_TYPE[tag],
+      body: t.slice(m[0].length).trim(),
+      position: 'start',
+    };
+  }
+
+  // Letter form at end (S or F).
+  m = t.match(TAG_END_LETTER_RE);
+  if (m) {
+    const tag = m[1].toUpperCase();
+    // Slice off the matched portion including the leading separator/space.
+    // m.index points to the separator (or 0 if start-of-string).
+    const cutAt = m.index === 0 ? 0 : m.index;
+    const body = t.slice(0, cutAt).trim();
+    if (!body) return null; // bare "S" alone — not actionable
+    return {
+      tag,
+      type: TAG_LETTER_TO_TYPE[tag],
+      body,
+      position: 'end',
+    };
+  }
+
+  return null;
+}
 
 const PAUSE_START_PATTERNS = [
   /\b(?:indo|vou|saindo)\s+(?:almo[c]ar|almo[c]o|comer|banheiro)\b/i,
@@ -434,70 +505,52 @@ function parseMessage(msg) {
     }
   }
 
-  // Explicit tags
-  for (const [type, pattern] of Object.entries(TAG_PATTERNS)) {
-    if (pattern.test(workingText)) {
-      const body = workingText.replace(pattern, '').trim();
-      const resolved = resolveOperator(userId, userName, body, isShared, prefixOperator);
-      if (resolved.brunoBlocked) return { type: 'ignore', raw: text, ts };
-      const { operator, remainingText } = resolved;
-      const supplement = extractSupplement(remainingText);
-      const batch = extractBatch(remainingText);
+  // Tag detection: S/F/P/N with any separator (: ; / -) at start OR end of message.
+  // Covers B1, B2, B3, B13 from Appendix B.
+  const detected = detectTag(workingText);
+  if (detected) {
+    const { type, body, position } = detected;
+    const resolved = resolveOperator(userId, userName, body, isShared, prefixOperator);
+    if (resolved.brunoBlocked) return { type: 'ignore', raw: text, ts };
+    const { operator, remainingText } = resolved;
+    const searchText = remainingText || body;
+    const supplement = extractSupplement(searchText);
+    const batch = extractBatch(searchText);
+    const bodyTaskType = extractTaskType(searchText);
 
-      if ((type === 'start' || type === 'finish') && /\bordens?\b/i.test(remainingText)) {
-        if (type === 'start') {
-          const countMatch = remainingText.match(ORDERS_COUNT_REGEX);
-          return { type: 'orders_start', operator, orderCount: countMatch ? parseInt(countMatch[1] || countMatch[2]) : null, raw: text, ts };
-        }
-        return { type: 'orders_finish', operator, raw: text, ts };
+    // "ordens" always wins over supplement extraction (B10 will refine further).
+    if ((type === 'start' || type === 'finish') && /\bordens?\b/i.test(searchText)) {
+      if (type === 'start') {
+        const countMatch = searchText.match(ORDERS_COUNT_REGEX);
+        return { type: 'orders_start', operator, orderCount: countMatch ? parseInt(countMatch[1] || countMatch[2]) : null, raw: text, ts };
       }
-
-      if (type === 'count') {
-        const countMatch = remainingText.match(/(\d+)\s*(?:bottles?|potes?|unidades?|un\.?)?$/i)
-          || remainingText.match(/[-:]\s*(\d+)\s*$/);
-        const count = countMatch ? parseInt(countMatch[1]) : null;
-        return { type: 'count', operator, supplement, batch, count, raw: text, ts, needsOperatorClarification: isShared && !operator };
-      }
-
-      return { type, operator, supplement, batch, taskType: type === 'start' ? extractTaskType(remainingText) : null, description: remainingText, raw: text, ts, needsOperatorClarification: isShared && !operator };
+      return { type: 'orders_finish', operator, raw: text, ts };
     }
-  }
 
-  // Tag without colon: "S Berberine 0119" or "F Limpeza"
-  const tagNoColon = workingText.match(/^([SF])\s+(.+)/);
-  if (tagNoColon) {
-    const tag = tagNoColon[1];
-    const body = tagNoColon[2].trim();
-    const supplement = extractSupplement(body);
-    const batch = extractBatch(body);
-    const bodyTaskType = extractTaskType(body);
-    if (supplement || batch || bodyTaskType) {
-      const type = tag === 'S' ? 'start' : 'finish';
-      const { operator, remainingText } = resolveOperator(userId, userName, body, isShared, prefixOperator);
-
-      if (/\bordens?\b/i.test(body)) {
-        if (tag === 'S') {
-          const countMatch = body.match(ORDERS_COUNT_REGEX);
-          return { type: 'orders_start', operator, orderCount: countMatch ? parseInt(countMatch[1] || countMatch[2]) : null, raw: text, ts };
-        }
-        return { type: 'orders_finish', operator, raw: text, ts };
-      }
-
-      return { type, operator, supplement: supplement || extractSupplement(remainingText), batch: batch || extractBatch(remainingText), taskType: bodyTaskType, description: body, raw: text, ts, freetext: true, needsOperatorClarification: isShared && !operator };
+    if (type === 'count') {
+      const countMatch = searchText.match(/(\d+)\s*(?:bottles?|potes?|unidades?|un\.?)?$/i)
+        || searchText.match(/[-:]\s*(\d+)\s*$/);
+      const count = countMatch ? parseInt(countMatch[1]) : null;
+      return { type: 'count', operator, supplement, batch, count, raw: text, ts, needsOperatorClarification: isShared && !operator };
     }
-  }
 
-  // Tag at end: "Glutathione-0128 F"
-  const tagAtEnd = workingText.match(/^(.+?)\s+([SF])$/);
-  if (tagAtEnd) {
-    const body = tagAtEnd[1].trim();
-    const tag = tagAtEnd[2];
-    const supplement = extractSupplement(body);
-    const batch = extractBatch(body);
-    if (supplement || batch) {
-      const type = tag === 'S' ? 'start' : 'finish';
-      const { operator } = resolveOperator(userId, userName, body, isShared, prefixOperator);
-      return { type, operator, supplement, batch, description: body, raw: text, ts, freetext: true };
+    // End-position tag (e.g. "Green Tea-0098-S") requires usable body content.
+    // Otherwise a stray "S" at end of casual text would falsely register a task.
+    if (position === 'end' && !supplement && !batch && !bodyTaskType) {
+      // Don't accept it — fall through to other heuristics.
+    } else {
+      return {
+        type,
+        operator,
+        supplement,
+        batch,
+        taskType: type === 'start' ? bodyTaskType : null,
+        description: body,
+        raw: text,
+        ts,
+        freetext: position === 'end',
+        needsOperatorClarification: isShared && !operator,
+      };
     }
   }
 
