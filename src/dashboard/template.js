@@ -566,6 +566,9 @@ function generateDashboard() {
 <!-- MAIN CONTENT -->
 <main class="main">
 
+  <!-- OPERATOR PANEL STRIP (Entrega 3 Fase 7.2) -->
+  <div id="operator-strip" style="display:flex;gap:10px;overflow-x:auto;margin-bottom:14px;padding-bottom:4px"></div>
+
   <!-- PRODUCTION HERO -->
   <div class="prod-hero">
     <div class="prod-hero-main">
@@ -2223,12 +2226,45 @@ async function fetchAndRender() {
     const data = await res.json();
     _lastData = data;
     renderAll(data);
+    renderOperatorStrip();
     if (adminUnlocked && !_viewingDate && !window._backupChecked) {
       window._backupChecked = true;
       checkBackupStatus();
     }
   } catch (err) {
     console.error('Dashboard fetch error:', err);
+  }
+}
+
+// ===== OPERATOR STRIP (Entrega 3 Fase 7.2) =====
+async function renderOperatorStrip() {
+  const el = document.getElementById('operator-strip');
+  if (!el) return;
+  try {
+    const url = _viewingDate ? \`/api/operator-panel?date=\${_viewingDate}\` : '/api/operator-panel';
+    const res = await fetch(url);
+    if (!res.ok) { el.style.display = 'none'; return; }
+    const ops = await res.json();
+    if (!Array.isArray(ops) || ops.length === 0) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    const dot = (s) => s === 'phase' || s === 'ad_hoc' ? '🟢'
+                     : s === 'break' ? '⏸' : '🔘';
+    const fmt = (secs) => {
+      const m = Math.floor((secs || 0) / 60);
+      return m >= 60 ? \`\${Math.floor(m/60)}h\${(m%60).toString().padStart(2,'0')}m\` : \`\${m}min\`;
+    };
+    el.innerHTML = ops.map(o => {
+      const cur = o.current
+        ? \`\${dot(o.status)} \${escHtml(o.current.label)}\`
+        : '🔘 sem atividade';
+      return \`<a href="/operator/\${o.operator_id}" target="_blank" style="flex:0 0 auto;min-width:160px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;text-decoration:none;color:#1f2937">
+        <div style="font-weight:700;font-size:13px">\${escHtml(o.name)}</div>
+        <div style="font-size:12px;margin:4px 0;color:#374151">\${cur}</div>
+        <div style="font-size:11px;color:#6b7280">⏱ \${fmt(o.today.worked_seconds)} · ☕ \${fmt(o.today.break_seconds)} · 📦 \${o.today.bottles}</div>
+      </a>\`;
+    }).join('');
+  } catch (err) {
+    el.style.display = 'none';
   }
 }
 
