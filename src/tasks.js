@@ -418,6 +418,11 @@ async function handleStart(parsed, rawMsg) {
   // so the task records when the operator first started, not when they confirmed.
   const msgTs = ts || rawMsg?.ts;
 
+  // B6: if this operator has an open break, the new activity implicitly ends it.
+  if (operator && msgTs) {
+    await closeOpenBreakFor(operator, new Date(parseFloat(msgTs) * 1000).toISOString(), 'auto_new_task');
+  }
+
   // ─── Step 1: Check for any OTHER open task for this operator ────────────────
   if (operator) {
     const anyOpen = await db.query(
@@ -698,6 +703,11 @@ async function handleCount(parsed, rawMsg) {
   const msgTs = rawMsg.ts || ts;
   const reportedAt = new Date(parseFloat(msgTs) * 1000).toISOString();
 
+  // B6: producing bottles is also an "activity" — close any pending break.
+  if (operator) {
+    await closeOpenBreakFor(operator, reportedAt, 'auto_new_task');
+  }
+
   // Try to link to a closed task
   let taskId = null;
   if (supplement) {
@@ -776,25 +786,47 @@ async function handlePauseEnd(parsed, rawMsg) {
   const { operator, ts } = parsed;
   const msgTs = rawMsg.ts || ts;
   const endedAt = new Date(parseFloat(msgTs) * 1000).toISOString();
+  if (!operator) {
+    console.log('[Pause] pause_end with no operator — skipping');
+    return false;
+  }
+  return closeOpenBreakFor(operator, endedAt, 'manual_return');
+}
 
-  // Find open pause for this operator (via their open task)
+/**
+ * B5/B6: close any open break for an operator. Used both for explicit "voltei"
+ * messages (handlePauseEnd) and implicit close-via-new-activity (called from
+ * handleStart, handleCount, handleOrdersStart, handleFormulationStart).
+ *
+ * Looks up open breaks either by pauses.operator (denormalized) or by joining
+ * tasks.operator. Returns true if a break was closed.
+ */
+async function closeOpenBreakFor(operator, endedAtIso, reason) {
+  if (!operator) return false;
+  // Prefer the denormalized pauses.operator column; fall back to task JOIN
+  // for legacy rows that pre-date the denormalization.
   const result = await db.query(
     `UPDATE pauses SET ended_at = $1
-     WHERE id IN (
+     WHERE id = (
        SELECT p.id FROM pauses p
-       JOIN tasks t ON t.id = p.task_id
-       WHERE p.ended_at IS NULL AND t.operator = $2
+       LEFT JOIN tasks t ON t.id = p.task_id
+       WHERE p.ended_at IS NULL
+         AND (p.operator = $2 OR t.operator = $2)
        ORDER BY p.started_at DESC LIMIT 1
      )
-     RETURNING id`,
-    [endedAt, operator]
+     RETURNING id, started_at`,
+    [endedAtIso, operator]
   );
 
   if (result.rows.length > 0) {
-    console.log(`[Pause] Break ended: ${operator || '?'}`);
-  } else {
-    console.log(`[Pause] No open break found for ${operator || '?'} to close`);
+    const tag = reason === 'manual_return' ? 'returned' : 'auto-closed (new activity)';
+    console.log(`[Pause] Break ${tag}: ${operator} (id=${result.rows[0].id})`);
+    return true;
   }
+  if (reason === 'manual_return') {
+    console.log(`[Pause] No open break found for ${operator} to close`);
+  }
+  return false;
 }
 
 /**
@@ -932,6 +964,7 @@ module.exports = {
   handlePendingResponse,
   getPendingQuestion,
   clearPendingQuestion,
+  closeOpenBreakFor,
   getOpenTasks,
   getTodayTasks,
   getSupplementHistory,

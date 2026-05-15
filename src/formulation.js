@@ -5,11 +5,18 @@
  */
 
 const db = require('./db');
+function getTaskEngine() { return require('./tasks'); }
 
 async function handleFormulationStart(parsed, rawMsg) {
   const { operator, supplement, batch, description, ts } = parsed;
   const msgTs = rawMsg.ts || ts;
   const startedAt = new Date(parseFloat(msgTs) * 1000).toISOString();
+
+  // B6: formulating ends any open break for this operator.
+  if (operator) {
+    try { await getTaskEngine().closeOpenBreakFor(operator, startedAt, 'auto_new_task'); }
+    catch (err) { console.error('[Formulation] closeOpenBreakFor error:', err.message); }
+  }
 
   await db.query(
     `INSERT INTO formulation_sessions

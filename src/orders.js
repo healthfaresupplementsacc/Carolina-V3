@@ -7,6 +7,8 @@
  */
 
 const db = require('./db');
+// Avoid circular dep: require lazily inside the handler.
+function getTaskEngine() { return require('./tasks'); }
 
 /**
  * Start a new orders session.
@@ -17,6 +19,12 @@ async function handleOrdersStart(parsed, rawMsg) {
   const { operator, orderCount, ts } = parsed;
   const msgTs = rawMsg.ts || ts;
   const startedAt = new Date(parseFloat(msgTs) * 1000).toISOString();
+
+  // B6: starting orders ends any open break for this operator.
+  if (operator) {
+    try { await getTaskEngine().closeOpenBreakFor(operator, startedAt, 'auto_new_task'); }
+    catch (err) { console.error('[Orders] closeOpenBreakFor error:', err.message); }
+  }
 
   // Check for an already-open session in the last 8 hours
   const existing = await db.query(
