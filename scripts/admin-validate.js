@@ -145,6 +145,87 @@ async function ensureHealthy() {
   assert(r.body?.db === 'connected', '/api/health says db not connected');
 }
 
+// ─── Entrega 3 — workflow model endpoints ────────────────────────────────
+async function runEntrega3Workflow() {
+  console.log('\n[Entrega 3 — workflow model]');
+  let wtId, ptId, wiId, piId;
+
+  await step('GET /api/workflow-templates → seeded 3+ templates', async () => {
+    const r = await httpReq('GET', '/api/workflow-templates');
+    assert2xx(r, 'workflow-templates list');
+    assert(Array.isArray(r.body) && r.body.length >= 3, 'expected >=3 seeded templates');
+    const prod = r.body.find((w) => /Produção de Suplemento/.test(w.name));
+    assert(prod, 'Produção de Suplemento template missing');
+    wtId = prod.id;
+  });
+
+  await step('GET /api/workflow-templates/:id → 7 phases incl. Mix required', async () => {
+    const r = await httpReq('GET', `/api/workflow-templates/${wtId}`);
+    assert2xx(r, 'workflow-template detail');
+    assert(r.body.phases && r.body.phases.length >= 7, `expected >=7 phases, got ${r.body.phases?.length}`);
+    const mix = r.body.phases.find((p) => p.name === 'Mix');
+    assert(mix && mix.is_required === true, 'Mix should be required');
+    const rev = r.body.phases.find((p) => p.name === 'Revisão');
+    assert(rev && rev.prerequisite_mode === 'any', 'Revisão prereq mode should be any');
+    ptId = r.body.phases.find((p) => p.name === 'Formulação').id;
+  });
+
+  await step('GET /api/ad-hoc-tasks → 8 seeded incl. Transformação', async () => {
+    const r = await httpReq('GET', '/api/ad-hoc-tasks');
+    assert2xx(r, 'ad-hoc list');
+    const names = r.body.map((t) => t.name);
+    for (const n of ['Limpeza','Transformação','Reporte no sistema','Outro']) {
+      assert(names.includes(n), `ad-hoc '${n}' missing from catalog`);
+    }
+  });
+
+  await step('POST /api/admin/workflow-instances → create test instance', async () => {
+    const r = await adminPost('/api/admin/workflow-instances', {
+      workflow_template_id: wtId, product_name: `AV_${Date.now()}`,
+      batch_number: 'AVTEST', started_at: '2026-05-15 02:00',
+    });
+    assert2xx(r, 'workflow-instance create');
+    wiId = r.body.id;
+    cleanup.workflowInstanceIds = cleanup.workflowInstanceIds || [];
+    cleanup.workflowInstanceIds.push(wiId);
+    const a = await lastAudit('workflow_instance.create', wiId);
+    assert(a, 'audit workflow_instance.create missing');
+  });
+
+  await step('PUT /api/admin/workflow-instances/:id batch change → batch_changed audit', async () => {
+    const r = await adminPut(`/api/admin/workflow-instances/${wiId}`, { batch_number: 'AVTEST2' });
+    assert2xx(r, 'workflow-instance batch edit');
+    assert(r.body.batch_changed === true, 'expected batch_changed=true');
+    const a = await lastAudit('workflow_instance.batch_changed', wiId);
+    assert(a, 'audit workflow_instance.batch_changed missing');
+  });
+
+  await step('POST /api/admin/phase-instances → create + audit', async () => {
+    const r = await adminPost('/api/admin/phase-instances', {
+      workflow_instance_id: wiId, phase_template_id: ptId, started_at: '2026-05-15 02:00',
+    });
+    assert2xx(r, 'phase-instance create');
+    piId = r.body.id;
+    const a = await lastAudit('phase_instance.create', piId);
+    assert(a, 'audit phase_instance.create missing');
+  });
+
+  await step('GET /api/operator-panel → array shape', async () => {
+    const r = await adminGet('/api/operator-panel');
+    assert2xx(r, 'operator-panel');
+    assert(Array.isArray(r.body), 'operator-panel should be an array');
+  });
+
+  await step('DELETE /api/admin/phase-instances/:id (soft) + workflow cleanup', async () => {
+    const r1 = await adminDelete(`/api/admin/phase-instances/${piId}`);
+    assert2xx(r1, 'phase-instance delete');
+    const r2 = await adminDelete(`/api/admin/workflow-instances/${wiId}`);
+    assert2xx(r2, 'workflow-instance delete');
+    const rows = await dbQuery('SELECT status FROM workflow_instances WHERE id = $1', [wiId]);
+    assert(rows[0]?.status === 'deleted', 'workflow_instance should be soft-deleted');
+  });
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────
 async function runTaskLifecycle() {
   console.log('\n[Tasks — commits 2 + 7]');
@@ -686,6 +767,7 @@ async function sweepCleanup() {
     await ensureHealthy();
     console.log('[Health] /api/health OK');
 
+    await runEntrega3Workflow();
     await runTaskLifecycle();
     await runOrdersSession();
     await runPauseCRUD();
