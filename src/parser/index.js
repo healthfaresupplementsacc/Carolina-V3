@@ -14,7 +14,7 @@ const BRUNO_ALLOWED_ACCOUNTS = [
 
 const SUPPLEMENT_CATALOG = [
   // ── HEAFA-2000 Potassium Iodide ──────────────────────────────────────────
-  { canonical: 'Potassium Iodide',        aliases: ['potassium iodide', 'iodide', 'iodeto', 'iodo de potassio', 'potassium iodide 130'] },
+  { canonical: 'Potassium Iodide',        aliases: ['potassium iodide', 'potassium', 'potassio', 'iodide', 'iodeto', 'iodo de potassio', 'potassium iodide 130'] },
   // ── HEAFA-2001 / 2073 / 2079 Lithium Orotate ────────────────────────────
   { canonical: 'Lithium Orotate',         aliases: ['lithium', 'litio', 'litium', 'orotato de litio', 'lithium orotate', 'litio orotato'] },
   // ── HEAFA-2002 Benfotiamine ──────────────────────────────────────────────
@@ -86,7 +86,7 @@ const SUPPLEMENT_CATALOG = [
   // ── HEAFA-2042 Tribulus Terrestris ───────────────────────────────────────
   { canonical: 'Tribulus Terrestris',     aliases: ['tribulus', 'tribulo', 'tribulus terrestris', 'trib'] },
   // ── HEAFA-2043 Apple Cider Vinegar ───────────────────────────────────────
-  { canonical: 'Apple Cider Vinegar',     aliases: ['apple cider vinegar', 'vinagre de maca', 'acv', 'vinagre', 'cider vinegar'] },
+  { canonical: 'Apple Cider Vinegar',     aliases: ['apple cider vinegar', 'apple cider', 'cider', 'acv vinegar', 'vinagre de maca', 'acv', 'vinagre', 'cider vinegar'] },
   // ── HEAFA-2044 / 2045 Folic Acid ─────────────────────────────────────────
   { canonical: 'Folic Acid',              aliases: ['acido folico', 'folic acid', 'folato', 'folate', 'folic', 'acido folico'] },
   // ── HEAFA-2046 Glutathione ───────────────────────────────────────────────
@@ -102,7 +102,7 @@ const SUPPLEMENT_CATALOG = [
   // ── HEAFA-2051 Panax Ginseng Ginkgo Biloba ───────────────────────────────
   { canonical: 'Ginseng Ginkgo',          aliases: ['ginseng', 'panax ginseng', 'ginseng ginkgo', 'panax ginseng ginkgo', 'ginseng e ginkgo'] },
   // ── HEAFA-2052 Fenugreek ─────────────────────────────────────────────────
-  { canonical: 'Fenugreek',               aliases: ['fenugreco', 'fenugrek', 'fenugreek', 'fenugr', 'fenugreek seed', 'methi'] },
+  { canonical: 'Fenugreek',               aliases: ['fenugreco', 'fenugrek', 'fenngreff', 'fenugreek', 'fenugr', 'fenugreek seed', 'methi'] },
   // ── HEAFA-2053 Banaba Leaf ───────────────────────────────────────────────
   { canonical: 'Banaba Leaf',             aliases: ['banaba', 'banaba leaf', 'lagerstroemia'] },
   // ── HEAFA-2054 Psyllium Husk ─────────────────────────────────────────────
@@ -135,6 +135,9 @@ const SUPPLEMENT_CATALOG = [
   { canonical: 'Beet Root',               aliases: ['beet root', 'beterraba', 'beet', 'beetroot', 'red beet'] },
   // ── HEAFA-2077 Acetyl L-Carnitine ────────────────────────────────────────
   { canonical: 'Acetyl L-Carnitine',      aliases: ['acetyl l-carnitine', 'acetil carnitina', 'alcar', 'l-carnitine', 'carnitine', 'acetil l-carnitina'] },
+  // ── Added after 30d production scan (operators were using these names) ──
+  { canonical: 'Citrus Bergamot',         aliases: ['citrus bergamot', 'citrus', 'bergamot', 'bergamota', 'bergamotto'] },
+  { canonical: 'Feminiva',                aliases: ['feminiva'] },
 ];
 
 const ALIAS_MAP = {};
@@ -491,8 +494,12 @@ function parseMessage(msg) {
     }
   }
 
-  // Orders start
-  if (ORDERS_START_REGEX.test(workingText)) {
+  // Orders start — same hasFinishTag guard as orders_continue, so a message
+  // starting with F: doesn't get classified as orders_start just because
+  // it mentions "impressao das ordens". Bug found in prod when Simone
+  // sent "F: impressao das ordens" and it opened a new session instead
+  // of closing the existing one.
+  if (!hasFinishTag && ORDERS_START_REGEX.test(workingText)) {
     const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
     const countMatch = workingText.match(ORDERS_COUNT_REGEX);
     const orderCount = countMatch ? parseInt(countMatch[1] || countMatch[2]) : null;
