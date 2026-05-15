@@ -960,9 +960,10 @@ async function handleJoinProducao(parsed, rawMsg) {
 async function closeOpenBreakFor(operator, endedAtIso, reason) {
   if (!operator) return false;
   // Prefer the denormalized pauses.operator column; fall back to task JOIN
-  // for legacy rows that pre-date the denormalization.
+  // for legacy rows that pre-date the denormalization. ended_reason now
+  // records WHY we closed (see N3 schema migration).
   const result = await db.query(
-    `UPDATE pauses SET ended_at = $1
+    `UPDATE pauses SET ended_at = $1, ended_reason = $3
      WHERE id = (
        SELECT p.id FROM pauses p
        LEFT JOIN tasks t ON t.id = p.task_id
@@ -971,7 +972,7 @@ async function closeOpenBreakFor(operator, endedAtIso, reason) {
        ORDER BY p.started_at DESC LIMIT 1
      )
      RETURNING id, started_at`,
-    [endedAtIso, operator]
+    [endedAtIso, operator, reason || 'manual']
   );
 
   if (result.rows.length > 0) {

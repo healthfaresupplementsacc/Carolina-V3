@@ -32,6 +32,9 @@ async function start() {
     console.log('[Boot] Running migrations...');
     await db.migrate();
 
+    // 1a. N3: close any breaks that were left open from previous days.
+    await db.cleanupStaleBreaks();
+
     // 1b. Load custom supplements from DB into parser
     await loadCustomSupplements();
 

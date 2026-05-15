@@ -93,6 +93,8 @@ async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE pauses ADD COLUMN IF NOT EXISTS operator VARCHAR(100);
+    -- N3: tag why a pause was closed (manual return, auto-cleanup, etc)
+    ALTER TABLE pauses ADD COLUMN IF NOT EXISTS ended_reason VARCHAR(50);
     CREATE INDEX IF NOT EXISTS idx_pauses_ended_at ON pauses(ended_at) WHERE ended_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS operators (
@@ -203,4 +205,44 @@ async function migrate() {
   console.log('[DB] Migration complete');
 }
 
-module.exports = { query, pool, migrate };
+/**
+ * N3: one-shot cleanup of stale breaks that were never closed.
+ *
+ * Production smoke test found pauses with started_at from previous days still
+ * open (Ana at 8h53m, Vitor much older). Auto-close them at started_at + 1h
+ * so totals and dashboards stop showing impossible break durations.
+ *
+ * Idempotent: only fires on pauses whose started_at (in America/New_York) is
+ * BEFORE today's ET date. After the cleanup runs, those rows have ended_at
+ * != NULL and won't match the WHERE on the next boot.
+ *
+ * Same-day open breaks (legitimate) are not touched.
+ */
+async function cleanupStaleBreaks() {
+  try {
+    const result = await pool.query(`
+      UPDATE pauses
+      SET ended_at = started_at + INTERVAL '1 hour',
+          ended_reason = 'auto_cleanup_stale'
+      WHERE ended_at IS NULL
+        AND (started_at AT TIME ZONE 'America/New_York')::date
+            < (NOW() AT TIME ZONE 'America/New_York')::date
+      RETURNING id, operator, started_at
+    `);
+    if (result.rows.length > 0) {
+      console.log(
+        `[DB] N3 cleanup: closed ${result.rows.length} stale break(s) ` +
+        `(ended_reason=auto_cleanup_stale): ` +
+        result.rows.map((r) => `#${r.id}/${r.operator || '?'}`).join(', ')
+      );
+    } else {
+      console.log('[DB] N3 cleanup: no stale breaks to close');
+    }
+    return result.rows;
+  } catch (err) {
+    console.error('[DB] N3 cleanup error:', err.message);
+    return [];
+  }
+}
+
+module.exports = { query, pool, migrate, cleanupStaleBreaks };
