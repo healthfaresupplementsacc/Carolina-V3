@@ -12,49 +12,65 @@ function getClient() {
   return _client;
 }
 
-// ─── URGENT kill switch ──────────────────────────────────────────────────
-// When silent_mode is on, all outbound posts to the PRODUCTION channel are
-// suppressed and recorded in silent_log. Admin chat (managerChannelId) is
-// always allowed through — Carolina has to keep talking to Bruno.
+// ─── URGENT kill switch (partial) ────────────────────────────────────────
+// silent_mode (master) → blocks BOTH text and reactions when true.
+// silent_text          → blocks postMessage / postToChannel / postImage.
+// silent_reactions     → blocks addReaction.
 //
-// Source of truth: app_state row key='silent_mode' value='true'|'false'.
-// Fallback when DB unreachable or no row: process.env.CAROLINA_SILENT.
+// isSilent(kind) where kind ∈ {'text','reactions'} returns true if EITHER
+// the master flag is on OR the relevant sub-flag is on. Admin chat
+// (managerChannelId) is always allowed through.
+//
+// Source of truth: app_state rows. Fallback when DB unreachable:
+// process.env.CAROLINA_SILENT (master kill switch).
 // 5s in-process cache so a busy poll cycle doesn't hammer the DB.
 
-let _silentCache = { value: false, expiresAt: 0 };
+let _silentCache = { flags: null, expiresAt: 0 };
 function invalidateSilentCache() { _silentCache.expiresAt = 0; }
 
-async function isSilent() {
+async function _readSilentFlags() {
   const now = Date.now();
-  if (now < _silentCache.expiresAt) return _silentCache.value;
-  let val = false;
+  if (_silentCache.flags && now < _silentCache.expiresAt) return _silentCache.flags;
+  let master = false, text = false, reactions = false;
   try {
     const db = require('../db');
-    const r = await db.query("SELECT value FROM app_state WHERE key = 'silent_mode'");
-    if (r.rows.length > 0) {
-      val = r.rows[0].value === 'true';
-    } else {
-      val = process.env.CAROLINA_SILENT === 'true';
+    const r = await db.query(
+      "SELECT key, value FROM app_state WHERE key IN ('silent_mode','silent_text','silent_reactions')"
+    );
+    const m = Object.fromEntries(r.rows.map((row) => [row.key, row.value]));
+    master    = m.silent_mode      === 'true';
+    text      = m.silent_text      === 'true';
+    reactions = m.silent_reactions === 'true';
+    if (r.rows.length === 0) {
+      master = process.env.CAROLINA_SILENT === 'true';
     }
   } catch (err) {
-    // DB unreachable — fall back to env var so the kill switch still works.
-    val = process.env.CAROLINA_SILENT === 'true';
+    master = process.env.CAROLINA_SILENT === 'true';
   }
-  _silentCache = { value: val, expiresAt: now + 5000 };
-  return val;
+  _silentCache = { flags: { master, text, reactions }, expiresAt: now + 5000 };
+  return _silentCache.flags;
+}
+
+async function isSilent(kind) {
+  const flags = await _readSilentFlags();
+  if (flags.master) return true;
+  if (kind === 'text')      return flags.text;
+  if (kind === 'reactions') return flags.reactions;
+  // Unknown kind → conservative: behave like text channel.
+  return flags.text;
 }
 
 function isAdminChannel(channelId) {
   return channelId === config.slack.managerChannelId;
 }
 
-async function logSilent(channelId, action, text, threadTs) {
+async function logSilent(channelId, action, text, threadTs, kind) {
   try {
     const db = require('../db');
     await db.query(
-      `INSERT INTO silent_log (intended_channel, intended_action, intended_text, would_have_replied_to_ts)
-       VALUES ($1, $2, $3, $4)`,
-      [channelId || null, action, text || null, threadTs || null]
+      `INSERT INTO silent_log (intended_channel, intended_action, intended_text, would_have_replied_to_ts, kind)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [channelId || null, action, text || null, threadTs || null, kind || null]
     );
   } catch (err) {
     console.error('[Silent] log insert failed:', err.message);
@@ -107,9 +123,9 @@ async function fetchRecentMessages(limit = 50) {
  * Suppressed when silent_mode is on — call is logged to silent_log instead.
  */
 async function postMessage(text, threadTs = null) {
-  if (await isSilent()) {
-    console.log('[Silent mode] Would have posted:', String(text).slice(0, 200));
-    await logSilent(config.slack.channelId, 'postMessage', text, threadTs);
+  if (await isSilent('text')) {
+    console.log('[Silent text] Would have posted:', String(text).slice(0, 200));
+    await logSilent(config.slack.channelId, 'postMessage', text, threadTs, 'text');
     return 'silent-' + Date.now();
   }
   const client = getClient();
@@ -130,9 +146,9 @@ async function postMessage(text, threadTs = null) {
  * manager channel always goes through, so Bruno keeps seeing notifications.
  */
 async function postToChannel(channelId, text) {
-  if (!isAdminChannel(channelId) && await isSilent()) {
-    console.log('[Silent mode] Would have posted to', channelId, ':', String(text).slice(0, 200));
-    await logSilent(channelId, 'postToChannel', text, null);
+  if (!isAdminChannel(channelId) && await isSilent('text')) {
+    console.log('[Silent text] Would have posted to', channelId, ':', String(text).slice(0, 200));
+    await logSilent(channelId, 'postToChannel', text, null, 'text');
     return 'silent-' + Date.now();
   }
   const client = getClient();
@@ -149,9 +165,9 @@ async function postToChannel(channelId, text) {
  * Same silent-mode suppression as postMessage.
  */
 async function postImage({ title, comment, imageBuffer, filename }) {
-  if (await isSilent()) {
-    console.log('[Silent mode] Would have posted image:', title || filename || '(eod)');
-    await logSilent(config.slack.channelId, 'postImage', `[image] ${title || ''} — ${comment || ''}`, null);
+  if (await isSilent('text')) {
+    console.log('[Silent text] Would have posted image:', title || filename || '(eod)');
+    await logSilent(config.slack.channelId, 'postImage', `[image] ${title || ''} — ${comment || ''}`, null, 'text');
     return { silent: true, ts: 'silent-' + Date.now() };
   }
   const client = getClient();
@@ -189,8 +205,8 @@ async function getChannelInfo() {
  * Suppressed in silent mode (no visual confirmation on the channel either).
  */
 async function addReaction(ts) {
-  if (await isSilent()) {
-    await logSilent(config.slack.channelId, 'addReaction', null, ts);
+  if (await isSilent('reactions')) {
+    await logSilent(config.slack.channelId, 'addReaction', null, ts, 'reaction');
     return;
   }
   try {

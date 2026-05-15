@@ -205,10 +205,19 @@ async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_silent_log_created_at ON silent_log(created_at DESC);
+    -- Partial silent mode: distinguish text-class actions from reaction-class
+    -- so admin can keep ✅ reactions on while muting text.
+    ALTER TABLE silent_log ADD COLUMN IF NOT EXISTS kind VARCHAR(20);
 
-    -- Seed silent_mode flag as off so isSilent() finds the row immediately.
+    -- Seed silent_mode flag (master) + sub-flags so isSilent() finds rows immediately.
     INSERT INTO app_state (key, value, updated_at)
       VALUES ('silent_mode', 'false', NOW())
+      ON CONFLICT (key) DO NOTHING;
+    INSERT INTO app_state (key, value, updated_at)
+      VALUES ('silent_text', 'false', NOW())
+      ON CONFLICT (key) DO NOTHING;
+    INSERT INTO app_state (key, value, updated_at)
+      VALUES ('silent_reactions', 'false', NOW())
       ON CONFLICT (key) DO NOTHING;
 
     -- Entrega 2: every admin write goes through auditAction() and lands here.

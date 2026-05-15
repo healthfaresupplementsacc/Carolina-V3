@@ -140,12 +140,19 @@ router.get('/dashboard', async (req, res) => {
       ? Math.round(((displayBottles - yesterdayBottles) / yesterdayBottles) * 100)
       : null;
 
-    // Silent mode flag (kill switch) — frontend shows a red banner when on.
-    let silentModeActive = false;
+    // Silent mode flags (master + sub-flags). silentModeActive kept for
+    // backward compat: true if EITHER text OR reactions is muted.
+    let silentMaster = false, silentText = false, silentReactions = false;
     try {
-      const s = await db.query("SELECT value FROM app_state WHERE key = 'silent_mode'");
-      silentModeActive = s.rows[0]?.value === 'true';
+      const s = await db.query(
+        "SELECT key, value FROM app_state WHERE key IN ('silent_mode','silent_text','silent_reactions')"
+      );
+      const m = Object.fromEntries(s.rows.map((r) => [r.key, r.value]));
+      silentMaster    = m.silent_mode      === 'true';
+      silentText      = m.silent_text      === 'true' || silentMaster;
+      silentReactions = m.silent_reactions === 'true' || silentMaster;
     } catch (_) {}
+    const silentModeActive = silentText || silentReactions;
 
     res.json({
       openTasks: openTasksEst,
@@ -153,6 +160,9 @@ router.get('/dashboard', async (req, res) => {
       todayOrders,
       dayOrdersTotal, // B14: { total, sessionCount } across all orders_sessions of the day
       silentModeActive,
+      silentText,
+      silentReactions,
+      silentMaster,
       todayFormulations,
       todayMessages,
       todayNotes,
@@ -728,31 +738,69 @@ router.delete('/admin/count/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ===== URGENT kill switch: silent mode =====
-// POST /api/admin/silent-toggle  body: { pin, value: 'on'|'off' (optional — flips if missing) }
+// ===== Kill switch: silent mode (master + sub-flags) =====
+// POST /api/admin/silent-toggle
+//   body: { pin, kind?: 'text'|'reactions'|'all'|'master', value?: 'on'|'off' }
+//   - kind='text'      → flips silent_text
+//   - kind='reactions' → flips silent_reactions
+//   - kind='all'       → sets BOTH sub-flags to value (and master to off)
+//   - kind='master' OR undefined (backward compat) → flips silent_mode
+//   value omitted → toggles current state
+const SILENT_KEYS = {
+  text:      'silent_text',
+  reactions: 'silent_reactions',
+  master:    'silent_mode',
+};
 router.post('/admin/silent-toggle', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
-    const cur = await db.query("SELECT value FROM app_state WHERE key = 'silent_mode'");
-    const before = cur.rows[0]?.value || 'false';
-    let next;
-    if (req.body?.value === 'on'  || req.body?.value === true)  next = 'true';
-    else if (req.body?.value === 'off' || req.body?.value === false) next = 'false';
-    else next = before === 'true' ? 'false' : 'true';
+    const kind = req.body?.kind || 'master';
+    let value;
+    if (req.body?.value === 'on'  || req.body?.value === true)  value = 'true';
+    else if (req.body?.value === 'off' || req.body?.value === false) value = 'false';
+    else value = null; // toggle
 
-    await db.query(
-      `INSERT INTO app_state (key, value, updated_at) VALUES ('silent_mode', $1, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-      [next]
+    const cur = await db.query(
+      "SELECT key, value FROM app_state WHERE key IN ('silent_mode','silent_text','silent_reactions')"
     );
-    // Bust the in-process cache in this worker so the change is immediate.
+    const before = Object.fromEntries(cur.rows.map((r) => [r.key, r.value]));
+
+    async function setKey(key, next) {
+      await db.query(
+        `INSERT INTO app_state (key, value, updated_at) VALUES ($1, $2, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+        [key, next]
+      );
+    }
+
+    let after;
+    if (kind === 'all') {
+      const next = value || (before.silent_text === 'true' || before.silent_reactions === 'true' ? 'false' : 'true');
+      await setKey('silent_text', next);
+      await setKey('silent_reactions', next);
+      await setKey('silent_mode', 'false'); // turn master off when using sub-flags
+      after = { silent_text: next, silent_reactions: next, silent_mode: 'false' };
+    } else {
+      const dbKey = SILENT_KEYS[kind];
+      if (!dbKey) return res.status(400).json({ error: 'kind inválido (use text|reactions|all|master)' });
+      const next = value || (before[dbKey] === 'true' ? 'false' : 'true');
+      await setKey(dbKey, next);
+      after = { ...before, [dbKey]: next };
+    }
+
     try { require('../slack/client').invalidateSilentCache(); } catch (_) {}
 
     await auditAction({
       req, action: 'silent_mode.toggle', entityType: 'app_state',
-      entityId: 'silent_mode', before: { value: before }, after: { value: next },
+      entityId: kind, before, after,
     });
-    res.json({ ok: true, silent_mode: next === 'true' });
+    res.json({
+      ok: true,
+      kind,
+      silent_text:      after.silent_text      === 'true',
+      silent_reactions: after.silent_reactions === 'true',
+      silent_master:    after.silent_mode      === 'true',
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -1,15 +1,14 @@
 'use strict';
 /**
- * URGENT kill switch tests.
+ * Kill switch tests — partial silent mode (text vs reactions).
  *
- * Behavior under test:
- *   - When app_state.silent_mode = 'true', postMessage / postImage /
- *     addReaction / postToChannel(productionChannel) do NOT hit Slack;
- *     instead a row goes into silent_log.
- *   - postToChannel(managerChannelId) ALWAYS goes through, even silent.
- *   - When the flag is 'false', behavior is normal.
- *   - process.env.CAROLINA_SILENT is used as fallback when DB lookup fails.
- *   - POST /admin/silent-toggle flips the flag and audits.
+ * Flags in app_state:
+ *   silent_mode      master (when true, both kinds suppressed)
+ *   silent_text      blocks postMessage/postToChannel/postImage
+ *   silent_reactions blocks addReaction
+ *
+ * isSilent(kind) returns true if master OR the matching sub-flag is on.
+ * Admin chat (managerChannelId) is always allowed through.
  */
 
 process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
@@ -37,13 +36,17 @@ const db = require('../db');
 const config = require('../config');
 const slackClient = require('../slack/client');
 
-function setSilent(value /* 'true' | 'false' | throw */) {
+// Build mock that returns the desired flag state.
+function setFlags({ master = 'false', text = 'false', reactions = 'false', throwOnSelect = false } = {}) {
   db.query = jest.fn().mockImplementation((sql, params) => {
-    if (/SELECT value FROM app_state WHERE key = 'silent_mode'/.test(sql)) {
-      if (value === 'throw') return Promise.reject(new Error('DB down'));
-      return Promise.resolve({ rows: [{ value }] });
+    if (/SELECT key, value FROM app_state WHERE key IN/.test(sql)) {
+      if (throwOnSelect) return Promise.reject(new Error('DB down'));
+      const rows = [];
+      if (master    !== undefined) rows.push({ key: 'silent_mode',      value: master });
+      if (text      !== undefined) rows.push({ key: 'silent_text',      value: text });
+      if (reactions !== undefined) rows.push({ key: 'silent_reactions', value: reactions });
+      return Promise.resolve({ rows });
     }
-    // For INSERT INTO silent_log and any other write, succeed silently.
     return Promise.resolve({ rows: [] });
   });
 }
@@ -58,75 +61,89 @@ beforeEach(() => {
   slackClient.invalidateSilentCache();
 });
 
-describe('silent_mode = true → production posts are suppressed', () => {
-  beforeEach(() => setSilent('true'));
+describe('partial silent — text=ON, reactions=OFF', () => {
+  beforeEach(() => setFlags({ master: 'false', text: 'true', reactions: 'false' }));
 
-  test('postMessage logs to silent_log and does NOT call chat.postMessage', async () => {
+  test('postMessage suppressed, logs silent_log with kind=text', async () => {
     const ts = await slackClient.postMessage('alô pessoal');
     expect(mockChatPostMessage).not.toHaveBeenCalled();
     expect(ts).toMatch(/^silent-/);
     const logCall = db.query.mock.calls.find((c) => /INSERT INTO silent_log/.test(c[0]));
     expect(logCall).toBeTruthy();
-    expect(logCall[1]).toEqual([config.slack.channelId, 'postMessage', 'alô pessoal', null]);
+    // params order: channel, action, text, threadTs, kind
+    expect(logCall[1][1]).toBe('postMessage');
+    expect(logCall[1][4]).toBe('text');
   });
 
-  test('addReaction logs and skips reactions.add', async () => {
+  test('addReaction GOES THROUGH because reactions=OFF', async () => {
     await slackClient.addReaction('1700000000.000005');
-    expect(mockReactionsAdd).not.toHaveBeenCalled();
+    expect(mockReactionsAdd).toHaveBeenCalledTimes(1);
     const logCall = db.query.mock.calls.find((c) => /INSERT INTO silent_log/.test(c[0]));
-    expect(logCall).toBeTruthy();
-    expect(logCall[1][1]).toBe('addReaction');
-    expect(logCall[1][3]).toBe('1700000000.000005');
+    expect(logCall).toBeFalsy();
   });
 
-  test('postImage logs and skips uploadV2', async () => {
-    const r = await slackClient.postImage({ title: 'EOD', comment: 'x', imageBuffer: Buffer.from('xx'), filename: 'eod.png' });
+  test('postImage suppressed (kind=text)', async () => {
+    const r = await slackClient.postImage({ title: 'EOD', imageBuffer: Buffer.from('x'), filename: 'x.png' });
     expect(mockFilesUploadV2).not.toHaveBeenCalled();
     expect(r.silent).toBe(true);
     const logCall = db.query.mock.calls.find((c) => /INSERT INTO silent_log/.test(c[0]));
     expect(logCall[1][1]).toBe('postImage');
-  });
-
-  test('postToChannel to PRODUCTION channel is suppressed', async () => {
-    const ts = await slackClient.postToChannel(config.slack.channelId, 'broadcast');
-    expect(mockChatPostMessage).not.toHaveBeenCalled();
-    expect(ts).toMatch(/^silent-/);
-  });
-
-  test('postToChannel to MANAGER channel ALWAYS goes through', async () => {
-    const ts = await slackClient.postToChannel(config.slack.managerChannelId, 'admin only');
-    expect(mockChatPostMessage).toHaveBeenCalledTimes(1);
-    const call = mockChatPostMessage.mock.calls[0][0];
-    expect(call.channel).toBe(config.slack.managerChannelId);
-    expect(call.text).toBe('admin only');
-    expect(ts).toBe('1700000000.000001');
-    const logCall = db.query.mock.calls.find((c) => /INSERT INTO silent_log/.test(c[0]));
-    expect(logCall).toBeFalsy();
+    expect(logCall[1][4]).toBe('text');
   });
 });
 
-describe('silent_mode = false → behavior is normal', () => {
-  beforeEach(() => setSilent('false'));
+describe('partial silent — text=OFF, reactions=ON', () => {
+  beforeEach(() => setFlags({ master: 'false', text: 'false', reactions: 'true' }));
 
-  test('postMessage calls Slack and does not log', async () => {
-    const ts = await slackClient.postMessage('alô');
+  test('postMessage goes through', async () => {
+    await slackClient.postMessage('alô');
     expect(mockChatPostMessage).toHaveBeenCalledTimes(1);
-    expect(ts).toBe('1700000000.000001');
-    const logCall = db.query.mock.calls.find((c) => /INSERT INTO silent_log/.test(c[0]));
-    expect(logCall).toBeFalsy();
   });
 
-  test('addReaction calls Slack', async () => {
+  test('addReaction suppressed, logs kind=reaction', async () => {
+    await slackClient.addReaction('1700000000.000005');
+    expect(mockReactionsAdd).not.toHaveBeenCalled();
+    const logCall = db.query.mock.calls.find((c) => /INSERT INTO silent_log/.test(c[0]));
+    expect(logCall[1][1]).toBe('addReaction');
+    expect(logCall[1][4]).toBe('reaction');
+  });
+});
+
+describe('master flag still works (backward compat)', () => {
+  beforeEach(() => setFlags({ master: 'true', text: 'false', reactions: 'false' }));
+
+  test('master=true → BOTH suppressed regardless of sub-flags', async () => {
+    await slackClient.postMessage('x');
+    await slackClient.addReaction('1700000000.000001');
+    expect(mockChatPostMessage).not.toHaveBeenCalled();
+    expect(mockReactionsAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe('both flags off → all goes through', () => {
+  beforeEach(() => setFlags({ master: 'false', text: 'false', reactions: 'false' }));
+
+  test('postMessage', async () => {
+    await slackClient.postMessage('x');
+    expect(mockChatPostMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test('addReaction', async () => {
     await slackClient.addReaction('1700000000.000005');
     expect(mockReactionsAdd).toHaveBeenCalledTimes(1);
   });
+
+  test('postToChannel to admin channel always goes', async () => {
+    await slackClient.postToChannel(config.slack.managerChannelId, 'admin only');
+    expect(mockChatPostMessage).toHaveBeenCalledTimes(1);
+  });
 });
 
-describe('Env-var fallback when DB lookup fails', () => {
-  test('CAROLINA_SILENT=true silences postMessage even if DB throws', async () => {
+describe('Env-var fallback', () => {
+  test('CAROLINA_SILENT=true silences when DB throws (master fallback)', async () => {
     const originalEnv = process.env.CAROLINA_SILENT;
     process.env.CAROLINA_SILENT = 'true';
-    setSilent('throw');
+    setFlags({ throwOnSelect: true });
     await slackClient.postMessage('test');
     expect(mockChatPostMessage).not.toHaveBeenCalled();
     if (originalEnv === undefined) delete process.env.CAROLINA_SILENT;
@@ -134,45 +151,95 @@ describe('Env-var fallback when DB lookup fails', () => {
   });
 });
 
-describe('POST /admin/silent-toggle flips the flag + audits', () => {
-  test('explicit value=on sets silent_mode to true', async () => {
-    const express = require('express');
-    const http = require('http');
-    db.query = jest.fn().mockImplementation((sql) => {
-      if (/SELECT value FROM app_state WHERE key = 'silent_mode'/.test(sql)) {
-        return Promise.resolve({ rows: [{ value: 'false' }] });
+describe('POST /admin/silent-toggle accepts kind', () => {
+  function http(method, url, body) {
+    return new Promise((resolve) => {
+      const express = require('express');
+      const httpMod = require('http');
+      const app = express();
+      app.use(express.json());
+      app.use('/api', require('../routes/api'));
+      const server = app.listen(0, () => {
+        const port = server.address().port;
+        const data = body ? JSON.stringify(body) : null;
+        const req = httpMod.request({
+          hostname: '127.0.0.1', port, path: url, method,
+          headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {},
+        }, (res) => {
+          let chunks = ''; res.on('data', (c) => { chunks += c; });
+          res.on('end', () => { server.close(); resolve({ status: res.statusCode, body: JSON.parse(chunks) }); });
+        });
+        if (data) req.write(data); req.end();
+      });
+    });
+  }
+
+  function flagDbMock({ silent_mode = 'false', silent_text = 'false', silent_reactions = 'false' } = {}) {
+    db.query = jest.fn().mockImplementation((sql, params) => {
+      if (/SELECT key, value FROM app_state WHERE key IN/.test(sql)) {
+        return Promise.resolve({ rows: [
+          { key: 'silent_mode',      value: silent_mode },
+          { key: 'silent_text',      value: silent_text },
+          { key: 'silent_reactions', value: silent_reactions },
+        ]});
       }
       return Promise.resolve({ rows: [] });
     });
-    const app = express();
-    app.use(express.json());
-    app.use('/api', require('../routes/api'));
+  }
 
-    const r = await new Promise((resolve) => {
-      const server = app.listen(0, () => {
-        const port = server.address().port;
-        const data = JSON.stringify({ pin: '510510', value: 'on' });
-        const req = http.request({
-          hostname: '127.0.0.1', port, path: '/api/admin/silent-toggle', method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
-        }, (res) => {
-          let body = ''; res.on('data', (c) => { body += c; });
-          res.on('end', () => { server.close(); resolve({ status: res.statusCode, body: JSON.parse(body) }); });
-        });
-        req.write(data); req.end();
-      });
-    });
-
+  test('kind=text + value=on flips silent_text only', async () => {
+    flagDbMock();
+    const r = await http('POST', '/api/admin/silent-toggle', { pin: '510510', kind: 'text', value: 'on' });
     expect(r.status).toBe(200);
-    expect(r.body.silent_mode).toBe(true);
+    expect(r.body.silent_text).toBe(true);
+    expect(r.body.silent_reactions).toBe(false);
+
     const upsert = db.query.mock.calls.find((c) =>
-      /INSERT INTO app_state[\s\S]+'silent_mode'/.test(c[0])
+      /INSERT INTO app_state/.test(c[0]) && c[1]?.[0] === 'silent_text'
     );
     expect(upsert).toBeTruthy();
-    expect(upsert[1][0]).toBe('true');
-    const audit = db.query.mock.calls.find((c) =>
-      /INSERT INTO admin_audit_log/.test(c[0]) && c[1][1] === 'silent_mode.toggle'
+    expect(upsert[1][1]).toBe('true');
+  });
+
+  test('kind=reactions + value=off flips silent_reactions only', async () => {
+    flagDbMock({ silent_reactions: 'true' });
+    const r = await http('POST', '/api/admin/silent-toggle', { pin: '510510', kind: 'reactions', value: 'off' });
+    expect(r.status).toBe(200);
+    expect(r.body.silent_reactions).toBe(false);
+
+    const upsert = db.query.mock.calls.find((c) =>
+      /INSERT INTO app_state/.test(c[0]) && c[1]?.[0] === 'silent_reactions'
     );
-    expect(audit).toBeTruthy();
+    expect(upsert).toBeTruthy();
+    expect(upsert[1][1]).toBe('false');
+  });
+
+  test('kind=all sets BOTH sub-flags and master off', async () => {
+    flagDbMock();
+    const r = await http('POST', '/api/admin/silent-toggle', { pin: '510510', kind: 'all', value: 'on' });
+    expect(r.status).toBe(200);
+    expect(r.body.silent_text).toBe(true);
+    expect(r.body.silent_reactions).toBe(true);
+    expect(r.body.silent_master).toBe(false);
+  });
+
+  test('kind=master (backward compat) flips silent_mode', async () => {
+    flagDbMock();
+    const r = await http('POST', '/api/admin/silent-toggle', { pin: '510510', kind: 'master', value: 'on' });
+    expect(r.status).toBe(200);
+    expect(r.body.silent_master).toBe(true);
+  });
+
+  test('no kind → default master (backward compat)', async () => {
+    flagDbMock();
+    const r = await http('POST', '/api/admin/silent-toggle', { pin: '510510', value: 'on' });
+    expect(r.status).toBe(200);
+    expect(r.body.silent_master).toBe(true);
+  });
+
+  test('invalid kind → 400', async () => {
+    flagDbMock();
+    const r = await http('POST', '/api/admin/silent-toggle', { pin: '510510', kind: 'foo', value: 'on' });
+    expect(r.status).toBe(400);
   });
 });
