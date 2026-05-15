@@ -38,6 +38,15 @@ async function start() {
     // 1b. Load custom supplements from DB into parser
     await loadCustomSupplements();
 
+    // 1c. Entrega 3: seed workflow_templates / phase_templates / ad_hoc_tasks
+    //     Idempotent — admin can edit/add/delete via dashboard afterwards.
+    try {
+      const { seedTemplates } = require('./workflow/seed');
+      await seedTemplates();
+    } catch (err) {
+      console.error('[Boot] Workflow seed error:', err.message);
+    }
+
     // 2. Check Slack connection
     console.log('[Boot] Checking Slack connection...');
     try {
