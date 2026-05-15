@@ -476,6 +476,12 @@ function generateDashboard() {
 <!-- Loading overlay -->
 <div id="loading-overlay"><div class="spinner"></div></div>
 
+<!-- URGENT kill switch banner — shown when silent_mode is on -->
+<div id="silent-banner" style="display:none;background:#dc2626;color:#fff;padding:10px 18px;text-align:center;font-weight:600;font-size:14px;position:sticky;top:0;z-index:60">
+  🔇 Modo silencioso ativo — Carolina não está postando no canal de produção.
+  <a href="/admin/silent-log" target="_blank" style="color:#fff;text-decoration:underline;margin-left:12px">ver mensagens retidas</a>
+</div>
+
 <!-- Floating merge bar (admin only — Entrega 2 commit 13) -->
 <div id="merge-bar" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1d4f91;color:#fff;padding:10px 18px;border-radius:24px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:50;font-size:14px">
   <span id="merge-bar-count" style="margin-right:12px"></span>
@@ -534,6 +540,7 @@ function generateDashboard() {
     <button class="lang-btn" onclick="toggleLang()" id="lang-btn">🇧🇷 PT</button>
     <a id="admin-link" href="/admin" target="_blank" title="Painel admin" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Admin</a>
     <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Audit</a>
+    <button id="silent-toggle-btn" onclick="toggleSilent()" title="Modo silencioso" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">🔇 Silencioso: <span id="silent-state">…</span></button>
     <button class="lock-btn" onclick="toggleAdmin()" id="lock-btn" title="Admin">🔒</button>
     <div class="live-badge" id="live-badge">
       <div class="live-dot" id="live-dot"></div>
@@ -1018,6 +1025,7 @@ function toggleAdmin() {
     document.getElementById('broadcast-section').style.display = 'none';
     const adminLink = document.getElementById('admin-link'); if (adminLink) adminLink.style.display = 'none';
     const auditLink = document.getElementById('audit-link'); if (auditLink) auditLink.style.display = 'none';
+    const silentBtn = document.getElementById('silent-toggle-btn'); if (silentBtn) silentBtn.style.display = 'none';
     const mergeBar = document.getElementById('merge-bar'); if (mergeBar) mergeBar.style.display = 'none';
     const ctBtn2 = document.getElementById('create-task-btn');
     if (ctBtn2) ctBtn2.style.display = 'inline-flex';
@@ -1058,6 +1066,7 @@ function submitPin() {
     btn.title = 'Admin ativo — clique para sair';
     const adminLink = document.getElementById('admin-link'); if (adminLink) adminLink.style.display = 'inline-block';
     const auditLink = document.getElementById('audit-link'); if (auditLink) auditLink.style.display = 'inline-block';
+    const silentBtn = document.getElementById('silent-toggle-btn'); if (silentBtn) silentBtn.style.display = 'inline-block';
     const ctBtn = document.getElementById('create-task-btn');
     if (ctBtn) ctBtn.style.display = 'none';
     document.getElementById('supp-catalog-section').style.display = 'none';
@@ -1405,6 +1414,24 @@ function clearMergeSel() {
   document.querySelectorAll('.task-merge-check:checked').forEach(c => { c.checked = false; });
   document.getElementById('merge-bar').style.display = 'none';
 }
+async function toggleSilent() {
+  if (!adminUnlocked) return;
+  const cur = document.getElementById('silent-state')?.textContent === 'ON';
+  const next = !cur;
+  if (!confirm(next ? 'ATIVAR modo silencioso? Carolina vai parar de postar no canal.'
+                    : 'DESATIVAR modo silencioso? Carolina volta a postar normalmente.')) return;
+  try {
+    const res = await fetch('/api/admin/silent-toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: _adminPin, value: next ? 'on' : 'off' }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Erro'); return; }
+    await fetchAndRender();
+  } catch (err) { alert('Erro de conexão'); }
+}
+
 async function mergeSelected() {
   if (!adminUnlocked) return;
   const ids = Array.from(document.querySelectorAll('.task-merge-check:checked'))
@@ -2041,6 +2068,17 @@ async function submitManualTotal() {
 
 // ===== RENDER ALL =====
 function renderAll(data) {
+  // Silent mode banner + admin toggle indicator
+  const silentBanner = document.getElementById('silent-banner');
+  const silentBtn    = document.getElementById('silent-toggle-btn');
+  const silentState  = document.getElementById('silent-state');
+  if (silentBanner) silentBanner.style.display = data.silentModeActive ? 'block' : 'none';
+  if (silentState)  silentState.textContent = data.silentModeActive ? 'ON' : 'OFF';
+  if (silentBtn) {
+    silentBtn.style.background = data.silentModeActive ? '#dc2626' : 'rgba(255,255,255,0.15)';
+    silentBtn.style.borderColor = data.silentModeActive ? '#fff' : 'rgba(255,255,255,0.3)';
+  }
+
   // Hero: prefer prodSummaryBottles (operator-reported), fall back to todayBottles
   const heroBottles = data.prodSummaryBottles != null ? data.prodSummaryBottles : (data.todayBottles || 0);
   const heroEl = document.getElementById('hero-bottles');

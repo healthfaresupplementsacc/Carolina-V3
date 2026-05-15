@@ -140,11 +140,19 @@ router.get('/dashboard', async (req, res) => {
       ? Math.round(((displayBottles - yesterdayBottles) / yesterdayBottles) * 100)
       : null;
 
+    // Silent mode flag (kill switch) — frontend shows a red banner when on.
+    let silentModeActive = false;
+    try {
+      const s = await db.query("SELECT value FROM app_state WHERE key = 'silent_mode'");
+      silentModeActive = s.rows[0]?.value === 'true';
+    } catch (_) {}
+
     res.json({
       openTasks: openTasksEst,
       todayTasks: todayWithComparison,
       todayOrders,
       dayOrdersTotal, // B14: { total, sessionCount } across all orders_sessions of the day
+      silentModeActive,
       todayFormulations,
       todayMessages,
       todayNotes,
@@ -717,6 +725,64 @@ router.delete('/admin/count/:id', async (req, res) => {
     await auditAction({ req, action: 'production_count.delete', entityType: 'production_count',
                         entityId: req.params.id, before, after });
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ===== URGENT kill switch: silent mode =====
+// POST /api/admin/silent-toggle  body: { pin, value: 'on'|'off' (optional — flips if missing) }
+router.post('/admin/silent-toggle', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const cur = await db.query("SELECT value FROM app_state WHERE key = 'silent_mode'");
+    const before = cur.rows[0]?.value || 'false';
+    let next;
+    if (req.body?.value === 'on'  || req.body?.value === true)  next = 'true';
+    else if (req.body?.value === 'off' || req.body?.value === false) next = 'false';
+    else next = before === 'true' ? 'false' : 'true';
+
+    await db.query(
+      `INSERT INTO app_state (key, value, updated_at) VALUES ('silent_mode', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [next]
+    );
+    // Bust the in-process cache in this worker so the change is immediate.
+    try { require('../slack/client').invalidateSilentCache(); } catch (_) {}
+
+    await auditAction({
+      req, action: 'silent_mode.toggle', entityType: 'app_state',
+      entityId: 'silent_mode', before: { value: before }, after: { value: next },
+    });
+    res.json({ ok: true, silent_mode: next === 'true' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/admin/silent-log?pin=XXX&hours=24&action=postMessage&limit=200
+router.get('/admin/silent-log', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const hours = Math.min(Math.max(parseInt(req.query.hours) || 24, 1), 720);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 200, 1), 1000);
+    const where = [`created_at >= NOW() - INTERVAL '${hours} hours'`];
+    const params = [];
+    if (req.query.action) {
+      where.push(`intended_action = $${params.length + 1}`);
+      params.push(req.query.action);
+    }
+    const result = await db.query(
+      `SELECT id, intended_channel, intended_action, intended_text,
+              would_have_replied_to_ts, created_at
+       FROM silent_log
+       WHERE ${where.join(' AND ')}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit}`,
+      params
+    );
+    const countRes = await db.query(
+      `SELECT COUNT(*)::int AS total FROM silent_log
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    res.json({ rows: result.rows, total: countRes.rows[0]?.total || 0, hours, limit });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

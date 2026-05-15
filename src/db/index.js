@@ -192,6 +192,25 @@ async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- URGENT kill switch: when silent_mode is on, Carolina silently drops
+    -- every outbound message to the production channel and records what she
+    -- would have posted in silent_log. Admin chat (manager channel) is NOT
+    -- affected — only the worker-facing channel goes mute.
+    CREATE TABLE IF NOT EXISTS silent_log (
+      id SERIAL PRIMARY KEY,
+      intended_channel VARCHAR(20),
+      intended_action VARCHAR(50),
+      intended_text TEXT,
+      would_have_replied_to_ts VARCHAR(30),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_silent_log_created_at ON silent_log(created_at DESC);
+
+    -- Seed silent_mode flag as off so isSilent() finds the row immediately.
+    INSERT INTO app_state (key, value, updated_at)
+      VALUES ('silent_mode', 'false', NOW())
+      ON CONFLICT (key) DO NOTHING;
+
     -- Entrega 2: every admin write goes through auditAction() and lands here.
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id SERIAL PRIMARY KEY,

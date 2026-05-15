@@ -493,4 +493,124 @@ router.get('/admin/audit', (req, res) => {
 </html>`);
 });
 
+// Silent-mode log viewer — what Carolina WOULD have posted during kill switch
+router.get('/admin/silent-log', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Silent Log — HealthFare</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 24px; max-width: 1000px; margin: 0 auto; color: #1f2937; background:#f5f7fb; }
+    h1 { color: #dc2626; margin-bottom: 8px; }
+    .sub { color:#6b7280; margin-bottom: 20px; font-size:13px; }
+    .filters { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px 16px; display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin-bottom:16px; }
+    .filters label { display:flex; flex-direction:column; font-size:11px; color:#6b7280; text-transform:uppercase; font-weight:600; }
+    .filters input, .filters select { padding:4px 8px; border:1px solid #d1d5db; border-radius:4px; font-size:13px; margin-top:4px; }
+    .btn { background:#1d4f91; color:white; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:13px; }
+    .row { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px 14px; margin-bottom:8px; font-size:13px; }
+    .pill { background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:700; }
+    .ts { color:#6b7280; font-size:11px; float:right; }
+    .text { margin-top:6px; white-space:pre-wrap; color:#374151; }
+    .ref { color:#6b7280; font-size:11px; font-family:monospace; }
+    a { color: #1d4f91; }
+    .back { display: inline-block; margin-bottom: 16px; color: #1d4f91; text-decoration: none; }
+    #pin-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+    #pin-overlay .box { background:#fff; padding:24px; border-radius:10px; min-width:280px; }
+    #pin-overlay input { width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin:8px 0; }
+    .err { color:#ef4444; font-size:12px; margin-top:6px; min-height:14px; }
+  </style>
+</head>
+<body>
+  <div id="pin-overlay">
+    <div class="box">
+      <strong>Admin PIN</strong>
+      <input id="pin-input" type="password" autocomplete="off" autofocus>
+      <div class="err" id="pin-err"></div>
+      <button class="btn" onclick="unlock()" style="width:100%">Entrar</button>
+    </div>
+  </div>
+
+  <a href="/" class="back">← Voltar ao dashboard</a>
+  <h1>🔇 Silent Log</h1>
+  <div class="sub">Mensagens que Carolina <strong>NÃO postou</strong> no canal de produção enquanto o modo silencioso estava ativo.</div>
+
+  <div class="filters">
+    <label>Últimas
+      <select id="f-hours">
+        <option value="1">1 hora</option>
+        <option value="6">6 horas</option>
+        <option value="24" selected>24 horas</option>
+        <option value="72">72 horas</option>
+        <option value="168">7 dias</option>
+      </select>
+    </label>
+    <label>Ação
+      <select id="f-action">
+        <option value="">(todas)</option>
+        <option value="postMessage">postMessage</option>
+        <option value="addReaction">addReaction</option>
+        <option value="postImage">postImage</option>
+        <option value="postToChannel">postToChannel</option>
+      </select>
+    </label>
+    <button class="btn" onclick="load()">Filtrar</button>
+    <span id="count-label" style="color:#6b7280;font-size:13px"></span>
+  </div>
+
+  <div id="results">Carregando...</div>
+
+  <script>
+    let _pin = '';
+    async function unlock() {
+      const pin = document.getElementById('pin-input').value.trim();
+      try {
+        const r = await fetch('/api/admin/silent-log?pin=' + encodeURIComponent(pin) + '&limit=1');
+        if (r.status === 403) { document.getElementById('pin-err').textContent = 'PIN incorreto'; return; }
+        if (!r.ok) { document.getElementById('pin-err').textContent = 'Erro ' + r.status; return; }
+        _pin = pin;
+        document.getElementById('pin-overlay').style.display = 'none';
+        load();
+      } catch (err) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
+    }
+    document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
+
+    function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+    async function load() {
+      const hours  = document.getElementById('f-hours').value;
+      const action = document.getElementById('f-action').value;
+      const params = new URLSearchParams({ pin: _pin, hours, limit: 500 });
+      if (action) params.set('action', action);
+
+      try {
+        const r = await fetch('/api/admin/silent-log?' + params.toString());
+        const data = await r.json();
+        if (!r.ok) { document.getElementById('results').innerHTML = '<div style="color:#ef4444">' + (data.error || r.status) + '</div>'; return; }
+        document.getElementById('count-label').textContent = data.total + ' mensagens retidas';
+        if (data.rows.length === 0) {
+          document.getElementById('results').innerHTML = '<div style="text-align:center;color:#6b7280;padding:32px">Nenhuma mensagem retida no período.</div>';
+          return;
+        }
+        document.getElementById('results').innerHTML = data.rows.map(row => {
+          const when = new Date(row.created_at).toLocaleString('pt-BR', { timeZone: 'America/New_York' });
+          const text = row.intended_text ? '<div class="text">' + esc(row.intended_text) + '</div>' : '';
+          const ref  = row.would_have_replied_to_ts ? '<span class="ref">→ ts ' + esc(row.would_have_replied_to_ts) + '</span>' : '';
+          return '<div class="row">' +
+                 '<span class="pill">' + esc(row.intended_action) + '</span> ' +
+                 '<span class="ref">' + esc(row.intended_channel || '?') + '</span> ' +
+                 ref +
+                 '<span class="ts">' + esc(when) + '</span>' +
+                 text +
+                 '</div>';
+        }).join('');
+      } catch (err) {
+        document.getElementById('results').innerHTML = '<div style="color:#ef4444">Erro de conexão</div>';
+      }
+    }
+  </script>
+</body>
+</html>`);
+});
+
 module.exports = router;
