@@ -335,6 +335,11 @@ const COMPOUND_NEXT_REGEX = /\b(?:estou\s+fazendo|to\s+fazendo|fazendo\s+agora|c
 // Triggers orders_finish even when the explicit verb is "impacotei" rather than "terminei".
 const COMPOUND_PACKING_FINISH_RE = /\b(?:impacotei|empacotei|empaquetei|terminei\s+o\s+packing|acabei\s+o\s+packing|terminei\s+(?:as?\s+)?ordens?)\b/i;
 
+// B8: "ajudando o Vitor na linha de producao" — joiner pattern for Linha de Produção.
+// Only Linha de Produção does automatic join (single supplement at a time).
+// Accepts both "produção" and "producao" (accented and unaccented).
+const JOIN_PRODUCAO_RE = /\b(?:ajud(?:ando|o|ar|ei)|junto\s+(?:com|na)|to\s+(?:com|na)|estou\s+(?:com|na)|entrando\s+na)\b.*\blinha\s+de\s+produ[cç][aã]o\b/i;
+
 const WRONG_CODE_REGEX = /\b(?:coloquei\s+a\s+inicial\s+errada|errei\s+o\s+c[o]digo|botei\s+(?:o\s+)?c[o]digo\s+errado|coloquei\s+errado|c[o]digo\s+errado|inicial\s+errada)\b/i;
 
 const TASK_TYPE_PATTERNS = {
@@ -518,6 +523,13 @@ function parseMessage(msg) {
       const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
       return { type: 'pause_start', operator, raw: text, ts };
     }
+  }
+
+  // B8: "ajudando o Vitor na linha de producao" — auto-join Linha de Produção.
+  // Routed before tag detection so a stray "S" inside this phrase doesn't trigger a new task.
+  if (JOIN_PRODUCAO_RE.test(workingText)) {
+    const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
+    return { type: 'join_producao', operator, raw: text, ts };
   }
 
   // Tag detection: S/F/P/N with any separator (: ; / -) at start OR end of message.

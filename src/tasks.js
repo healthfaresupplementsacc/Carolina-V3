@@ -204,6 +204,15 @@ const JOIN_YES_MSGS = [
   (op, supp) => `Registrado, ${op} no ${supp} com o colega.`,
   (op, supp) => `Ok, ${op} adicionado ao ${supp}.`,
 ];
+
+// B8: announce automatic Linha de Produção join
+const JOIN_PRODUCAO_ANNOUNCE = [
+  (op, partner, supp) => `🤝 ${op} entrou na Linha de Produção do ${supp} junto com ${partner}.`,
+  (op, partner, supp) => `🤝 ${op} está ajudando ${partner} na Linha de Produção do ${supp}.`,
+  (op, partner, supp) => `🤝 Registrei ${op} na Linha de Produção do ${supp} com ${partner}.`,
+  (op, partner, supp) => `🤝 ${op} entrou na linha junto com ${partner} — ${supp}.`,
+  (op, partner, supp) => `🤝 ${op} agora também tá no ${supp} com ${partner}.`,
+];
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Pending question helpers (stored in app_state) ───────────────────────
@@ -384,6 +393,9 @@ async function handleParsed(parsed, rawMsg) {
       break;
     case 'pause_end':
       await handlePauseEnd(parsed, rawMsg);
+      break;
+    case 'join_producao':
+      await handleJoinProducao(parsed, rawMsg);
       break;
     case 'note':
       // Notes are stored but not tracked
@@ -794,6 +806,59 @@ async function handlePauseEnd(parsed, rawMsg) {
 }
 
 /**
+ * B8: handle a joiner declaring they're helping on Linha de Produção.
+ * No supplement question — Linha de Produção only runs one supplement at a time,
+ * so we attach the joiner to the most recent open producao task.
+ */
+async function handleJoinProducao(parsed, rawMsg) {
+  const { operator, ts } = parsed;
+  const msgTs = rawMsg?.ts || ts;
+  if (!operator) return false;
+
+  const result = await db.query(
+    `SELECT id, operator, supplement_name, helpers FROM tasks
+     WHERE status = 'open' AND task_type = 'producao'
+     ORDER BY started_at DESC LIMIT 1`
+  );
+  if (result.rows.length === 0) {
+    console.log(`[Tasks] ${operator} sent join_producao but no open Linha de Produção`);
+    return false;
+  }
+  const task = result.rows[0];
+  if (task.operator === operator) {
+    console.log(`[Tasks] join_producao: ${operator} is already the starter — skip`);
+    return false;
+  }
+
+  const existing = task.helpers
+    ? task.helpers.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
+  if (existing.includes(operator)) {
+    console.log(`[Tasks] join_producao: ${operator} already in helpers — skip`);
+    return false;
+  }
+  existing.push(operator);
+  await db.query(
+    'UPDATE tasks SET helpers = $1, updated_at = NOW() WHERE id = $2',
+    [existing.join(', '), task.id]
+  );
+
+  // Closing any open break for the joiner — they're now working.
+  if (msgTs) {
+    await closeOpenBreakFor(operator, new Date(parseFloat(msgTs) * 1000).toISOString(), 'auto_new_task');
+  }
+
+  const supp = task.supplement_name || 'Linha de Produção';
+  try {
+    await slackClient.postMessage(pick(JOIN_PRODUCAO_ANNOUNCE)(operator, task.operator, supp));
+  } catch (err) {
+    console.error('[Tasks] join_producao announce error:', err.message);
+  }
+  console.log(`[Tasks] ${operator} joined Linha de Produção (${supp}) with ${task.operator}`);
+  return true;
+}
+
+/**
  * B5/B6: close any open break for an operator. Used both for explicit "voltei"
  * messages (handlePauseEnd) and implicit close-via-new-activity (called from
  * handleStart, handleCount, handleOrdersStart, handleFormulationStart).
@@ -962,6 +1027,7 @@ module.exports = {
   handlePauseStart,
   handlePauseEnd,
   handlePendingResponse,
+  handleJoinProducao,
   getPendingQuestion,
   clearPendingQuestion,
   closeOpenBreakFor,
