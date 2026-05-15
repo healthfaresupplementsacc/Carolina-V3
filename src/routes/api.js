@@ -719,6 +719,46 @@ router.delete('/admin/count/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== Admin: Audit log viewer =====
+// GET /api/admin/audit?pin=XXX&entity_type=task&action=task.edit&entity_id=5&since=YYYY-MM-DD&limit=100&offset=0
+router.get('/admin/audit', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const where = [];
+    const params = [];
+    if (req.query.entity_type) { where.push(`entity_type = $${params.length+1}`); params.push(req.query.entity_type); }
+    if (req.query.entity_id)   { where.push(`entity_id   = $${params.length+1}`); params.push(String(req.query.entity_id)); }
+    if (req.query.action)      { where.push(`action      = $${params.length+1}`); params.push(req.query.action); }
+    if (req.query.since && /^\d{4}-\d{2}-\d{2}$/.test(req.query.since)) {
+      where.push(`created_at >= $${params.length+1}::date`);
+      params.push(req.query.since);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 100, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
+    const result = await db.query(
+      `SELECT id, admin_user, action, entity_type, entity_id,
+              before_data, after_data, source, request_meta, created_at
+       FROM admin_audit_log
+       ${whereSql}
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+    const countRes = await db.query(
+      `SELECT COUNT(*)::int AS total FROM admin_audit_log ${whereSql}`,
+      params
+    );
+    res.json({
+      rows: result.rows,
+      total: countRes.rows[0]?.total || 0,
+      limit, offset,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ===== Admin: Task merge =====
 // POST /api/admin/task/merge — body: { pin, taskIds: [int...] }
 router.post('/admin/task/merge', async (req, res) => {
