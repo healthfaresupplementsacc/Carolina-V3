@@ -1,0 +1,94 @@
+'use strict';
+require('dotenv').config();
+
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+
+const config = require('./config');
+const db = require('./db');
+const dashboardRouter = require('./dashboard/router');
+const apiRouter = require('./routes/api');
+const { loadCustomSupplements } = apiRouter;
+const poller = require('./slack/poller');
+const { startPolling, startEodJob } = require('./scheduler');
+
+const app = express();
+
+// ===== MIDDLEWARE =====
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use('/archive', express.static(path.join(process.cwd(), 'public', 'archive')));
+
+// ===== ROUTES =====
+app.use('/api', apiRouter);
+app.use('/', dashboardRouter);
+
+// ===== STARTUP =====
+async function start() {
+  try {
+    // 1. Run DB migrations
+    console.log('[Boot] Running migrations...');
+    await db.migrate();
+
+    // 1b. Load custom supplements from DB into parser
+    await loadCustomSupplements();
+
+    // 2. Check Slack connection
+    console.log('[Boot] Checking Slack connection...');
+    try {
+      const slackClient = require('./slack/client');
+      await slackClient.getChannelInfo();
+      console.log('[Boot] Slack connected OK');
+    } catch (err) {
+      console.error('[Boot] Slack connection failed:', err.message);
+      console.error('[Boot] Check SLACK_BOT_TOKEN env var');
+    }
+
+    // 3. Backfill if not done
+    const backfillDone = await poller.isBackfillDone();
+    if (!backfillDone) {
+      console.log('[Boot] Running historical backfill...');
+      // Feb 12, 2026 = first message we found
+      const BACKFILL_START_TS = '1739318400';
+      // Run async - don't block startup
+      poller.backfill(BACKFILL_START_TS).catch((err) => {
+        console.error('[Boot] Backfill failed:', err.message);
+      });
+    }
+
+    // 4. Start Slack polling
+    startPolling();
+
+    // 5. Start EOD cron
+    startEodJob();
+
+    // 6. Start HTTP server
+    const port = config.app.port;
+    app.listen(port, () => {
+      console.log(`[Boot] Server running on port ${port}`);
+      console.log(`[Boot] Dashboard: http://localhost:${port}`);
+      console.log(`[Boot] API health: http://localhost:${port}/api/health`);
+    });
+
+  } catch (err) {
+    console.error('[Boot] Fatal startup error:', err);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('[Shutdown] SIGTERM received');
+  await db.pool.end();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('[Shutdown] SIGINT received');
+  await db.pool.end();
+  process.exit(0);
+});
+
+start();
