@@ -118,6 +118,66 @@ router.get('/dashboard', async (req, res) => {
       })
     );
 
+    // Bug 4 — UNION with the new ISA-88 model so activities created via
+    // App Home (which only write phase_instances / ad_hoc_task_instances,
+    // never the legacy tasks table) show up in "Em andamento".
+    // Dedup: skip rows already represented by a legacy task (the parser
+    // dual-write path creates BOTH a task and a phase_instance for typed
+    // messages) and skip migration rows (legacy_id IS NOT NULL).
+    let workflowOpenItems = [];
+    try {
+      const wf = await db.query(`
+        SELECT pi.id, pi.phase_name, pi.batch_number, pi.started_at,
+               wi.product_name, o.name AS operator_name
+        FROM phase_instances pi
+        JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+        LEFT JOIN operators o ON o.id = pi.started_by_operator_id
+        WHERE pi.status = 'open' AND pi.ended_at IS NULL
+          AND pi.legacy_id IS NULL
+          AND (pi.started_at AT TIME ZONE 'America/New_York')::date = ${date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`}
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks t
+            WHERE t.status = 'open'
+              AND COALESCE(t.operator,'') = COALESCE(o.name,'')
+              AND COALESCE(t.supplement_name,'') = COALESCE(wi.product_name,'')
+              AND ABS(EXTRACT(EPOCH FROM (t.started_at - pi.started_at))) < 180
+          )
+        ORDER BY pi.started_at DESC`);
+      const ah = await db.query(`
+        SELECT ati.id, ati.task_name, ati.started_at, o.name AS operator_name
+        FROM ad_hoc_task_instances ati
+        LEFT JOIN operators o ON o.id = ati.started_by_operator_id
+        WHERE ati.status = 'open' AND ati.ended_at IS NULL
+          AND ati.legacy_id IS NULL
+          AND (ati.started_at AT TIME ZONE 'America/New_York')::date = ${date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`}
+        ORDER BY ati.started_at DESC`);
+      workflowOpenItems = [
+        ...wf.rows.map((r) => ({
+          id: `ph-${r.id}`, phase_instance_id: r.id,
+          supplement_name: r.product_name || null,
+          batch_number: r.batch_number || null,
+          operator: r.operator_name || null,
+          task_type: r.phase_name || null,
+          started_at: r.started_at,
+          _source: 'workflow_phase',
+          avgDurationSeconds: null, estRemainingSeconds: null,
+        })),
+        ...ah.rows.map((r) => ({
+          id: `ah-${r.id}`, ad_hoc_task_instance_id: r.id,
+          supplement_name: null, batch_number: null,
+          operator: r.operator_name || null,
+          task_type: r.task_name || null,
+          started_at: r.started_at,
+          _source: 'workflow_adhoc',
+          avgDurationSeconds: null, estRemainingSeconds: null,
+        })),
+      ];
+    } catch (err) {
+      console.error('[Dashboard] workflow union error:', err.message);
+      workflowOpenItems = []; // fail closed — legacy openTasks still works
+    }
+    openTasksEst.push(...workflowOpenItems);
+
     // Production totals
     const todayBottles = todayWithComparison.reduce((s, t) => s + (parseInt(t.bottles) || 0), 0);
     const yesterdayBottles = parseInt(yesterdayResult.rows[0]?.total || 0);
