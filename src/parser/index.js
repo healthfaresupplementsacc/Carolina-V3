@@ -312,14 +312,20 @@ function detectTag(text) {
   return null;
 }
 
+// Item B: accept "almoço" with cedilla, "saindo pro almoço", etc.
+// Previously the character class [c] only matched "almoco/almocar" — the
+// accented "almoço/almoçar" forms typed by operators on phone keyboards
+// went unrecognized.
 const PAUSE_START_PATTERNS = [
-  /\b(?:indo|vou|saindo)\s+(?:almo[c]ar|almo[c]o|comer|banheiro)\b/i,
+  /\b(?:indo|vou|saindo)\s+(?:pr[oa]\s+)?(?:almo[cç]ar|almo[cç]o|comer|banheiro)\b/i,
   /\b(?:indo\s+ao\s+banheiro|ao\s+banheiro)\b/i,
   /\b(?:pausa|pausando|pause)\b/i,
   /\b(?:intervalo)\b/i,
   /\b(?:brb|ja\s+volto|volto\s+ja|volto\s+logo|volta\s+logo)\b/i,
   /\b(?:saindo\s+agora|vou\s+sair(?:\s+um\s+pouco)?)\b/i,
   /\b(?:indo\s+sair|saio\s+um\s+segundo)\b/i,
+  // Bare time-marker forms operators actually use
+  /\b(?:almo[cç]o|almo[cç]ando|no\s+almo[cç]o|hora\s+do\s+almo[cç]o)\b/i,
 ];
 
 const PAUSE_END_PATTERNS = [
