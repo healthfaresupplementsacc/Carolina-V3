@@ -49,6 +49,19 @@ async function start() {
       console.error('[Boot] Workflow seed error:', err.message);
     }
 
+    // 1d. Entrega 3: migrate legacy tasks/orders/formulation/pauses into the
+    //     new ISA-88 model. Idempotent via legacy_table/legacy_id checks.
+    //     Source tables remain unchanged (read-only history).
+    if (process.env.SKIP_LEGACY_MIGRATION !== '1') {
+      try {
+        const { migrateAll } = require('./workflow/migrate-legacy');
+        const summary = await migrateAll({ limit: 10000 });
+        console.log('[Boot] Legacy migration summary:', JSON.stringify(summary));
+      } catch (err) {
+        console.error('[Boot] Legacy migration error:', err.message);
+      }
+    }
+
     // 2. Check Slack connection
     console.log('[Boot] Checking Slack connection...');
     try {

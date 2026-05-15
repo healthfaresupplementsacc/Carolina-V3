@@ -1053,4 +1053,22 @@ router.post('/admin/move-operator', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── Legacy migration trigger (Fase 4.2) ────────────────────────────────
+
+// POST /api/admin/migrate-legacy  body: { pin, limit? }
+// Runs migrateAll synchronously. Safe to re-trigger (idempotent).
+router.post('/admin/migrate-legacy', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const { migrateAll } = require('../workflow/migrate-legacy');
+    const limit = Math.min(parseInt(req.body?.limit) || 10000, 50000);
+    const summary = await migrateAll({ limit });
+    await auditAction({
+      req, action: 'legacy.migrate', entityType: 'cleanup',
+      entityId: null, after: summary,
+    });
+    res.json({ ok: true, summary });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
