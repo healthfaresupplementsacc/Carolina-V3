@@ -1,6 +1,9 @@
 'use strict';
 /**
  * JSON API endpoints for the dashboard.
+ *
+ * Every /admin/* write funnels through src/admin/audit.js (checkPin +
+ * auditAction). See that module for the audit contract.
  */
 const express = require('express');
 const router = express.Router();
@@ -9,6 +12,7 @@ const tasks = require('../tasks');
 const orders = require('../orders');
 const formulation = require('../formulation');
 const parser = require('../parser');
+const { auditAction, snapshotRow, checkPin, getAdminPin } = require('../admin/audit');
 
 /**
  * Load custom supplements from DB into the parser at startup.
@@ -211,7 +215,7 @@ router.post('/eod/run', async (req, res) => {
 
 // Re-scan recent Slack messages looking for a production summary (admin)
 router.post('/admin/rescan-summary', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const slackClient = require('../slack/client');
     const parserMod   = require('../parser');
@@ -231,11 +235,16 @@ router.post('/admin/rescan-summary', async (req, res) => {
     }
 
     if (!found) {
+      await auditAction({ req, action: 'rescan_summary.no_match', entityType: 'app_state',
+                          entityId: `prod_summary_${date}`, after: { date } });
       return res.json({ ok: false, message: 'Nenhum resumo de produção encontrado nas últimas mensagens' });
     }
 
     // Save and reply
     await eodEngine.handleProductionSummary(found);
+    await auditAction({ req, action: 'rescan_summary.applied', entityType: 'app_state',
+                        entityId: `prod_summary_${date}`,
+                        after: { totalBottles: found.totalBottles, items: found.items } });
     res.json({ ok: true, totalBottles: found.totalBottles, items: found.items });
   } catch (err) {
     console.error('[Admin] Rescan summary error:', err.message);
@@ -245,19 +254,24 @@ router.post('/admin/rescan-summary', async (req, res) => {
 
 // Manually set today's production total (admin override)
 router.post('/admin/set-total', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const { total, date } = req.body;
     const bottles = parseInt(total);
     if (isNaN(bottles) || bottles < 0) return res.status(400).json({ error: 'Total inválido' });
     const day = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
     const key = `prod_summary_${day}`;
+    const beforeRow = await db.query('SELECT value FROM app_state WHERE key = $1', [key]);
+    const before = beforeRow.rows[0] ? safeJson(beforeRow.rows[0].value) : null;
+    const after = { totalBottles: bottles, items: [], manualOverride: true, operator: 'admin' };
     await db.query(
       `INSERT INTO app_state (key, value, updated_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-      [key, JSON.stringify({ totalBottles: bottles, items: [], manualOverride: true, operator: 'admin' })]
+      [key, JSON.stringify(after)]
     );
+    await auditAction({ req, action: 'set_total', entityType: 'app_state',
+                        entityId: key, before, after });
     console.log(`[Admin] Manual total set: ${bottles} bottles for ${day}`);
     res.json({ ok: true, totalBottles: bottles, date: day });
   } catch (err) {
@@ -267,8 +281,8 @@ router.post('/admin/set-total', async (req, res) => {
 
 // Close all stale open tasks from backfill (tasks started before today)
 router.post('/cleanup-stale-tasks', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
-    const cutoff = req.body.cutoff_date || 'today'; // e.g. '2026-05-12' or 'today'
     const result = await db.query(`
       UPDATE tasks
       SET status = 'closed',
@@ -278,6 +292,8 @@ router.post('/cleanup-stale-tasks', async (req, res) => {
         AND started_at::date < CURRENT_DATE
       RETURNING id
     `);
+    await auditAction({ req, action: 'cleanup_stale_tasks', entityType: 'cleanup',
+                        entityId: null, after: { closed: result.rows.length, ids: result.rows.map(r => r.id) } });
     console.log(`[Admin] Closed ${result.rows.length} stale historical tasks`);
     res.json({ ok: true, closed: result.rows.length });
   } catch (err) {
@@ -297,13 +313,19 @@ router.post('/backfill', async (req, res) => {
   }
 });
 
-// ===== Admin Edit Endpoints (PIN protected) =====
-const ADMIN_PIN = '510510';
+// ===== Admin Edit Endpoints (PIN protected — see src/admin/audit.js) =====
+
+// Helper: safe JSON.parse that returns the raw string when not JSON.
+function safeJson(v) {
+  if (v == null) return null;
+  try { return JSON.parse(v); } catch { return v; }
+}
 
 // Close an open task manually (admin)
 router.post('/admin/task/:id/close', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
+    const before = await snapshotRow('tasks', 'id', req.params.id);
     await db.query(
       `UPDATE tasks SET
          status = 'closed',
@@ -314,13 +336,17 @@ router.post('/admin/task/:id/close', async (req, res) => {
        WHERE id = $1 AND status = 'open'`,
       [req.params.id]
     );
+    const after = await snapshotRow('tasks', 'id', req.params.id);
+    await auditAction({ req, action: 'task.close', entityType: 'task',
+                        entityId: req.params.id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/admin/task/:id', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
+    const before = await snapshotRow('tasks', 'id', req.params.id);
     const { supplement_name, batch_number, operator, started_at, ended_at, bottles } = req.body;
 
     // Build dynamic SET clause for task fields
@@ -363,13 +389,17 @@ router.put('/admin/task/:id', async (req, res) => {
       }
     }
 
+    const after = await snapshotRow('tasks', 'id', req.params.id);
+    await auditAction({ req, action: 'task.edit', entityType: 'task',
+                        entityId: req.params.id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/admin/order/:id', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
+    const before = await snapshotRow('orders_sessions', 'id', req.params.id);
     const { order_count, operator, batch_label, started_at, ended_at, status } = req.body;
     const sets = ['updated_at = NOW()'];
     const params = [];
@@ -389,13 +419,16 @@ router.put('/admin/order/:id', async (req, res) => {
     }
     params.push(req.params.id);
     await db.query(`UPDATE orders_sessions SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('orders_sessions', 'id', req.params.id);
+    await auditAction({ req, action: 'orders_session.edit', entityType: 'orders_session',
+                        entityId: req.params.id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ===== Admin Create Orders Session =====
 router.post('/admin/order/create', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const { operator, order_count, batch_label, started_at, ended_at } = req.body;
     if (!started_at) return res.status(400).json({ error: 'started_at é obrigatório' });
@@ -415,13 +448,17 @@ router.post('/admin/order/create', async (req, res) => {
         [ended_at, result.rows[0].id]
       );
     }
+    const after = await snapshotRow('orders_sessions', 'id', result.rows[0].id);
+    await auditAction({ req, action: 'orders_session.create', entityType: 'orders_session',
+                        entityId: result.rows[0].id, before: null, after });
     res.json({ ok: true, id: result.rows[0].id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/admin/formulation/:id', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
+    const before = await snapshotRow('formulation_sessions', 'id', req.params.id);
     const { supplement_name, batch_number, operator, started_at, ended_at } = req.body;
     const sets = ['updated_at = NOW()'];
     const params = [];
@@ -439,32 +476,36 @@ router.put('/admin/formulation/:id', async (req, res) => {
     }
     params.push(req.params.id);
     await db.query(`UPDATE formulation_sessions SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('formulation_sessions', 'id', req.params.id);
+    await auditAction({ req, action: 'formulation.edit', entityType: 'formulation_session',
+                        entityId: req.params.id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ===== Admin Create Task =====
 router.post('/admin/task/create', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const { supplement_name, batch_number, operator, started_at } = req.body;
     if (!supplement_name) return res.status(400).json({ error: 'Suplemento é obrigatório' });
-    const startedAt = started_at
-      ? new Date(new Date(started_at).toLocaleString('en-US', { timeZone: 'America/New_York' })).toISOString()
-      : new Date().toISOString();
-    await db.query(
+    const result = await db.query(
       `INSERT INTO tasks (operator, supplement_name, batch_number, started_at, status)
-       VALUES ($1, $2, $3, ($4::timestamp AT TIME ZONE 'America/New_York'), 'open')`,
+       VALUES ($1, $2, $3, ($4::timestamp AT TIME ZONE 'America/New_York'), 'open')
+       RETURNING id`,
       [operator || null, supplement_name, batch_number || null, started_at || new Date().toLocaleString('sv-SE', { timeZone: 'America/New_York' })]
     );
-    res.json({ ok: true });
+    const after = await snapshotRow('tasks', 'id', result.rows[0].id);
+    await auditAction({ req, action: 'task.create', entityType: 'task',
+                        entityId: result.rows[0].id, before: null, after });
+    res.json({ ok: true, id: result.rows[0].id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ===== Admin Export (full data download) =====
 // GET /api/admin/export?pin=XXX — returns JSON bundle of all production data
 router.get('/admin/export', async (req, res) => {
-  if (String(req.query?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const [tasksRes, ordersRes, formRes, countsRes, pausesRes] = await Promise.all([
       db.query(`SELECT * FROM tasks ORDER BY started_at ASC`),
@@ -480,6 +521,12 @@ router.get('/admin/export', async (req, res) => {
        ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
       [new Date().toISOString()]
     );
+
+    await auditAction({ req, action: 'export', entityType: 'app_state',
+                        entityId: 'last_backup_at',
+                        after: { tasks: tasksRes.rows.length, orders: ordersRes.rows.length,
+                                 formulations: formRes.rows.length, counts: countsRes.rows.length,
+                                 pauses: pausesRes.rows.length } });
 
     const filename = `healthfare-backup-${new Date().toISOString().slice(0,10)}.json`;
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -497,7 +544,7 @@ router.get('/admin/export', async (req, res) => {
 
 // GET /api/admin/backup-status?pin=XXX — days since last backup + oldest record date
 router.get('/admin/backup-status', async (req, res) => {
-  if (String(req.query?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const [lastBackup, oldest] = await Promise.all([
       db.query(`SELECT value FROM app_state WHERE key = 'last_backup_at'`),
@@ -517,12 +564,14 @@ router.get('/admin/backup-status', async (req, res) => {
 
 // ===== Admin Broadcast (send message to main channel) =====
 router.post('/admin/broadcast', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   const { message } = req.body;
   if (!message || !message.trim()) return res.status(400).json({ error: 'Mensagem vazia' });
   try {
     const slackClient = require('../slack/client');
     const ts = await slackClient.postMessage(message.trim());
+    await auditAction({ req, action: 'broadcast', entityType: 'broadcast',
+                        entityId: ts || null, after: { message: message.trim(), ts } });
     res.json({ ok: true, ts });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -538,27 +587,35 @@ router.get('/supplements', (req, res) => {
 
 // Add a new custom supplement (admin)
 router.post('/admin/supplement', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   const { canonical_name, aliases } = req.body;
   if (!canonical_name || !canonical_name.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
   const canonical = canonical_name.trim();
   const aliasStr = (aliases || '').trim();
   try {
+    const before = await snapshotRow('supplement_catalog', 'canonical_name', canonical);
     await db.query(
       `INSERT INTO supplement_catalog (canonical_name, aliases) VALUES ($1, $2)
        ON CONFLICT (canonical_name) DO UPDATE SET aliases = $2`,
       [canonical, aliasStr]
     );
     parser.addCustomSupplement(canonical, aliasStr);
+    const after = await snapshotRow('supplement_catalog', 'canonical_name', canonical);
+    await auditAction({ req, action: before ? 'supplement.edit' : 'supplement.create',
+                        entityType: 'supplement', entityId: canonical, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Delete a custom supplement (admin)
 router.delete('/admin/supplement/:name', async (req, res) => {
-  if (String(req.body?.pin) !== ADMIN_PIN) return res.status(403).json({ error: 'PIN incorreto' });
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
-    await db.query('DELETE FROM supplement_catalog WHERE canonical_name = $1', [decodeURIComponent(req.params.name)]);
+    const canonical = decodeURIComponent(req.params.name);
+    const before = await snapshotRow('supplement_catalog', 'canonical_name', canonical);
+    await db.query('DELETE FROM supplement_catalog WHERE canonical_name = $1', [canonical]);
+    await auditAction({ req, action: 'supplement.delete', entityType: 'supplement',
+                        entityId: canonical, before, after: null });
     res.json({ ok: true, note: 'Removed from DB. Restart to remove from parser memory.' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
