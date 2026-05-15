@@ -377,6 +377,56 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_adhoc_instances_legacy
       ON ad_hoc_task_instances(legacy_table, legacy_id) WHERE legacy_id IS NOT NULL;
 
+    -- ─── operator_activity_log: HEART of Entrega 3 ────────────────────
+    -- One row per stretch of time an operator was doing something. When
+    -- the operator switches activities, the engine closes the current
+    -- row (ended_at=NOW) and opens a new one. Invariant: each
+    -- operator_id has at most ONE row with ended_at=NULL at any moment.
+    --
+    -- activity_type discriminates the FK that matters:
+    --   'phase'   → phase_instance_id (regular production phase)
+    --   'ad_hoc'  → ad_hoc_task_instance_id (cleaning, training, etc)
+    --   'break'   → pause_id (lunch, banheiro)
+    --   'idle'    → all FKs null (operator clocked in but not working)
+    --
+    -- left_for_id + came_back_from_id form a linked pair when the
+    -- operator paused this activity to help in another one and then
+    -- returned. left_for_id points to the new (helper) log row; the
+    -- helper row's came_back_from_id points back here. This lets the
+    -- Home tab show "Ana saiu de Linha de Produção pra ajudar Vitor na
+    -- Revisão" with a one-query lookup.
+    CREATE TABLE IF NOT EXISTS operator_activity_log (
+      id SERIAL PRIMARY KEY,
+      operator_id INTEGER REFERENCES operators(id) NOT NULL,
+      activity_type VARCHAR(20) NOT NULL, -- phase|ad_hoc|break|idle
+      phase_instance_id      INTEGER REFERENCES phase_instances(id),
+      ad_hoc_task_instance_id INTEGER REFERENCES ad_hoc_task_instances(id),
+      pause_id               INTEGER REFERENCES pauses(id),
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      duration_seconds INTEGER, -- denormalized on close for fast aggregation
+      role VARCHAR(20),  -- 'starter' | 'joiner' | 'closer' | null
+      left_for_id INTEGER REFERENCES operator_activity_log(id),
+      came_back_from_id INTEGER REFERENCES operator_activity_log(id),
+      notes TEXT,
+      meta JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      CONSTRAINT operator_activity_log_type_check CHECK (
+        activity_type IN ('phase','ad_hoc','break','idle')
+      )
+    );
+    CREATE INDEX IF NOT EXISTS idx_oal_active
+      ON operator_activity_log(operator_id) WHERE ended_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_oal_operator_started
+      ON operator_activity_log(operator_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_oal_phase
+      ON operator_activity_log(phase_instance_id) WHERE phase_instance_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_oal_adhoc
+      ON operator_activity_log(ad_hoc_task_instance_id) WHERE ad_hoc_task_instance_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_oal_started
+      ON operator_activity_log(started_at);
+
     -- Entrega 2: every admin write goes through auditAction() and lands here.
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id SERIAL PRIMARY KEY,
