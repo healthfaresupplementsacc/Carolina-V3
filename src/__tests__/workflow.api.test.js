@@ -301,7 +301,7 @@ describe('phase_templates CRUD (Fase 2.2)', () => {
     expect(r.body.error).toMatch(/2 phase_instance/);
   });
 
-  test('DELETE succeeds when no dependents and no open instances', async () => {
+  test('DELETE succeeds when no dependents and no open instances (existing test)', async () => {
     let audited = false, deleted = false;
     db.query = jest.fn().mockImplementation((sql) => {
       if (/SELECT \* FROM phase_templates WHERE id/.test(sql)) {

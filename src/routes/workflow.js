@@ -308,4 +308,215 @@ router.delete('/admin/phase-templates/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── workflow_instances (Fase 2.3) ──────────────────────────────────────
+
+// GET /api/workflow-instances?status=active&workflow_template_id=N&date=YYYY-MM-DD
+router.get('/workflow-instances', async (req, res) => {
+  try {
+    const where = [];
+    const params = [];
+    if (req.query.status) {
+      where.push(`status = $${params.length + 1}`);
+      params.push(req.query.status);
+    } else {
+      where.push(`status <> 'deleted'`);
+    }
+    if (req.query.workflow_template_id) {
+      where.push(`workflow_template_id = $${params.length + 1}`);
+      params.push(parseInt(req.query.workflow_template_id));
+    }
+    if (req.query.date) {
+      where.push(`(started_at AT TIME ZONE 'America/New_York')::date = $${params.length + 1}::date`);
+      params.push(req.query.date);
+    }
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const r = await db.query(
+      `SELECT id, workflow_template_id, product_id, product_name, batch_number,
+              batch_change_approved, destination, pass_number, status,
+              started_at, ended_at, started_by_operator_id, notes, meta,
+              legacy_table, legacy_id
+       FROM workflow_instances
+       WHERE ${where.join(' AND ')}
+       ORDER BY started_at DESC
+       LIMIT ${limit}`,
+      params
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/workflow-instances/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const wf = await db.query('SELECT * FROM workflow_instances WHERE id = $1', [id]);
+    if (wf.rows.length === 0) return res.status(404).json({ error: 'not found' });
+    const phases = await db.query(
+      `SELECT id, phase_template_id, phase_name, batch_number, batch_change_approved,
+              status, started_at, ended_at, started_by_operator_id, closed_by_operator_id,
+              final_bottle_count, notes
+       FROM phase_instances
+       WHERE workflow_instance_id = $1 AND status <> 'deleted'
+       ORDER BY started_at ASC, id ASC`,
+      [id]
+    );
+    res.json({ ...wf.rows[0], phases: phases.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/admin/workflow-instances', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const {
+      workflow_template_id, product_id, product_name, batch_number,
+      destination, pass_number, started_at, started_by_operator_id, notes,
+    } = req.body;
+    if (!Number.isFinite(workflow_template_id))
+      return res.status(400).json({ error: 'workflow_template_id obrigatório' });
+
+    const r = await db.query(
+      `INSERT INTO workflow_instances
+         (workflow_template_id, product_id, product_name, batch_number,
+          destination, pass_number, started_at, started_by_operator_id, notes, status)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, NOW()), $8, $9, 'active')
+       RETURNING id`,
+      [workflow_template_id, product_id || null, product_name || null,
+       batch_number || null, destination || null,
+       Number.isFinite(pass_number) ? pass_number : null,
+       started_at || null, started_by_operator_id || null, notes || null]
+    );
+    const id = r.rows[0].id;
+    const after = await snapshotRow('workflow_instances', 'id', id);
+    await auditAction({ req, action: 'workflow_instance.create', entityType: 'workflow_instance',
+                        entityId: id, before: null, after });
+    res.json({ ok: true, id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT — accept any subset. batch_number changes trigger Princípio E:
+// the column batch_change_approved flips to false, the engine emits an
+// admin-chat alert (handled separately by the alert worker), and the
+// dashboard shows a "⏳ batch alterado" badge until admin clears it.
+router.put('/admin/workflow-instances/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('workflow_instances', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+
+    const sets = ['updated_at = NOW()'];
+    const params = [];
+    const {
+      product_id, product_name, batch_number, destination, pass_number,
+      started_at, ended_at, started_by_operator_id, notes, status,
+      meta, batch_change_approved,
+    } = req.body;
+
+    if (product_id     !== undefined) { sets.push(`product_id = $${params.length + 1}`);     params.push(product_id || null); }
+    if (product_name   !== undefined) { sets.push(`product_name = $${params.length + 1}`);   params.push(product_name || null); }
+    if (destination    !== undefined) { sets.push(`destination = $${params.length + 1}`);    params.push(destination || null); }
+    if (pass_number    !== undefined) { sets.push(`pass_number = $${params.length + 1}`);    params.push(Number.isFinite(pass_number) ? pass_number : null); }
+    if (started_at)                   { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
+    if (ended_at !== undefined)       { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (started_by_operator_id !== undefined) {
+      sets.push(`started_by_operator_id = $${params.length + 1}`);
+      params.push(started_by_operator_id || null);
+    }
+    if (notes !== undefined)          { sets.push(`notes = $${params.length + 1}`);   params.push(notes || null); }
+    if (status !== undefined)         { sets.push(`status = $${params.length + 1}`);  params.push(status); }
+    if (meta !== undefined)           { sets.push(`meta = $${params.length + 1}::jsonb`); params.push(JSON.stringify(meta || {})); }
+    if (batch_change_approved !== undefined) {
+      sets.push(`batch_change_approved = $${params.length + 1}`);
+      params.push(!!batch_change_approved);
+    }
+    let batchChanged = false;
+    if (batch_number !== undefined && batch_number !== before.batch_number) {
+      sets.push(`batch_number = $${params.length + 1}`); params.push(batch_number || null);
+      sets.push(`batch_change_approved = FALSE`);
+      batchChanged = true;
+    }
+    params.push(id);
+    await db.query(`UPDATE workflow_instances SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('workflow_instances', 'id', id);
+    await auditAction({
+      req,
+      action: batchChanged ? 'workflow_instance.batch_changed' : 'workflow_instance.edit',
+      entityType: 'workflow_instance', entityId: id, before, after,
+    });
+    res.json({ ok: true, batch_changed: batchChanged });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/admin/workflow-instances/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('workflow_instances', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+    await db.query(
+      `UPDATE workflow_instances SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+    // Cascade soft delete to phase_instances of this workflow
+    await db.query(
+      `UPDATE phase_instances SET status = 'deleted', updated_at = NOW()
+       WHERE workflow_instance_id = $1 AND status <> 'deleted'`,
+      [id]
+    );
+    const after = await snapshotRow('workflow_instances', 'id', id);
+    await auditAction({ req, action: 'workflow_instance.delete', entityType: 'workflow_instance',
+                        entityId: id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/workflow-instances/merge — body: { pin, instance_ids: [a,b,c] }
+// Survivor is the oldest active one. Other instances get status='deleted'
+// with notes "[merged into #X]". phase_instances re-point to survivor.
+router.post('/admin/workflow-instances/merge', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const ids = Array.isArray(req.body?.instance_ids) ? req.body.instance_ids.map(Number).filter(Number.isFinite) : [];
+    if (ids.length < 2) return res.status(400).json({ error: 'precisa de 2+ instance_ids' });
+
+    const rows = await db.query(
+      `SELECT id, started_at, product_name, batch_number, status
+       FROM workflow_instances
+       WHERE id = ANY($1::int[])
+       ORDER BY started_at ASC`,
+      [ids]
+    );
+    if (rows.rows.length !== ids.length) {
+      return res.status(400).json({ error: 'algum id não existe' });
+    }
+    const [survivor, ...others] = rows.rows;
+    const survivorId = survivor.id;
+    const mergedIds = others.map((r) => r.id);
+
+    await db.query(
+      `UPDATE phase_instances SET workflow_instance_id = $1, updated_at = NOW()
+       WHERE workflow_instance_id = ANY($2::int[])`,
+      [survivorId, mergedIds]
+    );
+    await db.query(
+      `UPDATE workflow_instances
+       SET status = 'deleted',
+           notes = COALESCE(notes, '') || ' [merged into #' || $1 || ']',
+           updated_at = NOW()
+       WHERE id = ANY($2::int[])`,
+      [survivorId, mergedIds]
+    );
+
+    await auditAction({
+      req, action: 'workflow_instance.merge', entityType: 'workflow_instance',
+      entityId: survivorId,
+      before: { ids },
+      after: { survivor_id: survivorId, merged_ids: mergedIds },
+    });
+    res.json({ ok: true, survivor_id: survivorId, merged_ids: mergedIds });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
