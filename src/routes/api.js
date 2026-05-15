@@ -708,6 +708,70 @@ router.delete('/admin/count/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== Admin: Notes editing =====
+
+// GET /api/admin/notes?date=YYYY-MM-DD&pin=XXX — list notes for a day
+router.get('/admin/notes', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const date = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
+    const dateExpr = date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+    const result = await db.query(
+      `SELECT slack_ts, user_name, text, linked_task_id, deleted_at, created_at
+       FROM messages
+       WHERE parsed_type = 'note'
+         AND (created_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}
+         AND deleted_at IS NULL
+       ORDER BY slack_ts ASC`
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/admin/note/:ts — edit a note's text and/or link it to a task
+router.put('/admin/note/:ts', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const ts = req.params.ts;
+    const before = await snapshotRow('messages', 'slack_ts', ts);
+    if (!before) return res.status(404).json({ error: 'Note not found' });
+
+    const { text, linked_task_id } = req.body;
+    const sets = [];
+    const params = [];
+    if (text !== undefined) { sets.push(`text = $${params.length+1}`); params.push(text); }
+    if (linked_task_id !== undefined) {
+      sets.push(`linked_task_id = $${params.length+1}`);
+      params.push(linked_task_id === null ? null : parseInt(linked_task_id));
+    }
+    if (sets.length === 0) return res.status(400).json({ error: 'Nada para atualizar' });
+
+    params.push(ts);
+    await db.query(`UPDATE messages SET ${sets.join(', ')} WHERE slack_ts = $${params.length}`, params);
+    const after = await snapshotRow('messages', 'slack_ts', ts);
+    await auditAction({ req, action: 'note.edit', entityType: 'note',
+                        entityId: ts, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/note/:ts — soft delete
+router.delete('/admin/note/:ts', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const ts = req.params.ts;
+    const before = await snapshotRow('messages', 'slack_ts', ts);
+    if (!before) return res.status(404).json({ error: 'Note not found' });
+    if (before.deleted_at) return res.status(400).json({ error: 'Note já deletada' });
+
+    await db.query('UPDATE messages SET deleted_at = NOW() WHERE slack_ts = $1', [ts]);
+    const after = await snapshotRow('messages', 'slack_ts', ts);
+    await auditAction({ req, action: 'note.delete', entityType: 'note',
+                        entityId: ts, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ===== Admin: Operators CRUD =====
 
 // GET /api/admin/operators?pin=XXX — list all operators (active + inactive)
@@ -1040,6 +1104,7 @@ async function getTodayNotes(date) {
     FROM messages
     WHERE created_at::date = ${dateExpr}
       AND parsed_type = 'note'
+      AND deleted_at IS NULL
     ORDER BY slack_ts ASC
   `);
   return res.rows.map(r => {

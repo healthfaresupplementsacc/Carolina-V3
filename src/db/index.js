@@ -46,6 +46,9 @@ async function migrate() {
     -- B4: track Slack edits so we can reprocess the message when text changes
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at VARCHAR(30);
     ALTER TABLE messages ADD COLUMN IF NOT EXISTS previous_text TEXT;
+    -- Entrega 2: notes can be admin-edited and linked to a task
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS linked_task_id INTEGER;
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
