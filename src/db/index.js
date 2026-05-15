@@ -259,6 +259,75 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_phase_templates_workflow
       ON phase_templates(workflow_template_id, sequence_order);
 
+    -- workflow_instances: a real batch / session of one workflow_template.
+    -- product_id references supplements when allows_product=true; null
+    -- otherwise (Picking sessions, Envio sessions). batch_number is
+    -- optional (Princípio E — operator may add it later; any change
+    -- generates an audit row + admin alert via the engine).
+    CREATE TABLE IF NOT EXISTS workflow_instances (
+      id SERIAL PRIMARY KEY,
+      workflow_template_id INTEGER REFERENCES workflow_templates(id),
+      product_id INTEGER REFERENCES supplements(id),
+      product_name VARCHAR(200), -- denormalized for fast display
+      batch_number VARCHAR(50),
+      batch_change_approved BOOLEAN DEFAULT TRUE, -- false = pending admin review (Princípio E)
+      destination VARCHAR(40),  -- 'FBA' | 'Walmart' | 'Tiktok' | 'Ebay' | null
+      pass_number INTEGER,      -- 1st/2nd/3rd Picking print (null otherwise)
+      status VARCHAR(20) DEFAULT 'active', -- 'active' | 'closed' | 'cancelled' | 'deleted'
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      started_by_operator_id INTEGER REFERENCES operators(id),
+      notes TEXT,
+      meta JSONB DEFAULT '{}'::jsonb,
+      -- legacy bridge — preserves the row this instance came from
+      legacy_table VARCHAR(40),
+      legacy_id    INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_instances_status
+      ON workflow_instances(status) WHERE status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_workflow_instances_template
+      ON workflow_instances(workflow_template_id, status);
+    CREATE INDEX IF NOT EXISTS idx_workflow_instances_product
+      ON workflow_instances(product_id) WHERE product_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_workflow_instances_batch
+      ON workflow_instances(batch_number) WHERE batch_number IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_workflow_instances_legacy
+      ON workflow_instances(legacy_table, legacy_id) WHERE legacy_id IS NOT NULL;
+
+    -- phase_instances: a single phase running (or finished) inside a
+    -- workflow_instance. final_bottle_count is filled only by terminal
+    -- phases like Linha de Produção or Contagem.
+    CREATE TABLE IF NOT EXISTS phase_instances (
+      id SERIAL PRIMARY KEY,
+      workflow_instance_id INTEGER REFERENCES workflow_instances(id) ON DELETE CASCADE,
+      phase_template_id INTEGER REFERENCES phase_templates(id),
+      phase_name VARCHAR(120), -- denormalized
+      batch_number VARCHAR(50), -- can be added/changed later (Princípio E)
+      batch_change_approved BOOLEAN DEFAULT TRUE,
+      status VARCHAR(20) DEFAULT 'open', -- 'open' | 'closed' | 'cancelled' | 'deleted'
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      started_by_operator_id INTEGER REFERENCES operators(id),
+      closed_by_operator_id INTEGER REFERENCES operators(id),
+      final_bottle_count INTEGER,
+      notes TEXT,
+      meta JSONB DEFAULT '{}'::jsonb,
+      legacy_table VARCHAR(40),
+      legacy_id    INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_phase_instances_workflow
+      ON phase_instances(workflow_instance_id, status);
+    CREATE INDEX IF NOT EXISTS idx_phase_instances_active
+      ON phase_instances(status) WHERE status = 'open';
+    CREATE INDEX IF NOT EXISTS idx_phase_instances_template
+      ON phase_instances(phase_template_id);
+    CREATE INDEX IF NOT EXISTS idx_phase_instances_legacy
+      ON phase_instances(legacy_table, legacy_id) WHERE legacy_id IS NOT NULL;
+
     -- Entrega 2: every admin write goes through auditAction() and lands here.
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id SERIAL PRIMARY KEY,
