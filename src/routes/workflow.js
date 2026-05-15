@@ -679,4 +679,207 @@ router.delete('/admin/phase-instances/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── ad_hoc_tasks (Fase 2.5) ────────────────────────────────────────────
+
+// GET /api/ad-hoc-tasks?include_inactive=1&pending_only=1
+router.get('/ad-hoc-tasks', async (req, res) => {
+  try {
+    const where = [];
+    if (req.query.include_inactive !== '1') where.push('is_active = TRUE');
+    if (req.query.pending_only === '1') where.push('admin_approved = FALSE');
+    const r = await db.query(
+      `SELECT id, name, description, is_active, admin_approved,
+              created_by_operator_id, created_at, updated_at
+       FROM ad_hoc_tasks
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY admin_approved ASC, name ASC`
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/admin/ad-hoc-tasks', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const { name, description, admin_approved } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name é obrigatório' });
+    const r = await db.query(
+      `INSERT INTO ad_hoc_tasks (name, description, is_active, admin_approved)
+       VALUES ($1, $2, TRUE, $3)
+       RETURNING id`,
+      [name.trim(), description || null, admin_approved !== false]
+    );
+    const id = r.rows[0].id;
+    const after = await snapshotRow('ad_hoc_tasks', 'id', id);
+    await auditAction({ req, action: 'ad_hoc_task.create', entityType: 'ad_hoc_task',
+                        entityId: id, before: null, after });
+    res.json({ ok: true, id });
+  } catch (err) {
+    if (/duplicate key/.test(err.message)) return res.status(409).json({ error: 'name já existe' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/admin/ad-hoc-tasks/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('ad_hoc_tasks', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+
+    const sets = ['updated_at = NOW()'];
+    const params = [];
+    const { name, description, is_active, admin_approved } = req.body;
+    if (name           !== undefined) { sets.push(`name = $${params.length + 1}`);           params.push(name.trim()); }
+    if (description    !== undefined) { sets.push(`description = $${params.length + 1}`);    params.push(description || null); }
+    if (is_active      !== undefined) { sets.push(`is_active = $${params.length + 1}`);      params.push(!!is_active); }
+    if (admin_approved !== undefined) { sets.push(`admin_approved = $${params.length + 1}`); params.push(!!admin_approved); }
+    params.push(id);
+    await db.query(`UPDATE ad_hoc_tasks SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+
+    const after = await snapshotRow('ad_hoc_tasks', 'id', id);
+    const wasApproved = before.admin_approved;
+    const nowApproved = after.admin_approved;
+    const action = (!wasApproved && nowApproved) ? 'ad_hoc_task.approve' : 'ad_hoc_task.edit';
+    await auditAction({ req, action, entityType: 'ad_hoc_task', entityId: id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/ad-hoc-tasks/:id/merge-into/:target — merge a pending
+// ad-hoc into an existing approved one. Re-points all task_instances and
+// deactivates the source.
+router.post('/admin/ad-hoc-tasks/:id/merge-into/:target', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    const target = parseInt(req.params.target);
+    if (!Number.isFinite(id) || !Number.isFinite(target) || id === target) {
+      return res.status(400).json({ error: 'ids inválidos' });
+    }
+    const before = await snapshotRow('ad_hoc_tasks', 'id', id);
+    const tgt = await snapshotRow('ad_hoc_tasks', 'id', target);
+    if (!before || !tgt) return res.status(404).json({ error: 'not found' });
+
+    await db.query(
+      `UPDATE ad_hoc_task_instances
+         SET ad_hoc_task_id = $1,
+             task_name = $2,
+             updated_at = NOW()
+       WHERE ad_hoc_task_id = $3`,
+      [target, tgt.name, id]
+    );
+    await db.query(
+      `UPDATE ad_hoc_tasks
+         SET is_active = FALSE, updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    );
+    await auditAction({
+      req, action: 'ad_hoc_task.merge', entityType: 'ad_hoc_task',
+      entityId: target,
+      before: { source: before, target: tgt },
+      after:  { merged_source_id: id, merged_into: target },
+    });
+    res.json({ ok: true, merged_into: target });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── ad_hoc_task_instances (paired with task catalog) ───────────────────
+
+router.get('/ad-hoc-task-instances', async (req, res) => {
+  try {
+    const where = ['ati.status <> \'deleted\''];
+    const params = [];
+    if (req.query.status) {
+      where[0] = `ati.status = $${params.length + 1}`;
+      params.push(req.query.status);
+    }
+    if (req.query.date) {
+      where.push(`(ati.started_at AT TIME ZONE 'America/New_York')::date = $${params.length + 1}::date`);
+      params.push(req.query.date);
+    }
+    const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+    const r = await db.query(
+      `SELECT ati.id, ati.ad_hoc_task_id, ati.task_name, ati.status,
+              ati.started_at, ati.ended_at,
+              ati.started_by_operator_id, ati.closed_by_operator_id,
+              ati.linked_workflow_instance_id, ati.linked_phase_instance_id, ati.notes,
+              aht.admin_approved
+       FROM ad_hoc_task_instances ati
+       LEFT JOIN ad_hoc_tasks aht ON aht.id = ati.ad_hoc_task_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY ati.started_at DESC
+       LIMIT ${limit}`,
+      params
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/admin/ad-hoc-task-instances/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('ad_hoc_task_instances', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+
+    const sets = ['updated_at = NOW()'];
+    const params = [];
+    const {
+      status, started_at, ended_at, started_by_operator_id, closed_by_operator_id,
+      linked_workflow_instance_id, linked_phase_instance_id, notes, ad_hoc_task_id, task_name,
+    } = req.body;
+    if (status !== undefined)        { sets.push(`status = $${params.length + 1}`); params.push(status); }
+    if (started_at)                  { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
+    if (ended_at !== undefined)      { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (started_by_operator_id !== undefined) {
+      sets.push(`started_by_operator_id = $${params.length + 1}`);
+      params.push(started_by_operator_id || null);
+    }
+    if (closed_by_operator_id !== undefined) {
+      sets.push(`closed_by_operator_id = $${params.length + 1}`);
+      params.push(closed_by_operator_id || null);
+    }
+    if (linked_workflow_instance_id !== undefined) {
+      sets.push(`linked_workflow_instance_id = $${params.length + 1}`);
+      params.push(linked_workflow_instance_id || null);
+    }
+    if (linked_phase_instance_id !== undefined) {
+      sets.push(`linked_phase_instance_id = $${params.length + 1}`);
+      params.push(linked_phase_instance_id || null);
+    }
+    if (notes !== undefined)         { sets.push(`notes = $${params.length + 1}`); params.push(notes || null); }
+    if (ad_hoc_task_id !== undefined){ sets.push(`ad_hoc_task_id = $${params.length + 1}`); params.push(ad_hoc_task_id); }
+    if (task_name !== undefined)     { sets.push(`task_name = $${params.length + 1}`); params.push(task_name); }
+    params.push(id);
+    await db.query(`UPDATE ad_hoc_task_instances SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+
+    const after = await snapshotRow('ad_hoc_task_instances', 'id', id);
+    await auditAction({ req, action: 'ad_hoc_task_instance.edit', entityType: 'ad_hoc_task_instance',
+                        entityId: id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/admin/ad-hoc-task-instances/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('ad_hoc_task_instances', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+    await db.query(
+      `UPDATE ad_hoc_task_instances SET status = 'deleted', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+    const after = await snapshotRow('ad_hoc_task_instances', 'id', id);
+    await auditAction({ req, action: 'ad_hoc_task_instance.delete', entityType: 'ad_hoc_task_instance',
+                        entityId: id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
