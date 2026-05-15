@@ -369,6 +369,34 @@ function extractTaskType(text) {
   return null;
 }
 
+// Entrega 3 Fase 5.2 — natural-language phase keywords.
+// Each entry returns a phase template name to be matched against the
+// Produção de Suplemento / Picking & Packing / Envio templates by the
+// workflow dispatcher. Order matters: more specific patterns first.
+const PHASE_HINTS = [
+  { phase: 'Mix',                   re: /\b(?:mix(?:ando|ar|zando|zado)?|misturando|misturar)\b/i },
+  { phase: 'Encapsulação',          re: /\bencapsul\w*\b/i },
+  { phase: 'Tablet',                re: /\btablet(?:s|es|ando|ar)?\b/i },
+  { phase: 'Revisão',               re: /\brevis[aã]o\b|\brevisando\b|\brevisar\b/i },
+  { phase: 'Linha de Produção',     re: /\blinha\s+de\s+produ[cç][aã]o\b/i },
+  { phase: 'Contagem',              re: /\bcontagem\b|\bcontando\b/i },
+  { phase: 'Formulação',            re: /\bformul(?:a[cç][aã]o?|ando|ei|ar|aco)\b/i },
+  { phase: 'Imprimir ordens',       re: /\bimpress[aã]o\s+das?\s+ordens?\b|\bimprimindo\s+(?:as?\s+)?ordens?\b/i },
+  { phase: 'Empacotar',             re: /\bempacot|\bimpacot|\bensacando|\bensacar/i },
+  { phase: 'Colar label no envelope', re: /\bcolando\s+label|\bcolar\s+(?:o\s+)?label|\bcolocando\s+label\s+(?:no|nos|na|nas)\s+envelope/i },
+  { phase: 'Separar bottles',       re: /\bsepar(?:ando|ar)\s+(?:os\s+)?bottles?\b/i },
+  { phase: 'Imprimir label/FNSKU',  re: /\bfnsku\b|\bfnsk\b|\bimprimir\s+(?:o\s+)?label\b/i },
+  { phase: 'Encaixotar',            re: /\bencaixot|\bfechar\s+caixas?\b/i },
+];
+
+function detectPhaseHint(text) {
+  if (!text) return null;
+  for (const p of PHASE_HINTS) {
+    if (p.re.test(text)) return p.phase;
+  }
+  return null;
+}
+
 const FREETEXT_START_PATTERNS = [
   /\b(?:iniciando|iniciou|iniciei|come[c]ando|come[c]ou|come[c]ei|vamos\s+come[c]ar|come[c]ar)\b/i,
   /\bira?\s+rodar\b/i,
@@ -675,4 +703,4 @@ function parseMessage(msg) {
   return { type: 'unknown', operator: fallbackOperator, raw: text, ts };
 }
 
-module.exports = { parseMessage, extractSupplement, extractBatch, extractTaskType, resolveOperator, addCustomSupplement, listSupplements };
+module.exports = { parseMessage, extractSupplement, extractBatch, extractTaskType, resolveOperator, addCustomSupplement, listSupplements, detectPhaseHint };

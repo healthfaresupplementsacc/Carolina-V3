@@ -29,6 +29,7 @@
 
 const db = require('../db');
 const engine = require('./engine');
+const { detectPhaseHint } = require('../parser');
 
 // task_type → phase template name within "Produção de Suplemento"
 const TASK_TYPE_TO_PHASE = {
@@ -80,7 +81,18 @@ async function resolveTemplate(parsed, ctx) {
       phaseTemplateId: ctx.phaseByKey['Produção de Suplemento::Formulação'] || null,
     };
   }
-  // start / finish
+  // start / finish — prefer a natural-language phase hint from the raw
+  // text (Fase 5.2). "S: Encapsulação Green Tea" → Encapsulação even
+  // though taskType is the generic 'producao'. Falls back to the
+  // taskType mapping, then Linha de Produção.
+  const hint = parsed._phaseHint || null;
+  if (hint && ctx.phaseByKey[`Produção de Suplemento::${hint}`]) {
+    return {
+      workflowName: 'Produção de Suplemento',
+      phaseName: hint,
+      phaseTemplateId: ctx.phaseByKey[`Produção de Suplemento::${hint}`],
+    };
+  }
   const taskType = parsed.taskType || 'producao';
   const phase = TASK_TYPE_TO_PHASE[taskType] || 'Linha de Produção';
   return {
@@ -110,6 +122,10 @@ async function findOpenPhaseInstance({ workflowName, phaseName, supplement, batc
 
 async function dispatch(parsed, rawMsg) {
   if (!parsed || !parsed.type) return { dispatched: false, reason: 'no parsed' };
+  // Fase 5.2: enrich with a natural-language phase hint from raw text.
+  if (rawMsg?.text && parsed._phaseHint === undefined) {
+    parsed._phaseHint = detectPhaseHint(rawMsg.text);
+  }
   const ctx = await getTemplateContext();
   const when = rawMsg?.ts ? new Date(parseFloat(rawMsg.ts) * 1000).toISOString() : null;
   const operatorId = await getOperatorId(parsed.operator);
