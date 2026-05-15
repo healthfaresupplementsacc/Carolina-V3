@@ -612,6 +612,102 @@ router.delete('/admin/pause/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== Admin: Production Counts CRUD =====
+
+// GET /api/admin/counts?date=YYYY-MM-DD&pin=XXX — list production_counts for a day
+router.get('/admin/counts', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const date = req.query.date && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : null;
+    const dateExpr = date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+    const result = await db.query(
+      `SELECT id, supplement_name, batch_number, count, operator,
+              reported_at, slack_ts, task_id, deleted_at
+       FROM production_counts
+       WHERE (reported_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}
+         AND deleted_at IS NULL
+       ORDER BY reported_at ASC`
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/count/create — add a manual production count
+router.post('/admin/count/create', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const { supplement_name, batch_number, count, operator, reported_at, task_id } = req.body;
+    if (!supplement_name) return res.status(400).json({ error: 'supplement_name é obrigatório' });
+    const n = parseInt(count);
+    if (isNaN(n) || n < 0) return res.status(400).json({ error: 'count inválido' });
+
+    const result = await db.query(
+      `INSERT INTO production_counts
+         (supplement_name, batch_number, count, operator, reported_at, task_id)
+       VALUES ($1, $2, $3, $4,
+               COALESCE(($5::timestamp AT TIME ZONE 'America/New_York'), NOW()),
+               $6)
+       RETURNING id`,
+      [supplement_name, batch_number || null, n, operator || null, reported_at || null, task_id || null]
+    );
+    const newId = result.rows[0].id;
+    const after = await snapshotRow('production_counts', 'id', newId);
+    await auditAction({ req, action: 'production_count.create', entityType: 'production_count',
+                        entityId: newId, before: null, after });
+    res.json({ ok: true, id: newId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/admin/count/:id — edit any field
+router.put('/admin/count/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('production_counts', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Count not found' });
+
+    const { supplement_name, batch_number, count, operator, reported_at, task_id } = req.body;
+    const sets = [];
+    const params = [];
+    if (supplement_name !== undefined) { sets.push(`supplement_name = NULLIF($${params.length+1},'')`); params.push(supplement_name || ''); }
+    if (batch_number    !== undefined) { sets.push(`batch_number    = NULLIF($${params.length+1},'')`); params.push(batch_number || ''); }
+    if (count           !== undefined) {
+      const n = parseInt(count);
+      if (isNaN(n) || n < 0) return res.status(400).json({ error: 'count inválido' });
+      sets.push(`count = $${params.length+1}`); params.push(n);
+    }
+    if (operator !== undefined) { sets.push(`operator = NULLIF($${params.length+1},'')`); params.push(operator || ''); }
+    if (task_id  !== undefined) { sets.push(`task_id  = $${params.length+1}`); params.push(task_id || null); }
+    if (reported_at) {
+      sets.push(`reported_at = ($${params.length+1}::timestamp AT TIME ZONE 'America/New_York')`);
+      params.push(reported_at);
+    }
+    if (sets.length === 0) return res.status(400).json({ error: 'Nada para atualizar' });
+
+    params.push(req.params.id);
+    await db.query(`UPDATE production_counts SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('production_counts', 'id', req.params.id);
+    await auditAction({ req, action: 'production_count.edit', entityType: 'production_count',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/count/:id — soft delete
+router.delete('/admin/count/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('production_counts', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Count not found' });
+    if (before.deleted_at) return res.status(400).json({ error: 'Count já deletado' });
+
+    await db.query('UPDATE production_counts SET deleted_at = NOW() WHERE id = $1', [req.params.id]);
+    const after = await snapshotRow('production_counts', 'id', req.params.id);
+    await auditAction({ req, action: 'production_count.delete', entityType: 'production_count',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ===== Admin Create Task =====
 router.post('/admin/task/create', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
