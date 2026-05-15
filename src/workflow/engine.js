@@ -544,10 +544,120 @@ async function closeAdHocTask({
   };
 }
 
+/**
+ * Operator starts a break. Closes whatever they were doing, opens a
+ * 'break' oal row pointing at the new pauses row. The pauses table
+ * stays the legacy/canonical store of break info (reason, slack_ts);
+ * oal just mirrors the time-slice for timeline math.
+ */
+async function startBreak({
+  operatorId, reason = null, when = null, slackTs = null,
+}) {
+  if (!Number.isFinite(operatorId)) throw new Error('operatorId required');
+  const ts = when || new Date().toISOString();
+
+  // Insert pauses row (legacy table — preserved for backward-compat).
+  // task_id stays null in the new model (engine handles association via oal).
+  const pauseRes = await db.query(
+    `INSERT INTO pauses (operator, reason, started_at, slack_ts)
+     SELECT name, $2, $3::timestamptz, $4 FROM operators WHERE id = $1
+     RETURNING id`,
+    [operatorId, reason, ts, slackTs]
+  );
+  const pauseId = pauseRes.rows[0]?.id || null;
+
+  const prev = await closeActiveOal(operatorId, ts);
+  const oalId = await openOal({
+    operatorId, activityType: 'break',
+    pauseId, role: null, comeBackFromId: prev?.id || null, when: ts, notes: reason,
+  });
+  if (prev) {
+    await db.query(
+      `UPDATE operator_activity_log SET left_for_id = $1 WHERE id = $2`,
+      [oalId, prev.id]
+    );
+  }
+  return { pauseId, oalId, previousOalId: prev?.id || null };
+}
+
+/**
+ * Operator returns from break. Closes the 'break' oal and pauses row,
+ * opens an 'idle' oal so the operator becomes available again. Caller
+ * can then immediately call startPhase / joinPhase / startAdHocTask if
+ * they meant to resume work.
+ */
+async function endBreak({ operatorId, when = null }) {
+  if (!Number.isFinite(operatorId)) throw new Error('operatorId required');
+  const ts = when || new Date().toISOString();
+
+  // Find current break oal
+  const cur = await db.query(
+    `SELECT id, pause_id, started_at
+     FROM operator_activity_log
+     WHERE operator_id = $1 AND ended_at IS NULL AND activity_type = 'break'
+     ORDER BY id DESC LIMIT 1`,
+    [operatorId]
+  );
+  if (cur.rows.length === 0) return { wasOnBreak: false };
+  const prev = cur.rows[0];
+
+  await db.query(
+    `UPDATE operator_activity_log
+     SET ended_at = $1::timestamptz,
+         duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - started_at))::int,
+         updated_at = NOW()
+     WHERE id = $2`,
+    [ts, prev.id]
+  );
+  if (prev.pause_id) {
+    await db.query(
+      `UPDATE pauses SET ended_at = $1::timestamptz, ended_reason = 'manual_return'
+       WHERE id = $2 AND ended_at IS NULL`,
+      [ts, prev.pause_id]
+    );
+  }
+  const idleOal = await openOal({
+    operatorId, activityType: 'idle',
+    comeBackFromId: prev.id, when: ts,
+  });
+  await db.query(
+    `UPDATE operator_activity_log SET left_for_id = $1 WHERE id = $2`,
+    [idleOal, prev.id]
+  );
+  return {
+    wasOnBreak: true, previousOalId: prev.id, idleOalId: idleOal,
+    pauseId: prev.pause_id,
+    durationSeconds: Math.round((new Date(ts) - new Date(prev.started_at)) / 1000),
+  };
+}
+
+/**
+ * Get the operator's current activity (single row). Returns null when
+ * they have nothing open (clocked out / never clocked in today).
+ */
+async function getCurrentActivity(operatorId) {
+  const r = await db.query(
+    `SELECT oal.id, oal.activity_type, oal.started_at, oal.role,
+            oal.phase_instance_id, oal.ad_hoc_task_instance_id, oal.pause_id,
+            pi.phase_name, pi.batch_number,
+            wi.product_name, wi.id AS workflow_instance_id,
+            ati.task_name AS ad_hoc_name
+     FROM operator_activity_log oal
+     LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
+     LEFT JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+     LEFT JOIN ad_hoc_task_instances ati ON ati.id = oal.ad_hoc_task_instance_id
+     WHERE oal.operator_id = $1 AND oal.ended_at IS NULL
+     ORDER BY oal.id DESC LIMIT 1`,
+    [operatorId]
+  );
+  return r.rows[0] || null;
+}
+
 module.exports = {
   closeActiveOal, openOal, checkPrereqs,
   startPhase, joinPhase, leaveCurrent, closePhase,
   findOrCreateWorkflowInstance,
   findOrCreateAdHocTask, resolveReporteLink,
   startAdHocTask, closeAdHocTask,
+  startBreak, endBreak, getCurrentActivity,
 };
