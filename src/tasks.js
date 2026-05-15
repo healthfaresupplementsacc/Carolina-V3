@@ -312,6 +312,47 @@ async function handlePendingResponse(operator, rawMsg) {
       return false;  // Unclear answer — let message process normally
     }
 
+    case 'confirm_join_orders': {
+      // B7: response to "tá ajudando X nas ordens?"
+      if (isAffirmative(text)) {
+        const { ordersSessionId, ordersOwner } = pending;
+        const sess = await db.query(
+          'SELECT helpers FROM orders_sessions WHERE id = $1',
+          [ordersSessionId]
+        );
+        const existing = (sess.rows[0]?.helpers || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (!existing.includes(operator)) {
+          existing.push(operator);
+          await db.query(
+            'UPDATE orders_sessions SET helpers = $1, updated_at = NOW() WHERE id = $2',
+            [existing.join(', '), ordersSessionId]
+          );
+        }
+        await clearPendingQuestion(operator);
+        await slackClient.postMessage(
+          pick(JOIN_YES_MSGS)(operator, `ordens com ${ordersOwner}`)
+        );
+        return true;
+      }
+      if (isNegative(text)) {
+        const { pendingStart } = pending;
+        await clearPendingQuestion(operator);
+        if (pendingStart) {
+          // Re-run handleOrdersStart with bypass so it creates a separate session.
+          const orders = require('./orders');
+          await orders.handleOrdersStart(
+            { ...pendingStart, _bypassJoin: true },
+            rawMsg
+          );
+        }
+        return true;
+      }
+      return false; // unclear answer — let the message process normally
+    }
+
     case 'confirm_join': {
       if (isAffirmative(text)) {
         const { joiningTaskId, joiningTaskSupplement, joiningTaskOperator } = pending;
@@ -1029,6 +1070,7 @@ module.exports = {
   handlePendingResponse,
   handleJoinProducao,
   getPendingQuestion,
+  storePendingQuestion,
   clearPendingQuestion,
   closeOpenBreakFor,
   getOpenTasks,

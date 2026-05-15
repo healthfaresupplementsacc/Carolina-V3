@@ -9,6 +9,19 @@
 const db = require('./db');
 // Avoid circular dep: require lazily inside the handler.
 function getTaskEngine() { return require('./tasks'); }
+function getSlackClient() { return require('./slack/client'); }
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+// B7: ask whether the second operator is joining the open Ordens session
+// rather than starting a fresh one. Wait up to 20min for a reply (B18 window).
+const ASK_JOIN_ORDERS_MSGS = [
+  (op, owner) => `${op}, tá ajudando a ${owner} no packing das ordens, ou é outra impressão?`,
+  (op, owner) => `${op} — você entrou nas ordens da ${owner} ou começou uma sessão separada?`,
+  (op, owner) => `${op}, é ajuda na sessão da ${owner} ou tá fazendo uma nova?`,
+  (op, owner) => `oi ${op}, você está junto com ${owner} nas ordens ou é separado?`,
+  (op, owner) => `${op}, confirmando: ajudando ${owner} nas ordens, ou outra sessão?`,
+];
 
 /**
  * Start a new orders session.
@@ -36,20 +49,26 @@ async function handleOrdersStart(parsed, rawMsg) {
 
   if (existing.rows.length > 0) {
     const session = existing.rows[0];
-    if (session.operator !== operator && operator) {
-      // Different person — add as helper
-      const helpers = session.helpers
-        ? session.helpers.split(',').map(h => h.trim()).filter(Boolean)
-        : [];
-      if (!helpers.includes(operator)) {
-        helpers.push(operator);
-        await db.query(
-          'UPDATE orders_sessions SET helpers = $1, updated_at = NOW() WHERE id = $2',
-          [helpers.join(', '), session.id]
-        );
-        console.log(`[Orders] ${operator} joined as helper for session #${session.id}`);
+    if (session.operator !== operator && operator && !parsed._bypassJoin) {
+      // B7: don't silently auto-add. Ask the joiner whether they're helping
+      // or starting a separate session. The reply (within 20min) is handled
+      // by tasks.handlePendingResponse → confirm_join_orders case.
+      try {
+        await getSlackClient().postMessage(pick(ASK_JOIN_ORDERS_MSGS)(operator, session.operator));
+        await getTaskEngine().storePendingQuestion(operator, {
+          questionType: 'confirm_join_orders',
+          ordersSessionId: session.id,
+          ordersOwner: session.operator,
+          pendingStart: { operator, orderCount, ts: msgTs },
+        });
+      } catch (err) {
+        console.error('[Orders] ask-join error:', err.message);
       }
-      return; // don't create a new session
+      console.log(`[Orders] ${operator} → asked if joining session #${session.id} (${session.operator})`);
+      return;
+    }
+    if (session.operator !== operator && operator && parsed._bypassJoin) {
+      // User answered 'no' (separate session) — fall through to create one.
     }
     // Same operator starting again (e.g. second batch) — fall through to create new session
   }
