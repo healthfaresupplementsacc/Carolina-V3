@@ -18,11 +18,22 @@ const app = express();
 
 // ===== MIDDLEWARE =====
 app.use(cors());
+
+// Slack signature verification needs the exact raw body. Capture it for
+// /slack/* routes only, before the JSON/urlencoded parsers consume it.
+function rawBodySaver(req, _res, buf) {
+  if (buf && buf.length) req.rawBody = buf.toString('utf8');
+}
+app.use('/slack', express.json({ verify: rawBodySaver }));
+app.use('/slack', express.urlencoded({ extended: true, verify: rawBodySaver }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/archive', express.static(path.join(process.cwd(), 'public', 'archive')));
 
 // ===== ROUTES =====
+const slackEvents = require('./slack/events');
+app.use('/', slackEvents.router); // Entrega 3 — /slack/events (Events API + Interactivity)
 app.use('/api', apiRouter);
 app.use('/api', workflowRouter); // Entrega 3 — workflow_templates et al
 app.use('/', dashboardRouter);
