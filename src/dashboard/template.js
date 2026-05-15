@@ -639,6 +639,8 @@ function generateDashboard() {
       <div class="break-banner-time" id="break-time"></div>
     </div>
   </div>
+  <!-- BREAK ADMIN LIST (admin only — Entrega 2 commit 10) -->
+  <div id="break-admin-list" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px"></div>
 
   <!-- CREATE TASK MODAL (admin only) -->
   <div id="create-task-modal" class="modal-overlay">
@@ -1118,6 +1120,25 @@ function openEdit(type, id, currentVals) {
         <label class="modal-label">Fim</label>
         <input id="ef-ord-end" class="modal-input" type="datetime-local" value="\${escHtml(currentVals.ended_at || '')}">
       </div>\`;
+  } else if (type === 'pause') {
+    document.getElementById('edit-modal-title').textContent = 'Break';
+    fieldsHtml = \`
+      <div class="modal-field">
+        <label class="modal-label">Operador</label>
+        <input id="ef-pause-op" class="modal-input" type="text" value="\${escHtml(currentVals.operator || '')}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Motivo</label>
+        <input id="ef-pause-reason" class="modal-input" type="text" value="\${escHtml(currentVals.reason || '')}" placeholder="almoço, banheiro, manutenção...">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Início</label>
+        <input id="ef-pause-start" class="modal-input" type="datetime-local" value="\${escHtml(currentVals.started_at || '')}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Fim (opcional — deixa vazio se ainda em break)</label>
+        <input id="ef-pause-end" class="modal-input" type="datetime-local" value="\${escHtml(currentVals.ended_at || '')}">
+      </div>\`;
   } else if (type === 'formulation') {
     document.getElementById('edit-modal-title').textContent = tr('formulation');
     fieldsHtml = \`
@@ -1184,6 +1205,14 @@ async function submitEdit() {
     if (formStart) body.started_at = formStart;
     if (formEnd)   body.ended_at   = formEnd;
     endpoint = \`/api/admin/formulation/\${id}\`;
+  } else if (type === 'pause') {
+    body.operator   = (document.getElementById('ef-pause-op')?.value || '').trim();
+    body.reason     = (document.getElementById('ef-pause-reason')?.value || '').trim();
+    const ps        = (document.getElementById('ef-pause-start')?.value || '').trim();
+    const pe        = (document.getElementById('ef-pause-end')?.value || '').trim();
+    if (ps) body.started_at = ps;
+    if (pe) body.ended_at   = pe;
+    endpoint = \`/api/admin/pause/\${id}\`;
   }
 
   try {
@@ -1233,6 +1262,58 @@ async function closeTask(id) {
   } catch (err) {
     alert('Erro de conexão');
   }
+}
+
+// ===== Entrega 2 admin actions =====
+// Generic helper that POSTs/DELETEs an admin endpoint with the PIN,
+// confirms first, and refreshes the dashboard on success.
+async function adminAction(opts) {
+  if (!adminUnlocked) return;
+  if (opts.confirm && !confirm(opts.confirm)) return;
+  try {
+    const fetchOpts = {
+      method: opts.method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (opts.method !== 'DELETE') {
+      fetchOpts.body = JSON.stringify({ pin: _adminPin, ...(opts.body || {}) });
+    }
+    const url = opts.method === 'DELETE'
+      ? opts.url + (opts.url.includes('?') ? '&' : '?') + 'pin=' + encodeURIComponent(_adminPin)
+      : opts.url;
+    const res = await fetch(url, fetchOpts);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.error || ('Erro ' + res.status)); return; }
+    await fetchAndRender();
+  } catch (err) {
+    alert('Erro de conexão');
+  }
+}
+
+async function reopenTask(id) {
+  return adminAction({ method: 'POST', url: '/api/admin/task/' + id + '/reopen',
+                       confirm: 'Reabrir essa tarefa?' });
+}
+async function deleteTask(id) {
+  return adminAction({ method: 'DELETE', url: '/api/admin/task/' + id,
+                       confirm: 'Apagar essa tarefa? (soft delete — pode ser revertido pelo banco)' });
+}
+async function deleteOrders(id) {
+  return adminAction({ method: 'PUT', url: '/api/admin/order/' + id,
+                       body: { status: 'deleted' },
+                       confirm: 'Apagar essa sessão de ordens?' });
+}
+async function closePause(id) {
+  return adminAction({ method: 'POST', url: '/api/admin/pause/' + id + '/close',
+                       confirm: 'Encerrar esse break agora?' });
+}
+async function deletePause(id) {
+  return adminAction({ method: 'DELETE', url: '/api/admin/pause/' + id,
+                       confirm: 'Apagar esse break?' });
+}
+async function deleteCount(id) {
+  return adminAction({ method: 'DELETE', url: '/api/admin/count/' + id,
+                       confirm: 'Apagar essa contagem?' });
 }
 
 // ===== CREATE TASK (admin) =====
@@ -1318,8 +1399,10 @@ async function submitCreateOrder() {
 // ===== BREAK BANNER =====
 function renderBreakBanner(breaks) {
   const banner = document.getElementById('break-banner');
+  const adminList = document.getElementById('break-admin-list');
   if (!breaks || breaks.length === 0) {
     banner.style.display = 'none';
+    if (adminList) adminList.style.display = 'none';
     breakStartTimes = {};
     return;
   }
@@ -1329,6 +1412,33 @@ function renderBreakBanner(breaks) {
   breakStartTimes = {};
   breaks.forEach(b => { breakStartTimes[b.id] = new Date(b.started_at).getTime(); });
   updateBreakTime();
+
+  // Admin-only: per-break list with close/edit/delete buttons (B17)
+  if (adminList) {
+    if (adminUnlocked) {
+      adminList.style.display = 'block';
+      adminList.innerHTML = '<div style="font-weight:600;margin-bottom:6px">⚠️ Breaks ativos (admin)</div>' +
+        breaks.map(b => {
+          const startedLocal = b.started_at
+            ? new Date(b.started_at).toLocaleString('sv-SE', { timeZone: 'America/New_York' }).replace(' ', 'T').slice(0,16)
+            : '';
+          const editPayload = JSON.stringify({
+            operator: b.operator || '',
+            reason: b.reason || '',
+            started_at: startedLocal,
+            ended_at: '',
+          });
+          return \`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid #fde68a">
+            <span style="flex:1">\${escHtml(b.operator || '?')} · iniciado \${formatTime(b.started_at)}\${b.reason ? ' · ' + escHtml(b.reason) : ''}</span>
+            <button class="edit-btn" onclick='openEdit("pause",\${b.id},\${editPayload})'>\${tr('editBtn')}</button>
+            <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick="closePause(\${b.id})">Encerrar</button>
+            <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deletePause(\${b.id})">Excluir</button>
+          </div>\`;
+        }).join('');
+    } else {
+      adminList.style.display = 'none';
+    }
+  }
 }
 
 function updateBreakTime() {
@@ -1385,8 +1495,9 @@ function renderOrders(sessions) {
     const rateTxt = s.orders_per_hour
       ? \`<span class="order-rate-badge">\${s.orders_per_hour} \${tr('ordersPerHour')}</span>\`
       : '';
-    const editBtn = adminUnlocked
-      ? \`<button class="edit-btn" onclick='openEdit("order",\${s.id},{order_count:\${s.order_count||0},operator:\${JSON.stringify(s.operator||"")},batch_label:\${JSON.stringify(s.batch_label||"afternoon")},started_at:\${JSON.stringify(s.started_at?new Date(s.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace("T"," ").slice(0,16):"")},ended_at:\${JSON.stringify(s.ended_at?new Date(s.ended_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace("T"," ").slice(0,16):"")}})'>\${tr('editBtn')}</button>\`
+    const adminBtns = adminUnlocked
+      ? \`<button class="edit-btn" onclick='openEdit("order",\${s.id},{order_count:\${s.order_count||0},operator:\${JSON.stringify(s.operator||"")},batch_label:\${JSON.stringify(s.batch_label||"afternoon")},started_at:\${JSON.stringify(s.started_at?new Date(s.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace("T"," ").slice(0,16):"")},ended_at:\${JSON.stringify(s.ended_at?new Date(s.ended_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace("T"," ").slice(0,16):"")}})'>\${tr('editBtn')}</button>
+         <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteOrders(\${s.id})">Excluir</button>\`
       : '';
     return \`
       <div class="order-chip">
@@ -1397,7 +1508,7 @@ function renderOrders(sessions) {
           <span class="order-time-text">\${formatTime(s.started_at)}\${s.ended_at ? ' → ' + formatTime(s.ended_at) : ''} · \${dur}</span>
           \${rateTxt}
         </div>
-        \${editBtn}
+        <span style="display:inline-flex;gap:4px">\${adminBtns}</span>
       </div>\`;
   }).join('') + \`</div>\`;
 }
@@ -1422,8 +1533,10 @@ function renderOpenTasks(tasks) {
     const urgClass = getUrgencyClass(task);
     const batchLabel = task.batch_number ? \` #\${task.batch_number}\` : '';
     const operatorLabel = task.operator ? \` • \${task.operator}\` : '';
-    const editBtn = adminUnlocked
-      ? \`<button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:""})})'>\${tr('editBtn')}</button>\`
+    const adminBtns = adminUnlocked
+      ? \`<button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:""})})'>\${tr('editBtn')}</button>
+         <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick="closeTask(\${task.id})">Fechar</button>
+         <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
       : '';
     return \`
       <div class="task-card \${urgClass}" id="task-\${task.id}">
@@ -1433,7 +1546,7 @@ function renderOpenTasks(tasks) {
           <div class="task-meta">\${tr('startedAt')} \${formatTime(task.started_at)}\${escHtml(operatorLabel)}</div>
         </div>
         <span class="task-badge \${getBadgeClass(urgClass)}">\${getBadgeLabel(urgClass)}</span>
-        \${editBtn}
+        \${adminBtns}
       </div>\`;
   }).join('');
 }
@@ -1509,8 +1622,10 @@ function renderProd(tasks, counts) {
       }
     }
 
-    const editBtn = adminUnlocked
-      ? \`<button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:task.ended_at?new Date(task.ended_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):""})})'>\${tr('editBtn')}</button>\`
+    const adminBtns = adminUnlocked
+      ? \`<button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:task.ended_at?new Date(task.ended_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):""})})'>\${tr('editBtn')}</button>
+         <button class="edit-btn" style="background:#3b82f6;color:#fff;border:none" onclick="reopenTask(\${task.id})">Reabrir</button>
+         <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
       : '';
 
     return \`
@@ -1520,7 +1635,7 @@ function renderProd(tasks, counts) {
             <span class="prod-name">\${suppLabel}</span>
             <span class="prod-batch">#\${batchLabel}</span>
           </div>
-          <div class="prod-comps">\${compHtml}\${editBtn ? '<span style="margin-left:6px">' + editBtn + '</span>' : ''}</div>
+          <div class="prod-comps">\${compHtml}\${adminBtns ? '<span style="margin-left:6px;display:inline-flex;gap:4px">' + adminBtns + '</span>' : ''}</div>
         </div>
         <div class="prod-attr">\${attrLine}</div>
         \${pauseHtml}
