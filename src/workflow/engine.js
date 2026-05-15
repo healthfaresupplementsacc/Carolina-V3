@@ -366,8 +366,188 @@ async function findOrCreateWorkflowInstance({
   return { workflowInstanceId: ins.rows[0].id, created: true };
 }
 
+/**
+ * Find or create an ad_hoc_tasks entry by name. When the name is not in
+ * the catalog, creates it with admin_approved=false so the admin chat
+ * alert can surface it for review (Princípio R4 / R8).
+ *
+ * Match is case-insensitive on name to avoid duplicate "Limpeza" vs
+ * "limpeza" entries.
+ */
+async function findOrCreateAdHocTask({ name, createdByOperatorId = null }) {
+  if (!name || !name.trim()) throw new Error('name required');
+  const trimmed = name.trim();
+  const existing = await db.query(
+    `SELECT id, name, admin_approved FROM ad_hoc_tasks
+     WHERE LOWER(name) = LOWER($1) AND is_active = TRUE
+     ORDER BY admin_approved DESC, id ASC
+     LIMIT 1`,
+    [trimmed]
+  );
+  if (existing.rows.length > 0) {
+    return { id: existing.rows[0].id, name: existing.rows[0].name,
+             adminApproved: existing.rows[0].admin_approved, created: false };
+  }
+  const ins = await db.query(
+    `INSERT INTO ad_hoc_tasks (name, is_active, admin_approved, created_by_operator_id)
+     VALUES ($1, TRUE, FALSE, $2)
+     RETURNING id, name`,
+    [trimmed, createdByOperatorId]
+  );
+  return { id: ins.rows[0].id, name: ins.rows[0].name,
+           adminApproved: false, created: true };
+}
+
+/**
+ * Try to extract a Formulação (FO-NNNN) batch identifier from a message
+ * and find a workflow_instance + Contagem phase to link a "Reporte no
+ * sistema" instance to. Returns:
+ *   { matched: true, workflowInstanceId, phaseInstanceId? }   when found
+ *   { matched: false }                                        otherwise
+ *
+ * Implements the "fallback duplo" approved by Bruno: if we can tie the
+ * Reporte to a real batch's Contagem, we do; otherwise the ad-hoc
+ * instance stands alone.
+ */
+async function resolveReporteLink({ text }) {
+  if (!text) return { matched: false };
+  const m = text.match(/FO[-\s]?\d{4,6}/i);
+  if (!m) return { matched: false };
+  const foCode = m[0].toUpperCase().replace(/\s/g, '').replace(/^FO(\d)/, 'FO-$1');
+
+  // Most batches use FO-00xxx in the existing data; match either the raw
+  // suffix (00614) or the full code in workflow_instances.batch_number.
+  const tail = foCode.replace(/^FO-?/, '');
+  const wf = await db.query(
+    `SELECT id FROM workflow_instances
+     WHERE status IN ('active', 'closed')
+       AND (batch_number = $1 OR batch_number = $2 OR batch_number LIKE $3)
+     ORDER BY started_at DESC LIMIT 1`,
+    [foCode, tail, `%${tail}%`]
+  );
+  if (wf.rows.length === 0) return { matched: false };
+  const workflowInstanceId = wf.rows[0].id;
+
+  // Find a Contagem phase_instance on this workflow (open or closed)
+  const ph = await db.query(
+    `SELECT pi.id FROM phase_instances pi
+     JOIN phase_templates pt ON pt.id = pi.phase_template_id
+     WHERE pi.workflow_instance_id = $1
+       AND pt.name = 'Contagem'
+       AND pi.status <> 'deleted'
+     ORDER BY pi.started_at DESC LIMIT 1`,
+    [workflowInstanceId]
+  );
+  return {
+    matched: true,
+    workflowInstanceId,
+    phaseInstanceId: ph.rows[0]?.id || null,
+  };
+}
+
+/**
+ * Start an ad-hoc task instance for an operator. Closes the operator's
+ * previous activity and opens a new oal row of activity_type='ad_hoc'.
+ *
+ * Optionally tries to link to a workflow_instance via `text` (used by
+ * "Reporte no sistema" — if the message mentions FO-NNNN and we can
+ * find the batch, fill linked_workflow_instance_id + linked_phase_instance_id).
+ */
+async function startAdHocTask({
+  taskName, operatorId, text = null, when = null, notes = null,
+  createdByOperatorId = null,
+}) {
+  if (!Number.isFinite(operatorId)) throw new Error('operatorId required');
+  const task = await findOrCreateAdHocTask({
+    name: taskName, createdByOperatorId: createdByOperatorId || operatorId,
+  });
+
+  let linkedWorkflowInstanceId = null, linkedPhaseInstanceId = null;
+  if (/^reporte/i.test(task.name) || /quantidade.*sistema/i.test(text || '')) {
+    const link = await resolveReporteLink({ text });
+    if (link.matched) {
+      linkedWorkflowInstanceId = link.workflowInstanceId;
+      linkedPhaseInstanceId = link.phaseInstanceId;
+    }
+  }
+
+  const ins = await db.query(
+    `INSERT INTO ad_hoc_task_instances
+       (ad_hoc_task_id, task_name, status, started_at, started_by_operator_id,
+        linked_workflow_instance_id, linked_phase_instance_id, notes)
+     VALUES ($1, $2, 'open', COALESCE($3::timestamptz, NOW()), $4, $5, $6, $7)
+     RETURNING id`,
+    [task.id, task.name, when, operatorId,
+     linkedWorkflowInstanceId, linkedPhaseInstanceId, notes]
+  );
+  const adHocTaskInstanceId = ins.rows[0].id;
+
+  const prev = await closeActiveOal(operatorId, when || new Date().toISOString());
+  const oalId = await openOal({
+    operatorId, activityType: 'ad_hoc', adHocTaskInstanceId,
+    role: 'starter', comeBackFromId: prev?.id || null, when,
+  });
+  if (prev) {
+    await db.query(
+      `UPDATE operator_activity_log SET left_for_id = $1 WHERE id = $2`,
+      [oalId, prev.id]
+    );
+  }
+
+  return {
+    adHocTaskInstanceId, oalId, taskId: task.id, taskName: task.name,
+    isPending: !task.adminApproved,
+    isNewTaskInCatalog: task.created,
+    linkedWorkflowInstanceId, linkedPhaseInstanceId,
+  };
+}
+
+async function closeAdHocTask({
+  adHocTaskInstanceId, closedByOperatorId = null, when = null,
+}) {
+  if (!Number.isFinite(adHocTaskInstanceId)) throw new Error('adHocTaskInstanceId required');
+  const endedAt = when || new Date().toISOString();
+  const cur = await db.query(
+    `SELECT id, status FROM ad_hoc_task_instances WHERE id = $1`,
+    [adHocTaskInstanceId]
+  );
+  if (cur.rows.length === 0) throw new Error('ad_hoc_task_instance not found');
+  if (cur.rows[0].status !== 'open') {
+    return { alreadyClosed: true, participants: [] };
+  }
+  await db.query(
+    `UPDATE ad_hoc_task_instances
+     SET status = 'closed', ended_at = $1::timestamptz, closed_by_operator_id = $2, updated_at = NOW()
+     WHERE id = $3`,
+    [endedAt, closedByOperatorId, adHocTaskInstanceId]
+  );
+  const closed = await db.query(
+    `UPDATE operator_activity_log
+     SET ended_at = $1::timestamptz,
+         duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - started_at))::int,
+         updated_at = NOW()
+     WHERE ad_hoc_task_instance_id = $2 AND ended_at IS NULL
+     RETURNING id, operator_id`,
+    [endedAt, adHocTaskInstanceId]
+  );
+  const everyone = await db.query(
+    `SELECT DISTINCT oal.operator_id, o.name
+     FROM operator_activity_log oal
+     JOIN operators o ON o.id = oal.operator_id
+     WHERE oal.ad_hoc_task_instance_id = $1`,
+    [adHocTaskInstanceId]
+  );
+  return {
+    alreadyClosed: false,
+    closedOalRows: closed.rows,
+    participants: everyone.rows.map((r) => ({ id: r.operator_id, name: r.name })),
+  };
+}
+
 module.exports = {
   closeActiveOal, openOal, checkPrereqs,
   startPhase, joinPhase, leaveCurrent, closePhase,
   findOrCreateWorkflowInstance,
+  findOrCreateAdHocTask, resolveReporteLink,
+  startAdHocTask, closeAdHocTask,
 };
