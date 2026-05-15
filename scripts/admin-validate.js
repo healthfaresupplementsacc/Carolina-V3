@@ -98,7 +98,14 @@ async function lastAudit(action, entityId) {
      ORDER BY id DESC LIMIT 1`,
     entityId != null ? [action, String(entityId)] : [action]
   );
-  return rows[0] || null;
+  // pg auto-parses JSONB to objects, but some drivers return strings.
+  // Normalize so callers can just use row.after_data.helpers etc.
+  const row = rows[0];
+  if (row) {
+    if (typeof row.before_data === 'string') { try { row.before_data = JSON.parse(row.before_data); } catch {} }
+    if (typeof row.after_data  === 'string') { try { row.after_data  = JSON.parse(row.after_data);  } catch {} }
+  }
+  return row || null;
 }
 
 // ─── Test runner ─────────────────────────────────────────────────────────
@@ -168,7 +175,7 @@ async function runTaskLifecycle() {
     assert(rows[0].task_type === 'revisao', 'task_type not updated');
     assert(/admin-validate/.test(rows[0].description), 'description not updated');
     const a = await lastAudit('task.edit', taskId);
-    assert(a && JSON.parse(a.after_data).helpers === 'Ana, Bruno', 'audit after_data missing helpers');
+    assert(a && a.after_data && a.after_data.helpers === 'Ana, Bruno', 'audit after_data missing helpers');
   });
 
   await step('POST /admin/task/:id/close → audit task.close', async () => {
