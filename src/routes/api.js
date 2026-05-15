@@ -708,6 +708,96 @@ router.delete('/admin/count/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ===== Admin: Operators CRUD =====
+
+// GET /api/admin/operators?pin=XXX — list all operators (active + inactive)
+router.get('/admin/operators', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const result = await db.query(
+      `SELECT id, name, slack_user_id, is_shared_account, active, aliases, role,
+              created_at, updated_at
+       FROM operators
+       ORDER BY active DESC, name ASC`
+    );
+    res.json(result.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/operator/create
+router.post('/admin/operator/create', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const { name, slack_user_id, is_shared_account, aliases, role } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name é obrigatório' });
+
+    const result = await db.query(
+      `INSERT INTO operators (name, slack_user_id, is_shared_account, aliases, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
+      [name.trim(), slack_user_id || null, !!is_shared_account, (aliases || '').trim(), role || null]
+    );
+    const newId = result.rows[0].id;
+    const after = await snapshotRow('operators', 'id', newId);
+    await auditAction({ req, action: 'operator.create', entityType: 'operator',
+                        entityId: newId, before: null, after });
+    res.json({ ok: true, id: newId });
+  } catch (err) {
+    if (/duplicate key/.test(err.message)) {
+      return res.status(409).json({ error: 'Operador com esse nome já existe' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/operator/:id
+router.put('/admin/operator/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+
+    const { name, slack_user_id, is_shared_account, active, aliases, role } = req.body;
+    const sets = ['updated_at = NOW()'];
+    const params = [];
+    if (name              !== undefined) { sets.push(`name              = $${params.length+1}`); params.push(name.trim()); }
+    if (slack_user_id     !== undefined) { sets.push(`slack_user_id     = NULLIF($${params.length+1},'')`); params.push(slack_user_id || ''); }
+    if (is_shared_account !== undefined) { sets.push(`is_shared_account = $${params.length+1}`); params.push(!!is_shared_account); }
+    if (active            !== undefined) { sets.push(`active            = $${params.length+1}`); params.push(!!active); }
+    if (aliases           !== undefined) { sets.push(`aliases           = $${params.length+1}`); params.push(aliases || ''); }
+    if (role              !== undefined) { sets.push(`role              = NULLIF($${params.length+1},'')`); params.push(role || ''); }
+    if (sets.length === 1) return res.status(400).json({ error: 'Nada para atualizar' });
+
+    params.push(req.params.id);
+    await db.query(`UPDATE operators SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('operators', 'id', req.params.id);
+    await auditAction({ req, action: 'operator.edit', entityType: 'operator',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) {
+    if (/duplicate key/.test(err.message)) {
+      return res.status(409).json({ error: 'Nome já usado por outro operador' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/operator/:id — sets active=false (operators don't have deleted_at)
+router.delete('/admin/operator/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+    if (!before.active) return res.status(400).json({ error: 'Operator já está inativo' });
+
+    await db.query('UPDATE operators SET active = FALSE, updated_at = NOW() WHERE id = $1', [req.params.id]);
+    const after = await snapshotRow('operators', 'id', req.params.id);
+    await auditAction({ req, action: 'operator.deactivate', entityType: 'operator',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ===== Admin Create Task =====
 router.post('/admin/task/create', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });

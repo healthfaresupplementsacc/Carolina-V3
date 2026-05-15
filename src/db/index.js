@@ -105,6 +105,10 @@ async function migrate() {
       active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Entrega 2: operators get aliases (e.g. 'Aninha,Bru') and role
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS aliases TEXT DEFAULT '';
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS role VARCHAR(50);
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
     CREATE TABLE IF NOT EXISTS supplements (
       id SERIAL PRIMARY KEY,
