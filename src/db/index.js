@@ -328,6 +328,55 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_phase_instances_legacy
       ON phase_instances(legacy_table, legacy_id) WHERE legacy_id IS NOT NULL;
 
+    -- ad_hoc_tasks: catalog of free-standing activities (cleaning, training,
+    -- meetings, "Reporte no sistema", etc) that aren't part of any
+    -- production workflow. Seeded with 8 (commit 1.5) but admin can CRUD.
+    -- admin_approved=false means an operator started a new ad-hoc task
+    -- that wasn't in the catalog — admin reviews and approves/merges.
+    CREATE TABLE IF NOT EXISTS ad_hoc_tasks (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(120) UNIQUE NOT NULL,
+      description TEXT,
+      is_active BOOLEAN DEFAULT TRUE,
+      admin_approved BOOLEAN DEFAULT FALSE,
+      created_by_operator_id INTEGER REFERENCES operators(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ad_hoc_tasks_active
+      ON ad_hoc_tasks(is_active);
+    CREATE INDEX IF NOT EXISTS idx_ad_hoc_tasks_pending
+      ON ad_hoc_tasks(admin_approved) WHERE admin_approved = FALSE;
+
+    -- ad_hoc_task_instances: one row per occurrence of an ad-hoc task.
+    -- linked_workflow_instance_id is set when the engine inferred a
+    -- workflow link (e.g. "Reporte no sistema" matched FO-NNNN to a
+    -- Contagem phase of a real batch — Princípio: fallback duplo).
+    CREATE TABLE IF NOT EXISTS ad_hoc_task_instances (
+      id SERIAL PRIMARY KEY,
+      ad_hoc_task_id INTEGER REFERENCES ad_hoc_tasks(id),
+      task_name VARCHAR(120), -- denormalized for fast display
+      status VARCHAR(20) DEFAULT 'open', -- 'open' | 'closed' | 'cancelled' | 'deleted'
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      ended_at TIMESTAMPTZ,
+      started_by_operator_id INTEGER REFERENCES operators(id),
+      closed_by_operator_id INTEGER REFERENCES operators(id),
+      linked_workflow_instance_id INTEGER REFERENCES workflow_instances(id),
+      linked_phase_instance_id INTEGER REFERENCES phase_instances(id),
+      notes TEXT,
+      meta JSONB DEFAULT '{}'::jsonb,
+      legacy_table VARCHAR(40),
+      legacy_id    INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_adhoc_instances_active
+      ON ad_hoc_task_instances(status) WHERE status = 'open';
+    CREATE INDEX IF NOT EXISTS idx_adhoc_instances_task
+      ON ad_hoc_task_instances(ad_hoc_task_id);
+    CREATE INDEX IF NOT EXISTS idx_adhoc_instances_legacy
+      ON ad_hoc_task_instances(legacy_table, legacy_id) WHERE legacy_id IS NOT NULL;
+
     -- Entrega 2: every admin write goes through auditAction() and lands here.
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id SERIAL PRIMARY KEY,
