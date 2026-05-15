@@ -15,6 +15,7 @@ const slackClient = require('./slack/client');
 const { takeScreenshot } = require('./screenshot');
 const db = require('./db');
 const tasks = require('./tasks');
+const orders = require('./orders');
 const fs = require('fs');
 
 let pollTimer = null;
@@ -94,11 +95,20 @@ async function runEod() {
       console.error('[EOD] Screenshot failed:', err.message);
     }
 
+    // B14: include orders total in the summary
+    let dayOrdersTotal = { total: 0, sessionCount: 0 };
+    try { dayOrdersTotal = await orders.getDayOrdersTotal(today); }
+    catch (err) { console.error('[EOD] getDayOrdersTotal error:', err.message); }
+
     // Build summary message
     const lines = [`Resumo do dia - ${formatDate(today)}`];
     lines.push('');
     lines.push(`Total produzido: *${totalBottles} bottles*`);
     lines.push(`Tarefas concluidas: ${todayTasks.length}`);
+    if (dayOrdersTotal.total > 0) {
+      const sess = dayOrdersTotal.sessionCount === 1 ? 'sessão' : 'sessões';
+      lines.push(`Ordens do dia: ${dayOrdersTotal.total} em ${dayOrdersTotal.sessionCount} ${sess}`);
+    }
     lines.push('');
 
     if (todayTasks.length > 0) {

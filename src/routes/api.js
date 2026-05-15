@@ -44,7 +44,7 @@ router.get('/dashboard', async (req, res) => {
       ? `date_trunc('week', '${date}'::date)`
       : `date_trunc('week', (NOW() AT TIME ZONE 'America/New_York')::date)`;
 
-    const [openTasks, todayTasks, timeline, operators, archive, pauseResult, todayOrders, todayFormulations, todayMessages, todayNotes, activeBreaksResult, yesterdayResult, weekResult, prodSummaryRow] = await Promise.all([
+    const [openTasks, todayTasks, timeline, operators, archive, pauseResult, todayOrders, dayOrdersTotal, todayFormulations, todayMessages, todayNotes, activeBreaksResult, yesterdayResult, weekResult, prodSummaryRow] = await Promise.all([
       tasks.getOpenTasks(date),
       tasks.getTodayTasks(date),
       getTimeline(date),
@@ -52,6 +52,7 @@ router.get('/dashboard', async (req, res) => {
       getArchive(),
       db.query(`SELECT COUNT(*) as cnt FROM pauses WHERE (started_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}`),
       orders.getTodayOrders(date),
+      orders.getDayOrdersTotal(date),
       formulation.getTodayFormulations(date),
       getTodayMessages(date),
       getTodayNotes(date),
@@ -138,6 +139,7 @@ router.get('/dashboard', async (req, res) => {
       openTasks: openTasksEst,
       todayTasks: todayWithComparison,
       todayOrders,
+      dayOrdersTotal, // B14: { total, sessionCount } across all orders_sessions of the day
       todayFormulations,
       todayMessages,
       todayNotes,

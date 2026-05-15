@@ -155,4 +155,25 @@ async function getTodayOrders(date) {
   return result.rows;
 }
 
-module.exports = { handleOrdersStart, handleOrdersFinish, getTodayOrders };
+/**
+ * B14: total order_count across all orders_sessions for a given day.
+ * Returns { total, sessionCount } so the dashboard/EOD can show
+ * 'Ordens de hoje: N em M sessões' even when the 2nd-print count was
+ * added later — previously only individual sessions were visible.
+ */
+async function getDayOrdersTotal(date) {
+  const dateExpr = date
+    ? `'${date}'::date`
+    : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+  const result = await db.query(
+    `SELECT
+       COALESCE(SUM(order_count), 0)::int AS total,
+       COUNT(*)::int AS session_count
+     FROM orders_sessions
+     WHERE (started_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}`
+  );
+  const row = result.rows[0] || { total: 0, session_count: 0 };
+  return { total: row.total, sessionCount: row.session_count };
+}
+
+module.exports = { handleOrdersStart, handleOrdersFinish, getTodayOrders, getDayOrdersTotal };
