@@ -1096,6 +1096,25 @@ function openEdit(type, id, currentVals) {
         <label class="modal-label">Fim</label>
         <input id="ef-task-end" class="modal-input" type="datetime-local" value="\${escHtml(currentVals.ended_at || '')}">
       </div>
+      <div class="modal-field">
+        <label class="modal-label">Helpers (separados por vírgula)</label>
+        <input id="ef-task-helpers" class="modal-input" type="text" value="\${escHtml(currentVals.helpers || '')}" placeholder="ex: Ana, Bruno">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Tipo</label>
+        <select id="ef-task-type" class="modal-input">
+          <option value="">(sem alterar)</option>
+          <option value="producao">Produção</option>
+          <option value="revisao">Revisão</option>
+          <option value="limpeza">Limpeza</option>
+          <option value="label">Label</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Observação</label>
+        <input id="ef-task-desc" class="modal-input" type="text" value="\${escHtml(currentVals.description || '')}">
+      </div>
       \${!currentVals.ended_at ? '<button onclick="closeTask(' + id + ');closeEditModal();" style="margin-top:8px;width:100%;background:#e53e3e;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;cursor:pointer;font-weight:600">✅ Fechar Tarefa Agora</button>' : ''}\`;
   } else if (type === 'order') {
     document.getElementById('edit-modal-title').textContent = tr('orders');
@@ -1119,6 +1138,33 @@ function openEdit(type, id, currentVals) {
       <div class="modal-field">
         <label class="modal-label">Fim</label>
         <input id="ef-ord-end" class="modal-input" type="datetime-local" value="\${escHtml(currentVals.ended_at || '')}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Helpers (separados por vírgula)</label>
+        <input id="ef-ord-helpers" class="modal-input" type="text" value="\${escHtml(currentVals.helpers || '')}" placeholder="ex: Ana, Bruno">
+      </div>\`;
+  } else if (type === 'count') {
+    document.getElementById('edit-modal-title').textContent = 'Contagem';
+    fieldsHtml = \`
+      <div class="modal-field">
+        <label class="modal-label">Suplemento</label>
+        <input id="ef-cnt-supp" class="modal-input" type="text" value="\${escHtml(currentVals.supplement_name || '')}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Lote</label>
+        <input id="ef-cnt-batch" class="modal-input" type="text" value="\${escHtml(currentVals.batch_number || '')}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Quantidade (bottles)</label>
+        <input id="ef-cnt-count" class="modal-input" type="number" min="0" value="\${currentVals.count || 0}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Operador</label>
+        <input id="ef-cnt-op" class="modal-input" type="text" value="\${escHtml(currentVals.operator || '')}">
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Reportado em</label>
+        <input id="ef-cnt-ts" class="modal-input" type="datetime-local" value="\${escHtml(currentVals.reported_at || '')}">
       </div>\`;
   } else if (type === 'pause') {
     document.getElementById('edit-modal-title').textContent = 'Break';
@@ -1182,6 +1228,10 @@ async function submitEdit() {
     body.supplement_name = (document.getElementById('ef-supp')?.value || '').trim();
     body.batch_number    = (document.getElementById('ef-batch')?.value || '').trim();
     body.operator        = (document.getElementById('ef-task-op')?.value || '').trim();
+    body.helpers         = (document.getElementById('ef-task-helpers')?.value || '').trim();
+    const taskTypeVal    = (document.getElementById('ef-task-type')?.value || '').trim();
+    if (taskTypeVal)     body.task_type = taskTypeVal;
+    body.description     = (document.getElementById('ef-task-desc')?.value || '');
     const taskStart      = (document.getElementById('ef-task-start')?.value || '').trim();
     const taskEnd        = (document.getElementById('ef-task-end')?.value || '').trim();
     if (taskStart) body.started_at = taskStart;
@@ -1190,12 +1240,21 @@ async function submitEdit() {
   } else if (type === 'order') {
     body.order_count  = parseInt(document.getElementById('ef-orders')?.value) || null;
     body.operator     = (document.getElementById('ef-ord-op')?.value || '').trim();
+    body.helpers      = (document.getElementById('ef-ord-helpers')?.value || '').trim();
     body.batch_label  = (document.getElementById('ef-ord-batch')?.value || '').trim();
     const ordStart    = (document.getElementById('ef-ord-start')?.value || '').trim();
     const ordEnd      = (document.getElementById('ef-ord-end')?.value || '').trim();
     if (ordStart) body.started_at = ordStart;
     if (ordEnd)   body.ended_at   = ordEnd;
     endpoint = \`/api/admin/order/\${id}\`;
+  } else if (type === 'count') {
+    body.supplement_name = (document.getElementById('ef-cnt-supp')?.value || '').trim();
+    body.batch_number    = (document.getElementById('ef-cnt-batch')?.value || '').trim();
+    body.count           = parseInt(document.getElementById('ef-cnt-count')?.value);
+    body.operator        = (document.getElementById('ef-cnt-op')?.value || '').trim();
+    const cntTs          = (document.getElementById('ef-cnt-ts')?.value || '').trim();
+    if (cntTs) body.reported_at = cntTs;
+    endpoint = \`/api/admin/count/\${id}\`;
   } else if (type === 'formulation') {
     body.supplement_name = (document.getElementById('ef-form-supp')?.value || '').trim();
     body.batch_number    = (document.getElementById('ef-form-batch')?.value || '').trim();

@@ -411,11 +411,12 @@ router.put('/admin/order/:id', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const before = await snapshotRow('orders_sessions', 'id', req.params.id);
-    const { order_count, operator, batch_label, started_at, ended_at, status } = req.body;
+    const { order_count, operator, batch_label, started_at, ended_at, status, helpers } = req.body;
     const sets = ['updated_at = NOW()'];
     const params = [];
     if (order_count !== undefined) { sets.push(`order_count = $${params.length+1}`); params.push(parseInt(order_count) || null); }
     if (operator    !== undefined) { sets.push(`operator    = NULLIF($${params.length+1},'')`); params.push(operator || ''); }
+    if (helpers     !== undefined) { sets.push(`helpers     = NULLIF($${params.length+1},'')`); params.push(helpers || ''); }
     if (batch_label !== undefined) { sets.push(`batch_label = NULLIF($${params.length+1},'')`); params.push(batch_label || ''); }
     if (status      !== undefined) { sets.push(`status      = $${params.length+1}`); params.push(status); }
     if (started_at) {
