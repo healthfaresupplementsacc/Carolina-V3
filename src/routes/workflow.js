@@ -882,4 +882,175 @@ router.delete('/admin/ad-hoc-task-instances/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── operator_activity_log (Fase 2.6) ───────────────────────────────────
+
+// GET /api/operator-activity-log?operator_id=N&date=YYYY-MM-DD&since=ISO&active_only=1
+router.get('/operator-activity-log', async (req, res) => {
+  try {
+    const where = [];
+    const params = [];
+    if (req.query.operator_id) {
+      where.push(`oal.operator_id = $${params.length + 1}`);
+      params.push(parseInt(req.query.operator_id));
+    }
+    if (req.query.date) {
+      where.push(`(oal.started_at AT TIME ZONE 'America/New_York')::date = $${params.length + 1}::date`);
+      params.push(req.query.date);
+    }
+    if (req.query.since) {
+      where.push(`oal.started_at >= $${params.length + 1}::timestamptz`);
+      params.push(req.query.since);
+    }
+    if (req.query.active_only === '1') where.push('oal.ended_at IS NULL');
+    const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
+    const r = await db.query(
+      `SELECT oal.id, oal.operator_id, oal.activity_type,
+              oal.phase_instance_id, oal.ad_hoc_task_instance_id, oal.pause_id,
+              oal.started_at, oal.ended_at, oal.duration_seconds, oal.role,
+              oal.left_for_id, oal.came_back_from_id, oal.notes,
+              o.name AS operator_name,
+              pi.phase_name, pi.batch_number AS phase_batch_number,
+              wi.product_name, wi.id AS workflow_instance_id,
+              ati.task_name AS ad_hoc_name
+       FROM operator_activity_log oal
+       LEFT JOIN operators o ON o.id = oal.operator_id
+       LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
+       LEFT JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+       LEFT JOIN ad_hoc_task_instances ati ON ati.id = oal.ad_hoc_task_instance_id
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY oal.started_at DESC, oal.id DESC
+       LIMIT ${limit}`,
+      params
+    );
+    res.json(r.rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/admin/operator-activity-log/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('operator_activity_log', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+
+    const sets = ['updated_at = NOW()'];
+    const params = [];
+    const {
+      activity_type, phase_instance_id, ad_hoc_task_instance_id, pause_id,
+      started_at, ended_at, role, left_for_id, came_back_from_id, notes,
+    } = req.body;
+    if (activity_type !== undefined) {
+      if (!['phase','ad_hoc','break','idle'].includes(activity_type)) {
+        return res.status(400).json({ error: 'activity_type inválido' });
+      }
+      sets.push(`activity_type = $${params.length + 1}`); params.push(activity_type);
+    }
+    if (phase_instance_id !== undefined)        { sets.push(`phase_instance_id = $${params.length + 1}`);        params.push(phase_instance_id || null); }
+    if (ad_hoc_task_instance_id !== undefined)  { sets.push(`ad_hoc_task_instance_id = $${params.length + 1}`);  params.push(ad_hoc_task_instance_id || null); }
+    if (pause_id !== undefined)                 { sets.push(`pause_id = $${params.length + 1}`);                 params.push(pause_id || null); }
+    if (started_at)                             { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
+    if (ended_at !== undefined)                 { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (role !== undefined)                     { sets.push(`role = $${params.length + 1}`); params.push(role || null); }
+    if (left_for_id !== undefined)              { sets.push(`left_for_id = $${params.length + 1}`); params.push(left_for_id || null); }
+    if (came_back_from_id !== undefined)        { sets.push(`came_back_from_id = $${params.length + 1}`); params.push(came_back_from_id || null); }
+    if (notes !== undefined)                    { sets.push(`notes = $${params.length + 1}`); params.push(notes || null); }
+
+    // Recompute duration_seconds if both timestamps are set
+    sets.push(`duration_seconds = CASE WHEN ended_at IS NOT NULL THEN EXTRACT(EPOCH FROM (ended_at - started_at))::int ELSE NULL END`);
+
+    params.push(id);
+    await db.query(`UPDATE operator_activity_log SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('operator_activity_log', 'id', id);
+    await auditAction({ req, action: 'oal.edit', entityType: 'operator_activity_log',
+                        entityId: id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/admin/operator-activity-log/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const before = await snapshotRow('operator_activity_log', 'id', id);
+    if (!before) return res.status(404).json({ error: 'not found' });
+    // Hard delete: operator_activity_log is finely-grained, soft-delete adds
+    // noise to the timeline. Audit log preserves the before state forever.
+    await db.query('DELETE FROM operator_activity_log WHERE id = $1', [id]);
+    await auditAction({ req, action: 'oal.delete', entityType: 'operator_activity_log',
+                        entityId: id, before, after: null });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/move-operator
+// body: { pin, operator_id, target_phase_instance_id? OR target_ad_hoc_task_instance_id?,
+//         retroactive_started_at? (defaults to NOW) }
+// Closes the operator's current active row (if any) and opens a new one
+// at the destination. Records the transition with left_for_id link.
+router.post('/admin/move-operator', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const {
+      operator_id, target_phase_instance_id, target_ad_hoc_task_instance_id,
+      retroactive_started_at, role,
+    } = req.body;
+    if (!Number.isFinite(operator_id)) return res.status(400).json({ error: 'operator_id obrigatório' });
+    const hasPhase = Number.isFinite(target_phase_instance_id);
+    const hasAdhoc = Number.isFinite(target_ad_hoc_task_instance_id);
+    if (hasPhase === hasAdhoc) {
+      return res.status(400).json({ error: 'forneça EXATAMENTE 1 destino (phase_instance OU ad_hoc_task_instance)' });
+    }
+
+    const cur = await db.query(
+      `SELECT id FROM operator_activity_log
+       WHERE operator_id = $1 AND ended_at IS NULL
+       ORDER BY id DESC LIMIT 1`,
+      [operator_id]
+    );
+    const previousId = cur.rows[0]?.id || null;
+    const ts = retroactive_started_at || new Date().toISOString();
+
+    // Open new log row first so we can link back
+    const insRes = await db.query(
+      `INSERT INTO operator_activity_log
+         (operator_id, activity_type, phase_instance_id, ad_hoc_task_instance_id,
+          started_at, role, came_back_from_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [operator_id,
+       hasPhase ? 'phase' : 'ad_hoc',
+       hasPhase ? target_phase_instance_id : null,
+       hasAdhoc ? target_ad_hoc_task_instance_id : null,
+       ts,
+       role || 'joiner',
+       previousId]
+    );
+    const newId = insRes.rows[0].id;
+
+    // Close the previous row (if any) and link it forward
+    if (previousId) {
+      await db.query(
+        `UPDATE operator_activity_log
+         SET ended_at = $1::timestamptz,
+             duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - started_at))::int,
+             left_for_id = $2,
+             updated_at = NOW()
+         WHERE id = $3`,
+        [ts, newId, previousId]
+      );
+    }
+
+    await auditAction({
+      req, action: 'oal.move_operator', entityType: 'operator_activity_log',
+      entityId: newId,
+      before: { previous_oal_id: previousId },
+      after: { new_oal_id: newId, target_phase: target_phase_instance_id || null,
+               target_adhoc: target_ad_hoc_task_instance_id || null, ts },
+    });
+    res.json({ ok: true, new_oal_id: newId, previous_oal_id: previousId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;
