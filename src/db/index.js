@@ -220,6 +220,45 @@ async function migrate() {
       VALUES ('silent_reactions', 'false', NOW())
       ON CONFLICT (key) DO NOTHING;
 
+    -- ─── Entrega 3: ISA-88 style data model ────────────────────────────
+    -- workflow_templates: top-level kinds of work the admin defines.
+    -- Seeded with 3 templates (Produção de Suplemento, Picking & Packing,
+    -- Envio FBA/Walmart/Tiktok/Ebay) — admin can CRUD freely afterwards.
+    CREATE TABLE IF NOT EXISTS workflow_templates (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(120) UNIQUE NOT NULL,
+      description TEXT,
+      is_active BOOLEAN DEFAULT TRUE,
+      allows_product BOOLEAN DEFAULT FALSE, -- true when product_id is required/expected
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_templates_active
+      ON workflow_templates(is_active);
+
+    -- phase_templates: ordered fases inside a workflow_template.
+    -- prerequisite_phase_ids is a jsonb array of phase_template ids. When
+    -- prerequisite_mode='all', every listed phase must be closed before
+    -- this one is allowed (with soft_prereq, it only alerts admin instead
+    -- of blocking). When mode='any', AT LEAST ONE of the listed phases
+    -- must be closed (used for Encapsulação/Tablet → Revisão).
+    CREATE TABLE IF NOT EXISTS phase_templates (
+      id SERIAL PRIMARY KEY,
+      workflow_template_id INTEGER REFERENCES workflow_templates(id) ON DELETE CASCADE,
+      name VARCHAR(120) NOT NULL,
+      sequence_order INTEGER NOT NULL DEFAULT 0,
+      is_required BOOLEAN DEFAULT TRUE,
+      can_run_parallel BOOLEAN DEFAULT FALSE,
+      parallel_group VARCHAR(40), -- string tag; phases with same tag may run together
+      prerequisite_phase_ids JSONB DEFAULT '[]'::jsonb,
+      prerequisite_mode VARCHAR(10) DEFAULT 'all', -- 'all' | 'any'
+      soft_prereq BOOLEAN DEFAULT TRUE,           -- true = alert admin instead of blocking
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_phase_templates_workflow
+      ON phase_templates(workflow_template_id, sequence_order);
+
     -- Entrega 2: every admin write goes through auditAction() and lands here.
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id SERIAL PRIMARY KEY,
