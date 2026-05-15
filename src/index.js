@@ -9,6 +9,7 @@ const config = require('./config');
 const db = require('./db');
 const dashboardRouter = require('./dashboard/router');
 const apiRouter = require('./routes/api');
+const workflowRouter = require('./routes/workflow');
 const { loadCustomSupplements } = apiRouter;
 const poller = require('./slack/poller');
 const { startPolling, startEodJob } = require('./scheduler');
@@ -23,6 +24,7 @@ app.use('/archive', express.static(path.join(process.cwd(), 'public', 'archive')
 
 // ===== ROUTES =====
 app.use('/api', apiRouter);
+app.use('/api', workflowRouter); // Entrega 3 — workflow_templates et al
 app.use('/', dashboardRouter);
 
 // ===== STARTUP =====
