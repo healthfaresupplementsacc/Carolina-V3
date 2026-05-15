@@ -185,6 +185,50 @@ async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- Entrega 2: every admin write goes through auditAction() and lands here.
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id SERIAL PRIMARY KEY,
+      admin_user VARCHAR(100),
+      action VARCHAR(80) NOT NULL,
+      entity_type VARCHAR(50) NOT NULL,
+      entity_id VARCHAR(100),
+      before_data JSONB,
+      after_data JSONB,
+      source VARCHAR(50) DEFAULT 'api',
+      request_meta JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created_at
+      ON admin_audit_log(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_entity
+      ON admin_audit_log(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_action
+      ON admin_audit_log(action);
+
+    -- Entrega 2: learned synonyms from task merges. Next time alias_term shows
+    -- up in a message, the engine knows it maps to canonical_term.
+    CREATE TABLE IF NOT EXISTS task_aliases (
+      id SERIAL PRIMARY KEY,
+      canonical_term VARCHAR(200) NOT NULL,
+      alias_term VARCHAR(200) NOT NULL,
+      learned_from_task_id INTEGER,
+      learned_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (canonical_term, alias_term)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_aliases_alias
+      ON task_aliases(LOWER(alias_term));
+
+    -- Entrega 2: soft-delete columns. Tasks already use status='deleted'
+    -- via the existing status VARCHAR. Other tables get an explicit
+    -- deleted_at TIMESTAMPTZ. NULL = active.
+    ALTER TABLE pauses              ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    ALTER TABLE orders_sessions     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    ALTER TABLE production_counts   ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    ALTER TABLE formulation_sessions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS idx_pauses_active ON pauses(deleted_at) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_orders_active ON orders_sessions(deleted_at) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_counts_active ON production_counts(deleted_at) WHERE deleted_at IS NULL;
+
     -- Default operators
     INSERT INTO operators (name, slack_user_id, is_shared_account) VALUES
       ('Ana', NULL, FALSE),
