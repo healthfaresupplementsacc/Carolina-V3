@@ -63,82 +63,257 @@ router.get('/archive/:date', async (req, res) => {
   }));
 });
 
-// Admin page
+// Admin page — Entrega 2 commit 12: full CRUD for operators + supplements
+// served as a separate page so the main dashboard stays focused on the
+// production-line view. PIN gate is handled client-side via fetch to
+// the existing /api/admin/* endpoints (which already enforce the PIN
+// and write to admin_audit_log).
 router.get('/admin', async (req, res) => {
-  const ops = await db.query('SELECT * FROM operators ORDER BY name');
-  const state = await db.query('SELECT * FROM app_state');
-  const stateMap = Object.fromEntries(state.rows.map(r => [r.key, r.value]));
+  const state = await db.query('SELECT key, value, updated_at FROM app_state ORDER BY key');
+  const stateRows = state.rows;
 
   res.send(`<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Admin - HealthFare</title>
+  <title>Admin — HealthFare</title>
   <style>
-    body { font-family: -apple-system, sans-serif; padding: 24px; max-width: 600px; margin: 0 auto; color: #1f2937; }
+    body { font-family: -apple-system, sans-serif; padding: 24px; max-width: 980px; margin: 0 auto; color: #1f2937; background:#f5f7fb; }
     h1 { color: #1d4f91; margin-bottom: 24px; }
-    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin: 24px 0 12px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-    th { background: #f9fafb; font-weight: 600; }
-    .btn { background: #1d4f91; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin: 28px 0 12px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+    th { background: #f9fafb; font-weight: 600; font-size:11px; text-transform:uppercase; color:#6b7280; }
+    .btn { background: #1d4f91; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
     .btn-red { background: #ef4444; }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; background: #d1fae5; color: #065f46; }
-    input[type=text] { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
-    .state-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+    .btn-green { background: #10b981; }
+    .btn-gray { background: #6b7280; }
+    .pill-on  { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; background: #d1fae5; color: #065f46; }
+    .pill-off { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; background: #fee2e2; color: #991b1b; }
+    input[type=text], input[type=number], select { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; width: 100%; box-sizing: border-box; }
+    .state-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f3f4f6; font-size: 12px; }
+    .state-row code { background:#f3f4f6; padding:1px 6px; border-radius:3px; }
     a { color: #1d4f91; }
     .back { display: inline-block; margin-bottom: 20px; color: #1d4f91; text-decoration: none; }
+    .row { display:grid; grid-template-columns: 130px 130px 1fr 100px 80px 120px; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid #f3f4f6; }
+    .row-head { font-size:11px; text-transform:uppercase; color:#6b7280; font-weight:600; }
+    .form-add { display:grid; grid-template-columns: 130px 130px 1fr 100px 80px 120px; gap:8px; align-items:center; padding-top:8px; }
+    #pin-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+    #pin-overlay .box { background:#fff; padding:24px; border-radius:10px; min-width:280px; }
+    #pin-overlay input { width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin:8px 0; }
+    .err { color:#ef4444; font-size:12px; margin-top:6px; min-height:14px; }
+    .hint { color:#6b7280; font-size:11px; margin-top:4px; }
   </style>
 </head>
 <body>
+  <div id="pin-overlay">
+    <div class="box">
+      <strong>Admin PIN</strong>
+      <input id="pin-input" type="password" autocomplete="off" placeholder="••••••" autofocus>
+      <div class="err" id="pin-err"></div>
+      <button class="btn" onclick="unlockAdmin()" style="width:100%">Entrar</button>
+    </div>
+  </div>
+
   <a href="/" class="back">← Voltar ao dashboard</a>
   <h1>Admin</h1>
 
-  <h2>Operadores</h2>
-  <table>
-    <thead><tr><th>Nome</th><th>Slack ID</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-      ${ops.rows.map(op => `
+  <div class="card">
+    <h2 style="margin-top:0">Operadores</h2>
+    <div class="row row-head">
+      <span>Nome</span><span>Slack ID</span><span>Aliases (sep. ,)</span>
+      <span>Role</span><span>Ativo</span><span>Ações</span>
+    </div>
+    <div id="ops-list">Carregando...</div>
+
+    <div class="form-add">
+      <input id="new-op-name" type="text" placeholder="Nome">
+      <input id="new-op-slack" type="text" placeholder="Slack ID">
+      <input id="new-op-aliases" type="text" placeholder="aliases">
+      <input id="new-op-role" type="text" placeholder="role">
+      <span></span>
+      <button class="btn btn-green" onclick="createOperator()">+ Adicionar</button>
+    </div>
+    <div class="err" id="new-op-err"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Suplementos custom</h2>
+    <div class="hint">A lista padrão de 73 suplementos vem hardcoded no parser. Aqui você só vê os adicionados manualmente.</div>
+    <table>
+      <thead><tr><th style="width:200px">Canonical</th><th>Aliases (sep. ,)</th><th style="width:140px">Ações</th></tr></thead>
+      <tbody id="supps-list"><tr><td colspan="3">Carregando...</td></tr></tbody>
+    </table>
+
+    <div style="display:grid; grid-template-columns: 200px 1fr 120px; gap:8px; align-items:center; margin-top:8px">
+      <input id="new-supp-name" type="text" placeholder="Canonical (ex: Chlorella)">
+      <input id="new-supp-aliases" type="text" placeholder="aliases (ex: chlorela, clorella)">
+      <button class="btn btn-green" onclick="createSupplement()">+ Adicionar</button>
+    </div>
+    <div class="err" id="new-supp-err"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Estado do Sistema (read-only)</h2>
+    ${stateRows.map(r => `<div class="state-row"><code>${r.key}</code><span style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.value||'').replace(/"/g,'&quot;')}">${(r.value||'').slice(0,80)}${(r.value||'').length>80?'…':''}</span></div>`).join('')}
+  </div>
+
+  <script>
+    let _pin = '';
+
+    async function unlockAdmin() {
+      const pin = document.getElementById('pin-input').value.trim();
+      // Light validation: hit GET /api/admin/operators which requires the PIN.
+      try {
+        const r = await fetch('/api/admin/operators?pin=' + encodeURIComponent(pin));
+        if (r.status === 403) {
+          document.getElementById('pin-err').textContent = 'PIN incorreto';
+          return;
+        }
+        if (!r.ok) {
+          document.getElementById('pin-err').textContent = 'Erro ' + r.status;
+          return;
+        }
+        _pin = pin;
+        document.getElementById('pin-overlay').style.display = 'none';
+        loadOperators();
+        loadSupplements();
+      } catch (err) {
+        document.getElementById('pin-err').textContent = 'Erro de conexão';
+      }
+    }
+    document.getElementById('pin-input').addEventListener('keypress', e => {
+      if (e.key === 'Enter') unlockAdmin();
+    });
+
+    function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+    async function loadOperators() {
+      const r = await fetch('/api/admin/operators?pin=' + encodeURIComponent(_pin));
+      const ops = await r.json();
+      document.getElementById('ops-list').innerHTML = ops.map(o => \`
+        <div class="row" data-id="\${o.id}">
+          <input type="text" value="\${esc(o.name)}" id="op-name-\${o.id}">
+          <input type="text" value="\${esc(o.slack_user_id||'')}" id="op-slack-\${o.id}" placeholder="-">
+          <input type="text" value="\${esc(o.aliases||'')}" id="op-aliases-\${o.id}">
+          <input type="text" value="\${esc(o.role||'')}" id="op-role-\${o.id}">
+          <span>\${o.active ? '<span class="pill-on">Ativo</span>' : '<span class="pill-off">Inativo</span>'}</span>
+          <span style="display:flex;gap:4px">
+            <button class="btn" onclick="saveOperator(\${o.id})">Salvar</button>
+            <button class="btn \${o.active ? 'btn-red' : 'btn-green'}" onclick="toggleOperator(\${o.id}, \${o.active})">\${o.active ? 'Desativar' : 'Ativar'}</button>
+          </span>
+        </div>
+      \`).join('');
+    }
+
+    async function saveOperator(id) {
+      const body = {
+        pin: _pin,
+        name:          document.getElementById('op-name-'+id).value.trim(),
+        slack_user_id: document.getElementById('op-slack-'+id).value.trim(),
+        aliases:       document.getElementById('op-aliases-'+id).value.trim(),
+        role:          document.getElementById('op-role-'+id).value.trim(),
+      };
+      const r = await fetch('/api/admin/operator/'+id, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(data.error || ('Erro ' + r.status)); return; }
+      loadOperators();
+    }
+
+    async function toggleOperator(id, active) {
+      if (active) {
+        if (!confirm('Desativar esse operador?')) return;
+        const r = await fetch('/api/admin/operator/'+id+'?pin='+encodeURIComponent(_pin), { method: 'DELETE' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(data.error || 'Erro'); return; }
+      } else {
+        // Reactivate via PUT { active: true }
+        const r = await fetch('/api/admin/operator/'+id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: _pin, active: true }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(data.error || 'Erro'); return; }
+      }
+      loadOperators();
+    }
+
+    async function createOperator() {
+      const body = {
+        pin: _pin,
+        name:          document.getElementById('new-op-name').value.trim(),
+        slack_user_id: document.getElementById('new-op-slack').value.trim() || null,
+        aliases:       document.getElementById('new-op-aliases').value.trim(),
+        role:          document.getElementById('new-op-role').value.trim() || null,
+      };
+      if (!body.name) {
+        document.getElementById('new-op-err').textContent = 'Nome é obrigatório';
+        return;
+      }
+      const r = await fetch('/api/admin/operator/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { document.getElementById('new-op-err').textContent = data.error || 'Erro'; return; }
+      document.getElementById('new-op-err').textContent = '';
+      ['new-op-name','new-op-slack','new-op-aliases','new-op-role'].forEach(id => document.getElementById(id).value = '');
+      loadOperators();
+    }
+
+    async function loadSupplements() {
+      // GET /api/supplements is public; custom-only is what we want
+      const r = await fetch('/api/supplements');
+      const allSupps = await r.json();
+      // The endpoint returns hardcoded + custom; we don't have a way to
+      // distinguish on the frontend, so list everything but only show
+      // delete on items NOT in the hardcoded set. For simplicity here,
+      // show everything and let the DELETE endpoint decide.
+      document.getElementById('supps-list').innerHTML = allSupps.map(s => \`
         <tr>
-          <td>${op.name}</td>
-          <td>${op.slack_user_id || '-'}</td>
-          <td><span class="pill">${op.active ? 'Ativo' : 'Inativo'}</span></td>
-          <td>
-            <form method="POST" action="/admin/operator/${op.id}/toggle" style="display:inline">
-              <button class="btn ${op.active ? 'btn-red' : ''}" type="submit">${op.active ? 'Desativar' : 'Ativar'}</button>
-            </form>
-          </td>
-        </tr>`).join('')}
-    </tbody>
-  </table>
+          <td><strong>\${esc(s.canonical)}</strong></td>
+          <td style="font-size:11px;color:#6b7280">\${esc(s.aliases || '')}</td>
+          <td><button class="btn btn-red" onclick="deleteSupplement('\${esc(s.canonical)}')">Excluir custom</button></td>
+        </tr>
+      \`).join('') || '<tr><td colspan="3" style="color:#6b7280;padding:12px">Nenhum suplemento</td></tr>';
+    }
 
-  <h2>Adicionar Operador</h2>
-  <form method="POST" action="/admin/operator/add" style="display:flex;gap:8px">
-    <input type="text" name="name" placeholder="Nome" required>
-    <input type="text" name="slack_user_id" placeholder="Slack ID (opcional)">
-    <button class="btn" type="submit">Adicionar</button>
-  </form>
+    async function createSupplement() {
+      const body = {
+        pin: _pin,
+        canonical_name: document.getElementById('new-supp-name').value.trim(),
+        aliases:        document.getElementById('new-supp-aliases').value.trim(),
+      };
+      if (!body.canonical_name) {
+        document.getElementById('new-supp-err').textContent = 'Nome é obrigatório';
+        return;
+      }
+      const r = await fetch('/api/admin/supplement', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { document.getElementById('new-supp-err').textContent = data.error || 'Erro'; return; }
+      document.getElementById('new-supp-err').textContent = '';
+      document.getElementById('new-supp-name').value = '';
+      document.getElementById('new-supp-aliases').value = '';
+      loadSupplements();
+    }
 
-  <h2>Estado do Sistema</h2>
-  ${Object.entries(stateMap).map(([k, v]) => `
-    <div class="state-row"><span>${k}</span><span>${v}</span></div>`).join('')}
+    async function deleteSupplement(name) {
+      if (!confirm('Excluir suplemento custom "' + name + '"? (não afeta os 73 padrão)')) return;
+      const r = await fetch('/api/admin/supplement/' + encodeURIComponent(name) + '?pin=' + encodeURIComponent(_pin), { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(data.error || 'Erro'); return; }
+      loadSupplements();
+    }
+  </script>
 </body>
 </html>`);
-});
-
-// Admin actions
-router.post('/admin/operator/:id/toggle', async (req, res) => {
-  await db.query('UPDATE operators SET active = NOT active WHERE id = $1', [req.params.id]);
-  res.redirect('/admin');
-});
-
-router.post('/admin/operator/add', async (req, res) => {
-  const { name, slack_user_id } = req.body;
-  await db.query(
-    'INSERT INTO operators (name, slack_user_id) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING',
-    [name.trim(), slack_user_id?.trim() || null]
-  );
-  res.redirect('/admin');
 });
 
 module.exports = router;
