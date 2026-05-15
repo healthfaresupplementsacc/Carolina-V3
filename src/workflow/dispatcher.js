@@ -29,6 +29,7 @@
 
 const db = require('../db');
 const engine = require('./engine');
+const announce = require('./announce');
 const { detectPhaseHint } = require('../parser');
 
 // task_type → phase template name within "Produção de Suplemento"
@@ -168,6 +169,14 @@ async function dispatch(parsed, rawMsg) {
         when,
         notes: parsed.description || null,
       });
+      // R1: soft prereq violated → admin heads-up (never blocks here)
+      if (phase.prereqWarning && phase.prereqWarning.length) {
+        announce.prereqWarning({
+          operatorName: parsed.operator,
+          phaseName: tpl.phaseName,
+          missing: phase.prereqWarning,
+        }).catch(() => {});
+      }
       return {
         dispatched: true, kind: 'phase_start',
         result: { workflowInstanceId: wf.workflowInstanceId, ...phase, prereqWarning: phase.prereqWarning },
@@ -208,12 +217,18 @@ async function dispatch(parsed, rawMsg) {
 
     case 'count': {
       // Treat as "Reporte no sistema" ad-hoc with fallback duplo.
-      const r = await engine.startAdHocTask({
+      const r0 = await engine.startAdHocTask({
         taskName: 'Reporte no sistema',
         operatorId,
         text: rawMsg?.text || null,
         when,
       });
+      const r = r0;
+      // R4: ad-hoc started outside the catalog → admin review heads-up
+      if (r0.isNewTaskInCatalog || r0.isPending) {
+        announce.adHocPending({ operatorName: parsed.operator, taskName: r0.taskName })
+          .catch(() => {});
+      }
       // Reporte should close immediately — it's a punctual event, not a duration
       const closeRes = await engine.closeAdHocTask({
         adHocTaskInstanceId: r.adHocTaskInstanceId,
