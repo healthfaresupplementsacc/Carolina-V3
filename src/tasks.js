@@ -226,10 +226,14 @@ const JOIN_PRODUCAO_ANNOUNCE = [
 
 // ─── Pending question helpers (stored in app_state) ───────────────────────
 
+// B18: 20-minute window. Per Entrega 1 decision this is hardcoded; the
+// configurable app_config path arrives in Entrega 6.
+const PENDING_QUESTION_WINDOW_MIN = 20;
+
 function pendingKey(operator) { return `pending_q_${operator}`; }
 
 async function storePendingQuestion(operator, data) {
-  const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(); // 2h
+  const expiresAt = new Date(Date.now() + PENDING_QUESTION_WINDOW_MIN * 60 * 1000).toISOString();
   const value = JSON.stringify({ ...data, askedAt: new Date().toISOString(), expiresAt });
   await db.query(
     `INSERT INTO app_state (key, value, updated_at) VALUES ($1, $2, NOW())
@@ -245,6 +249,17 @@ async function getPendingQuestion(operator) {
   try {
     const q = JSON.parse(res.rows[0].value);
     if (new Date(q.expiresAt) < new Date()) {
+      // B18: notify admin once when a question expires unanswered, then clear.
+      try {
+        const eod = require('./eod');
+        if (typeof eod.notifyAdmin === 'function') {
+          await eod.notifyAdmin(
+            `Pergunta pendente expirou — operador *${operator}*, tipo *${q.questionType}* (perguntei às ${q.askedAt}). Status não confirmado.`
+          );
+        }
+      } catch (err) {
+        console.error('[Tasks] expired pending notifyAdmin error:', err.message);
+      }
       await clearPendingQuestion(operator);
       return null;
     }
