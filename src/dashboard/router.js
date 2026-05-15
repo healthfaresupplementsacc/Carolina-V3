@@ -701,4 +701,139 @@ router.get('/operator/:id', async (req, res) => {
 </body></html>`);
 });
 
+// ─── Bug 5: workflow + phase template management (Princípio D) ──────────
+router.get('/admin/workflows', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Workflows — Admin</title><style>
+ body{font-family:-apple-system,sans-serif;padding:24px;max-width:1000px;margin:0 auto;color:#1f2937;background:#f5f7fb}
+ h1{color:#1d4f91}h2{font-size:13px;text-transform:uppercase;color:#6b7280;margin:22px 0 10px}
+ .card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:14px}
+ table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 9px;border-bottom:1px solid #f3f4f6;text-align:left}
+ th{font-size:11px;text-transform:uppercase;color:#6b7280}
+ input,select{padding:4px 7px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;box-sizing:border-box}
+ .btn{background:#1d4f91;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+ .btn-red{background:#ef4444}.btn-green{background:#10b981}.btn-gray{background:#6b7280}
+ a{color:#1d4f91}.back{display:inline-block;margin-bottom:18px}
+ #pin-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:99}
+ #pin-ov .b{background:#fff;padding:24px;border-radius:10px;min-width:280px}.err{color:#ef4444;font-size:12px;min-height:14px}
+ .phase-row{display:grid;grid-template-columns:1fr 60px 70px 70px 90px 110px;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid #f3f4f6}
+</style></head><body>
+<div id="pin-ov"><div class="b"><strong>Admin PIN</strong>
+<input id="pin" type="password" style="width:100%;padding:8px;margin:8px 0"><div class="err" id="pe"></div>
+<button class="btn" style="width:100%" onclick="unlock()">Entrar</button></div></div>
+<a href="/" class="back">← Dashboard</a> &nbsp; <a href="/admin/ad-hoc-tasks" class="back">Tarefas avulsas →</a>
+<h1>Workflows & Fases</h1>
+<div id="root">Carregando…</div>
+<script>
+let _pin='';
+async function unlock(){const p=document.getElementById('pin').value.trim();
+ const r=await fetch('/api/workflow-templates');if(!r.ok){document.getElementById('pe').textContent='erro';return;}
+ // validate pin via an admin GET that requires it
+ const t=await fetch('/api/admin/audit?pin='+encodeURIComponent(p)+'&limit=1');
+ if(t.status===403){document.getElementById('pe').textContent='PIN incorreto';return;}
+ _pin=p;document.getElementById('pin-ov').style.display='none';load();}
+document.getElementById('pin').addEventListener('keypress',e=>{if(e.key==='Enter')unlock();});
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function load(){
+ const wts=await (await fetch('/api/workflow-templates?include_inactive=1')).json();
+ let html='';
+ for(const w of wts){
+  const phs=(await (await fetch('/api/workflow-templates/'+w.id)).json()).phases||[];
+  html+='<div class="card"><h2 style="margin-top:0">'+esc(w.name)+(w.is_active?'':' <span style="color:#ef4444">(inativo)</span>')+'</h2>'+
+   '<div style="font-size:12px;color:#6b7280;margin-bottom:8px">'+esc(w.description||'')+' · allows_product='+w.allows_product+'</div>'+
+   '<div class="phase-row" style="font-weight:600;color:#6b7280;font-size:11px"><span>Fase</span><span>Seq</span><span>Req</span><span>Paral</span><span>Soft pré</span><span>Ações</span></div>';
+  for(const p of phs){
+   html+='<div class="phase-row" data-pid="'+p.id+'">'+
+    '<input value="'+esc(p.name)+'" id="pn'+p.id+'">'+
+    '<input type="number" value="'+p.sequence_order+'" id="ps'+p.id+'" style="width:55px">'+
+    '<input type="checkbox" '+(p.is_required?'checked':'')+' id="pr'+p.id+'">'+
+    '<input type="checkbox" '+(p.can_run_parallel?'checked':'')+' id="pp'+p.id+'">'+
+    '<input type="checkbox" '+(p.soft_prereq?'checked':'')+' id="psp'+p.id+'">'+
+    '<span><button class="btn" onclick="savePhase('+p.id+')">Salvar</button> '+
+    '<button class="btn btn-red" onclick="delPhase('+p.id+')">Del</button></span></div>';
+  }
+  html+='<div style="margin-top:10px;display:flex;gap:6px;align-items:center">'+
+   '<input id="np'+w.id+'" placeholder="Nova fase (nome)"><input id="nps'+w.id+'" type="number" placeholder="seq" style="width:60px">'+
+   '<button class="btn btn-green" onclick="addPhase('+w.id+')">+ Fase</button>'+
+   '<button class="btn '+(w.is_active?'btn-red':'btn-green')+'" onclick="toggleWf('+w.id+','+w.is_active+')">'+(w.is_active?'Desativar':'Ativar')+' workflow</button></div></div>';
+ }
+ html+='<div class="card"><h2 style="margin-top:0">Novo workflow</h2>'+
+  '<input id="nwn" placeholder="Nome"> <input id="nwd" placeholder="Descrição" style="width:280px"> '+
+  '<label><input type="checkbox" id="nwap"> allows_product</label> '+
+  '<button class="btn btn-green" onclick="addWf()">+ Criar</button></div>';
+ document.getElementById('root').innerHTML=html;
+}
+async function api(method,url,body){const o={method,headers:{'Content-Type':'application/json'}};
+ if(method!=='DELETE')o.body=JSON.stringify({pin:_pin,...(body||{})});
+ const u=method==='DELETE'?url+(url.includes('?')?'&':'?')+'pin='+encodeURIComponent(_pin):url;
+ const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok){alert(d.error||('erro '+r.status));return false;}return true;}
+async function savePhase(id){const ok=await api('PUT','/api/admin/phase-templates/'+id,{
+ name:document.getElementById('pn'+id).value.trim(),
+ sequence_order:parseInt(document.getElementById('ps'+id).value)||0,
+ is_required:document.getElementById('pr'+id).checked,
+ can_run_parallel:document.getElementById('pp'+id).checked,
+ soft_prereq:document.getElementById('psp'+id).checked});if(ok)load();}
+async function delPhase(id){if(!confirm('Deletar fase?'))return;if(await api('DELETE','/api/admin/phase-templates/'+id))load();}
+async function addPhase(wid){const n=document.getElementById('np'+wid).value.trim();if(!n)return;
+ if(await api('POST','/api/admin/phase-templates',{workflow_template_id:wid,name:n,sequence_order:parseInt(document.getElementById('nps'+wid).value)||0}))load();}
+async function toggleWf(id,active){if(active){if(!confirm('Desativar workflow?'))return;if(await api('DELETE','/api/admin/workflow-templates/'+id))load();}
+ else{if(await api('PUT','/api/admin/workflow-templates/'+id,{is_active:true}))load();}}
+async function addWf(){const n=document.getElementById('nwn').value.trim();if(!n)return;
+ if(await api('POST','/api/admin/workflow-templates',{name:n,description:document.getElementById('nwd').value.trim(),allows_product:document.getElementById('nwap').checked}))load();}
+</script></body></html>`);
+});
+
+router.get('/admin/ad-hoc-tasks', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Tarefas avulsas — Admin</title><style>
+ body{font-family:-apple-system,sans-serif;padding:24px;max-width:760px;margin:0 auto;color:#1f2937;background:#f5f7fb}
+ h1{color:#1d4f91}.card{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px}
+ .row{display:grid;grid-template-columns:1fr 90px 90px 170px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6}
+ input{padding:4px 7px;border:1px solid #d1d5db;border-radius:4px;font-size:13px}
+ .btn{background:#1d4f91;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+ .btn-red{background:#ef4444}.btn-green{background:#10b981}
+ .pend{background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:700}
+ a{color:#1d4f91}.back{display:inline-block;margin-bottom:18px}
+ #pin-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:99}
+ #pin-ov .b{background:#fff;padding:24px;border-radius:10px;min-width:280px}.err{color:#ef4444;font-size:12px;min-height:14px}
+</style></head><body>
+<div id="pin-ov"><div class="b"><strong>Admin PIN</strong>
+<input id="pin" type="password" style="width:100%;padding:8px;margin:8px 0"><div class="err" id="pe"></div>
+<button class="btn" style="width:100%" onclick="unlock()">Entrar</button></div></div>
+<a href="/" class="back">← Dashboard</a> &nbsp; <a href="/admin/workflows" class="back">← Workflows</a>
+<h1>Tarefas avulsas</h1><div class="card" id="root">Carregando…</div>
+<script>
+let _pin='';
+async function unlock(){const p=document.getElementById('pin').value.trim();
+ const t=await fetch('/api/admin/audit?pin='+encodeURIComponent(p)+'&limit=1');
+ if(t.status===403){document.getElementById('pe').textContent='PIN incorreto';return;}
+ _pin=p;document.getElementById('pin-ov').style.display='none';load();}
+document.getElementById('pin').addEventListener('keypress',e=>{if(e.key==='Enter')unlock();});
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function load(){
+ const ts=await (await fetch('/api/ad-hoc-tasks?include_inactive=1')).json();
+ let h='<div class="row" style="font-weight:600;color:#6b7280;font-size:11px"><span>Nome</span><span>Ativo</span><span>Aprovado</span><span>Ações</span></div>';
+ for(const t of ts){
+  h+='<div class="row"><input value="'+esc(t.name)+'" id="n'+t.id+'">'+
+   '<span>'+(t.is_active?'sim':'não')+'</span>'+
+   '<span>'+(t.admin_approved?'sim':'<span class=\\'pend\\'>pendente</span>')+'</span>'+
+   '<span><button class="btn" onclick="save('+t.id+')">Salvar</button> '+
+   (t.admin_approved?'':'<button class="btn btn-green" onclick="approve('+t.id+')">Aprovar</button> ')+
+   '<button class="btn btn-red" onclick="deact('+t.id+')">'+(t.is_active?'Desativar':'Ativar')+'</button></span></div>';
+ }
+ h+='<div style="margin-top:12px"><input id="nn" placeholder="Nova tarefa avulsa"> <button class="btn btn-green" onclick="add()">+ Criar</button></div>';
+ document.getElementById('root').innerHTML=h;
+}
+async function api(method,url,body){const o={method,headers:{'Content-Type':'application/json'}};
+ if(method!=='DELETE')o.body=JSON.stringify({pin:_pin,...(body||{})});
+ const u=method==='DELETE'?url+'?pin='+encodeURIComponent(_pin):url;
+ const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok){alert(d.error||('erro '+r.status));return false;}return true;}
+async function save(id){if(await api('PUT','/api/admin/ad-hoc-tasks/'+id,{name:document.getElementById('n'+id).value.trim()}))load();}
+async function approve(id){if(await api('PUT','/api/admin/ad-hoc-tasks/'+id,{admin_approved:true}))load();}
+async function deact(id){if(await api('PUT','/api/admin/ad-hoc-tasks/'+id,{is_active:false}))load();}
+async function add(){const n=document.getElementById('nn').value.trim();if(!n)return;
+ if(await api('POST','/api/admin/ad-hoc-tasks',{name:n}))load();}
+</script></body></html>`);
+});
+
 module.exports = router;
