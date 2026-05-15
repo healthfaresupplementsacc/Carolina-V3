@@ -204,16 +204,30 @@ async function poll() {
     if (messages.length > 0) {
       console.log(`[Poller] Processing ${messages.length} new messages`);
 
+      // Bug N2: advance last_processed_ts only past messages that ACTUALLY
+      // succeeded. If a message in the middle of the batch throws, we stop
+      // there and the next poll re-fetches from the last good ts — instead
+      // of skipping every message after the failure. Dedup downstream relies
+      // on the full-precision Slack ts (string, decimals included) stored as
+      // VARCHAR(30) UNIQUE in messages.slack_ts, so re-fetched-but-already-
+      // processed messages are a cheap no-op.
+      let lastSuccessTs = null;
       for (const msg of messages) {
         try {
           await processMessage(msg);
+          lastSuccessTs = msg.ts;
         } catch (err) {
-          console.error(`[Poller] Error processing message ${msg.ts}:`, err.message);
+          console.error(
+            `[Poller] Error processing ${msg.ts}, halting batch (will retry next poll):`,
+            err.message
+          );
+          break;
         }
       }
 
-      const latestTs = messages[messages.length - 1].ts;
-      await setLastTs(latestTs);
+      if (lastSuccessTs) {
+        await setLastTs(lastSuccessTs);
+      }
     }
 
     // B4: also scan recent messages for edits. Slack's `oldest=since` query
