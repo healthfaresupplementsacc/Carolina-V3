@@ -186,8 +186,11 @@ function listSupplements() {
 
 const BATCH_REGEX = /\b(?:FO-\d{4,6}|\b\d{4}\b)/i;
 
+// Separators after the operator name: -, :, ;, , (comma), / (slash)
+// — broader than before because operators frequently type "Bruno ," or
+// "Bruno ;" or "Bruno / X" instead of the canonical "Bruno - X".
 const OPERATOR_PREFIX_REGEX = new RegExp(
-  `^(${config.operators.join('|')})\\s*[-:]\\s*`,
+  `^(${config.operators.join('|')})\\s*[-:;,/]\\s*`,
   'i'
 );
 
@@ -650,16 +653,26 @@ function parseMessage(msg) {
     }
   }
 
+  // Resolve operator even for 'ignore'/'unknown' returns so downstream
+  // features (pending-question response handling, urgency per-operator,
+  // etc.) can still attribute the message correctly.
+  // Bug found in prod: "Bruno - mquina que ... Potassium" had a clear
+  // Bruno prefix but the parser returned unknown WITHOUT operator, so
+  // task engine couldn't route the message.
+  const { operator: fallbackOperator } = resolveOperator(
+    userId, userName, workingText, isShared, prefixOperator
+  );
+
   // Ignore short messages and known noise
   if (/estoque real/i.test(workingText) || /sequ[e]ncia/i.test(workingText) || workingText.length < 10) {
-    return { type: 'ignore', raw: text, ts };
+    return { type: 'ignore', operator: fallbackOperator, raw: text, ts };
   }
 
   if (workingText.length === 0) {
-    return { type: 'ignore', raw: text, ts };
+    return { type: 'ignore', operator: fallbackOperator, raw: text, ts };
   }
 
-  return { type: 'unknown', raw: text, ts };
+  return { type: 'unknown', operator: fallbackOperator, raw: text, ts };
 }
 
 module.exports = { parseMessage, extractSupplement, extractBatch, extractTaskType, resolveOperator, addCustomSupplement, listSupplements };

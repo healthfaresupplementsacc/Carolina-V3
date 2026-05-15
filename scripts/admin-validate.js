@@ -507,8 +507,28 @@ async function runSupplements() {
 }
 
 // ─── Cleanup ─────────────────────────────────────────────────────────────
+// ─── Reserved test-data identifiers ──────────────────────────────────────
+// EVERY row created by this script is identifiable by one of these markers.
+// The sweep below uses these as the source of truth — not the in-memory
+// cleanup arrays, which can lose IDs if an assertion throws mid-test.
+//
+//   operator   = 'AdminValidateTest'   (exact match)
+//   supplement = 'TestSupp_*'          (any int suffix)
+//                'TestSupp_AV_*'
+//                'MergeA_*' / 'MergeB_*'
+//                '_AdminValidateTest_curl' (legacy from older runs)
+//   description / notes prefixed with the MARKER constant '[admin-validate]'
+//
+// The cleanup runs in two stages:
+//   Stage 1 — best-effort cleanup via the in-memory ID lists (covers
+//             entities created in this run; preserves audit trail of
+//             individual deletes).
+//   Stage 2 — sweep: any row matching the reserved identifiers that is
+//             still active (not deleted) gets soft-deleted directly via
+//             SQL, regardless of whether this run created it. Handles
+//             orphans left by earlier failed runs.
 async function cleanupAll() {
-  console.log('\n[Cleanup — soft-deleting test rows]');
+  console.log('\n[Cleanup Stage 1 — soft-deleting tracked rows via admin API]');
   for (const id of cleanup.taskIds) {
     try {
       const row = await dbQuery('SELECT status FROM tasks WHERE id = $1', [id]);
@@ -547,7 +567,7 @@ async function cleanupAll() {
   }
   for (const id of cleanup.ordersIds) {
     try {
-      await pool.query(`UPDATE orders_sessions SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [id]);
+      await pool.query(`UPDATE orders_sessions SET deleted_at = NOW(), status = 'deleted', updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [id]);
       console.log(`  orders_session #${id} soft-deleted`);
     } catch (err) { console.log(`  orders #${id} cleanup error: ${err.message}`); }
   }
@@ -557,6 +577,103 @@ async function cleanupAll() {
       console.log(`  supplement "${name}" deleted`);
     } catch (err) { console.log(`  supplement "${name}" cleanup error: ${err.message}`); }
   }
+
+  console.log('\n[Cleanup Stage 2 — sweep by reserved identifiers]');
+  await sweepCleanup();
+}
+
+/**
+ * Stage-2 sweep — finds anything still active that matches the reserved
+ * test-data identifiers and soft-deletes it. Idempotent. Catches orphans
+ * left when an earlier run crashed before pushing IDs to cleanup arrays.
+ */
+async function sweepCleanup() {
+  const NAME = 'AdminValidateTest';
+  const SUPPS = ["TestSupp_%", "TestSupp_AV_%", "MergeA_%", "MergeB_%", "_AdminValidateTest_curl%"];
+
+  // Tasks: soft-delete any active row with operator=NAME or marker supplement
+  const taskSweep = await pool.query(
+    `UPDATE tasks SET status = 'deleted', updated_at = NOW()
+     WHERE status != 'deleted'
+       AND (operator = $1
+         OR supplement_name LIKE $2
+         OR supplement_name LIKE $3
+         OR supplement_name LIKE $4
+         OR supplement_name LIKE $5
+         OR supplement_name LIKE $6)
+     RETURNING id`,
+    [NAME, ...SUPPS]
+  );
+  if (taskSweep.rows.length > 0) console.log(`  swept ${taskSweep.rows.length} task(s)`);
+
+  // orders_sessions: by operator NAME
+  const ordSweep = await pool.query(
+    `UPDATE orders_sessions
+     SET status = 'deleted', deleted_at = COALESCE(deleted_at, NOW()), updated_at = NOW()
+     WHERE operator = $1 AND (status != 'deleted' OR deleted_at IS NULL)
+     RETURNING id`,
+    [NAME]
+  );
+  if (ordSweep.rows.length > 0) console.log(`  swept ${ordSweep.rows.length} orders_session(s)`);
+
+  // production_counts: by operator NAME or marker supplement
+  const cntSweep = await pool.query(
+    `UPDATE production_counts SET deleted_at = COALESCE(deleted_at, NOW())
+     WHERE deleted_at IS NULL
+       AND (operator = $1
+         OR supplement_name LIKE $2
+         OR supplement_name LIKE $3
+         OR supplement_name LIKE $4
+         OR supplement_name LIKE $5
+         OR supplement_name LIKE $6)
+     RETURNING id`,
+    [NAME, ...SUPPS]
+  );
+  if (cntSweep.rows.length > 0) console.log(`  swept ${cntSweep.rows.length} production_count(s)`);
+
+  // pauses: by operator NAME
+  const pauseSweep = await pool.query(
+    `UPDATE pauses SET deleted_at = COALESCE(deleted_at, NOW())
+     WHERE operator = $1 AND deleted_at IS NULL
+     RETURNING id`,
+    [NAME]
+  );
+  if (pauseSweep.rows.length > 0) console.log(`  swept ${pauseSweep.rows.length} pause(s)`);
+
+  // operators: deactivate by name (handles orphan rows if anyone ever created
+  // an operator named AdminValidateTest, which the audit script does for the
+  // operator-CRUD test)
+  const opSweep = await pool.query(
+    `UPDATE operators SET active = FALSE, updated_at = NOW()
+     WHERE name LIKE 'AdminValidateTest%' AND active = TRUE
+     RETURNING id, name`
+  );
+  if (opSweep.rows.length > 0) console.log(`  deactivated ${opSweep.rows.length} operator(s): ${opSweep.rows.map(r=>r.name).join(', ')}`);
+
+  // supplement_catalog: hard-delete custom suppls with marker names
+  const supSweep = await pool.query(
+    `DELETE FROM supplement_catalog
+     WHERE canonical_name LIKE 'TestSupp_%'
+        OR canonical_name LIKE 'MergeA_%' OR canonical_name LIKE 'MergeB_%'
+        OR canonical_name LIKE '_AdminValidateTest_%'
+     RETURNING canonical_name`
+  );
+  if (supSweep.rows.length > 0) console.log(`  hard-deleted ${supSweep.rows.length} supplement(s)`);
+
+  // task_aliases: hard-delete merge aliases learned from test runs
+  const aliasSweep = await pool.query(
+    `DELETE FROM task_aliases
+     WHERE canonical_term LIKE 'TestSupp_%' OR alias_term LIKE 'TestSupp_%'
+        OR canonical_term LIKE 'MergeA_%'    OR alias_term LIKE 'MergeA_%'
+        OR canonical_term LIKE 'MergeB_%'    OR alias_term LIKE 'MergeB_%'
+        OR canonical_term LIKE '_AdminValidateTest_%' OR alias_term LIKE '_AdminValidateTest_%'
+     RETURNING id`
+  );
+  if (aliasSweep.rows.length > 0) console.log(`  hard-deleted ${aliasSweep.rows.length} task_alias(es)`);
+
+  const total = taskSweep.rows.length + ordSweep.rows.length + cntSweep.rows.length
+              + pauseSweep.rows.length + opSweep.rows.length + supSweep.rows.length + aliasSweep.rows.length;
+  if (total === 0) console.log('  (sweep clean — no orphans)');
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────
