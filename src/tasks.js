@@ -701,7 +701,19 @@ async function handleFinish(parsed, rawMsg) {
   }
 
   if (result.rows.length === 0) {
-    console.warn(`[Tasks] No open task found for ${operator} - ${supplement}`);
+    // B15: F without a matching open task is recorded as a point-event
+    // (duration=0 closed task) so it appears in the timeline. Better than
+    // silently dropping — admin can see what was reported and reconcile.
+    const desc = parsed.description || `F: ${supplement || ''} ${batch || ''}`.trim();
+    await db.query(
+      `INSERT INTO tasks
+         (operator, supplement_name, batch_number, description, started_at, ended_at,
+          duration_seconds, active_duration_seconds, status, task_type, slack_start_ts,
+          slack_end_ts, closed_by)
+       VALUES ($1, $2, $3, $4, $5, $5, 0, 0, 'closed', 'outro', $6, $6, $1)`,
+      [operator || null, supplement || null, batch || null, desc, endedAt, msgTs]
+    );
+    console.log(`[Tasks] F: with no matching task — recorded as point-event (${operator || '?'}, ${supplement || 'no supplement'})`);
     return;
   }
 
