@@ -199,12 +199,19 @@ const ORDERS_CONTINUE_PATTERNS = [
 const ORDERS_COUNT_REGEX = /[-]\s*(\d+)\s*$|(\d+)\s*ordens?\b/i;
 
 const ORDERS_FINISH_PATTERNS = [
-  /\bordens?\s+(?:finaliz|terminad|prontas?|conclu)/i,
+  // "ordens" anywhere followed by a finish word — covers "ordens da segunda impressao feitas"
+  /\bordens?\b.*\b(?:feitas?|prontas?|impacotad[ao]s?|empacotad[ao]s?|empaquetad[ao]s?|finaliz\w+|conclu[ií]d[ao]s?|terminad[ao]s?|fechad[ao]s?)\b/i,
   /\bterminei\s+(?:as\s+)?ordens?/i,
   /\bacabei\s+(?:as\s+)?ordens?/i,
   /\bordens?\s*(?:ok|feito|done)\b/i,
-  /^F:\s*ordens?/i,
+  // F-tag with "ordens" anywhere — covers any separator (: ; / - whitespace)
+  /^F[\s:;/\-]+\s*ordens?\b/i,
 ];
+
+// Detects an F (finish) tag at the very start of the message.
+// Used to disambiguate "F- ordens da segunda impressao feitas" (finish)
+// from "Segunda impressao feita - 67" (orders_continue).
+const HAS_FINISH_TAG_RE = /^F\s*[:;/\-\s]/i;
 
 const FORMULATION_START_PATTERNS = [
   /\bformula[c][a]o\b/i,
@@ -447,13 +454,17 @@ function parseMessage(msg) {
     return { type: 'production_summary', operator, items, totalBottles, raw: text, ts };
   }
 
-  // Orders continue: "segunda impressao feita" etc — must check BEFORE orders_start
-  for (const pat of ORDERS_CONTINUE_PATTERNS) {
-    if (pat.test(workingText)) {
-      const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
-      const countMatch = workingText.match(ORDERS_COUNT_REGEX);
-      const orderCount = countMatch ? parseInt(countMatch[1] || countMatch[2]) : null;
-      return { type: 'orders_continue', operator, orderCount, raw: text, ts };
+  // Orders continue: "segunda impressao feita" etc — must check BEFORE orders_start.
+  // But skip if the message has an explicit F tag — that means orders_finish, not continue.
+  const hasFinishTag = HAS_FINISH_TAG_RE.test(workingText);
+  if (!hasFinishTag) {
+    for (const pat of ORDERS_CONTINUE_PATTERNS) {
+      if (pat.test(workingText)) {
+        const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
+        const countMatch = workingText.match(ORDERS_COUNT_REGEX);
+        const orderCount = countMatch ? parseInt(countMatch[1] || countMatch[2]) : null;
+        return { type: 'orders_continue', operator, orderCount, raw: text, ts };
+      }
     }
   }
 
