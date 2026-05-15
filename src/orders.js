@@ -145,11 +145,18 @@ async function getTodayOrders(date) {
   const dateExpr = date
     ? `'${date}'::date`
     : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+  // Filter out soft-deleted rows. Two paths can mark a row deleted:
+  //   - PUT /admin/order/:id with { status: 'deleted' } (frontend [Excluir] button)
+  //   - direct deleted_at = NOW() update (admin-validate cleanup, future tooling)
+  // The listing must drop both. (Bug found in prod: AdminValidateTest rows
+  // stuck in the UI because this query didn't filter either.)
   const result = await db.query(
     `SELECT *,
        ROUND(order_count::numeric / NULLIF(duration_seconds / 3600.0, 0), 0) as orders_per_hour
      FROM orders_sessions
      WHERE (started_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}
+       AND (status IS NULL OR status != 'deleted')
+       AND deleted_at IS NULL
      ORDER BY started_at ASC`
   );
   return result.rows;
@@ -165,12 +172,16 @@ async function getDayOrdersTotal(date) {
   const dateExpr = date
     ? `'${date}'::date`
     : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+  // Match getTodayOrders filtering so the dashboard total and the row list
+  // agree: deleted sessions don't contribute.
   const result = await db.query(
     `SELECT
        COALESCE(SUM(order_count), 0)::int AS total,
        COUNT(*)::int AS session_count
      FROM orders_sessions
-     WHERE (started_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}`
+     WHERE (started_at AT TIME ZONE 'America/New_York')::date = ${dateExpr}
+       AND (status IS NULL OR status != 'deleted')
+       AND deleted_at IS NULL`
   );
   const row = result.rows[0] || { total: 0, session_count: 0 };
   return { total: row.total, sessionCount: row.session_count };
