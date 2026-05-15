@@ -43,6 +43,10 @@ async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- B4: track Slack edits so we can reprocess the message when text changes
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS edited_at VARCHAR(30);
+    ALTER TABLE messages ADD COLUMN IF NOT EXISTS previous_text TEXT;
+
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
       operator VARCHAR(100),

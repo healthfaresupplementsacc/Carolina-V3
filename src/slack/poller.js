@@ -51,20 +51,42 @@ async function processMessage(msg) {
   if (msg.bot_id || NON_OPERATORS.includes(user)) return;
 
   // Check if already processed
-  const existing = await db.query('SELECT id FROM messages WHERE slack_ts = $1', [ts]);
-  if (existing.rows.length > 0) return;
+  const existing = await db.query(
+    'SELECT id, text, edited_at FROM messages WHERE slack_ts = $1',
+    [ts]
+  );
+
+  // B4: detect Slack edits — when text differs OR Slack `edited` field changed.
+  if (existing.rows.length > 0) {
+    const stored = existing.rows[0];
+    const incomingEditedTs = msg.edited?.ts || null;
+    const textChanged = stored.text !== text;
+    const editedTsChanged = incomingEditedTs && stored.edited_at !== incomingEditedTs;
+    if (!textChanged && !editedTsChanged) return; // unchanged, skip
+
+    console.log(`[Poller] Message ${ts} was edited; reprocessing`);
+    await db.query(
+      `UPDATE messages SET previous_text = $1, text = $2, edited_at = $3, raw_json = $4 WHERE slack_ts = $5`,
+      [stored.text, text, incomingEditedTs || String(Date.now() / 1000), JSON.stringify(msg), ts]
+    );
+    // Fall through to re-parse and re-dispatch handlers with the new text.
+  }
 
   const parsed = parseMessage(msg);
   const parsedType = parsed?.type || 'unknown';
 
-  // Store raw message
-  const userName = msg.username || msg.user_profile?.display_name || user;
-  await db.query(
-    `INSERT INTO messages (slack_ts, channel_id, user_id, user_name, text, raw_json, parsed_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (slack_ts) DO NOTHING`,
-    [ts, config.slack.channelId, user, userName, text, JSON.stringify(msg), parsedType]
-  );
+  // Store raw message (skip insert on edit — already updated above)
+  if (existing.rows.length === 0) {
+    const userName = msg.username || msg.user_profile?.display_name || user;
+    await db.query(
+      `INSERT INTO messages (slack_ts, channel_id, user_id, user_name, text, raw_json, parsed_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (slack_ts) DO NOTHING`,
+      [ts, config.slack.channelId, user, userName, text, JSON.stringify(msg), parsedType]
+    );
+  } else {
+    await db.query('UPDATE messages SET parsed_type = $1 WHERE slack_ts = $2', [parsedType, ts]);
+  }
 
   // Bom dia response — only the first greeting of the day, never during backfill
   if (!isBackfilling && /^bom\s*dia\b/i.test(text.trim())) {
@@ -179,23 +201,24 @@ async function poll() {
     const since = await getLastTs();
     const messages = await slackClient.fetchMessages(since, 100);
 
-    if (messages.length === 0) {
-      return;
-    }
+    if (messages.length > 0) {
+      console.log(`[Poller] Processing ${messages.length} new messages`);
 
-    console.log(`[Poller] Processing ${messages.length} new messages`);
-
-    for (const msg of messages) {
-      try {
-        await processMessage(msg);
-      } catch (err) {
-        console.error(`[Poller] Error processing message ${msg.ts}:`, err.message);
+      for (const msg of messages) {
+        try {
+          await processMessage(msg);
+        } catch (err) {
+          console.error(`[Poller] Error processing message ${msg.ts}:`, err.message);
+        }
       }
+
+      const latestTs = messages[messages.length - 1].ts;
+      await setLastTs(latestTs);
     }
 
-    const latestTs = messages[messages.length - 1].ts;
-    await setLastTs(latestTs);
-
+    // B4: also scan recent messages for edits. Slack's `oldest=since` query
+    // only returns brand-new messages — edits to older messages are missed.
+    await pollEdits();
   } catch (err) {
     console.error('[Poller] Poll cycle error:', err.message);
   } finally {
@@ -209,6 +232,37 @@ async function poll() {
     await eodEngine.checkEod();
   } catch (err) {
     console.error('[Poller] EOD check error:', err.message);
+  }
+}
+
+/**
+ * B4: Detect edits to messages we've already processed.
+ * Fetches the most recent ~50 messages (regardless of `last_processed_ts`)
+ * and lets `processMessage` compare against stored DB state. When text or
+ * the Slack `edited` field changed, `processMessage` updates the row and
+ * re-runs parser + handler dispatch.
+ */
+async function pollEdits() {
+  if (isBackfilling) return; // don't run edit detection during initial backfill
+  try {
+    const recent = await slackClient.fetchRecentMessages(50);
+    let editsFound = 0;
+    for (const msg of recent) {
+      if (!msg.edited) continue; // only re-check messages Slack flagged as edited
+      try {
+        // processMessage internally detects unchanged-and-already-processed
+        // and bails out, so calling it on edited messages is safe and cheap.
+        await processMessage(msg);
+        editsFound++;
+      } catch (err) {
+        console.error(`[Poller] Edit re-process error for ${msg.ts}:`, err.message);
+      }
+    }
+    if (editsFound > 0) {
+      console.log(`[Poller] Re-checked ${editsFound} edited messages`);
+    }
+  } catch (err) {
+    console.error('[Poller] pollEdits error:', err.message);
   }
 }
 

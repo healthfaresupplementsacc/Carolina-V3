@@ -41,6 +41,19 @@ async function fetchMessages(since, limit = 200) {
 }
 
 /**
+ * Fetch the most recent N messages (no `oldest` filter). Used by the edit
+ * detector to compare current Slack state vs DB and reprocess edited messages.
+ */
+async function fetchRecentMessages(limit = 50) {
+  const client = getClient();
+  const result = await client.conversations.history({
+    channel: config.slack.channelId,
+    limit: Math.min(limit, 200),
+  });
+  return result.messages ? result.messages.reverse() : [];
+}
+
+/**
  * Post a message to the production channel as Carolina.
  */
 async function postMessage(text, threadTs = null) {
@@ -122,4 +135,4 @@ async function addReaction(ts) {
   }
 }
 
-module.exports = { fetchMessages, postMessage, postToChannel, postImage, sendDM, getChannelInfo, addReaction };
+module.exports = { fetchMessages, fetchRecentMessages, postMessage, postToChannel, postImage, sendDM, getChannelInfo, addReaction };
