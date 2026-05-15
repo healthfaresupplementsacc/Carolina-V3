@@ -329,7 +329,11 @@ const PAUSE_END_PATTERNS = [
   /\bback\b/i,
 ];
 
-const COMPOUND_NEXT_REGEX = /\b(?:estou\s+fazendo|to\s+fazendo|fazendo\s+agora|come[c]\w+|iniciand\w+|vou\s+(?:fazer|comecar))\s+(.+)/i;
+const COMPOUND_NEXT_REGEX = /\b(?:estou\s+fazendo|to\s+fazendo|fazendo\s+agora|come[c]\w+|iniciand\w+|iniciei|come[c]ei|vou\s+(?:fazer|comecar))\s+(?:a\s+|o\s+|com\s+a?\s+)?(.+)/i;
+
+// B11: "Ja impacotei e ja iniciei a Revisao do Ginger" — compound packing-finish + new task.
+// Triggers orders_finish even when the explicit verb is "impacotei" rather than "terminei".
+const COMPOUND_PACKING_FINISH_RE = /\b(?:impacotei|empacotei|empaquetei|terminei\s+o\s+packing|acabei\s+o\s+packing|terminei\s+(?:as?\s+)?ordens?)\b/i;
 
 const WRONG_CODE_REGEX = /\b(?:coloquei\s+a\s+inicial\s+errada|errei\s+o\s+c[o]digo|botei\s+(?:o\s+)?c[o]digo\s+errado|coloquei\s+errado|c[o]digo\s+errado|inicial\s+errada)\b/i;
 
@@ -349,7 +353,7 @@ function extractTaskType(text) {
 }
 
 const FREETEXT_START_PATTERNS = [
-  /\b(?:iniciando|iniciou|come[c]ando|come[c]ou|vamos\s+come[c]ar|come[c]ar)\b/i,
+  /\b(?:iniciando|iniciou|iniciei|come[c]ando|come[c]ou|come[c]ei|vamos\s+come[c]ar|come[c]ar)\b/i,
   /\bira?\s+rodar\b/i,
   /\bja\s+(?:esta|esta)\s+rodando\b/i,
   /\bcome[c]amos?\b/i,
@@ -569,6 +573,23 @@ function parseMessage(msg) {
   const hasFinishIndicator = /\b(?:terminei|acabei|finalizei|ja\s+terminei)\b/i.test(workingText);
   const hasWrongCode = WRONG_CODE_REGEX.test(workingText);
   const nextClauseMatch = workingText.match(COMPOUND_NEXT_REGEX);
+
+  // B11: packing-finish + new task — close orders, open the new one.
+  if (COMPOUND_PACKING_FINISH_RE.test(workingText) && nextClauseMatch) {
+    const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
+    const nextClause = nextClauseMatch[1];
+    return {
+      type: 'orders_finish',
+      operator,
+      nextSupplement: extractSupplement(nextClause),
+      nextBatch: extractBatch(nextClause),
+      nextTaskType: extractTaskType(nextClause),
+      description: workingText,
+      raw: text,
+      ts,
+      freetext: true,
+    };
+  }
 
   if (hasFinishIndicator && (hasWrongCode || nextClauseMatch)) {
     const { operator } = resolveOperator(userId, userName, workingText, isShared, prefixOperator);
