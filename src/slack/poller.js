@@ -191,6 +191,16 @@ async function processMessage(msg) {
 
   // Route production tasks to task engine
   await taskEngine.handleParsed(parsed, msg);
+
+  // Entrega 3 Fase 5.1 — also dispatch to the new workflow engine.
+  // Runs in parallel with the legacy path; failures are swallowed so a
+  // bug in the new code can never break production.
+  if (!isBackfilling) {
+    try {
+      const workflowDispatcher = require('../workflow/dispatcher');
+      await workflowDispatcher.safeDispatch(parsed, msg);
+    } catch (_) { /* extremely defensive */ }
+  }
 }
 
 async function poll() {
