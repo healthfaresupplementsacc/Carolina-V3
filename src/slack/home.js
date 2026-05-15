@@ -42,29 +42,29 @@ async function fetchHomeState() {
              wi.batch_change_approved, wt.name AS workflow_name
       FROM workflow_instances wi
       JOIN workflow_templates wt ON wt.id = wi.workflow_template_id
-      WHERE wi.status = 'active'
-      ORDER BY wi.started_at ASC`),
+      WHERE wi.status = 'active' AND wi.ended_at IS NULL
+      ORDER BY wi.started_at DESC`),
     db.query(`
       SELECT pi.id, pi.workflow_instance_id, pi.phase_name, pi.status,
              pi.started_at, o.name AS starter_name
       FROM phase_instances pi
       LEFT JOIN operators o ON o.id = pi.started_by_operator_id
-      WHERE pi.status = 'open'
-      ORDER BY pi.started_at ASC`),
+      WHERE pi.status = 'open' AND pi.ended_at IS NULL
+      ORDER BY pi.started_at DESC`),
     db.query(`
       SELECT ati.id, ati.task_name, ati.started_at, aht.admin_approved,
              o.name AS starter_name
       FROM ad_hoc_task_instances ati
       LEFT JOIN ad_hoc_tasks aht ON aht.id = ati.ad_hoc_task_id
       LEFT JOIN operators o ON o.id = ati.started_by_operator_id
-      WHERE ati.status = 'open'
-      ORDER BY ati.started_at ASC`),
+      WHERE ati.status = 'open' AND ati.ended_at IS NULL
+      ORDER BY ati.started_at DESC`),
     db.query(`
       SELECT oal.id, oal.started_at, o.name AS operator_name
       FROM operator_activity_log oal
       JOIN operators o ON o.id = oal.operator_id
       WHERE oal.activity_type = 'break' AND oal.ended_at IS NULL
-      ORDER BY oal.started_at ASC`),
+      ORDER BY oal.started_at DESC`),
   ]);
   return {
     operators: ops.rows,

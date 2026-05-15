@@ -71,4 +71,30 @@ describe('fetchHomeState', () => {
     expect(s).toEqual({ operators: [], workflows: [], phases: [], adhoc: [], breaks: [] });
     expect(db.query).toHaveBeenCalledTimes(5);
   });
+
+  test('Bug 1 — phase/workflow/adhoc queries filter open AND ended_at IS NULL', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    await home.fetchHomeState();
+    const sqls = db.query.mock.calls.map((c) => c[0]);
+    const wf = sqls.find((s) => /FROM workflow_instances wi/.test(s));
+    const ph = sqls.find((s) => /FROM phase_instances pi/.test(s));
+    const ah = sqls.find((s) => /FROM ad_hoc_task_instances ati/.test(s));
+    expect(wf).toMatch(/wi\.status = 'active' AND wi\.ended_at IS NULL/);
+    expect(ph).toMatch(/pi\.status = 'open' AND pi\.ended_at IS NULL/);
+    expect(ah).toMatch(/ati\.status = 'open' AND ati\.ended_at IS NULL/);
+  });
+
+  test('Bug 2 — all Home list queries order by started_at DESC (newest first)', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    await home.fetchHomeState();
+    const sqls = db.query.mock.calls.map((c) => c[0]);
+    const wf = sqls.find((s) => /FROM workflow_instances wi/.test(s));
+    const ph = sqls.find((s) => /FROM phase_instances pi/.test(s));
+    const ah = sqls.find((s) => /FROM ad_hoc_task_instances ati/.test(s));
+    const br = sqls.find((s) => /activity_type = 'break'/.test(s));
+    for (const q of [wf, ph, ah, br]) {
+      expect(q).toMatch(/ORDER BY [a-z]+\.started_at DESC/);
+      expect(q).not.toMatch(/started_at ASC/);
+    }
+  });
 });
