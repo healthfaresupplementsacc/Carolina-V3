@@ -1,0 +1,373 @@
+'use strict';
+/**
+ * Entrega 3 — Workflow engine.
+ *
+ * Single source of truth for transitions: starting a phase, joining a
+ * phase, leaving for another activity, closing a phase. Each primitive
+ * keeps the operator_activity_log invariant intact:
+ *   "Each operator_id has AT MOST ONE row with ended_at IS NULL".
+ *
+ * Functions in this module DO NOT post to Slack. The wrappers in
+ * src/workflow/announce.js do that (Fase 8). Engine only touches the DB.
+ */
+
+const db = require('../db');
+
+/**
+ * Close the operator's currently active operator_activity_log row.
+ * Returns { id, activity_type, phase_instance_id, ad_hoc_task_instance_id }
+ * of the row that was closed, or null if none was active.
+ *
+ * If `linkToNewLogId` is given, the closed row's left_for_id is set so
+ * the dashboard can show the transition pair.
+ */
+async function closeActiveOal(operatorId, when, linkToNewLogId = null) {
+  const cur = await db.query(
+    `SELECT id, activity_type, phase_instance_id, ad_hoc_task_instance_id, pause_id, started_at
+     FROM operator_activity_log
+     WHERE operator_id = $1 AND ended_at IS NULL
+     ORDER BY id DESC LIMIT 1`,
+    [operatorId]
+  );
+  if (cur.rows.length === 0) return null;
+  const prev = cur.rows[0];
+  await db.query(
+    `UPDATE operator_activity_log
+     SET ended_at = $1::timestamptz,
+         duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - started_at))::int,
+         left_for_id = $2,
+         updated_at = NOW()
+     WHERE id = $3`,
+    [when, linkToNewLogId, prev.id]
+  );
+  return prev;
+}
+
+/**
+ * Open a new operator_activity_log row. Caller is responsible for having
+ * already closed any previous active row (typically via closeActiveOal).
+ */
+async function openOal({
+  operatorId, activityType,
+  phaseInstanceId = null, adHocTaskInstanceId = null, pauseId = null,
+  role = null, comeBackFromId = null, when = null, notes = null,
+}) {
+  const r = await db.query(
+    `INSERT INTO operator_activity_log
+       (operator_id, activity_type, phase_instance_id, ad_hoc_task_instance_id,
+        pause_id, started_at, role, came_back_from_id, notes)
+     VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, NOW()), $7, $8, $9)
+     RETURNING id`,
+    [operatorId, activityType, phaseInstanceId, adHocTaskInstanceId,
+     pauseId, when, role, comeBackFromId, notes]
+  );
+  return r.rows[0].id;
+}
+
+/**
+ * Check soft prerequisites for a phase_template. Returns:
+ *   { ok: true,  violatedPrereqs: [] }                 — all good
+ *   { ok: false, violatedPrereqs: [phase_names...], block: bool }
+ *
+ * When block=true (soft_prereq=false on the template), the caller MUST
+ * reject the start. When block=false (soft), caller is free to proceed
+ * but should call announcePrereqWarning so admin gets a heads-up.
+ */
+async function checkPrereqs(workflowInstanceId, phaseTemplateId) {
+  const tpl = await db.query(
+    `SELECT prerequisite_phase_ids, prerequisite_mode, soft_prereq
+     FROM phase_templates WHERE id = $1`,
+    [phaseTemplateId]
+  );
+  if (tpl.rows.length === 0) return { ok: true, violatedPrereqs: [], block: false };
+  const { prerequisite_phase_ids, prerequisite_mode, soft_prereq } = tpl.rows[0];
+  const prereqIds = Array.isArray(prerequisite_phase_ids) ? prerequisite_phase_ids
+                  : JSON.parse(prerequisite_phase_ids || '[]');
+  if (prereqIds.length === 0) return { ok: true, violatedPrereqs: [], block: false };
+
+  // Find which of the prereq phases are already closed for this workflow
+  const closed = await db.query(
+    `SELECT pt.id, pt.name
+     FROM phase_templates pt
+     JOIN phase_instances pi ON pi.phase_template_id = pt.id
+                            AND pi.workflow_instance_id = $1
+                            AND pi.status = 'closed'
+     WHERE pt.id = ANY($2::int[])
+     GROUP BY pt.id, pt.name`,
+    [workflowInstanceId, prereqIds]
+  );
+  const closedIds = new Set(closed.rows.map((r) => r.id));
+
+  let ok;
+  let violated = [];
+  if (prerequisite_mode === 'any') {
+    ok = closedIds.size >= 1;
+    if (!ok) {
+      const allNames = await db.query(
+        `SELECT name FROM phase_templates WHERE id = ANY($1::int[])`,
+        [prereqIds]
+      );
+      violated = allNames.rows.map((r) => r.name);
+    }
+  } else {
+    // mode = 'all'
+    const missing = prereqIds.filter((id) => !closedIds.has(id));
+    ok = missing.length === 0;
+    if (!ok) {
+      const names = await db.query(
+        `SELECT name FROM phase_templates WHERE id = ANY($1::int[])`,
+        [missing]
+      );
+      violated = names.rows.map((r) => r.name);
+    }
+  }
+  return { ok, violatedPrereqs: violated, block: !ok && soft_prereq === false };
+}
+
+/**
+ * Start a phase: opens phase_instance + operator_activity_log row for the
+ * starter. Returns { phaseInstanceId, oalId, prereqWarning }. prereqWarning
+ * is the list of unmet soft prereqs (call announcePrereqWarning on it).
+ *
+ * Caller decides the workflow_instance_id (typically by detecting an
+ * existing open workflow_instance OR creating a new one — see
+ * findOrCreateWorkflowInstance).
+ */
+async function startPhase({
+  workflowInstanceId, phaseTemplateId, operatorId,
+  batchNumber = null, when = null, notes = null,
+}) {
+  if (!Number.isFinite(workflowInstanceId)) throw new Error('workflowInstanceId required');
+  if (!Number.isFinite(phaseTemplateId))    throw new Error('phaseTemplateId required');
+  if (!Number.isFinite(operatorId))         throw new Error('operatorId required');
+
+  const prereq = await checkPrereqs(workflowInstanceId, phaseTemplateId);
+  if (prereq.block) {
+    const err = new Error(
+      `Pré-requisitos não atendidos: ${prereq.violatedPrereqs.join(', ')}`
+    );
+    err.code = 'PREREQ_BLOCKED';
+    err.violatedPrereqs = prereq.violatedPrereqs;
+    throw err;
+  }
+
+  const tpl = await db.query('SELECT name FROM phase_templates WHERE id = $1', [phaseTemplateId]);
+  const phaseName = tpl.rows[0]?.name || null;
+
+  // Idempotency: if there's already an OPEN phase_instance for this
+  // workflow+template with the same starter, return it instead.
+  const existing = await db.query(
+    `SELECT id FROM phase_instances
+     WHERE workflow_instance_id = $1 AND phase_template_id = $2 AND status = 'open'
+     ORDER BY id DESC LIMIT 1`,
+    [workflowInstanceId, phaseTemplateId]
+  );
+  let phaseInstanceId;
+  if (existing.rows.length > 0) {
+    phaseInstanceId = existing.rows[0].id;
+  } else {
+    const ins = await db.query(
+      `INSERT INTO phase_instances
+         (workflow_instance_id, phase_template_id, phase_name, batch_number,
+          started_at, started_by_operator_id, notes, status)
+       VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()), $6, $7, 'open')
+       RETURNING id`,
+      [workflowInstanceId, phaseTemplateId, phaseName, batchNumber,
+       when, operatorId, notes]
+    );
+    phaseInstanceId = ins.rows[0].id;
+  }
+
+  const prev = await closeActiveOal(operatorId, when || new Date().toISOString());
+  const oalId = await openOal({
+    operatorId, activityType: 'phase',
+    phaseInstanceId, role: existing.rows.length > 0 ? 'joiner' : 'starter',
+    comeBackFromId: prev?.id || null, when,
+  });
+  if (prev) {
+    await db.query(
+      `UPDATE operator_activity_log SET left_for_id = $1 WHERE id = $2`,
+      [oalId, prev.id]
+    );
+  }
+
+  return {
+    phaseInstanceId, oalId, joined: existing.rows.length > 0,
+    prereqWarning: prereq.ok ? null : prereq.violatedPrereqs,
+  };
+}
+
+/**
+ * Operator joins an already-open phase. Closes any current activity and
+ * opens a new oal row pointing at the phase. The phase_instance itself
+ * doesn't change (still owned by its starter).
+ */
+async function joinPhase({ phaseInstanceId, operatorId, when = null }) {
+  if (!Number.isFinite(phaseInstanceId)) throw new Error('phaseInstanceId required');
+  if (!Number.isFinite(operatorId))      throw new Error('operatorId required');
+
+  const ph = await db.query(
+    `SELECT id, status FROM phase_instances WHERE id = $1`,
+    [phaseInstanceId]
+  );
+  if (ph.rows.length === 0 || ph.rows[0].status !== 'open') {
+    throw new Error('phase_instance not open');
+  }
+
+  const prev = await closeActiveOal(operatorId, when || new Date().toISOString());
+  const oalId = await openOal({
+    operatorId, activityType: 'phase',
+    phaseInstanceId, role: 'joiner',
+    comeBackFromId: prev?.id || null, when,
+  });
+  if (prev) {
+    await db.query(
+      `UPDATE operator_activity_log SET left_for_id = $1 WHERE id = $2`,
+      [oalId, prev.id]
+    );
+  }
+  return { oalId };
+}
+
+/**
+ * Operator leaves their current activity without starting a new one
+ * (transitions to idle). The phase or ad-hoc itself stays open if there
+ * are other operators in it.
+ */
+async function leaveCurrent({ operatorId, when = null, goToIdle = true }) {
+  if (!Number.isFinite(operatorId)) throw new Error('operatorId required');
+  const prev = await closeActiveOal(operatorId, when || new Date().toISOString());
+  if (!prev) return { previousOalId: null, newOalId: null };
+  let newOalId = null;
+  if (goToIdle) {
+    newOalId = await openOal({
+      operatorId, activityType: 'idle',
+      comeBackFromId: prev.id, when,
+    });
+    await db.query(
+      `UPDATE operator_activity_log SET left_for_id = $1 WHERE id = $2`,
+      [newOalId, prev.id]
+    );
+  }
+  return { previousOalId: prev.id, newOalId };
+}
+
+/**
+ * Close a phase: mark the phase_instance status='closed' and close every
+ * active operator_activity_log row that points at it. Optionally records
+ * final_bottle_count and the closer's id.
+ *
+ * Returns the list of operator ids that were active when the phase closed
+ * so the caller can render "Trabalharam juntos: X, Y, Z".
+ */
+async function closePhase({
+  phaseInstanceId, closedByOperatorId = null, finalBottleCount = null, when = null,
+}) {
+  if (!Number.isFinite(phaseInstanceId)) throw new Error('phaseInstanceId required');
+  const endedAt = when || new Date().toISOString();
+
+  const ph = await db.query(
+    `SELECT id, status, started_at, workflow_instance_id, phase_name
+     FROM phase_instances WHERE id = $1`,
+    [phaseInstanceId]
+  );
+  if (ph.rows.length === 0) throw new Error('phase_instance not found');
+  if (ph.rows[0].status !== 'open') {
+    return { alreadyClosed: true, participants: [] };
+  }
+
+  // Close the phase
+  await db.query(
+    `UPDATE phase_instances
+     SET status = 'closed',
+         ended_at = $1::timestamptz,
+         closed_by_operator_id = $2,
+         final_bottle_count = COALESCE($3, final_bottle_count),
+         updated_at = NOW()
+     WHERE id = $4`,
+    [endedAt, closedByOperatorId, finalBottleCount, phaseInstanceId]
+  );
+
+  // Close every active oal row pointing at this phase
+  const closeRes = await db.query(
+    `UPDATE operator_activity_log
+     SET ended_at = $1::timestamptz,
+         duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - started_at))::int,
+         updated_at = NOW()
+     WHERE phase_instance_id = $2 AND ended_at IS NULL
+     RETURNING id, operator_id`,
+    [endedAt, phaseInstanceId]
+  );
+
+  // Collect everyone who participated (closed or otherwise)
+  const everyone = await db.query(
+    `SELECT DISTINCT oal.operator_id, o.name
+     FROM operator_activity_log oal
+     JOIN operators o ON o.id = oal.operator_id
+     WHERE oal.phase_instance_id = $1`,
+    [phaseInstanceId]
+  );
+
+  return {
+    alreadyClosed: false,
+    workflowInstanceId: ph.rows[0].workflow_instance_id,
+    phaseName: ph.rows[0].phase_name,
+    closedOalRows: closeRes.rows,
+    participants: everyone.rows.map((r) => ({ id: r.operator_id, name: r.name })),
+  };
+}
+
+/**
+ * Find or create a workflow_instance for a given (template, product, batch).
+ * When an active instance already matches, returns its id with `created=false`.
+ * This is the primitive App Home uses when an operator starts a phase: the
+ * system tries to reuse a running batch rather than open a duplicate.
+ */
+async function findOrCreateWorkflowInstance({
+  workflowTemplateId, productId = null, productName = null,
+  batchNumber = null, startedByOperatorId = null, when = null,
+  destination = null, passNumber = null,
+}) {
+  if (!Number.isFinite(workflowTemplateId)) throw new Error('workflowTemplateId required');
+
+  // Try matching active instance by product+batch first (when both set)
+  if (productId || productName) {
+    const params = [workflowTemplateId];
+    let cond = `workflow_template_id = $1 AND status = 'active'`;
+    if (Number.isFinite(productId)) {
+      cond += ` AND product_id = $${params.length + 1}`;
+      params.push(productId);
+    } else {
+      cond += ` AND product_name = $${params.length + 1}`;
+      params.push(productName);
+    }
+    if (batchNumber) {
+      cond += ` AND batch_number = $${params.length + 1}`;
+      params.push(batchNumber);
+    }
+    const existing = await db.query(
+      `SELECT id FROM workflow_instances WHERE ${cond} ORDER BY id DESC LIMIT 1`,
+      params
+    );
+    if (existing.rows.length > 0) {
+      return { workflowInstanceId: existing.rows[0].id, created: false };
+    }
+  }
+
+  const ins = await db.query(
+    `INSERT INTO workflow_instances
+       (workflow_template_id, product_id, product_name, batch_number,
+        destination, pass_number, started_at, started_by_operator_id, status)
+     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, NOW()), $8, 'active')
+     RETURNING id`,
+    [workflowTemplateId, productId, productName, batchNumber,
+     destination, passNumber, when, startedByOperatorId]
+  );
+  return { workflowInstanceId: ins.rows[0].id, created: true };
+}
+
+module.exports = {
+  closeActiveOal, openOal, checkPrereqs,
+  startPhase, joinPhase, leaveCurrent, closePhase,
+  findOrCreateWorkflowInstance,
+};
