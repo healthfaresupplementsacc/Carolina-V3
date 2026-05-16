@@ -427,6 +427,12 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_oal_started
       ON operator_activity_log(started_at);
 
+    -- W4: workflow/phase templates created via "Outro" are usable
+    -- immediately (non-blocking) but flagged pending_review for admin
+    -- to approve / merge / rename.
+    ALTER TABLE workflow_templates ADD COLUMN IF NOT EXISTS pending_review BOOLEAN DEFAULT FALSE;
+    ALTER TABLE phase_templates    ADD COLUMN IF NOT EXISTS pending_review BOOLEAN DEFAULT FALSE;
+
     -- A3: admin-only internal notes per instance. NEVER exposed to the
     -- team / timeline / Slack — only the PIN-gated admin endpoint reads
     -- them. The dashboard union query must never SELECT these columns.

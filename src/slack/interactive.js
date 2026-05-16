@@ -222,21 +222,29 @@ async function handleBlockAction(payload) {
       const phaseGroups = Object.entries(groupsMap).map(([wfName, options]) => ({
         label: { type: 'plain_text', text: wfName.slice(0, 75) }, options,
       }));
+      // W4 — "Outro" universal: synthetic option in workflow + phase.
+      const wtOptions = wts.rows.map((w) => ({ text: { type: 'plain_text', text: w.name }, value: String(w.id) }));
+      wtOptions.push({ text: { type: 'plain_text', text: '➕ Outro (criar novo)' }, value: '__outro__' });
+      phaseGroups.push({
+        label: { type: 'plain_text', text: 'Outro' },
+        options: [{ text: { type: 'plain_text', text: '➕ Outra fase (criar)' }, value: '__outro__' }],
+      });
       const blocks = [
         operatorPickerBlock(opts),
         { type: 'input', block_id: 'wt',
           label: { type: 'plain_text', text: 'Tipo de trabalho' },
-          element: { type: 'static_select', action_id: 'v',
-            options: wts.rows.map((w) => ({ text: { type: 'plain_text', text: w.name }, value: String(w.id) })) } },
+          element: { type: 'static_select', action_id: 'v', options: wtOptions } },
       ];
-      if (phaseGroups.length > 0) {
-        blocks.push({
-          type: 'input', optional: true, block_id: 'phase',
-          label: { type: 'plain_text', text: 'Fase (qual você está iniciando?)' },
-          element: { type: 'static_select', action_id: 'v', option_groups: phaseGroups },
-        });
-      }
+      blocks.push({
+        type: 'input', optional: true, block_id: 'phase',
+        label: { type: 'plain_text', text: 'Fase (qual você está iniciando?)' },
+        element: { type: 'static_select', action_id: 'v', option_groups: phaseGroups },
+      });
       blocks.push(
+        { type: 'input', optional: true, block_id: 'outro_name',
+          label: { type: 'plain_text', text: 'Se escolheu "Outro": nome do novo workflow/fase' },
+          element: { type: 'plain_text_input', action_id: 'v',
+            placeholder: { type: 'plain_text', text: 'ex: Reembalagem especial' } } },
         supplementSelectBlock('product', 'Produto (se aplicável)', true),
         { type: 'input', optional: true, block_id: 'batch',
           label: { type: 'plain_text', text: 'Lote' },
@@ -292,6 +300,19 @@ async function handleViewSubmission(payload) {
     }
   }
 
+  // W4 — "Outro" in the workflow or phase select requires a name.
+  if (cb === 'submit_start_batch') {
+    const wtVal = view.state.values?.wt?.v?.selected_option?.value;
+    const phVal = view.state.values?.phase?.v?.selected_option?.value;
+    const oName = (view.state.values?.outro_name?.v?.value || '').trim();
+    if ((wtVal === '__outro__' || phVal === '__outro__') && !oName) {
+      return {
+        response_action: 'errors',
+        errors: { outro_name: 'Digite o nome do novo workflow/fase — obrigatório quando escolhe "Outro".' },
+      };
+    }
+  }
+
   try {
     switch (cb) {
       case 'submit_break':
@@ -342,14 +363,47 @@ async function handleViewSubmission(payload) {
         break;
       }
       case 'submit_start_batch': {
-        let wt = parseInt(view.state.values?.wt?.v?.selected_option?.value);
-        // W3 — the operator may have picked a specific phase ("wfId:ptId").
-        // Its workflow wins over the "Tipo de trabalho" select if they differ.
+        const wtRaw = view.state.values?.wt?.v?.selected_option?.value;
         const phaseSel = view.state.values?.phase?.v?.selected_option?.value || null;
-        let chosenPhaseTemplateId = null;
+        const outroName = (view.state.values?.outro_name?.v?.value || '').trim();
+        let wt, chosenPhaseTemplateId = null;
+        const opNameRow = await db.query(`SELECT name FROM operators WHERE id = $1`, [operatorId]);
+        const opName = opNameRow.rows[0]?.name;
+
+        const { auditAction } = require('../admin/audit');
+        // W4 — "Outro" workflow: create pending workflow_template + alert.
+        if (wtRaw === '__outro__') {
+          const ins = await db.query(
+            `INSERT INTO workflow_templates (name, description, allows_product, is_active, pending_review)
+             VALUES ($1, 'Criado via "Outro" no App Home — revisar', FALSE, TRUE, TRUE)
+             ON CONFLICT (name) DO UPDATE SET pending_review = TRUE, updated_at = NOW()
+             RETURNING id`, [outroName]);
+          wt = ins.rows[0].id;
+          await auditAction({ action: 'workflow_template.create', entityType: 'workflow_template',
+                              entityId: wt, after: { name: outroName, pending_review: true }, source: 'app_home' });
+          try { await require('../workflow/announce').adHocPending({ operatorName: opName, taskName: `workflow novo "${outroName}"` }); } catch (_) {}
+        } else {
+          wt = parseInt(wtRaw);
+        }
+
+        // W3 — specific phase "wfId:ptId" wins over the workflow select.
         if (phaseSel && /^\d+:\d+$/.test(phaseSel)) {
           const [pWf, pPt] = phaseSel.split(':').map(Number);
           wt = pWf; chosenPhaseTemplateId = pPt;
+        } else if (phaseSel === '__outro__') {
+          // W4 — "Outra fase": create pending phase_template under wt.
+          const seqRow = await db.query(
+            `SELECT COALESCE(MAX(sequence_order),0)+1 AS s FROM phase_templates WHERE workflow_template_id = $1`, [wt]);
+          const insP = await db.query(
+            `INSERT INTO phase_templates
+               (workflow_template_id, name, sequence_order, is_required, soft_prereq, pending_review)
+             VALUES ($1, $2, $3, FALSE, TRUE, TRUE) RETURNING id`,
+            [wt, outroName || 'Outra fase', seqRow.rows[0].s]);
+          chosenPhaseTemplateId = insP.rows[0].id;
+          await auditAction({ action: 'phase_template.create', entityType: 'phase_template',
+                              entityId: chosenPhaseTemplateId,
+                              after: { name: outroName, workflow_template_id: wt, pending_review: true }, source: 'app_home' });
+          try { await require('../workflow/announce').adHocPending({ operatorName: opName, taskName: `fase nova "${outroName}"` }); } catch (_) {}
         }
         const productSel = view.state.values?.product?.supplement_select?.selected_option?.value || null;
         const { name: product } = await resolveSupplementValue(productSel);

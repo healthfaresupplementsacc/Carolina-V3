@@ -178,6 +178,40 @@ describe('view_submission → engine', () => {
     expect(engine.startPhase).toHaveBeenCalledWith(expect.objectContaining({ phaseTemplateId: 7 }));
   });
 
+  test('W4 — "Outro" workflow without name → response_action errors', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    const r = await interactive.handleViewSubmission(viewSubmission('submit_start_batch', {}, {
+      ...WHO,
+      wt: { v: { selected_option: { value: '__outro__' } } },
+      outro_name: { v: { value: '' } },
+    }));
+    expect(r).toEqual({
+      response_action: 'errors',
+      errors: { outro_name: expect.stringMatching(/obrigat/i) },
+    });
+    expect(engine.findOrCreateWorkflowInstance).not.toHaveBeenCalled();
+  });
+
+  test('W4 — "Outro" workflow + name creates pending template + alert', async () => {
+    const announce = require('../workflow/announce');
+    db.query = jest.fn().mockImplementation((sql) => {
+      if (/SELECT name FROM operators WHERE id/.test(sql)) return Promise.resolve({ rows: [{ name: 'Ana' }] });
+      if (/INSERT INTO workflow_templates/.test(sql)) return Promise.resolve({ rows: [{ id: 99 }] });
+      if (/FROM phase_templates WHERE workflow_template_id/.test(sql)) return Promise.resolve({ rows: [] });
+      return Promise.resolve({ rows: [] });
+    });
+    const r = await interactive.handleViewSubmission(viewSubmission('submit_start_batch', {}, {
+      ...WHO,
+      wt: { v: { selected_option: { value: '__outro__' } } },
+      outro_name: { v: { value: 'Reembalagem especial' } },
+    }));
+    expect(r).toBeUndefined();
+    expect(engine.findOrCreateWorkflowInstance).toHaveBeenCalledWith(expect.objectContaining({ workflowTemplateId: 99 }));
+    expect(announce.adHocPending).toHaveBeenCalledWith(
+      expect.objectContaining({ taskName: expect.stringMatching(/workflow novo "Reembalagem especial"/) })
+    );
+  });
+
   test('no operator selected → engine not called', async () => {
     db.query = jest.fn().mockResolvedValue({ rows: [] });
     await interactive.handleInteraction(viewSubmission('submit_break', {}, {
