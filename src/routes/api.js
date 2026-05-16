@@ -128,7 +128,8 @@ router.get('/dashboard', async (req, res) => {
     try {
       const wf = await db.query(`
         SELECT pi.id, pi.phase_name, pi.batch_number, pi.started_at,
-               wi.product_name, o.name AS operator_name,
+               wi.product_name, wi.batch_number AS wf_batch,
+               wt.name AS workflow_name, o.name AS operator_name,
                (SELECT string_agg(DISTINCT op2.name, ' + ' ORDER BY op2.name)
                   FROM operator_activity_log oal2
                   JOIN operators op2 ON op2.id = oal2.operator_id
@@ -136,6 +137,7 @@ router.get('/dashboard', async (req, res) => {
                     AND oal2.ended_at IS NULL) AS participants
         FROM phase_instances pi
         JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+        JOIN workflow_templates wt ON wt.id = wi.workflow_template_id
         LEFT JOIN operators o ON o.id = pi.started_by_operator_id
         WHERE pi.status = 'open' AND pi.ended_at IS NULL
           AND pi.legacy_id IS NULL
@@ -170,6 +172,11 @@ router.get('/dashboard', async (req, res) => {
           // falling back to the phase starter name.
           operator: r.participants || r.operator_name || null,
           task_type: r.phase_name || null,
+          // B6 — parent workflow so the card shows hierarchy:
+          // "Produção de Suplemento · Berberine #0119" / phase indented.
+          parent_label: (r.product_name
+            ? `${r.workflow_name} · ${r.product_name}`
+            : r.workflow_name) + (r.wf_batch ? ` #${r.wf_batch}` : ''),
           started_at: r.started_at,
           _source: 'workflow_phase',
           avgDurationSeconds: null, estRemainingSeconds: null,

@@ -65,6 +65,7 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     baseDb({ phases: [{
       id: 77, phase_name: 'Encapsulação', batch_number: '0098',
       started_at: '2026-05-15T13:00:00Z', product_name: 'Green Tea',
+      wf_batch: '0098', workflow_name: 'Produção de Suplemento',
       operator_name: 'Bruno',
     }]});
     const r = await get('/api/dashboard');
@@ -75,6 +76,8 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     expect(found.operator).toBe('Bruno');
     expect(found.task_type).toBe('Encapsulação');
     expect(found._source).toBe('workflow_phase');
+    // B6 — parent workflow label for the card hierarchy
+    expect(found.parent_label).toBe('Produção de Suplemento · Green Tea #0098');
   });
 
   test('open ad_hoc_task_instance appears in openTasks', async () => {

@@ -1744,7 +1744,8 @@ function renderOpenTasks(tasks) {
       <div class="task-card \${urgClass}" id="task-\${escHtml(String(task.id))}">
         <div class="task-timer" id="timer-\${escHtml(String(task.id))}">\${formatDuration(elapsed)}</div>
         <div class="task-info">
-          <div class="task-name">\${escHtml(task.supplement_name || task.task_type || '?')}\${escHtml(batchLabel)}</div>
+          \${isWf && task.parent_label ? \`<div style="font-size:11px;color:#6b7280;font-weight:600">🧪 \${escHtml(task.parent_label)}</div>\` : ''}
+          <div class="task-name">\${isWf ? '↳ ' : ''}\${escHtml(isWf ? (task.task_type || '?') : (task.supplement_name || task.task_type || '?'))}\${escHtml(batchLabel)}</div>
           <div class="task-meta">\${tr('startedAt')} \${formatTime(task.started_at)}\${escHtml(operatorLabel)}</div>
         </div>
         \${isWf ? phaseTag : \`<span class="task-badge \${getBadgeClass(urgClass)}">\${getBadgeLabel(urgClass)}</span>\`}
