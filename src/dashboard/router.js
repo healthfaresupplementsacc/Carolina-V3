@@ -5,6 +5,21 @@ const db = require('../db');
 const tasks = require('../tasks');
 const { generateDashboard, generateEodSummary } = require('./template');
 
+// BUG PIN — shared 10-min admin session across the dashboard and every
+// /admin/* page. Same localStorage key/shape/TTL as the dashboard's A2
+// (hf_admin = {pin, ts}, 10 min, sliding). Injected at the end of each
+// admin page's script: defines hfAdminSave/hfAdminClear and, if a valid
+// session exists, pre-fills the PIN and auto-unlocks (server still
+// PIN-checks every request). The countdown is shared because it derives
+// from the single hf_admin.ts.
+const ADMIN_SESSION_JS = "(function(){var K='hf_admin',T=600000;"
+  + "function rd(){try{var s=JSON.parse(localStorage.getItem(K)||'null');"
+  + "return (s&&s.pin&&Date.now()-s.ts<T)?s:null;}catch(e){return null;}}"
+  + "window.hfAdminSave=function(p){try{localStorage.setItem(K,JSON.stringify({pin:p,ts:Date.now()}));}catch(e){}};"
+  + "window.hfAdminClear=function(){try{localStorage.removeItem(K);}catch(e){}};"
+  + "var s=rd();if(s){var pi=document.getElementById('pin-input')||document.getElementById('pin');if(pi)pi.value=s.pin;"
+  + "var f=window.unlock||window.unlockAdmin;if(typeof f==='function'){try{f();}catch(e){}}}})();";
+
 // Main dashboard page
 router.get('/', (req, res) => {
   res.send(generateDashboard());
@@ -186,7 +201,7 @@ router.get('/admin', async (req, res) => {
           document.getElementById('pin-err').textContent = 'Erro ' + r.status;
           return;
         }
-        _pin = pin;
+        _pin = pin; try { hfAdminSave(pin); } catch (e) {}
         document.getElementById('pin-overlay').style.display = 'none';
         loadOperators();
         loadSupplements();
@@ -197,6 +212,7 @@ router.get('/admin', async (req, res) => {
     document.getElementById('pin-input').addEventListener('keypress', e => {
       if (e.key === 'Enter') unlockAdmin();
     });
+    ${ADMIN_SESSION_JS}
 
     function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -423,12 +439,13 @@ router.get('/admin/audit', (req, res) => {
         const r = await fetch('/api/admin/audit?pin=' + encodeURIComponent(pin) + '&limit=1');
         if (r.status === 403) { document.getElementById('pin-err').textContent = 'PIN incorreto'; return; }
         if (!r.ok) { document.getElementById('pin-err').textContent = 'Erro ' + r.status; return; }
-        _pin = pin;
+        _pin = pin; try { hfAdminSave(pin); } catch (e) {}
         document.getElementById('pin-overlay').style.display = 'none';
         reload();
       } catch (err) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
+    ${ADMIN_SESSION_JS}
 
     function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
     function classFor(action) {
@@ -579,12 +596,13 @@ router.get('/admin/silent-log', (req, res) => {
         const r = await fetch('/api/admin/silent-log?pin=' + encodeURIComponent(pin) + '&limit=1');
         if (r.status === 403) { document.getElementById('pin-err').textContent = 'PIN incorreto'; return; }
         if (!r.ok) { document.getElementById('pin-err').textContent = 'Erro ' + r.status; return; }
-        _pin = pin;
+        _pin = pin; try { hfAdminSave(pin); } catch (e) {}
         document.getElementById('pin-overlay').style.display = 'none';
         load();
       } catch (err) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
+    ${ADMIN_SESSION_JS}
 
     function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -751,7 +769,7 @@ router.get('/admin/carolina-config', (req, res) => {
         if (r.status === 403) { document.getElementById('pin-err').textContent = 'PIN incorreto'; return; }
         if (!r.ok) { document.getElementById('pin-err').textContent = 'Erro ' + r.status; return; }
         const data = await r.json();
-        _pin = pin;
+        _pin = pin; try { hfAdminSave(pin); } catch (e) {}
         document.getElementById('pin-overlay').style.display = 'none';
         const inp = document.getElementById('app-name');
         inp.value = data.app_name || '';
@@ -765,6 +783,7 @@ router.get('/admin/carolina-config', (req, res) => {
       } catch (e) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
+    ${ADMIN_SESSION_JS}
 
     function renderPreview() {
       const v = document.getElementById('app-name').value.trim() || '…';
@@ -1271,8 +1290,9 @@ async function unlock(){const p=document.getElementById('pin').value.trim();
  // validate pin via an admin GET that requires it
  const t=await fetch('/api/admin/audit?pin='+encodeURIComponent(p)+'&limit=1');
  if(t.status===403){document.getElementById('pe').textContent='PIN incorreto';return;}
- _pin=p;document.getElementById('pin-ov').style.display='none';load();}
+ _pin=p; try{hfAdminSave(p);}catch(e){} document.getElementById('pin-ov').style.display='none';load();}
 document.getElementById('pin').addEventListener('keypress',e=>{if(e.key==='Enter')unlock();});
+${ADMIN_SESSION_JS}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 async function load(){
  const wts=await (await fetch('/api/workflow-templates?include_inactive=1')).json();
@@ -1347,8 +1367,9 @@ let _pin='';
 async function unlock(){const p=document.getElementById('pin').value.trim();
  const t=await fetch('/api/admin/audit?pin='+encodeURIComponent(p)+'&limit=1');
  if(t.status===403){document.getElementById('pe').textContent='PIN incorreto';return;}
- _pin=p;document.getElementById('pin-ov').style.display='none';load();}
+ _pin=p; try{hfAdminSave(p);}catch(e){} document.getElementById('pin-ov').style.display='none';load();}
 document.getElementById('pin').addEventListener('keypress',e=>{if(e.key==='Enter')unlock();});
+${ADMIN_SESSION_JS}
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 async function load(){
  const ts=await (await fetch('/api/ad-hoc-tasks?include_inactive=1')).json();
