@@ -636,6 +636,23 @@ router.get('/operator/:id', async (req, res) => {
     ORDER BY oal.started_at ASC
   `, [id, date]);
 
+  // B7 — current open activity, shown highlighted at the TOP of the
+  // timeline ("AGORA: ...") before the closed entries.
+  let current = { rows: [] };
+  try {
+    current = await db.query(`
+      SELECT oal.activity_type, oal.started_at, oal.role,
+             pi.phase_name, wi.product_name, wi.batch_number,
+             wt.name AS workflow_name, ati.task_name
+      FROM operator_activity_log oal
+      LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
+      LEFT JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+      LEFT JOIN workflow_templates wt ON wt.id = wi.workflow_template_id
+      LEFT JOIN ad_hoc_task_instances ati ON ati.id = oal.ad_hoc_task_instance_id
+      WHERE oal.operator_id = $1 AND oal.ended_at IS NULL
+      ORDER BY oal.id DESC LIMIT 1`, [id]);
+  } catch (_) { current = { rows: [] }; }
+
   const week = await db.query(`
     SELECT
       COALESCE(SUM(CASE WHEN activity_type IN ('phase','ad_hoc') THEN duration_seconds ELSE 0 END),0)::int AS worked,
@@ -702,6 +719,19 @@ router.get('/operator/:id', async (req, res) => {
   <span class="stat"><b>${fmtD(w.brk)}</b>break (semana)</span>
   <span class="stat"><b>${w.phases}</b>fases concluídas (semana)</span>
 </div>
+
+${(() => {
+  const c = current.rows[0];
+  if (!c) return '';
+  const what = c.phase_name
+    ? `${c.workflow_name ? c.workflow_name + ' · ' : ''}${c.product_name || ''}${c.batch_number ? ' #' + c.batch_number : ''} → ${c.phase_name}`
+    : (c.task_name || (c.activity_type === 'break' ? '☕ break' : c.activity_type));
+  return `<div class="card" style="background:#ecfdf5;border-color:#6ee7b7">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#059669;font-weight:700">AGORA</div>
+    <div style="font-size:15px;font-weight:700;margin-top:3px">${String(what).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}</div>
+    <div style="font-size:12px;color:#047857;margin-top:2px">iniciou ${fmtT(c.started_at)}${c.role ? ' · ' + c.role : ''}</div>
+  </div>`;
+})()}
 
 <h2>Timeline de ${date}</h2>
 <div class="card"><table>${rows || '<tr><td colspan="3" style="color:#6b7280">Sem atividade nesse dia</td></tr>'}</table></div>
