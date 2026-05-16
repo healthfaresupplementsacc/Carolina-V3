@@ -110,7 +110,16 @@ REGRAS:
   ferramenta — pergunta qual, pedindo número ou descrição.
 - Pergunta/análise: usa as read tools e responde, sem agir.
 - Depois de executar, confirma curto: "Fechei a fase #5 (X), durou 1h45."
-- Nunca inventa id. Se não souber, pergunta ou usa get_state/search.`;
+- Nunca inventa id. Se não souber, pergunta ou usa get_state/search.
+- COEXISTÊNCIA: se o bloco PENDÊNCIAS indicar que tem pergunta esperando
+  e o admin falar de OUTRA coisa (pergunta, ordem), você atende
+  normalmente E no fim acrescenta UMA linha curta lembrando da pendência
+  (ex: "(ah, e ainda tô esperando o horário do break do Bruno — ou manda
+  'ignora')"). Não repita a pergunta inteira; não trave a conversa nela.
+- Se o admin claramente quer descartar a pendência ("ignora", "esquece",
+  "fecha essa", "deixa", "cancela", "para com isso", "deleta"), chama
+  dismiss_pending_question. Se passar um horário, chama
+  update_break_retroactive.`;
 
 async function askClaude(userMessage, senderName, productionContext, deps = {}) {
   const anthropic = deps.anthropic || getAnthropic();
@@ -315,26 +324,26 @@ async function pollManagerChannel() {
 
     try {
       let reply;
-      // A1 — if a "voltei sem break" retroactive question is pending,
-      // the admin's time reply creates the retroactive break.
+      // A1 — retro-break: ONLY intercept when the message is essentially
+      // a time answer ("14:30"). Any other message (questions, "fecha
+      // essa", "ignora", orders) must NOT be swallowed/repeated here —
+      // it falls through to the dismiss pre-parse + the tool-use loop,
+      // which sees the pending question in context. Bugfix for use-case 3.
       const btr = require('../workflow/break-time-reply');
-      const retro = await btr.handleAdminRetroReply(msg.text);
-      if (retro.handled) {
-        const ann = require('../workflow/announce');
-        if (retro.outcome === 'created') {
-          await ann.retroBreakDone({ operatorName: retro.operatorName, when: retro.when });
-          reply = undefined; // retroBreakDone already posted to admin
-          // skip the rest of this iteration's chat
-          continue;
-        } else if (retro.outcome === 'ignored') {
-          reply = `Ok, deixei o break de ${retro.operatorName} como não-rastreado.`;
-        } else if (retro.outcome === 'unparsed') {
-          reply = `Não entendi o horário do break de ${retro.operatorName}. Manda tipo "14:30" (ou "ignora").`;
+      if (btr.looksLikeTimeReply(msg.text)) {
+        const retro = await btr.handleAdminRetroReply(msg.text);
+        if (retro.handled && retro.outcome === 'created') {
+          await require('../workflow/announce').retroBreakDone({
+            operatorName: retro.operatorName, when: retro.when });
+          continue; // retroBreakDone already posted to admin
         }
-        if (reply !== undefined) {
-          await slack.chat.postMessage({ channel: config.slack.managerChannelId, text: reply, username: 'Carolina' });
+        if (retro.handled && retro.outcome === 'ignored') {
+          await slack.chat.postMessage({ channel: config.slack.managerChannelId,
+            text: `Ok, deixei o break de ${retro.operatorName} como não-rastreado.`, username: 'Carolina' });
           continue;
         }
+        // 'unparsed' (rare, since we gated on looksLikeTimeReply) or
+        // not handled → do NOT repeat the question; fall through.
       }
       // W6 — if a propose-then-confirm action is pending, the admin's
       // reply (sim/não/ajuste) resolves it before normal chat.

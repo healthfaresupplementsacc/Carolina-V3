@@ -338,10 +338,36 @@ async function runTool(name, input = {}, deps = {}) {
 // "renomeia #10 pra X", "mostra timeline da Ana") is left to the P1
 // tool-use loop, whose system prompt already carries the routing +
 // ambiguity rules.
+// Strip a leading vocative so "Carolina, ignora" / "ó Carol, fecha essa"
+// match the same as a bare "ignora" / "fecha essa".
+function stripVocative(text) {
+  let t = String(text || '').trim().toLowerCase();
+  t = t.replace(/^[\s,.:!¡-]+/, '');
+  t = t.replace(/^(?:[óôoái]+|ei|oi|opa|hey|e?a[ií])\s+/i, '');
+  t = t.replace(/^(?:carol(?:ina)?|caro|bot|ô?\s*carol)[\s,.:!-]*/i, '');
+  t = t.replace(/^(?:por\s+favor|pf|faz\s+favor|pfv)[\s,]*/i, '');
+  return t.trim();
+}
+
+/**
+ * True when the message is a "drop the pending question" intent.
+ *  - explicit dismiss words: ignora/ignore, esquece(/isso), deleta(/a
+ *    pergunta), cancela(/essa/isso), descarta, deixa(/pra lá/quieto/isso),
+ *    para com isso / para, não precisa
+ *  - close-words (fecha/encerra/termina) ONLY when target-less
+ *    ("fecha", "fecha essa", "fecha isso", "encerra") — "fecha a fase #5"
+ *    has an explicit target → real order, NOT a dismiss.
+ */
 function detectDismissIntent(text) {
-  const t = String(text || '').trim().toLowerCase();
+  const t = stripVocative(text);
   if (!t) return false;
-  return /^(ignora|ignore|esquece|esque[çc]a|deixa(\s+(pra|para)\s+l[áa]|\s+quieto|\s+isso)?|para\s+com\s+isso|cancela\s+(essa|isso)|descarta|n[ãa]o\s+precisa|deleta\s+(isso|essa|a\s+pergunta))\b/.test(t);
+  if (/^(ignora|ignore|esquece|esque[çc]a|esquece\s+isso|deleta(\s+(isso|essa|a\s+pergunta))?|cancela(\s+(essa|isso))?|descarta|n[ãa]o\s+precisa|deixa(\s+(pra|para)\s+l[áa]|\s+quieto|\s+isso|\s+disso|\s+quieta)?|para\s+com\s+isso|para)\b/.test(t)) {
+    return true;
+  }
+  if (/^(fecha|fechar|encerra|encerrar|termina|terminar)(\s+(essa|isso|essa\s+pergunta|isso\s+a[ií]|a[ií]))?\s*[.!?]*$/.test(t)) {
+    return true;
+  }
+  return false;
 }
 
 /** What is Carolina currently waiting on an answer for? */
@@ -389,5 +415,5 @@ module.exports = {
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, runTool,
-  detectDismissIntent, pendingSummary, pendingContextLine, interpretDirectOrder,
+  detectDismissIntent, stripVocative, pendingSummary, pendingContextLine, interpretDirectOrder,
 };

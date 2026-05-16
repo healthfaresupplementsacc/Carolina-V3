@@ -167,7 +167,23 @@ async function handleAdminRetroReply(text, deps = {}) {
   return { handled: true, outcome: 'created', operatorName: pend.opName, when: whenLocal };
 }
 
+/**
+ * Strict gate: is this admin message ESSENTIALLY just a time reply?
+ * Used so the retro-break handler only intercepts genuine time answers
+ * ("14:30", "14h30", "1430", "2pm") — never arbitrary admin messages
+ * like "fecha a fase #5" (parseTimeReply alone would misread the "5").
+ */
+function looksLikeTimeReply(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t || t.length > 24) return false;
+  if (/^(às\s*)?([01]?\d|2[0-3])\s*[:h]\s*[0-5]\d\s*(am|pm)?$/i.test(t)) return true; // 14:30 / 14h30
+  if (/^([01]?\d|2[0-3])\s*h$/i.test(t)) return true;                                  // 14h
+  if (/^\d{3,4}\s*(am|pm)?$/i.test(t)) return true;                                    // 1430
+  if (/^([01]?\d|2[0-3])\s*(am|pm)$/i.test(t)) return true;                            // 2pm
+  return false;
+}
+
 module.exports = {
   parseTimeReply, handleReply, setPending, getPending, clearPending, key,
-  handleAdminRetroReply,
+  handleAdminRetroReply, looksLikeTimeReply,
 };
