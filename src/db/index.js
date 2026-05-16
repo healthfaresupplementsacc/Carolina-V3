@@ -549,4 +549,40 @@ async function cleanupStaleBreaks() {
   }
 }
 
-module.exports = { query, pool, migrate, cleanupStaleBreaks };
+// L2 — admin_audit_log TTL. Rows older than 15 days are deleted EXCEPT
+// permanent actions (legal/structural history we never want to lose).
+// Idempotent; safe to run every boot + daily.
+const AUDIT_PERMANENT_ACTIONS = [
+  'legacy_cleanup',
+  'workflow_template.delete',
+  'phase_template.delete',
+  'operator.deactivate',
+  'supplement.delete',
+  'task.merge',
+  'phase_instance.merge',
+  'workflow_instance.merge',
+  'mass_delete',
+  'cutover_legacy_off',
+];
+
+async function cleanupAuditLog() {
+  try {
+    const res = await pool.query(
+      `DELETE FROM admin_audit_log
+       WHERE created_at < NOW() - INTERVAL '15 days'
+         AND action <> ALL($1::text[])
+       RETURNING id`,
+      [AUDIT_PERMANENT_ACTIONS]
+    );
+    console.log(`[DB] Audit TTL: deleted ${res.rows.length} rows (15+ days, non-permanent)`);
+    return res.rows.length;
+  } catch (err) {
+    console.error('[DB] Audit TTL error:', err.message);
+    return 0;
+  }
+}
+
+module.exports = {
+  query, pool, migrate, cleanupStaleBreaks, cleanupAuditLog,
+  AUDIT_PERMANENT_ACTIONS,
+};
