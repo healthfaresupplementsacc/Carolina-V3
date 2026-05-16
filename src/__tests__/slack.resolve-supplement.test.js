@@ -36,7 +36,7 @@ describe('B3 — resolveSupplementValue create-new path', () => {
     const adminMsg = d.calls.announce.join(' ');
     expect(adminMsg).toMatch(/Vitamim B1/);
     expect(adminMsg).toMatch(/Vitamin B1/);            // AI suggestion
-    expect(adminMsg).toMatch(/\[a\] trocar/);          // propose options
+    expect(adminMsg).toMatch(/trocar pra Vitamin B1/); // propose options
   });
 
   test('AI hint omitted when corrector returns nothing', async () => {
