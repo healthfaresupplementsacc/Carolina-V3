@@ -74,6 +74,49 @@ describe('Bug 1 — break/activity entries get PIN-gated admin edit', () => {
   });
 });
 
+describe('Bug 2 — flexible time parse + retroactive edit', () => {
+  // Extract _parseFlexTime from the served JS and evaluate it so the
+  // real parsing matrix is exercised (it is regex-free on purpose to
+  // stay safe inside the template literal).
+  function extractFn(name) {
+    const start = HTML.indexOf('function ' + name + '(');
+    expect(start).toBeGreaterThan(-1);
+    let i = HTML.indexOf('{', start), depth = 0, end = -1;
+    for (; i < HTML.length; i++) {
+      if (HTML[i] === '{') depth++;
+      else if (HTML[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+    }
+    // eslint-disable-next-line no-new-func
+    return new Function(HTML.slice(start, end) + '; return ' + name + ';')();
+  }
+  const parse = extractFn('_parseFlexTime');
+  const BASE = '2026-05-16T18:00:00Z'; // ET date 2026-05-16
+
+  test.each([
+    ['14:30', '14:30'], ['1430', '14:30'], ['14h30', '14:30'], ['14h', '14:00'],
+    ['14', '14:00'], ['930', '09:30'], ['9', '09:00'], ['2pm', '14:00'],
+    ['2 pm', '14:00'], ['12am', '00:00'],
+  ])('"%s" → date 14:.. with HH:MM %s', (inp, hhmm) => {
+    const out = parse(inp, BASE);
+    expect(out).toMatch(/^2026-05-16 \d{2}:\d{2}$/);
+    expect(out.slice(11)).toBe(hhmm);
+  });
+
+  test('full "AAAA-MM-DD HH:MM" passes through; junk → null', () => {
+    expect(parse('2026-05-15 08:05', BASE)).toBe('2026-05-15 08:05');
+    expect(parse('2026-05-15T08:05', BASE)).toBe('2026-05-15 08:05');
+    expect(parse('', BASE)).toBeNull();
+    expect(parse('abc', BASE)).toBeNull();
+    expect(parse('99:99', BASE)).toBeNull();
+  });
+
+  test('oalEditTime parses the input and sends retroactive:true', () => {
+    expect(HTML).toMatch(/async function oalEditTime[\s\S]*_parseFlexTime\(raw, curTs\)/);
+    expect(HTML).toMatch(/async function oalEditTime[\s\S]*retroactive: true/);
+    expect(HTML).toMatch(/async function oalEditTime[\s\S]*\/api\/admin\/operator-activity-log\//);
+  });
+});
+
 describe('regression — wf* helpers hit the existing PIN-audited endpoints', () => {
   test('helpers map to phase/ad-hoc instance endpoints + correct fields', () => {
     expect(HTML).toContain("path: 'ad-hoc-task-instances'");

@@ -1531,12 +1531,49 @@ function _oalDefault(ts) {
     ? new Date(ts).toLocaleString('sv-SE', { timeZone: 'America/New_York' }).slice(0, 16).replace('T', ' ')
     : _nowEt();
 }
+// Bug 2 — flexible time parse (regex-free, safe inside the template
+// literal): "14:30" / "14h30" / "14h" / "14" / "1430" / "930" / "2pm"
+// / full "AAAA-MM-DD HH:MM". Bare times apply to the entry's ET date.
+function _parseFlexTime(input, baseTs) {
+  var s = String(input == null ? '' : input).trim();
+  if (!s) return null;
+  if (s.length >= 16 && s.charAt(4) === '-' && s.charAt(7) === '-'
+      && (s.charAt(10) === ' ' || s.charAt(10) === 'T')) {
+    return s.slice(0, 10) + ' ' + s.slice(11, 16);
+  }
+  var low = s.toLowerCase();
+  var isPm = low.indexOf('pm') !== -1;
+  var isAm = low.indexOf('am') !== -1;
+  var hh = '', mm = '', seenSep = false, onMin = false;
+  for (var i = 0; i < low.length; i++) {
+    var c = low.charAt(i);
+    if (c >= '0' && c <= '9') { if (onMin) mm += c; else hh += c; }
+    else if ((c === ':' || c === 'h') && !seenSep) { seenSep = true; onMin = true; }
+  }
+  if (!hh) return null;
+  var h, m;
+  if (seenSep) { h = parseInt(hh, 10); m = mm ? parseInt(mm, 10) : 0; }
+  else if (hh.length <= 2) { h = parseInt(hh, 10); m = 0; }
+  else if (hh.length === 3) { h = parseInt(hh.slice(0, 1), 10); m = parseInt(hh.slice(1), 10); }
+  else { h = parseInt(hh.slice(0, 2), 10); m = parseInt(hh.slice(2, 4), 10); }
+  if (isPm && h < 12) h += 12;
+  if (isAm && h === 12) h = 0;
+  if (!(h >= 0 && h <= 23) || !(m >= 0 && m <= 59)) return null;
+  var dateStr;
+  try {
+    dateStr = new Date(baseTs || Date.now()).toLocaleDateString('sv-SE', { timeZone: 'America/New_York' });
+  } catch (e) { dateStr = new Date().toLocaleDateString('sv-SE'); }
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return dateStr + ' ' + pad(h) + ':' + pad(m);
+}
 async function oalEditTime(id, field, curTs, label) {
   if (!adminUnlocked) return;
-  const v = prompt('Novo ' + label + ' (AAAA-MM-DD HH:MM, ET):', _oalDefault(curTs));
-  if (v == null || !v.trim()) return;
+  const raw = prompt('Novo ' + label + ' — "14:30", "1430", "2pm" ou "AAAA-MM-DD HH:MM" (ET):', _oalDefault(curTs));
+  if (raw == null || !raw.trim()) return;
+  const v = _parseFlexTime(raw, curTs);
+  if (!v) { alert('Horário inválido. Tenta tipo 14:30 / 1430 / 2pm.'); return; }
   return adminAction({ method: 'PUT', url: '/api/admin/operator-activity-log/' + id,
-                       body: { [field]: v.trim(), retroactive: true } });
+                       body: { [field]: v, retroactive: true } });
 }
 async function oalDelete(id) {
   if (!adminUnlocked) return;

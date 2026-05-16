@@ -66,21 +66,41 @@ describe('operator_activity_log (Fase 2.6)', () => {
     expect(r.status).toBe(400);
   });
 
-  test('PUT recomputes duration_seconds when both timestamps present', async () => {
-    let updSql = null;
+  // Bug 2: duration must be recomputed from the NEW row. In a single
+  // UPDATE every SET RHS sees the OLD row, so the recompute runs as a
+  // SECOND statement reading the just-updated row (GREATEST guards a
+  // backwards edit — critical for untracked breaks where
+  // started_at == ended_at until the admin fixes the saída time).
+  test('PUT recomputes duration in a second UPDATE off the new row', async () => {
+    const updates = [];
     db.query = jest.fn().mockImplementation((sql) => {
-      if (/SELECT \* FROM operator_activity_log/.test(sql)) {
-        return Promise.resolve({ rows: [{ id: 1 }] });
-      }
-      if (/UPDATE operator_activity_log SET/.test(sql)) {
-        updSql = sql; return Promise.resolve({ rows: [] });
-      }
+      if (/SELECT \* FROM operator_activity_log/.test(sql)) return Promise.resolve({ rows: [{ id: 1 }] });
+      if (/UPDATE operator_activity_log\s+SET/.test(sql)) { updates.push(sql); return Promise.resolve({ rows: [] }); }
       return Promise.resolve({ rows: [] });
     });
     await request('PUT', '/api/admin/operator-activity-log/1', {
-      pin: '510510', ended_at: '2026-05-15T15:00:00Z',
+      pin: '510510', started_at: '2026-05-15 13:30', ended_at: '2026-05-15 13:53',
     });
-    expect(updSql).toMatch(/duration_seconds = CASE WHEN ended_at IS NOT NULL/);
+    expect(updates.length).toBe(2);                                  // sets, then duration
+    expect(updates[0]).not.toMatch(/duration_seconds = CASE/);        // not in the OLD-row pass
+    expect(updates[1]).toMatch(/duration_seconds = CASE/);
+    expect(updates[1]).toMatch(/GREATEST\(0, EXTRACT\(EPOCH FROM \(ended_at - started_at\)\)::int\)/);
+    expect(updates[1]).toMatch(/WHERE id = \$1/);                     // reads the updated row
+  });
+
+  test('Bug 2 — retroactive:true audits oal.edit_retroactive (else oal.edit)', async () => {
+    function run(body) {
+      const audited = [];
+      db.query = jest.fn().mockImplementation((sql, p) => {
+        if (/SELECT \* FROM operator_activity_log/.test(sql)) return Promise.resolve({ rows: [{ id: 1 }] });
+        if (/INSERT INTO admin_audit_log/.test(sql)) { audited.push(p[1]); return Promise.resolve({ rows: [{ id: 1 }] }); }
+        return Promise.resolve({ rows: [] });
+      });
+      return request('PUT', '/api/admin/operator-activity-log/1', body).then(() => audited);
+    }
+    expect(await run({ pin: '510510', started_at: '2026-05-15 13:30', retroactive: true }))
+      .toContain('oal.edit_retroactive');
+    expect(await run({ pin: '510510', notes: 'x' })).toContain('oal.edit');
   });
 
   test('DELETE hard-deletes (no soft column in this table)', async () => {

@@ -1085,13 +1085,25 @@ router.put('/admin/operator-activity-log/:id', async (req, res) => {
     if (came_back_from_id !== undefined)        { sets.push(`came_back_from_id = $${params.length + 1}`); params.push(came_back_from_id || null); }
     if (notes !== undefined)                    { sets.push(`notes = $${params.length + 1}`); params.push(notes || null); }
 
-    // Recompute duration_seconds if both timestamps are set
-    sets.push(`duration_seconds = CASE WHEN ended_at IS NOT NULL THEN EXTRACT(EPOCH FROM (ended_at - started_at))::int ELSE NULL END`);
-
     params.push(id);
     await db.query(`UPDATE operator_activity_log SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    // Bug 2: recompute duration in a SECOND statement so it reads the
+    // NEW row. In a single UPDATE every SET right-hand-side sees the OLD
+    // row, so a retroactive started_at/ended_at edit (untracked break
+    // started_at==ended_at) would keep duration 0. GREATEST guards a
+    // backwards edit.
+    await db.query(
+      `UPDATE operator_activity_log
+       SET duration_seconds = CASE
+             WHEN ended_at IS NOT NULL AND started_at IS NOT NULL
+             THEN GREATEST(0, EXTRACT(EPOCH FROM (ended_at - started_at))::int)
+             ELSE NULL END
+       WHERE id = $1`, [id]);
     const after = await snapshotRow('operator_activity_log', 'id', id);
-    await auditAction({ req, action: 'oal.edit', entityType: 'operator_activity_log',
+    // Bug 2: retroactive break/time edits are audited distinctly.
+    const action = (req.body && (req.body.retroactive === true || req.body.retroactive === 'true'))
+      ? 'oal.edit_retroactive' : 'oal.edit';
+    await auditAction({ req, action, entityType: 'operator_activity_log',
                         entityId: id, before, after });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
