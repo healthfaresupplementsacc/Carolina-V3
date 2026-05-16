@@ -355,8 +355,18 @@ async function pollManagerChannel() {
             senderName, productionContext);
         }
       }
+      // P2 — deterministic direct-order pre-parse: "ignora / esquece /
+      // deixa pra lá" with something pending → dismiss, no LLM round-trip.
       if (reply === undefined) {
-        reply = await askClaude(msg.text, senderName, productionContext);
+        const direct = await adminTools.interpretDirectOrder(msg.text);
+        if (direct.handled) reply = direct.reply;
+      }
+      if (reply === undefined) {
+        // P2 — give the loop awareness of what's pending so it routes
+        // "fecha essa" / ambiguity correctly.
+        let ctxFull = productionContext;
+        try { ctxFull += '\n\n' + (await adminTools.pendingContextLine()); } catch (_) {}
+        reply = await askClaude(msg.text, senderName, ctxFull);
       }
       await slack.chat.postMessage({
         channel: config.slack.managerChannelId,

@@ -319,6 +319,57 @@ async function runTool(name, input = {}, deps = {}) {
   throw new Error('tool desconhecida: ' + name);
 }
 
+// ─── BLOCO C / P2 — natural-language direct-order interpretation ─────────
+// A cheap, deterministic pre-parse that runs BEFORE the LLM loop for the
+// highest-confidence intent: "ignora / esquece / deixa pra lá" when a
+// question is pending → dismiss. Everything richer ("fecha a fase #5",
+// "renomeia #10 pra X", "mostra timeline da Ana") is left to the P1
+// tool-use loop, whose system prompt already carries the routing +
+// ambiguity rules.
+function detectDismissIntent(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return false;
+  return /^(ignora|ignore|esquece|esque[çc]a|deixa(\s+(pra|para)\s+l[áa]|\s+quieto|\s+isso)?|para\s+com\s+isso|cancela\s+(essa|isso)|descarta|n[ãa]o\s+precisa|deleta\s+(isso|essa|a\s+pergunta))\b/.test(t);
+}
+
+/** What is Carolina currently waiting on an answer for? */
+async function pendingSummary() {
+  const parts = [];
+  try {
+    const rb = await db.query(`SELECT value FROM app_state WHERE key = 'retro_break_admin'`);
+    if (rb.rows[0]) parts.push('pergunta de horário de break retroativo');
+  } catch (_) {}
+  const w6 = await getProposal();
+  if (w6) parts.push(`proposta "${w6.kind}" aguardando sim/não`);
+  try {
+    const proposals = require('./proposals');
+    const list = await proposals.listPending();
+    if (list.length) parts.push(`${list.length} proposta(s) da Carolina pendente(s)`);
+  } catch (_) {}
+  return { hasAny: parts.length > 0, parts };
+}
+
+/** One context line for the LLM so it knows there IS something pending. */
+async function pendingContextLine() {
+  const ps = await pendingSummary();
+  if (!ps.hasAny) return 'PENDÊNCIAS: nenhuma pergunta aguardando resposta.';
+  return 'PENDÊNCIAS (a Carolina está esperando o admin sobre): ' + ps.parts.join('; ') + '.';
+}
+
+/**
+ * Returns { handled:true, reply } when a deterministic dismiss applies,
+ * otherwise { handled:false } (caller falls through to the LLM loop).
+ */
+async function interpretDirectOrder(text, deps = {}) {
+  if (!detectDismissIntent(text)) return { handled: false };
+  const ps = await pendingSummary();
+  if (!ps.hasAny) return { handled: false };
+  const res = await dismissPendingQuestion({ question_id: 'nl_dismiss' }, deps);
+  const what = res.dismissed && res.dismissed.length
+    ? ` (${res.dismissed.join(', ')})` : '';
+  return { handled: true, reply: `Tá certo, descartei${what}.` };
+}
+
 module.exports = {
   propose, resolveProposal, parseConfirmation, buildProposeMessage,
   getProposal, setProposal, clearProposal,
@@ -326,4 +377,5 @@ module.exports = {
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, runTool,
+  detectDismissIntent, pendingSummary, pendingContextLine, interpretDirectOrder,
 };
