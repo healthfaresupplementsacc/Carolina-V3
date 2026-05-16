@@ -112,4 +112,57 @@ describe('app-state', () => {
     expect(kv.break_enabled).toBe('true');
     await expect(appState.setMsgToggle('nope', true)).rejects.toThrow(/inválido/);
   });
+
+  // ---- C6 schedules & windows ----
+  test('timeToCron converts HH:MM and falls back on junk', () => {
+    expect(appState.timeToCron('08:00')).toBe('0 8 * * *');
+    expect(appState.timeToCron('14:35')).toBe('35 14 * * *');
+    expect(appState.timeToCron('xx', '07:15')).toBe('15 7 * * *');
+  });
+
+  test('greeting/eod time getters default and validate', async () => {
+    let kv = {}; kvDb(kv);
+    expect(await appState.getGreetingTime()).toBe('08:00');
+    expect(await appState.getEodTime()).toBe('19:00');
+    kv = { greeting_time: '06:30', eod_time: 'garbage' }; kvDb(kv);
+    expect(await appState.getGreetingTime()).toBe('06:30');
+    expect(await appState.getEodTime()).toBe('19:00'); // junk → default
+  });
+
+  test('getPendingWindowMinutes defaults 20 and clamps 1..240', async () => {
+    let kv = {}; kvDb(kv);
+    expect(await appState.getPendingWindowMinutes()).toBe(20);
+    kv = { pending_window_minutes: '45' }; kvDb(kv);
+    expect(await appState.getPendingWindowMinutes()).toBe(45);
+    kv = { pending_window_minutes: '9999' }; kvDb(kv);
+    expect(await appState.getPendingWindowMinutes()).toBe(240);
+    kv = { pending_window_minutes: '0' }; kvDb(kv);
+    expect(await appState.getPendingWindowMinutes()).toBe(1);
+  });
+
+  test('getActiveWeekdays parses CSV, defaults to all 7', async () => {
+    let kv = {}; kvDb(kv);
+    expect(await appState.getActiveWeekdays()).toEqual([0,1,2,3,4,5,6]);
+    kv = { active_weekdays: '1,2,3,4,5' }; kvDb(kv);
+    expect(await appState.getActiveWeekdays()).toEqual([1,2,3,4,5]);
+    kv = { active_weekdays: 'junk' }; kvDb(kv);
+    expect(await appState.getActiveWeekdays()).toEqual([0,1,2,3,4,5,6]);
+  });
+
+  test('isActiveToday reflects the stored weekday set', async () => {
+    const wd = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay();
+    let kv = { active_weekdays: String(wd) }; kvDb(kv);
+    expect(await appState.isActiveToday()).toBe(true);
+    kv = { active_weekdays: String((wd + 1) % 7) }; kvDb(kv);
+    expect(await appState.isActiveToday()).toBe(false);
+  });
+
+  test('getSchedule bundles all four', async () => {
+    kvDb({ greeting_time: '09:15', pending_window_minutes: '30' });
+    const s = await appState.getSchedule();
+    expect(s.greeting_time).toBe('09:15');
+    expect(s.eod_time).toBe('19:00');
+    expect(s.pending_window_minutes).toBe(30);
+    expect(s.active_weekdays).toEqual([0,1,2,3,4,5,6]);
+  });
 });

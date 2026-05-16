@@ -894,7 +894,51 @@ router.get('/admin/carolina-config', async (req, res) => {
   try {
     const appName = await appState.getAppName();
     const toggles = await appState.getMsgToggles();
-    res.json({ app_name: appName, toggles, variation_types: msgVar.listTypes() });
+    const schedule = await appState.getSchedule();
+    res.json({ app_name: appName, toggles, schedule, variation_types: msgVar.listTypes() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/carolina-config/schedule
+//   body: { pin, greeting_time?, eod_time?, pending_window_minutes?, active_weekdays? }
+// C6 — times/window/weekdays. Time changes re-create the crons live.
+router.post('/admin/carolina-config/schedule', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const b = req.body || {};
+    const timeRe = /^([01]?\d|2[0-3]):[0-5]\d$/;
+    const before = await appState.getSchedule();
+
+    if (b.greeting_time !== undefined) {
+      if (!timeRe.test(String(b.greeting_time))) return res.status(400).json({ error: 'greeting_time inválido (HH:MM)' });
+      await appState.set('greeting_time', String(b.greeting_time));
+    }
+    if (b.eod_time !== undefined) {
+      if (!timeRe.test(String(b.eod_time))) return res.status(400).json({ error: 'eod_time inválido (HH:MM)' });
+      await appState.set('eod_time', String(b.eod_time));
+    }
+    if (b.pending_window_minutes !== undefined) {
+      const n = parseInt(b.pending_window_minutes, 10);
+      if (!Number.isFinite(n) || n < 1 || n > 240) return res.status(400).json({ error: 'pending_window_minutes 1–240' });
+      await appState.set('pending_window_minutes', String(n));
+    }
+    if (b.active_weekdays !== undefined) {
+      const arr = (Array.isArray(b.active_weekdays) ? b.active_weekdays : String(b.active_weekdays).split(','))
+        .map((x) => parseInt(x, 10))
+        .filter((x) => Number.isInteger(x) && x >= 0 && x <= 6);
+      if (arr.length === 0) return res.status(400).json({ error: 'active_weekdays vazio' });
+      await appState.set('active_weekdays', arr.join(','));
+    }
+
+    const after = await appState.getSchedule();
+    // Re-create the greeting/EOD crons so a new time takes effect now.
+    try { await require('../scheduler').rescheduleJobs(); } catch (e) { console.error('[Sched] reschedule:', e.message); }
+
+    await auditAction({
+      req, action: 'carolina_config.schedule', entityType: 'app_state',
+      entityId: 'schedule', before, after,
+    });
+    res.json({ ok: true, schedule: after });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

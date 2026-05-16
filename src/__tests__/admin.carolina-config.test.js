@@ -11,6 +11,7 @@ jest.mock('../db');
 jest.mock('../slack/client');
 jest.mock('../parser');
 jest.mock('../eod');
+jest.mock('../scheduler', () => ({ rescheduleJobs: jest.fn().mockResolvedValue() }));
 
 const db = require('../db');
 const express = require('express');
@@ -257,5 +258,43 @@ describe('C5 — message variations endpoints', () => {
     expect((await request('POST', '/api/admin/carolina-config/variations', { type: 'note', template: 'x' })).status).toBe(403);
     expect((await request('PUT', '/api/admin/carolina-config/variations/1', { template: 'x' })).status).toBe(403);
     expect((await request('DELETE', '/api/admin/carolina-config/variations/1')).status).toBe(403);
+  });
+});
+
+describe('C6 — schedule endpoint', () => {
+  const sched = require('../scheduler');
+
+  test('GET carolina-config exposes schedule defaults', async () => {
+    const r = await request('GET', '/api/admin/carolina-config?pin=' + PIN);
+    expect(r.status).toBe(200);
+    expect(r.body.schedule).toEqual({
+      greeting_time: '08:00', eod_time: '19:00',
+      pending_window_minutes: 20, active_weekdays: [0, 1, 2, 3, 4, 5, 6],
+    });
+  });
+
+  test('POST persists, audits, and reschedules', async () => {
+    const r = await request('POST', '/api/admin/carolina-config/schedule', {
+      pin: PIN, greeting_time: '06:30', eod_time: '18:00',
+      pending_window_minutes: 30, active_weekdays: [1, 2, 3, 4, 5],
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.schedule).toEqual({
+      greeting_time: '06:30', eod_time: '18:00',
+      pending_window_minutes: 30, active_weekdays: [1, 2, 3, 4, 5],
+    });
+    expect(store.kv.greeting_time).toBe('06:30');
+    expect(store.kv.active_weekdays).toBe('1,2,3,4,5');
+    expect(sched.rescheduleJobs).toHaveBeenCalled();
+    expect(store.audit.some((a) => a.action === 'carolina_config.schedule')).toBe(true);
+  });
+
+  test('rejects bad time / window / empty weekdays / no PIN', async () => {
+    expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, greeting_time: '25:99' })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, eod_time: 'noon' })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, pending_window_minutes: 0 })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, pending_window_minutes: 9999 })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, active_weekdays: [] })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/schedule', { greeting_time: '08:00' })).status).toBe(403);
   });
 });

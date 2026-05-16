@@ -687,6 +687,21 @@ router.get('/admin/carolina-config', (req, res) => {
   </div>
 
   <div class="card">
+    <h2>Horários e janelas</h2>
+    <div class="hint">Horário em ET (America/New_York). Mudança de horário re-agenda o cron na hora.</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px">
+      <label class="fld">Saudação de manhã<br><input id="sc-greeting" type="time" style="margin-top:4px"></label>
+      <label class="fld">Resumo EOD<br><input id="sc-eod" type="time" style="margin-top:4px"></label>
+      <label class="fld">Janela pergunta pendente (min)<br><input id="sc-pend" type="number" min="1" max="240" style="margin-top:4px;width:90px"></label>
+    </div>
+    <div class="fld" style="margin-top:12px">Dias ativos</div>
+    <div id="sc-days" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px"></div>
+    <button class="btn" onclick="saveSchedule()" style="margin-top:14px">Salvar horários</button>
+    <div class="ok" id="sc-msg"></div>
+    <div class="err" id="sc-err"></div>
+  </div>
+
+  <div class="card">
     <h2>Variações de mensagem</h2>
     <div class="hint">A Carolina sorteia uma variação a cada envio. Placeholders entre chaves (ex: <code>{nome}</code>) são preenchidos na hora.</div>
     <label class="fld" for="var-type" style="margin-top:10px">Conjunto</label>
@@ -727,6 +742,7 @@ router.get('/admin/carolina-config', (req, res) => {
         renderPreview();
         renderToggles(data.toggles || {});
         initVariations(data.variation_types || []);
+        initSchedule(data.schedule || {});
       } catch (e) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
@@ -886,6 +902,42 @@ router.get('/admin/carolina-config', (req, res) => {
         if (!r.ok) { setVarMsg('', data.error || ('Erro ' + r.status)); return; }
         setVarMsg('Excluída.', ''); loadVariations();
       } catch (e) { setVarMsg('', 'Erro de conexão'); }
+    }
+
+    // ----- C6: schedules & windows -----
+    var DOW = [['0','Dom'],['1','Seg'],['2','Ter'],['3','Qua'],['4','Qui'],['5','Sex'],['6','Sáb']];
+    function initSchedule(s) {
+      document.getElementById('sc-greeting').value = s.greeting_time || '08:00';
+      document.getElementById('sc-eod').value = s.eod_time || '19:00';
+      document.getElementById('sc-pend').value = s.pending_window_minutes || 20;
+      var active = s.active_weekdays || [0,1,2,3,4,5,6];
+      document.getElementById('sc-days').innerHTML = DOW.map(function (d) {
+        var on = active.indexOf(parseInt(d[0],10)) !== -1;
+        return '<label class="hint"><input type="checkbox" class="sc-day" value="' + d[0] + '"' + (on ? ' checked' : '') + '> ' + d[1] + '</label>';
+      }).join('');
+    }
+    async function saveSchedule() {
+      var ok = document.getElementById('sc-msg'); var err = document.getElementById('sc-err');
+      ok.textContent = ''; err.textContent = '';
+      var days = [];
+      var cbs = document.querySelectorAll('.sc-day');
+      for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) days.push(parseInt(cbs[i].value, 10)); }
+      if (!days.length) { err.textContent = 'Selecione pelo menos um dia'; return; }
+      var body = {
+        pin: _pin,
+        greeting_time: document.getElementById('sc-greeting').value,
+        eod_time: document.getElementById('sc-eod').value,
+        pending_window_minutes: parseInt(document.getElementById('sc-pend').value, 10) || 20,
+        active_weekdays: days,
+      };
+      try {
+        var r = await fetch('/api/admin/carolina-config/schedule', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (!r.ok) { err.textContent = data.error || ('Erro ' + r.status); return; }
+        ok.textContent = 'Salvo. Crons re-agendados.';
+      } catch (e) { err.textContent = 'Erro de conexão'; }
     }
   </script>
 </body>

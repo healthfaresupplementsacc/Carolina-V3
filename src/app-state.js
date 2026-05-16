@@ -110,9 +110,69 @@ async function setMsgToggle(type, enabled) {
   return !!enabled;
 }
 
+// ===== BLOCO B / C6 — schedules & windows =====
+// Defaults preserve the pre-C6 behaviour: greeting 08:00 ET, EOD 19:00
+// ET (current config.eod.hourEdt), pending window 20 min, every weekday.
+const SCHEDULE_DEFAULTS = {
+  greeting_time: '08:00',
+  eod_time: '19:00',
+  pending_window_minutes: 20,
+  active_weekdays: [0, 1, 2, 3, 4, 5, 6], // 0=Sun .. 6=Sat (JS getDay)
+};
+
+function _validTime(s) {
+  return /^([01]?\d|2[0-3]):[0-5]\d$/.test(String(s || '').trim());
+}
+
+/** "HH:MM" → cron "M H * * *". Falls back to the given default on junk. */
+function timeToCron(hhmm, fallback = '08:00') {
+  const t = _validTime(hhmm) ? String(hhmm).trim() : fallback;
+  const [h, m] = t.split(':');
+  return `${parseInt(m, 10)} ${parseInt(h, 10)} * * *`;
+}
+
+async function getGreetingTime() {
+  const v = await get('greeting_time', SCHEDULE_DEFAULTS.greeting_time);
+  return _validTime(v) ? String(v).trim() : SCHEDULE_DEFAULTS.greeting_time;
+}
+async function getEodTime() {
+  const v = await get('eod_time', SCHEDULE_DEFAULTS.eod_time);
+  return _validTime(v) ? String(v).trim() : SCHEDULE_DEFAULTS.eod_time;
+}
+async function getPendingWindowMinutes() {
+  const n = parseInt(await get('pending_window_minutes', SCHEDULE_DEFAULTS.pending_window_minutes), 10);
+  if (!Number.isFinite(n)) return SCHEDULE_DEFAULTS.pending_window_minutes;
+  return Math.min(240, Math.max(1, n));
+}
+async function getActiveWeekdays() {
+  const raw = await get('active_weekdays', null);
+  if (!raw) return SCHEDULE_DEFAULTS.active_weekdays.slice();
+  const arr = String(raw).split(',')
+    .map((x) => parseInt(x, 10))
+    .filter((x) => Number.isInteger(x) && x >= 0 && x <= 6);
+  return arr.length ? arr : SCHEDULE_DEFAULTS.active_weekdays.slice();
+}
+/** Is today (in ET) an active weekday? Used by greeting/EOD jobs. */
+async function isActiveToday(tz = 'America/New_York') {
+  const days = await getActiveWeekdays();
+  const wd = new Date(new Date().toLocaleString('en-US', { timeZone: tz })).getDay();
+  return days.includes(wd);
+}
+async function getSchedule() {
+  return {
+    greeting_time: await getGreetingTime(),
+    eod_time: await getEodTime(),
+    pending_window_minutes: await getPendingWindowMinutes(),
+    active_weekdays: await getActiveWeekdays(),
+  };
+}
+
 module.exports = {
   get, set,
   getAppName, getAppNameSync, setAppName, invalidateAppNameCache,
   DEFAULT_APP_NAME,
   MSG_TYPE_KEYS, isMsgEnabled, getMsgToggles, setMsgToggle,
+  SCHEDULE_DEFAULTS, timeToCron,
+  getGreetingTime, getEodTime, getPendingWindowMinutes,
+  getActiveWeekdays, isActiveToday, getSchedule,
 };

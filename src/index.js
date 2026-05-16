@@ -106,11 +106,11 @@ async function start() {
     // 4. Start Slack polling
     startPolling();
 
-    // 5. Start EOD cron
-    startEodJob();
+    // 5. Start EOD cron (C6: time read from app_state)
+    await startEodJob();
 
-    // 5a. Start the morning greeting cron (BLOCO B / C3).
-    startGreetingJob();
+    // 5a. Start the morning greeting cron (C6: time from app_state).
+    await startGreetingJob();
 
     // 5b. Warm the app_name cache (App Home header + Carolina persona).
     require('./app-state').getAppName().catch(() => {});

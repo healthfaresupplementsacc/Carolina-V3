@@ -80,10 +80,36 @@ describe('C3 — runGreeting', () => {
     await expect(sched.runGreeting()).resolves.toBeUndefined();
   });
 
-  test('startGreetingJob registers a daily cron in ET', () => {
+  test('C6 — skips on an inactive weekday', async () => {
+    const wd = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDay();
+    wireStore({ active_weekdays: String((wd + 1) % 7) }); // today not included
+    await sched.runGreeting();
+    expect(slackClient.postMessage).not.toHaveBeenCalled();
+  });
+
+  test('C6 — startGreetingJob schedules from app_state greeting_time (default 08:00 ET)', async () => {
     const cron = require('node-cron');
-    sched.startGreetingJob();
+    wireStore({});
+    await sched.startGreetingJob();
     expect(cron.schedule).toHaveBeenCalledWith(
       '0 8 * * *', expect.any(Function), { timezone: 'America/New_York' });
+  });
+
+  test('C6 — startGreetingJob honours a configured time', async () => {
+    const cron = require('node-cron');
+    wireStore({ greeting_time: '06:45' });
+    await sched.startGreetingJob();
+    expect(cron.schedule).toHaveBeenCalledWith(
+      '45 6 * * *', expect.any(Function), { timezone: 'America/New_York' });
+  });
+
+  test('C6 — rescheduleJobs re-creates greeting + EOD crons', async () => {
+    const cron = require('node-cron');
+    cron.schedule.mockClear();
+    wireStore({ greeting_time: '07:00', eod_time: '18:30' });
+    await sched.rescheduleJobs();
+    const exprs = cron.schedule.mock.calls.map((c) => c[0]);
+    expect(exprs).toContain('0 7 * * *');   // greeting
+    expect(exprs).toContain('30 18 * * *'); // eod
   });
 });

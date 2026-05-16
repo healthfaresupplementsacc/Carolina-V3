@@ -216,14 +216,16 @@ const JOIN_PRODUCAO_ANNOUNCE = [
 
 // ─── Pending question helpers (stored in app_state) ───────────────────────
 
-// B18: 20-minute window. Per Entrega 1 decision this is hardcoded; the
-// configurable app_config path arrives in Entrega 6.
+// B18 window. C6: now configurable via Config Carolina
+// (app_state 'pending_window_minutes'); 20 min is the default fallback.
 const PENDING_QUESTION_WINDOW_MIN = 20;
 
 function pendingKey(operator) { return `pending_q_${operator}`; }
 
 async function storePendingQuestion(operator, data) {
-  const expiresAt = new Date(Date.now() + PENDING_QUESTION_WINDOW_MIN * 60 * 1000).toISOString();
+  let windowMin = PENDING_QUESTION_WINDOW_MIN;
+  try { windowMin = await require('./app-state').getPendingWindowMinutes(); } catch (_) {}
+  const expiresAt = new Date(Date.now() + windowMin * 60 * 1000).toISOString();
   const value = JSON.stringify({ ...data, askedAt: new Date().toISOString(), expiresAt });
   await db.query(
     `INSERT INTO app_state (key, value, updated_at) VALUES ($1, $2, NOW())

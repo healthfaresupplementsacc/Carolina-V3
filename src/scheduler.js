@@ -16,9 +16,14 @@ const { takeScreenshot } = require('./screenshot');
 const db = require('./db');
 const tasks = require('./tasks');
 const orders = require('./orders');
+const appState = require('./app-state');
 const fs = require('fs');
 
 let pollTimer = null;
+// C6 — cron handles so the greeting/EOD jobs can be re-created when the
+// admin changes their time in the Config Carolina panel.
+let _greetingTask = null;
+let _eodTask = null;
 
 async function runPollCycle() {
   try {
@@ -45,15 +50,25 @@ function startPolling() {
  * Cron: "0 23 * * *" UTC (Nov-Mar, EST = UTC-5)
  *       "0 0 * * *"  UTC (Mar-Nov, EDT = UTC-4)
  */
-function startEodJob() {
-  // Run at 23:00 UTC (catches EST 19:00)
-  cron.schedule('0 23 * * *', () => runEod(), { timezone: 'UTC' });
-  // Run at 00:00 UTC (catches EDT 20:00 -> actually 19:00 in EDT = 23:00 UTC)
-  // More reliable: just run at America/New_York 19:00
-  cron.schedule(`0 ${config.eod.hourEdt} * * *`, () => runEod(), {
+function _stop(task) {
+  try { if (task && typeof task.stop === 'function') task.stop(); } catch (_) {}
+}
+
+// C6 — single ET-timezone cron from the configured eod_time. The old
+// belt-and-suspenders UTC cron is gone: node-cron handles DST via the
+// timezone option, and runEod() is idempotent (eod_snapshots per day),
+// so a configurable time can't double-fire or fire at the wrong hour.
+async function _scheduleEod() {
+  _stop(_eodTask);
+  const time = await appState.getEodTime();
+  _eodTask = cron.schedule(appState.timeToCron(time, '19:00'), () => runEod(), {
     timezone: config.eod.timezone,
   });
-  console.log(`[Scheduler] EOD job scheduled at ${config.eod.hourEdt}:00 ${config.eod.timezone}`);
+  console.log(`[Scheduler] EOD job scheduled at ${time} ${config.eod.timezone}`);
+}
+
+async function startEodJob() {
+  await _scheduleEod();
 
   // P4 — daily maintenance at 03:30 ET: stale-break cleanup (N3),
   // audit TTL (L2) and legacy orphan cleanup (>24h open phases/adhoc).
@@ -64,19 +79,20 @@ function startEodJob() {
 }
 
 // ===== BLOCO B / C3 — morning greeting =====
-// Posts a greeting to the production channel each morning. Reads its
-// on/off flag and (optional) override text from app_state, so the
-// Config Carolina panel controls it. The schedule hour becomes
-// configurable in C6; the message picks from variations in C5.
-const GREETING_HOUR_ET = 8; // default 08:00 ET (configurable in C6)
-
+// Posts a greeting to the production channel each morning. on/off flag,
+// override text, schedule time (C6) and active weekdays (C6) all come
+// from app_state via the Config Carolina panel; message picks from the
+// C5 variations.
 async function runGreeting() {
   try {
-    const appState = require('./app-state');
-
     const enabled = await appState.get('greeting_enabled', 'true');
     if (String(enabled) === 'false') {
       console.log('[Greeting] disabled — skipping');
+      return;
+    }
+
+    if (!(await appState.isActiveToday(config.eod.timezone))) {
+      console.log('[Greeting] inactive weekday — skipping');
       return;
     }
 
@@ -102,11 +118,24 @@ async function runGreeting() {
   }
 }
 
-function startGreetingJob() {
-  cron.schedule(`0 ${GREETING_HOUR_ET} * * *`, () => runGreeting(), {
+async function _scheduleGreeting() {
+  _stop(_greetingTask);
+  const time = await appState.getGreetingTime();
+  _greetingTask = cron.schedule(appState.timeToCron(time, '08:00'), () => runGreeting(), {
     timezone: config.eod.timezone,
   });
-  console.log(`[Scheduler] Morning greeting scheduled at ${GREETING_HOUR_ET}:00 ${config.eod.timezone}`);
+  console.log(`[Scheduler] Morning greeting scheduled at ${time} ${config.eod.timezone}`);
+}
+
+async function startGreetingJob() {
+  await _scheduleGreeting();
+}
+
+// C6 — called by the Config Carolina panel after the admin changes a
+// time. Re-creates the greeting + EOD crons from the new app_state.
+async function rescheduleJobs() {
+  await _scheduleGreeting();
+  await _scheduleEod();
 }
 
 async function runDailyCleanup() {
@@ -142,8 +171,14 @@ async function runEod() {
   }
 
   // BLOCO B / C4 — EOD reminder toggle.
-  if (!(await require('./app-state').isMsgEnabled('eod'))) {
+  if (!(await appState.isMsgEnabled('eod'))) {
     console.log('[EOD] disabled via Config Carolina — skipping');
+    return;
+  }
+
+  // BLOCO B / C6 — active-weekday gate.
+  if (!(await appState.isActiveToday(config.eod.timezone))) {
+    console.log('[EOD] inactive weekday — skipping');
     return;
   }
 
@@ -257,5 +292,5 @@ function formatDuration(seconds) {
 
 module.exports = {
   startPolling, startEodJob, runEod, runPollCycle, runDailyCleanup,
-  startGreetingJob, runGreeting,
+  startGreetingJob, runGreeting, rescheduleJobs,
 };
