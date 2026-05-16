@@ -100,6 +100,37 @@ async function processMessage(msg) {
     await slackClient.addReaction(ts);
   }
 
+  // B4 — break-time reply interception (F6 untracked-break follow-up).
+  // Runs before the generic pending-question path so a garbage time
+  // answer ("assfdf") is caught and retried instead of falling through.
+  if (!isBackfilling && parsed.operator
+      && !['start', 'finish', 'orders_start', 'orders_finish'].includes(parsedType)) {
+    try {
+      const opRow = await db.query(
+        `SELECT id FROM operators WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+        [parsed.operator]
+      );
+      const opId = opRow.rows[0]?.id;
+      if (opId) {
+        const btr = require('../workflow/break-time-reply');
+        const r = await btr.handleReply(opId, text);
+        if (r.handled) {
+          const announce = require('../workflow/announce');
+          if (r.outcome === 'resolved') {
+            await slackClient.addReaction(ts);
+          } else if (r.outcome === 'retry') {
+            await announce.breakTimeRetry({ operatorName: parsed.operator });
+          } else if (r.outcome === 'gaveup') {
+            await announce.breakTimeGaveUp({ operatorName: parsed.operator });
+          }
+          return; // consumed
+        }
+      }
+    } catch (err) {
+      console.error('[Poller] B4 break-time reply error:', err.message);
+    }
+  }
+
   // Pending question interception
   const EXPLICIT_COMMAND_TYPES = ['start', 'finish', 'orders_start', 'orders_finish', 'formulation_start', 'formulation_finish'];
   if (!isBackfilling && parsed.operator) {

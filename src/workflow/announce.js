@@ -139,7 +139,37 @@ async function voltaSemBreak({ operatorName }) {
   );
 }
 
+// B4 — retry when the break-time answer wasn't a valid time. 10 variations.
+const BREAK_TIME_RETRY = [
+  (n) => `${n}, não entendi 😅 tenta no formato HH:MM, tipo 14:30`,
+  (n) => `${n} esse horário não deu pra ler — manda assim: 14:30`,
+  (n) => `hmm ${n}, não consegui entender. que horas? ex: 13:05`,
+  (n) => `${n}, me manda só o horário tipo 15:40`,
+  (n) => `não peguei ${n} — formato HH:MM por favor (ex 14h30)`,
+  (n) => `${n} tenta de novo: que horas vc saiu? tipo 12:15`,
+  (n) => `${n}, preciso no formato hora:minuto, ex 16:00`,
+  (n) => `não rolou ${n} 😬 manda o horário tipo 14:30`,
+  (n) => `${n} qual horário mesmo? escreve assim: 09:45`,
+  (n) => `${n}, só o horário por favor — exemplo: 17:20`,
+];
+let _lastRetryIdx = -1;
+async function breakTimeRetry({ operatorName }) {
+  const n = operatorName || 'oi';
+  let i = Math.floor(Math.random() * BREAK_TIME_RETRY.length);
+  if (i === _lastRetryIdx) i = (i + 1) % BREAK_TIME_RETRY.length;
+  _lastRetryIdx = i;
+  try { await slack().postMessage(BREAK_TIME_RETRY[i](n)); } catch (e) { /* non-fatal */ }
+}
+async function breakTimeGaveUp({ operatorName }) {
+  const n = operatorName || 'alguém';
+  await toAdmin(
+    `⚠️ Não consegui recuperar o horário do break de *${n}* (2 tentativas ` +
+    `falhadas). Marquei started_at=NULL / '[horário não recuperado]'. ` +
+    `Edita manualmente no /operator se quiser.`
+  );
+}
+
 module.exports = {
   toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged,
-  note, voltaSemBreak,
+  note, voltaSemBreak, breakTimeRetry, breakTimeGaveUp,
 };

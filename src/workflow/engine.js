@@ -625,6 +625,12 @@ async function endBreak({ operatorId, when = null }) {
     );
     try {
       await require('./announce').voltaSemBreak({ operatorName: opName });
+      // B4 — arm the break-time reply handler so the operator's next
+      // message is parsed as the missing start time (with retries).
+      await require('./break-time-reply').setPending(operatorId, {
+        pauseId, oalId, attempts: 0,
+        day: new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
+      });
     } catch (e) { /* best-effort */ }
     return { wasOnBreak: false, untrackedBreak: true, pauseId, oalId };
   }
