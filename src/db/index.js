@@ -112,6 +112,24 @@ async function migrate() {
     ALTER TABLE operators ADD COLUMN IF NOT EXISTS aliases TEXT DEFAULT '';
     ALTER TABLE operators ADD COLUMN IF NOT EXISTS role VARCHAR(50);
     ALTER TABLE operators ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    -- OPERATOR-CRUD — full employee management (permanent + temporary
+    -- helpers). DECISION: the legacy active column stays the canonical
+    -- activation flag (App Home, operator-panel and many reads use it);
+    -- is_active is added per spec and kept ALWAYS equal to active
+    -- (backfilled here; every write path sets BOTH in the same UPDATE so
+    -- they can never drift). Migration preserves existing data: everyone
+    -- active, permanent, hired_at = created_at.
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS is_temporary BOOLEAN DEFAULT FALSE;
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+    ALTER TABLE operators ADD COLUMN IF NOT EXISTS hired_at TIMESTAMPTZ DEFAULT NOW();
+    UPDATE operators SET is_active = active
+      WHERE is_active IS DISTINCT FROM active;
+    UPDATE operators SET is_temporary = FALSE WHERE is_temporary IS NULL;
+    UPDATE operators SET hired_at = COALESCE(hired_at, created_at, NOW())
+      WHERE hired_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_operators_expiry
+      ON operators (expires_at) WHERE is_temporary = TRUE AND is_active = TRUE;
 
     CREATE TABLE IF NOT EXISTS supplements (
       id SERIAL PRIMARY KEY,
