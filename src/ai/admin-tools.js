@@ -366,6 +366,39 @@ async function dismissPendingQuestion(args = {}, deps = {}) {
   return { dismissed };
 }
 
+// BUG MENSAGEM — Carolina kept saying "não escrevi nada, só consigo ler
+// lá". She CAN post (greeting/EOD/announcements all go through
+// client.postMessage). This tool wires that capability to the admin's
+// order. silent_text is honoured by client.postMessage itself (logs to
+// silent_log + returns a 'silent-'/'toggled-' marker) so we just report
+// which happened. The message is posted verbatim — persona stays human,
+// it never reveals an admin asked for it.
+async function postToProductionChannel(args = {}, deps = {}) {
+  const text = String(args.message_text || args.text || '').trim();
+  if (!text) return { posted: false, error: 'mensagem vazia' };
+  const channelType = args.channel_type === 'orders_inventory'
+    ? 'orders_inventory' : 'production';
+  const client = deps.slackClient || require('../slack/client');
+  // Only the production (floor) channel exists for operators; an
+  // orders/inventory channel isn't configured, so it routes there too.
+  const ts = await client.postMessage(text, null, null);
+  const silent = typeof ts === 'string'
+    && (ts.startsWith('silent-') || ts.startsWith('toggled-'));
+  const audit = deps.auditAction || require('../admin/audit').auditAction;
+  await audit({
+    action: 'ai_admin_posted_to_channel', entityType: 'slack_channel',
+    entityId: channelType, source: deps.source || 'slack_admin',
+    before: { channel_type: channelType, triggered_by: deps.triggeredBy || 'slack_admin_order' },
+    after: { silent, ts: silent ? null : ts, text },
+  });
+  return {
+    posted: !silent, silent, channel: channelType,
+    confirmation: silent
+      ? 'Mandei (modo silencioso, foi pro log).'
+      : 'Mandei lá.',
+  };
+}
+
 async function updateBreakRetroactive(args = {}, deps = {}) {
   const time = String(args.time || args.question_id || '').trim();
   const btr = require('../workflow/break-time-reply');
@@ -396,6 +429,7 @@ const TOOL_DEFS = [
   { name: 'merge_tasks', description: 'Mescla tarefas duplicadas.', input_schema: { type: 'object', properties: { task_ids: { type: 'array', items: { type: 'integer' } } }, required: ['task_ids'] } },
   { name: 'move_operator', description: 'Move um operador para outra atividade.', input_schema: { type: 'object', properties: { operator_id: { type: 'integer' }, target_phase_instance_id: { type: 'integer' }, target_ad_hoc_task_instance_id: { type: 'integer' } }, required: ['operator_id'] } },
   { name: 'create_workflow', description: 'Cria um workflow novo com fases.', input_schema: { type: 'object', properties: { name: { type: 'string' }, phases: { type: 'array', items: { type: 'string' } } }, required: ['name'] } },
+  { name: 'post_to_production_channel', description: 'Posta uma mensagem NO canal de produção (ou orders/inventário) como Carolina. USE SEMPRE que o admin pedir pra você "mandar/avisar/postar/escrever lá no canal". Você TEM essa capacidade — nunca diga que só lê. Respeita o modo silencioso automaticamente.', input_schema: { type: 'object', properties: { message_text: { type: 'string', description: 'Texto exato a postar (na sua voz humana; não revele que o admin pediu)' }, channel_type: { type: 'string', enum: ['production', 'orders_inventory'], description: "default 'production'" } }, required: ['message_text'] } },
   // direct responses to pending questions
   { name: 'dismiss_pending_question', description: 'Cancela/descarta a pergunta pendente sem responder (ex: admin disse "ignora").', input_schema: { type: 'object', properties: { question_id: { type: 'string' } } } },
   { name: 'update_break_retroactive', description: 'Responde a pergunta retroativa de break com o horário (ex: "14:30").', input_schema: { type: 'object', properties: { time: { type: 'string' }, question_id: { type: 'string' } }, required: ['time'] } },
@@ -403,6 +437,9 @@ const TOOL_DEFS = [
 const READ_TOOLS = new Set(['get_state', 'get_operator_timeline', 'get_breaks_today', 'search_messages', 'list_proposals']);
 const MUTATION_TOOLS = new Set(['close_phase', 'approve_adhoc', 'approve_supplement', 'rename', 'merge_tasks', 'move_operator', 'create_workflow']);
 const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroactive']);
+// Action tools that audit under their own action name (an admin order in
+// chat IS the confirmation, like mutation tools).
+const CHANNEL_TOOLS = new Set(['post_to_production_channel']);
 
 /**
  * Execute one tool call from the agentic loop.
@@ -449,6 +486,14 @@ async function runTool(name, input = {}, deps = {}) {
   if (DIRECT_TOOLS.has(name)) {
     if (name === 'dismiss_pending_question') return dismissPendingQuestion(input, deps);
     if (name === 'update_break_retroactive') return updateBreakRetroactive(input, deps);
+  }
+  if (CHANNEL_TOOLS.has(name)) {
+    // Admin's order = confirmation. The cron/autonomous path must never
+    // post on its own → it passes allowMutations:false.
+    if (deps.allowMutations === false) {
+      throw new Error('postar no canal requer ordem explícita do admin');
+    }
+    if (name === 'post_to_production_channel') return postToProductionChannel(input, deps);
   }
   if (MUTATION_TOOLS.has(name)) {
     if (!EXEC[name]) throw new Error('mutation tool sem executor: ' + name);
@@ -557,7 +602,7 @@ module.exports = {
   getState, getOperatorTimeline, resolveOperatorId, getBreaksToday,
   SUSPICIOUS_BREAK_MIN, searchMessages, suggestClaudeCodePrompt,
   EXEC,
-  dismissPendingQuestion, updateBreakRetroactive,
-  TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, runTool,
+  dismissPendingQuestion, updateBreakRetroactive, postToProductionChannel,
+  TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, CHANNEL_TOOLS, runTool,
   detectDismissIntent, stripVocative, pendingSummary, pendingContextLine, interpretDirectOrder,
 };
