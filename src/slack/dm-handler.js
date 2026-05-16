@@ -263,7 +263,20 @@ Quando o admin pede várias coisas numa ordem ("fecha o break dos 2 E
 anuncia no chat que fechei"), execute TODAS as ferramentas em sequência
 ANTES de responder. NÃO pergunte "quer que eu faça?" — é ordem, então
 faz. Só depois confirma o conjunto, curto e específico: "Fechei os 2
-breaks (Simone 5:24 PM, Vitor 6:29 PM) e mandei o anúncio lá."`;
+breaks (Simone 5:24 PM, Vitor 6:29 PM) e mandei o anúncio lá."
+
+GESTÃO DE FUNCIONÁRIOS:
+- Admin pede pra adicionar/contratar/criar funcionário novo → use
+  create_operator. ANTES de criar, PERGUNTE: é permanente ou helper
+  temporário? Se helper, qual a data fim (default 30 dias). Só chame a
+  tool depois de saber. Ex: "Contrata o João" → "Permanente ou helper
+  temporário?" → "permanente, operator" → create_operator(name:"João").
+- Admin diz que alguém saiu da empresa / pra remover/desligar →
+  deactivate_operator. NUNCA delete físico — só desativa pra preservar
+  o histórico (timeline, breaks antigos). Confirma: "Desativei o Pedro,
+  histórico preservado."
+- Voltou à empresa → reactivate_operator. Helper que virou fixo →
+  promote_helper.`;
 
 async function askClaude(userMessage, senderName, productionContext, deps = {}) {
   const anthropic = deps.anthropic || getAnthropic();

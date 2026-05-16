@@ -485,6 +485,67 @@ async function closeAllActiveBreaks(args = {}, deps = {}) {
   };
 }
 
+// OPERATOR-CRUD — Carolina manages employees from the admin chat.
+// Same rules as the endpoints: NEVER hard-delete (only deactivate to
+// preserve history); admin's order is the confirmation.
+const _OP_ROLES = ['owner', 'manager', 'operator'];
+async function createOperatorTool(args = {}, deps = {}) {
+  const name = String(args.name || '').trim();
+  if (!name) return { created: false, error: 'preciso do nome do funcionário' };
+  const role = _OP_ROLES.includes(args.role) ? args.role : 'operator';
+  const isTemp = args.is_temporary === true || args.is_temporary === 'true';
+  let expiresAt = null;
+  if (isTemp) {
+    if (args.expires_at) {
+      const d = new Date(args.expires_at);
+      if (!isNaN(d.getTime())) expiresAt = d.toISOString();
+    }
+    if (!expiresAt) {
+      const days = Number.isFinite(+args.days) && +args.days > 0 ? Math.floor(+args.days) : 30;
+      expiresAt = new Date(Date.now() + days * 86400000).toISOString();
+    }
+  }
+  const r = await db.query(
+    `INSERT INTO operators
+       (name, slack_user_id, role, is_shared_account, aliases,
+        active, is_active, is_temporary, expires_at, hired_at)
+     VALUES ($1, NULLIF($2,''), $3, FALSE, '', TRUE, TRUE, $4, $5::timestamptz, NOW())
+     RETURNING id`,
+    [name, args.slack_user_id || '', role, isTemp, expiresAt]);
+  const id = r.rows[0].id;
+  const audit = deps.auditAction || require('../admin/audit').auditAction;
+  await audit({
+    action: isTemp ? 'operator.create_helper' : 'operator.create',
+    entityType: 'operator', entityId: id, source: deps.source || 'slack_admin',
+    before: null, after: { name, role, is_temporary: isTemp, expires_at: expiresAt },
+  });
+  return { created: true, id, name, role, is_temporary: isTemp, expires_at: expiresAt };
+}
+async function _operatorActivation(ref, action, deps) {
+  const op = await resolveOperator(ref);
+  if (!op) return { ok: false, error: 'operador não encontrado — confirme o nome' };
+  let sql; let auditAction;
+  if (action === 'deactivate') {
+    sql = 'UPDATE operators SET active = FALSE, is_active = FALSE, updated_at = NOW() WHERE id = $1';
+    auditAction = 'operator.deactivate';
+  } else if (action === 'reactivate') {
+    sql = 'UPDATE operators SET active = TRUE, is_active = TRUE, updated_at = NOW() WHERE id = $1';
+    auditAction = 'operator.reactivate';
+  } else { // promote
+    sql = 'UPDATE operators SET is_temporary = FALSE, expires_at = NULL, updated_at = NOW() WHERE id = $1';
+    auditAction = 'operator.promote';
+  }
+  await db.query(sql, [op.id]);
+  const audit = deps.auditAction || require('../admin/audit').auditAction;
+  await audit({
+    action: auditAction, entityType: 'operator', entityId: op.id,
+    source: deps.source || 'slack_admin',
+    before: { operator: op.name, triggered_by: deps.triggeredBy || 'slack_admin_order' },
+    after: { action },
+  });
+  return { ok: true, operator: op.name, operator_id: op.id, action };
+}
+
 async function updateBreakRetroactive(args = {}, deps = {}) {
   const time = String(args.time || args.question_id || '').trim();
   const btr = require('../workflow/break-time-reply');
@@ -518,6 +579,10 @@ const TOOL_DEFS = [
   { name: 'post_to_production_channel', description: 'Posta uma mensagem NO canal de produção (ou orders/inventário) como Carolina. USE SEMPRE que o admin pedir pra você "mandar/avisar/postar/escrever lá no canal". Você TEM essa capacidade — nunca diga que só lê. Respeita o modo silencioso automaticamente.', input_schema: { type: 'object', properties: { message_text: { type: 'string', description: 'Texto exato a postar (na sua voz humana; não revele que o admin pediu)' }, channel_type: { type: 'string', enum: ['production', 'orders_inventory'], description: "default 'production'" } }, required: ['message_text'] } },
   { name: 'close_active_break', description: 'Fecha o break ATIVO de um operador (passe o nome em "operator"). Você TEM essa ferramenta — nunca diga que não consegue fechar break. Fecha todos os breaks abertos dele (lida com linhas duplicadas).', input_schema: { type: 'object', properties: { operator: { type: 'string', description: 'Nome do operador (ex: "Simone")' }, operator_id: { type: 'integer' }, ended_at: { type: 'string', description: "horário de fim (default agora)" } } } },
   { name: 'close_all_active_breaks', description: 'Fecha o break ativo de TODOS os operadores que estão em break agora (ex: admin "fecha o break dos 2"). Você TEM essa ferramenta.', input_schema: { type: 'object', properties: { ended_at: { type: 'string', description: 'horário de fim (default agora)' } } } },
+  { name: 'create_operator', description: 'Cadastra um funcionário novo. Pergunte ANTES: é permanente ou helper temporário? Se helper, qual a data fim (default 30 dias). is_temporary=true cria helper que expira sozinho.', input_schema: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string', enum: ['operator', 'manager', 'owner'], description: "default 'operator'" }, is_temporary: { type: 'boolean', description: 'true = helper temporário' }, expires_at: { type: 'string', description: 'data fim do helper (ISO/YYYY-MM-DD)' }, days: { type: 'integer', description: 'dias do helper se não passar expires_at (default 30)' }, slack_user_id: { type: 'string' } }, required: ['name'] } },
+  { name: 'deactivate_operator', description: 'Desativa um funcionário que saiu da empresa (passe o nome em "operator"). SOFT delete — NUNCA apaga, preserva histórico. Para de aparecer no board.', input_schema: { type: 'object', properties: { operator: { type: 'string' }, operator_id: { type: 'integer' } } } },
+  { name: 'reactivate_operator', description: 'Reativa um funcionário que voltou.', input_schema: { type: 'object', properties: { operator: { type: 'string' }, operator_id: { type: 'integer' } } } },
+  { name: 'promote_helper', description: 'Promove um helper temporário a permanente (tira a data de expiração).', input_schema: { type: 'object', properties: { operator: { type: 'string' }, operator_id: { type: 'integer' } } } },
   // direct responses to pending questions
   { name: 'dismiss_pending_question', description: 'Cancela/descarta a pergunta pendente sem responder (ex: admin disse "ignora").', input_schema: { type: 'object', properties: { question_id: { type: 'string' } } } },
   { name: 'update_break_retroactive', description: 'Responde a pergunta retroativa de break com o horário (ex: "14:30").', input_schema: { type: 'object', properties: { time: { type: 'string' }, question_id: { type: 'string' } }, required: ['time'] } },
@@ -529,6 +594,7 @@ const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroact
 // chat IS the confirmation, like mutation tools).
 const CHANNEL_TOOLS = new Set([
   'post_to_production_channel', 'close_active_break', 'close_all_active_breaks',
+  'create_operator', 'deactivate_operator', 'reactivate_operator', 'promote_helper',
 ]);
 
 /**
@@ -586,6 +652,16 @@ async function runTool(name, input = {}, deps = {}) {
     if (name === 'post_to_production_channel') return postToProductionChannel(input, deps);
     if (name === 'close_active_break') return closeActiveBreak(input, deps);
     if (name === 'close_all_active_breaks') return closeAllActiveBreaks(input, deps);
+    if (name === 'create_operator') return createOperatorTool(input, deps);
+    if (name === 'deactivate_operator') {
+      return _operatorActivation(input.operator != null && input.operator !== '' ? input.operator : input.operator_id, 'deactivate', deps);
+    }
+    if (name === 'reactivate_operator') {
+      return _operatorActivation(input.operator != null && input.operator !== '' ? input.operator : input.operator_id, 'reactivate', deps);
+    }
+    if (name === 'promote_helper') {
+      return _operatorActivation(input.operator != null && input.operator !== '' ? input.operator : input.operator_id, 'promote', deps);
+    }
   }
   if (MUTATION_TOOLS.has(name)) {
     if (!EXEC[name]) throw new Error('mutation tool sem executor: ' + name);
@@ -696,6 +772,7 @@ module.exports = {
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive, postToProductionChannel,
   closeActiveBreak, closeAllActiveBreaks,
+  createOperatorTool, _operatorActivation,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, CHANNEL_TOOLS, runTool,
   detectDismissIntent, stripVocative, pendingSummary, pendingContextLine, interpretDirectOrder,
 };
