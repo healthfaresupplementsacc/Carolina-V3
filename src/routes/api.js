@@ -895,7 +895,18 @@ router.get('/admin/carolina-config', async (req, res) => {
     const appName = await appState.getAppName();
     const toggles = await appState.getMsgToggles();
     const schedule = await appState.getSchedule();
-    res.json({ app_name: appName, toggles, schedule, variation_types: msgVar.listTypes() });
+    const pov = await appState.getPersonaOverrides();
+    const pparts = require('../ai/persona').getPersonaParts(appName);
+    res.json({
+      app_name: appName, toggles, schedule,
+      variation_types: msgVar.listTypes(),
+      persona: {
+        identity: pov.identity, personality: pov.personality,
+        identity_default: pparts.identity_default,
+        personality_default: pparts.personality_default,
+        prod_rules: pparts.prod_rules, admin_rules: pparts.admin_rules,
+      },
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -939,6 +950,53 @@ router.post('/admin/carolina-config/schedule', async (req, res) => {
       entityId: 'schedule', before, after,
     });
     res.json({ ok: true, schedule: after });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/carolina-config/persona  body: { pin, identity?, personality? }
+// C7 — edit the IDENTITY / PERSONALITY blocks. Empty value reverts that
+// block to the code default. The PROD_RULES guardrail is NOT editable
+// here and is always re-appended by persona.buildPersona.
+router.post('/admin/carolina-config/persona', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const b = req.body || {};
+    if (b.identity === undefined && b.personality === undefined) {
+      return res.status(400).json({ error: 'nada para alterar' });
+    }
+    const before = await appState.getPersonaOverrides();
+    if (b.identity !== undefined) {
+      if (String(b.identity).length > 4000) return res.status(400).json({ error: 'identity muito longo (máx 4000)' });
+      await appState.setPersonaField('identity', b.identity);
+    }
+    if (b.personality !== undefined) {
+      if (String(b.personality).length > 4000) return res.status(400).json({ error: 'personality muito longo (máx 4000)' });
+      await appState.setPersonaField('personality', b.personality);
+    }
+    const after = await appState.getPersonaOverrides();
+    await auditAction({
+      req, action: 'carolina_config.persona', entityType: 'app_state',
+      entityId: 'persona',
+      before: { identity: before.identity, personality: before.personality },
+      after: { identity: after.identity, personality: after.personality },
+    });
+    res.json({ ok: true, persona: after });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/admin/carolina-config/persona/preview?pin
+// The fully assembled persona for each scope, reflecting current
+// overrides — so the admin can SEE the locked guardrails are still in.
+router.get('/admin/carolina-config/persona/preview', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    await appState.getPersonaOverrides();          // refresh sync cache
+    const appName = appState.getAppNameSync();
+    const persona = require('../ai/persona');
+    res.json({
+      prod: persona.buildPersona('prod', appName),
+      admin: persona.buildPersona('admin', appName),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -112,8 +112,10 @@ async function start() {
     // 5a. Start the morning greeting cron (C6: time from app_state).
     await startGreetingJob();
 
-    // 5b. Warm the app_name cache (App Home header + Carolina persona).
+    // 5b. Warm the app_name + persona caches (App Home header + Carolina
+    //     persona are built synchronously on hot paths).
     require('./app-state').getAppName().catch(() => {});
+    require('./app-state').getPersonaOverrides().catch(() => {});
 
     // 6. Start HTTP server
     const port = config.app.port;

@@ -110,6 +110,47 @@ async function setMsgToggle(type, enabled) {
   return !!enabled;
 }
 
+// ===== BLOCO B / C7 — editable persona (IDENTITY / PERSONALITY) =====
+// Only the IDENTITY and PERSONALITY blocks are admin-editable. The
+// PROD_RULES / ADMIN_RULES guardrails live in code and are ALWAYS
+// appended by persona.buildPersona — they can never be removed here, so
+// Carolina can never be made to admit she's an AI on the floor.
+// Synchronous cache (persona is built on every AI call, hot path).
+let _personaCache = { identity: null, personality: null };
+let _personaLoadedAt = 0;
+const PERSONA_TTL_MS = 60 * 1000;
+
+async function getPersonaOverrides() {
+  const now = Date.now();
+  if (now - _personaLoadedAt < PERSONA_TTL_MS) return _personaCache;
+  const identity = await get('persona_identity', null);
+  const personality = await get('persona_personality', null);
+  _personaCache = {
+    identity: (identity && String(identity).trim()) ? String(identity) : null,
+    personality: (personality && String(personality).trim()) ? String(personality) : null,
+  };
+  _personaLoadedAt = now;
+  return _personaCache;
+}
+function getPersonaSync() { return _personaCache; }
+async function setPersonaField(field, value) {
+  if (field !== 'identity' && field !== 'personality') {
+    throw new Error('campo de persona inválido: ' + field);
+  }
+  const key = field === 'identity' ? 'persona_identity' : 'persona_personality';
+  const v = String(value == null ? '' : value).trim();
+  if (!v) {
+    await db.query('DELETE FROM app_state WHERE key = $1', [key]); // revert to code default
+    _personaCache = { ..._personaCache, [field]: null };
+  } else {
+    await set(key, v);
+    _personaCache = { ..._personaCache, [field]: v };
+  }
+  _personaLoadedAt = Date.now();
+  return _personaCache[field];
+}
+function invalidatePersonaCache() { _personaLoadedAt = 0; }
+
 // ===== BLOCO B / C6 — schedules & windows =====
 // Defaults preserve the pre-C6 behaviour: greeting 08:00 ET, EOD 19:00
 // ET (current config.eod.hourEdt), pending window 20 min, every weekday.
@@ -175,4 +216,5 @@ module.exports = {
   SCHEDULE_DEFAULTS, timeToCron,
   getGreetingTime, getEodTime, getPendingWindowMinutes,
   getActiveWeekdays, isActiveToday, getSchedule,
+  getPersonaOverrides, getPersonaSync, setPersonaField, invalidatePersonaCache,
 };

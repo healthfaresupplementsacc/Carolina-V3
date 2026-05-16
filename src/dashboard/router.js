@@ -716,6 +716,24 @@ router.get('/admin/carolina-config', (req, res) => {
     <div class="err" id="var-err"></div>
   </div>
 
+  <div class="card">
+    <h2>Persona da Carolina</h2>
+    <div class="hint">Edite IDENTIDADE e PERSONALIDADE. Vazio = volta ao padrão do código. As <b>REGRAS CRÍTICAS</b> são travadas e sempre aplicadas — a Carolina nunca admite ser IA no canal de produção / DM com operadores.</div>
+    <label class="fld" style="margin-top:12px">IDENTIDADE</label>
+    <textarea id="ps-identity" rows="5" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit"></textarea>
+    <label class="fld" style="margin-top:12px">PERSONALIDADE</label>
+    <textarea id="ps-personality" rows="6" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;font-family:inherit"></textarea>
+    <label class="fld" style="margin-top:12px">🔒 REGRAS CRÍTICAS (travadas, não editáveis — sempre anexadas no canal/DM de operadores)</label>
+    <pre id="ps-rules" style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px;font-size:12px;white-space:pre-wrap;color:#7f1d1d;margin:4px 0 0"></pre>
+    <div style="margin-top:14px;display:flex;gap:8px">
+      <button class="btn" onclick="savePersona()" style="margin-top:0">Salvar persona</button>
+      <button class="btn btn-gray" onclick="previewPersona()" style="margin-top:0;background:#6b7280">Preview (prompt montado)</button>
+    </div>
+    <div class="ok" id="ps-msg"></div>
+    <div class="err" id="ps-err"></div>
+    <pre id="ps-preview" style="display:none;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px;padding:10px;font-size:12px;white-space:pre-wrap;margin-top:10px;max-height:340px;overflow:auto"></pre>
+  </div>
+
   <script>
     const TOGGLE_LABELS = {
       greeting: 'Saudação de manhã', eod: 'Lembrete EOD',
@@ -743,6 +761,7 @@ router.get('/admin/carolina-config', (req, res) => {
         renderToggles(data.toggles || {});
         initVariations(data.variation_types || []);
         initSchedule(data.schedule || {});
+        initPersona(data.persona || {});
       } catch (e) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
@@ -937,6 +956,44 @@ router.get('/admin/carolina-config', (req, res) => {
         var data = await r.json();
         if (!r.ok) { err.textContent = data.error || ('Erro ' + r.status); return; }
         ok.textContent = 'Salvo. Crons re-agendados.';
+      } catch (e) { err.textContent = 'Erro de conexão'; }
+    }
+
+    // ----- C7: persona (IDENTITY/PERSONALITY editáveis; rules travadas) -----
+    function initPersona(p) {
+      document.getElementById('ps-identity').value = p.identity || p.identity_default || '';
+      document.getElementById('ps-personality').value = p.personality || p.personality_default || '';
+      document.getElementById('ps-rules').textContent =
+        '[PRODUÇÃO / DM operadores]\\n' + (p.prod_rules || '') +
+        '\\n\\n[ADMIN C0B36DR5MP1]\\n' + (p.admin_rules || '');
+    }
+    async function savePersona() {
+      var ok = document.getElementById('ps-msg'); var err = document.getElementById('ps-err');
+      ok.textContent = ''; err.textContent = '';
+      var body = {
+        pin: _pin,
+        identity: document.getElementById('ps-identity').value,
+        personality: document.getElementById('ps-personality').value,
+      };
+      try {
+        var r = await fetch('/api/admin/carolina-config/persona', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (!r.ok) { err.textContent = data.error || ('Erro ' + r.status); return; }
+        ok.textContent = 'Persona salva. (Vazio = padrão do código. Guardrails seguem travados.)';
+      } catch (e) { err.textContent = 'Erro de conexão'; }
+    }
+    async function previewPersona() {
+      var err = document.getElementById('ps-err'); err.textContent = '';
+      var pre = document.getElementById('ps-preview');
+      try {
+        var r = await fetch('/api/admin/carolina-config/persona/preview?pin=' + encodeURIComponent(_pin));
+        var data = await r.json();
+        if (!r.ok) { err.textContent = data.error || ('Erro ' + r.status); return; }
+        pre.style.display = 'block';
+        pre.textContent = '===== PROD (canal / DM operadores) =====\\n' + data.prod
+          + '\\n\\n===== ADMIN (C0B36DR5MP1) =====\\n' + data.admin;
       } catch (e) { err.textContent = 'Erro de conexão'; }
     }
   </script>

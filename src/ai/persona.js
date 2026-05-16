@@ -53,10 +53,26 @@ const ADMIN_RULES = `CONTEXTO ADMIN (canal C0B36DR5MP1):
  * @param {string} appName
  */
 function buildPersona(scope, appName = DEFAULT_APP_NAME) {
-  const id = identity(appName);
-  return scope === 'admin'
-    ? `${id}\n\n${ADMIN_RULES}\n\n${PERSONALITY}`
-    : `${id}\n\n${PROD_RULES}\n\n${PERSONALITY}`;
+  // C7 — IDENTITY / PERSONALITY are admin-editable (app_state, sync
+  // cache). PROD_RULES / ADMIN_RULES are LOCKED guardrails, always
+  // appended by scope and never editable: on the production channel and
+  // operator DMs (prod) Carolina can never be configured to admit she
+  // is an AI. The admin chat (C0B36DR5MP1) uses ADMIN_RULES.
+  const ov = appState.getPersonaSync() || {};
+  const idBlock = (ov.identity && ov.identity.trim()) ? ov.identity.trim() : identity(appName);
+  const persBlock = (ov.personality && ov.personality.trim()) ? ov.personality.trim() : PERSONALITY;
+  const rules = scope === 'admin' ? ADMIN_RULES : PROD_RULES;
+  return `${idBlock}\n\n${rules}\n\n${persBlock}`;
+}
+
+/** Defaults + locked rules — for the Config Carolina persona panel. */
+function getPersonaParts(appName = DEFAULT_APP_NAME) {
+  return {
+    identity_default: identity(appName),
+    personality_default: PERSONALITY,
+    prod_rules: PROD_RULES,
+    admin_rules: ADMIN_RULES,
+  };
 }
 
 // Backward-compatible constants, built with the default app name. Direct
@@ -76,4 +92,4 @@ function withPersona(taskPrompt, scope = 'prod') {
   return `${persona}\n\n─────────────\nTAREFA:\n${taskPrompt}`;
 }
 
-module.exports = { PERSONA_PROD, PERSONA_ADMIN, withPersona, buildPersona };
+module.exports = { PERSONA_PROD, PERSONA_ADMIN, withPersona, buildPersona, getPersonaParts };

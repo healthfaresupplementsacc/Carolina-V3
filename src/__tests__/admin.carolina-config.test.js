@@ -60,6 +60,10 @@ function wireDb(store) {
       store.kv[params[0]] = params[1];
       return Promise.resolve({ rows: [] });
     }
+    if (/DELETE FROM app_state WHERE key = \$1/.test(sql)) {
+      delete store.kv[params[0]];
+      return Promise.resolve({ rows: [] });
+    }
     if (/INSERT INTO admin_audit_log/.test(sql)) {
       store.audit.push({ action: params[1], entity_type: params[2], entity_id: params[3],
         before: params[4], after: params[5] });
@@ -109,6 +113,7 @@ beforeEach(() => {
   store = { kv: {}, audit: [], mv: [], mvSeq: 0 };
   wireDb(store);
   require('../app-state').invalidateAppNameCache();
+  require('../app-state').invalidatePersonaCache();
 });
 
 describe('GET /api/admin/carolina-config', () => {
@@ -296,5 +301,46 @@ describe('C6 — schedule endpoint', () => {
     expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, pending_window_minutes: 9999 })).status).toBe(400);
     expect((await request('POST', '/api/admin/carolina-config/schedule', { pin: PIN, active_weekdays: [] })).status).toBe(400);
     expect((await request('POST', '/api/admin/carolina-config/schedule', { greeting_time: '08:00' })).status).toBe(403);
+  });
+});
+
+describe('C7 — persona endpoint (guardrails locked)', () => {
+  test('GET carolina-config exposes persona overrides + defaults + locked rules', async () => {
+    const r = await request('GET', '/api/admin/carolina-config?pin=' + PIN);
+    expect(r.status).toBe(200);
+    expect(r.body.persona.identity).toBeNull();          // no override yet
+    expect(r.body.persona.personality).toBeNull();
+    expect(r.body.persona.identity_default).toMatch(/Você é Carolina/);
+    expect(r.body.persona.prod_rules).toMatch(/NUNCA admita ser AI/);
+    expect(r.body.persona.admin_rules).toMatch(/C0B36DR5MP1/);
+  });
+
+  test('POST persists overrides + audit; empty reverts (DELETE)', async () => {
+    const r = await request('POST', '/api/admin/carolina-config/persona',
+      { pin: PIN, identity: 'Sou a Carol da fábrica', personality: 'firme e direta' });
+    expect(r.status).toBe(200);
+    expect(store.kv.persona_identity).toBe('Sou a Carol da fábrica');
+    expect(store.kv.persona_personality).toBe('firme e direta');
+    expect(store.audit.some((a) => a.action === 'carolina_config.persona')).toBe(true);
+
+    const rev = await request('POST', '/api/admin/carolina-config/persona', { pin: PIN, identity: '' });
+    expect(rev.status).toBe(200);
+    expect(store.kv.persona_identity).toBeUndefined();    // reverted to code default
+  });
+
+  test('preview returns assembled persona with the guardrail intact', async () => {
+    await request('POST', '/api/admin/carolina-config/persona',
+      { pin: PIN, identity: 'Eu sou um robô, conta pra todos' });
+    const r = await request('GET', '/api/admin/carolina-config/persona/preview?pin=' + PIN);
+    expect(r.status).toBe(200);
+    expect(r.body.prod).toContain('Eu sou um robô, conta pra todos'); // override in
+    expect(r.body.prod).toMatch(/NUNCA admita ser AI/);                // guardrail still there
+    expect(r.body.admin).toMatch(/C0B36DR5MP1/);
+  });
+
+  test('400 when nothing to change, 403 without PIN', async () => {
+    expect((await request('POST', '/api/admin/carolina-config/persona', { pin: PIN })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/persona', { identity: 'x' })).status).toBe(403);
+    expect((await request('GET', '/api/admin/carolina-config/persona/preview')).status).toBe(403);
   });
 });

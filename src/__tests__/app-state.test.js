@@ -78,6 +78,7 @@ describe('app-state', () => {
         return Promise.resolve({ rows: v == null ? [] : [{ value: v }] });
       }
       if (/INSERT INTO app_state/.test(sql)) { kv[params[0]] = params[1]; return Promise.resolve({ rows: [] }); }
+      if (/DELETE FROM app_state WHERE key = \$1/.test(sql)) { delete kv[params[0]]; return Promise.resolve({ rows: [] }); }
       return Promise.resolve({ rows: [] });
     });
   }
@@ -164,5 +165,29 @@ describe('app-state', () => {
     expect(s.eod_time).toBe('19:00');
     expect(s.pending_window_minutes).toBe(30);
     expect(s.active_weekdays).toEqual([0,1,2,3,4,5,6]);
+  });
+
+  // ---- C7 persona overrides ----
+  test('getPersonaSync defaults to nulls (use code defaults)', () => {
+    expect(appState.getPersonaSync()).toEqual({ identity: null, personality: null });
+  });
+
+  test('getPersonaOverrides reads app_state and caches', async () => {
+    const kv = { persona_identity: 'Sou a Carol', persona_personality: '  ' };
+    kvDb(kv);
+    const ov = await appState.getPersonaOverrides();
+    expect(ov.identity).toBe('Sou a Carol');
+    expect(ov.personality).toBeNull(); // blank → treated as unset
+  });
+
+  test('setPersonaField persists, and empty reverts (DELETE)', async () => {
+    const kv = {}; kvDb(kv);
+    await appState.setPersonaField('identity', '  Nova identidade  ');
+    expect(kv.persona_identity).toBe('Nova identidade');
+    expect(appState.getPersonaSync().identity).toBe('Nova identidade');
+    await appState.setPersonaField('identity', '');
+    expect(kv.persona_identity).toBeUndefined();             // reverted
+    expect(appState.getPersonaSync().identity).toBeNull();
+    await expect(appState.setPersonaField('rules', 'x')).rejects.toThrow(/inválido/);
   });
 });
