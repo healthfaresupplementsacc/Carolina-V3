@@ -191,6 +191,19 @@ async function migrate() {
       aliases TEXT DEFAULT '',          -- comma-separated alias list
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- BUG DETECT — detect.js supplementsPending() queried
+    -- supplement_catalog.admin_approved, a column that never existed
+    -- (every boot logged "column admin_approved does not exist").
+    -- DECISION: ADD the column (DEFAULT TRUE) rather than delete the
+    -- query — presence in the catalog already meant "approved"
+    -- (EXEC.approve_supplement just touches the row), so DEFAULT TRUE
+    -- makes supplementsPending return 0 (the correct prior intent) and
+    -- leaves a real approval flag available for the future. The
+    -- decision is recorded in admin_audit_log (idempotent) below.
+    ALTER TABLE supplement_catalog
+      ADD COLUMN IF NOT EXISTS admin_approved BOOLEAN DEFAULT TRUE;
+    -- (the decision is recorded in admin_audit_log once that table is
+    -- created — see the BUG DETECT decision-audit block further down.)
 
     -- URGENT kill switch: when silent_mode is on, Carolina silently drops
     -- every outbound message to the production channel and records what she
@@ -477,6 +490,18 @@ async function migrate() {
       ON admin_audit_log(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_audit_log_action
       ON admin_audit_log(action);
+
+    -- BUG DETECT decision audit (idempotent): record WHY we added
+    -- supplement_catalog.admin_approved instead of deleting the
+    -- detect.js query. Runs here, after admin_audit_log exists.
+    INSERT INTO admin_audit_log (admin_user, action, entity_type, entity_id, after_data, source)
+    SELECT 'system', 'schema.decision', 'supplement_catalog', 'admin_approved',
+           '{"bug":"DETECT","decision":"ADD COLUMN admin_approved BOOLEAN DEFAULT TRUE","reason":"detect.js supplementsPending referenced a missing column; catalog presence already == approved, so DEFAULT TRUE keeps pending=0 and stops the boot error"}'::jsonb,
+           'migration'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM admin_audit_log
+      WHERE action = 'schema.decision' AND entity_id = 'admin_approved'
+    );
 
     -- Entrega 2: learned synonyms from task merges. Next time alias_term shows
     -- up in a message, the engine knows it maps to canonical_term.
