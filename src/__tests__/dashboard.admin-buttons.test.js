@@ -110,10 +110,13 @@ describe('Bug 2 — flexible time parse + retroactive edit', () => {
     expect(parse('99:99', BASE)).toBeNull();
   });
 
-  test('oalEditTime parses the input and sends retroactive:true', () => {
-    expect(HTML).toMatch(/async function oalEditTime[\s\S]*_parseFlexTime\(raw, curTs\)/);
-    expect(HTML).toMatch(/async function oalEditTime[\s\S]*retroactive: true/);
-    expect(HTML).toMatch(/async function oalEditTime[\s\S]*\/api\/admin\/operator-activity-log\//);
+  test('oalEditTime opens the time modal and the save sends retroactive:true', () => {
+    // BUG UI moved parsing into submitTimeModal (modal flow, no prompt()).
+    const oal = HTML.slice(HTML.indexOf('async function oalEditTime'), HTML.indexOf('async function oalDelete'));
+    expect(oal).toMatch(/openTimeModal\(\{/);
+    expect(oal).toMatch(/retroactive: true/);
+    expect(oal).toMatch(/\/api\/admin\/operator-activity-log\//);
+    expect(HTML).toMatch(/submitTimeModal[\s\S]*_parseFlexTime\(t, d \+ 'T12:00:00'\)/);
   });
 });
 

@@ -517,6 +517,25 @@ function generateDashboard() {
   </div>
 </div>
 
+<!-- BUG UI — time picker modal (replaces prompt(); date + flexible
+     time accepting 9:41am / 9:41 AM / 21:41 / 9pm / 1430; saved in ET) -->
+<div id="time-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" id="time-modal-title">Definir horário</div>
+    <label class="fld">Data (ET)</label>
+    <input type="date" id="tm-date" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">
+    <label class="fld" style="margin-top:10px">Horário</label>
+    <input type="text" id="tm-time" autocomplete="off" placeholder="9:41am · 9:41 AM · 9pm · 21:41 · 1430"
+      style="width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px">
+    <div class="hint" style="margin-top:4px">Aceita AM/PM (12h) ou 24h. Fuso: horário do leste (ET).</div>
+    <div class="modal-error" id="tm-error"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeTimeModal()">Cancelar</button>
+      <button class="btn-save" id="tm-save-btn" onclick="submitTimeModal()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- HEADER -->
 <header class="header">
   <div class="header-logo">
@@ -1380,7 +1399,7 @@ document.getElementById('edit-modal').addEventListener('keypress', e => {
 });
 
 // Close modals on backdrop click
-['pin-modal','edit-modal'].forEach(id => {
+['pin-modal','edit-modal','time-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => {
     if (e.target === e.currentTarget) hideModal(id);
   });
@@ -1521,10 +1540,13 @@ async function wfClose(kind, id) {
 async function wfCloseAt(kind, id) {
   if (!adminUnlocked) return;
   const m = _wfMeta(kind);
-  const v = prompt('Fechar com qual horário? (AAAA-MM-DD HH:MM, ET — pode ser passado ou futuro)', _nowEt());
-  if (v == null || !v.trim()) return;
-  return adminAction({ method: 'PUT', url: '/api/admin/' + m.path + '/' + id,
-                       body: { status: 'closed', ended_at: v.trim() } });
+  openTimeModal({
+    title: 'Fechar com horário (passado ou futuro)', ts: Date.now(),
+    onSave: function (v) {
+      adminAction({ method: 'PUT', url: '/api/admin/' + m.path + '/' + id,
+                    body: { status: 'closed', ended_at: v } });
+    },
+  });
 }
 async function wfDelete(kind, id) {
   if (!adminUnlocked) return;
@@ -1577,14 +1599,51 @@ function _parseFlexTime(input, baseTs) {
   var pad = function (n) { return (n < 10 ? '0' : '') + n; };
   return dateStr + ' ' + pad(h) + ':' + pad(m);
 }
+
+// BUG UI — proper time-picker modal (replaces prompt()). Date field +
+// flexible time text (AM/PM 12h OR 24h, parsed by _parseFlexTime).
+// Always yields an ET "YYYY-MM-DD HH:MM"; supports past AND future.
+var _tmOnSave = null;
+function openTimeModal(opts) {
+  opts = opts || {};
+  _tmOnSave = typeof opts.onSave === 'function' ? opts.onSave : null;
+  var ref = opts.ts ? new Date(opts.ts) : new Date();
+  var dEl = document.getElementById('tm-date');
+  var tEl = document.getElementById('tm-time');
+  try { dEl.value = ref.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); }
+  catch (e) { dEl.value = new Date().toLocaleDateString('en-CA'); }
+  try {
+    tEl.value = ref.toLocaleTimeString('en-GB',
+      { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
+  } catch (e) { tEl.value = ''; }
+  document.getElementById('time-modal-title').textContent = opts.title || 'Definir horário';
+  document.getElementById('tm-error').textContent = '';
+  showModal('time-modal');
+  setTimeout(function () { tEl.focus(); tEl.select(); }, 50);
+}
+function closeTimeModal() { _tmOnSave = null; hideModal('time-modal'); }
+function submitTimeModal() {
+  var d = document.getElementById('tm-date').value;
+  var t = document.getElementById('tm-time').value;
+  if (!d) { document.getElementById('tm-error').textContent = 'Escolhe a data'; return; }
+  // Parse the time against the chosen date (noon avoids DST/midnight edges)
+  var v = _parseFlexTime(t, d + 'T12:00:00');
+  if (!v) { document.getElementById('tm-error').textContent = 'Horário inválido — ex: 9:41am, 21:41, 1430'; return; }
+  // Keep the admin-chosen calendar date, _parseFlexTime's time-of-day.
+  var val = d + ' ' + v.slice(11);
+  var cb = _tmOnSave; _tmOnSave = null; hideModal('time-modal');
+  if (cb) cb(val);
+}
+
 async function oalEditTime(id, field, curTs, label) {
   if (!adminUnlocked) return;
-  const raw = prompt('Novo ' + label + ' — "14:30", "1430", "2pm" ou "AAAA-MM-DD HH:MM" (ET):', _oalDefault(curTs));
-  if (raw == null || !raw.trim()) return;
-  const v = _parseFlexTime(raw, curTs);
-  if (!v) { alert('Horário inválido. Tenta tipo 14:30 / 1430 / 2pm.'); return; }
-  return adminAction({ method: 'PUT', url: '/api/admin/operator-activity-log/' + id,
-                       body: { [field]: v, retroactive: true } });
+  openTimeModal({
+    title: 'Editar ' + label, ts: curTs || Date.now(),
+    onSave: function (v) {
+      adminAction({ method: 'PUT', url: '/api/admin/operator-activity-log/' + id,
+                    body: { [field]: v, retroactive: true } });
+    },
+  });
 }
 async function oalDelete(id) {
   if (!adminUnlocked) return;
@@ -1852,7 +1911,7 @@ function updateBreakTime() {
 }
 
 // Close modals on backdrop click
-['pin-modal','edit-modal','create-task-modal'].forEach(id => {
+['pin-modal','edit-modal','create-task-modal','time-modal'].forEach(id => {
   document.getElementById(id).addEventListener('click', e => {
     if (e.target === e.currentTarget) hideModal(id);
   });
