@@ -110,6 +110,20 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     expect(html).toMatch(/class="task-timer" id="timer-\$\{escHtml\(String\(task\.id\)\)\}"/);
   });
 
+  test('A2 — admin session persists 10min in localStorage', () => {
+    const tpl = require('../dashboard/template');
+    const html = tpl.generateDashboard();
+    expect(html).toMatch(/ADMIN_SESSION_MS = 10 \* 60 \* 1000/);
+    expect(html).toMatch(/localStorage\.setItem\('hf_admin'/);
+    expect(html).toMatch(/function restoreAdminSession/);
+    expect(html).toMatch(/function adminTouch/);
+    expect(html).toMatch(/id="admin-timer"/);
+    // submitPin now delegates to unlockAdminSession (persist + timer)
+    expect(html).toMatch(/unlockAdminSession\(pin\)/);
+    // adminAction slides the window
+    expect(html).toMatch(/adminTouch\(\); \/\/ A2/);
+  });
+
   test('U1 — operator strip renders independently of renderAll', () => {
     const tpl = require('../dashboard/template');
     const html = tpl.generateDashboard();

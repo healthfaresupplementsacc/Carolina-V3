@@ -542,6 +542,7 @@ function generateDashboard() {
     <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Audit</a>
     <button id="silent-text-btn" onclick="toggleSilent('text')" title="Bloqueia mensagens de texto da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">🔇 Texto: <span id="silent-text-state">…</span></button>
     <button id="silent-reactions-btn" onclick="toggleSilent('reactions')" title="Bloqueia reações ✅ da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">✅ Reactions: <span id="silent-reactions-state">…</span></button>
+    <span id="admin-timer" title="Sessão admin (renova a cada ação)" style="display:none;background:rgba(46,168,74,0.25);border:1px solid rgba(46,168,74,0.5);color:white;padding:4px 8px;border-radius:8px;font-size:11px">Admin: 10:00</span>
     <button class="lock-btn" onclick="toggleAdmin()" id="lock-btn" title="Admin">🔒</button>
     <div class="live-badge" id="live-badge">
       <div class="live-dot" id="live-dot"></div>
@@ -1018,29 +1019,84 @@ function updateDate() {
   );
 }
 
+// ===== A2 — admin session persists 10 min (localStorage) =====
+var ADMIN_SESSION_MS = 10 * 60 * 1000;
+var _adminTimer = null;
+
+function _applyLockedUI() {
+  adminUnlocked = false;
+  _adminPin = '';
+  const btn = document.getElementById('lock-btn');
+  if (btn) { btn.textContent = '🔒'; btn.classList.remove('unlocked'); btn.title = 'Admin'; }
+  const hide = (id) => { const e = document.getElementById(id); if (e) e.style.display = 'none'; };
+  hide('admin-link'); hide('audit-link'); hide('silent-text-btn');
+  hide('silent-reactions-btn'); hide('merge-bar'); hide('admin-timer');
+  if (_lastData) renderAll(_lastData);
+}
+
+function _applyUnlockedUI() {
+  adminUnlocked = true;
+  const btn = document.getElementById('lock-btn');
+  if (btn) { btn.textContent = '🔓'; btn.classList.add('unlocked'); btn.title = 'Admin ativo — clique para sair'; }
+  const show = (id, disp) => { const e = document.getElementById(id); if (e) e.style.display = disp; };
+  show('admin-link', 'inline-block'); show('audit-link', 'inline-block');
+  show('silent-text-btn', 'inline-block'); show('silent-reactions-btn', 'inline-block');
+  show('admin-timer', 'inline-block');
+  const ct = document.getElementById('create-task-btn'); if (ct) ct.style.display = 'inline-flex';
+  const sc = document.getElementById('supp-catalog-section'); if (sc) sc.style.display = '';
+  const bc = document.getElementById('broadcast-section'); if (bc) bc.style.display = '';
+  loadSuppCatalog();
+  if (_lastData) renderAll(_lastData);
+}
+
+function _persistAdmin(pin) {
+  try { localStorage.setItem('hf_admin', JSON.stringify({ pin, ts: Date.now() })); } catch (_) {}
+}
+function _clearAdmin() {
+  try { localStorage.removeItem('hf_admin'); } catch (_) {}
+  if (_adminTimer) { clearInterval(_adminTimer); _adminTimer = null; }
+}
+// Called by every admin action to slide the 10-min window.
+function adminTouch() {
+  if (adminUnlocked) _persistAdmin(_adminPin);
+}
+function _startAdminTimer() {
+  if (_adminTimer) clearInterval(_adminTimer);
+  _adminTimer = setInterval(() => {
+    let st;
+    try { st = JSON.parse(localStorage.getItem('hf_admin') || 'null'); } catch (_) { st = null; }
+    const el = document.getElementById('admin-timer');
+    if (!st) { lockAdminSession(); return; }
+    const left = ADMIN_SESSION_MS - (Date.now() - st.ts);
+    if (left <= 0) { lockAdminSession(); return; }
+    if (el) {
+      const mm = Math.floor(left / 60000), ss = Math.floor((left % 60000) / 1000);
+      el.textContent = 'Admin: ' + mm + ':' + String(ss).padStart(2, '0');
+    }
+  }, 1000);
+}
+function unlockAdminSession(pin) {
+  _adminPin = pin;
+  _persistAdmin(pin);
+  _applyUnlockedUI();
+  _startAdminTimer();
+}
+function lockAdminSession() {
+  _clearAdmin();
+  _applyLockedUI();
+}
+// Restore on load if a non-expired session exists.
+function restoreAdminSession() {
+  let st;
+  try { st = JSON.parse(localStorage.getItem('hf_admin') || 'null'); } catch (_) { st = null; }
+  if (st && st.pin && (Date.now() - st.ts) < ADMIN_SESSION_MS) {
+    unlockAdminSession(st.pin);
+  }
+}
+
 function toggleAdmin() {
   if (adminUnlocked) {
-    adminUnlocked = false;
-    _adminPin = '';
-    const btn = document.getElementById('lock-btn');
-    btn.textContent = '🔒';
-    btn.classList.remove('unlocked');
-    btn.title = 'Admin';
-    const ctBtn = document.getElementById('create-task-btn');
-    if (ctBtn) ctBtn.style.display = 'none';
-    document.getElementById('supp-catalog-section').style.display = 'none';
-    document.getElementById('broadcast-section').style.display = 'none';
-    const adminLink = document.getElementById('admin-link'); if (adminLink) adminLink.style.display = 'none';
-    const auditLink = document.getElementById('audit-link'); if (auditLink) auditLink.style.display = 'none';
-    const stBtn = document.getElementById('silent-text-btn'); if (stBtn) stBtn.style.display = 'none';
-    const srBtn = document.getElementById('silent-reactions-btn'); if (srBtn) srBtn.style.display = 'none';
-    const mergeBar = document.getElementById('merge-bar'); if (mergeBar) mergeBar.style.display = 'none';
-    const ctBtn2 = document.getElementById('create-task-btn');
-    if (ctBtn2) ctBtn2.style.display = 'inline-flex';
-    document.getElementById('supp-catalog-section').style.display = '';
-    document.getElementById('broadcast-section').style.display = '';
-    loadSuppCatalog();
-    if (_lastData) renderAll(_lastData);
+    lockAdminSession();
   } else {
     document.getElementById('pin-error').textContent = '';
     document.getElementById('pin-input').value = '';
@@ -1065,27 +1121,8 @@ function closePinModal() { hideModal('pin-modal'); }
 function submitPin() {
   const pin = document.getElementById('pin-input').value.trim();
   if (pin === '510510') {
-    adminUnlocked = true;
-    _adminPin = pin;
     hideModal('pin-modal');
-    const btn = document.getElementById('lock-btn');
-    btn.textContent = '🔓';
-    btn.classList.add('unlocked');
-    btn.title = 'Admin ativo — clique para sair';
-    const adminLink = document.getElementById('admin-link'); if (adminLink) adminLink.style.display = 'inline-block';
-    const auditLink = document.getElementById('audit-link'); if (auditLink) auditLink.style.display = 'inline-block';
-    const stBtn = document.getElementById('silent-text-btn'); if (stBtn) stBtn.style.display = 'inline-block';
-    const srBtn = document.getElementById('silent-reactions-btn'); if (srBtn) srBtn.style.display = 'inline-block';
-    const ctBtn = document.getElementById('create-task-btn');
-    if (ctBtn) ctBtn.style.display = 'none';
-    document.getElementById('supp-catalog-section').style.display = 'none';
-    document.getElementById('broadcast-section').style.display = 'none';
-    const ctBtn2 = document.getElementById('create-task-btn');
-    if (ctBtn2) ctBtn2.style.display = 'inline-flex';
-    document.getElementById('supp-catalog-section').style.display = '';
-    document.getElementById('broadcast-section').style.display = '';
-    loadSuppCatalog();
-    if (_lastData) renderAll(_lastData);
+    unlockAdminSession(pin); // A2 — persists + starts the 10-min timer
   } else {
     document.getElementById('pin-error').textContent = tr('wrongPin');
     document.getElementById('pin-input').value = '';
@@ -1360,6 +1397,7 @@ async function closeTask(id) {
 // confirms first, and refreshes the dashboard on success.
 async function adminAction(opts) {
   if (!adminUnlocked) return;
+  adminTouch(); // A2 — slide the 10-min window on every admin action
   if (opts.confirm && !confirm(opts.confirm)) return;
   try {
     const fetchOpts = {
@@ -2081,6 +2119,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (ta) ta.addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendBroadcast();
   });
+  // A2 — restore a non-expired admin session (≤10 min since last action)
+  try { restoreAdminSession(); } catch (_) {}
 });
 
 
