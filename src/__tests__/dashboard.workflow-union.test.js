@@ -110,6 +110,24 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     expect(html).toMatch(/class="task-timer" id="timer-\$\{escHtml\(String\(task\.id\)\)\}"/);
   });
 
+  test('G3 — consolidated workflow cards (C1-C4)', () => {
+    const tpl = require('../dashboard/template');
+    const html = tpl.generateDashboard();
+    // C1/C2: legacy vs _source split + per-parent grouping
+    expect(html).toMatch(/const legacy = tasks\.filter\(\(t\) => !t\._source\)/);
+    expect(html).toMatch(/const wfItems = tasks\.filter\(\(t\) => t\._source\)/);
+    expect(html).toMatch(/t\.parent_label \|\| \(t\._source === 'workflow_adhoc'/);
+    // C3: aggregate live timer keyed by group
+    expect(html).toMatch(/openTaskStartTimes\[gid\] = earliest/);
+    expect(html).toMatch(/id="timer-\$\{gid\}" title="tempo total do batch"/);
+    // C4: collapse/expand
+    expect(html).toMatch(/function toggleGroup\(gid\)/);
+    expect(html).toMatch(/onclick="toggleGroup\('\$\{gid\}'\)"/);
+    // retro-compat: per-task card helper still has the guarded markup
+    expect(html).toMatch(/function _card\(task\)/);
+    expect(html).toMatch(/const isWf = !!task\._source/);
+  });
+
   test('A2 — admin session persists 10min in localStorage', () => {
     const tpl = require('../dashboard/template');
     const html = tpl.generateDashboard();

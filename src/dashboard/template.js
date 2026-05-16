@@ -1773,21 +1773,21 @@ function renderOpenTasks(tasks) {
   }
 
   openTaskStartTimes = {};
-  body.innerHTML = tasks.map(task => {
+
+  // Single per-task card (legacy tasks AND, reused, workflow phase rows).
+  // Keeps the exact markup the structural tests assert (isWf guard,
+  // task-timer id, admin button branches, parent_label line).
+  function _card(task) {
     const startedAt = new Date(task.started_at);
     openTaskStartTimes[task.id] = startedAt.getTime();
     const elapsed = Math.floor((Date.now() - startedAt.getTime()) / 1000);
     const urgClass = getUrgencyClass(task);
     const batchLabel = task.batch_number ? \` #\${task.batch_number}\` : '';
     const operatorLabel = task.operator ? \` • \${task.operator}\` : '';
-    // Bug A: items from the ISA-88 model have a string id ('ph-418' /
-    // 'ah-5') and a _source tag. The legacy admin buttons call
-    // tasks-table endpoints (closeTask/deleteTask/openEdit("task",...))
-    // which don't apply to phase_instances AND would emit invalid JS
-    // (onclick="closeTask(ph-418)" — unquoted, breaks the card). For
-    // workflow items: render the card normally (so it shows in EM
-    // ANDAMENTO and counts in the metric) but swap the task-admin
-    // buttons for a phase badge + link to the workflow admin page.
+    // Bug A: ISA-88 items have a string id ('ph-418'/'ah-5') + _source.
+    // Legacy task-admin buttons hit tasks-table endpoints and would emit
+    // invalid JS for string ids, so workflow items get a badge + admin
+    // links instead.
     const isWf = !!task._source;
     const phaseTag = isWf
       ? \`<span class="task-badge" style="background:#e0e7ff;color:#3730a3">\${escHtml(task.task_type || (task._source === 'workflow_adhoc' ? 'avulsa' : 'fase'))} · App Home</span>\`
@@ -1812,7 +1812,56 @@ function renderOpenTasks(tasks) {
         \${isWf ? phaseTag : \`<span class="task-badge \${getBadgeClass(urgClass)}">\${getBadgeLabel(urgClass)}</span>\`}
         \${adminBtns}
       </div>\`;
-  }).join('');
+  }
+
+  // G3 (C1-C4) — group workflow phase/adhoc rows under a collapsible
+  // parent card (workflow_instance), with aggregate time + count.
+  // Legacy tasks (no _source) and ad-hoc instances without a parent
+  // render as standalone cards (C4). Retro-compat: orders/formulation
+  // sections are untouched (separate renderers).
+  const legacy = tasks.filter((t) => !t._source);
+  const wfItems = tasks.filter((t) => t._source);
+  const groups = {};
+  for (const t of wfItems) {
+    const key = t.parent_label || (t._source === 'workflow_adhoc' ? '__adhoc__' : 'Workflow');
+    (groups[key] = groups[key] || []).push(t);
+  }
+
+  let html = legacy.map(_card).join('');
+
+  Object.entries(groups).forEach(([label, items], gi) => {
+    // Standalone ad-hoc (C4 — no breakdown): render each as a card.
+    if (label === '__adhoc__') { html += items.map(_card).join(''); return; }
+    const earliest = Math.min(...items.map((i) => new Date(i.started_at).getTime()));
+    const gid = 'grp-' + gi;
+    openTaskStartTimes[gid] = earliest; // C3 — aggregate live timer
+    const aggElapsed = Math.floor((Date.now() - earliest) / 1000);
+    const childCards = items.map(_card).join('');
+    html += \`
+      <div class="task-card" style="display:block;border-left:4px solid #1d4f91">
+        <div onclick="toggleGroup('\${gid}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <span id="grp-caret-\${gid}" style="color:#6b7280">▾</span>
+            <strong>🧪 \${escHtml(label)}</strong>
+            <span style="color:#6b7280;font-size:12px"> · \${items.length} fase(s)</span>
+          </div>
+          <div class="task-timer" id="timer-\${gid}" title="tempo total do batch">\${formatDuration(aggElapsed)}</div>
+        </div>
+        <div id="grp-body-\${gid}" style="margin-top:8px;padding-left:6px">\${childCards}</div>
+      </div>\`;
+  });
+
+  body.innerHTML = html || \`<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">\${tr('noTasks')}</div></div>\`;
+}
+
+// C4 — expand/collapse a consolidated workflow card.
+function toggleGroup(gid) {
+  const b = document.getElementById('grp-body-' + gid);
+  const c = document.getElementById('grp-caret-' + gid);
+  if (!b) return;
+  const hidden = b.style.display === 'none';
+  b.style.display = hidden ? '' : 'none';
+  if (c) c.textContent = hidden ? '▾' : '▸';
 }
 
 function tickTimers() {
