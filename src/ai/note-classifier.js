@@ -24,14 +24,17 @@
  * when offline.
  */
 
-const SYSTEM_PROMPT = `Você classifica mensagens do canal de produção de uma fábrica de
+const { withPersona } = require('./persona');
+
+const SYSTEM_PROMPT = withPersona(`Você classifica mensagens do canal de produção de uma fábrica de
 suplementos. Responda SOMENTE com JSON válido:
 {"intent":"note|casual_chat|needs_action|unknown_but_relevant",
  "linked_to":null,"suggested_action":null,
  "confidence":"high|medium|low","reasoning":"curto"}
 Regras: "bom dia", agradecimentos, conversa social = casual_chat.
 Relato de problema/máquina parada/falta de material = needs_action.
-Observação útil sobre o trabalho = note. Sem certeza = unknown_but_relevant.`;
+Observação útil sobre o trabalho = note. Sem certeza = unknown_but_relevant.
+Este é um classificador interno — o JSON não é visto pelo time, mas mantenha a persona caso gere texto.`, 'prod');
 
 function heuristicClassify(text) {
   const t = (text || '').toLowerCase();
