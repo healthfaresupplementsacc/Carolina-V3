@@ -176,6 +176,13 @@ async function handleBlockAction(payload) {
            label: { type: 'plain_text', text: 'Qual tarefa?' },
            element: { type: 'static_select', action_id: 'v',
              options: tasks.rows.map((t) => ({ text: { type: 'plain_text', text: t.name }, value: String(t.id) })) } },
+         // F5 — required iff "Outro" is chosen (enforced at submit via
+         // response_action errors; block stays optional so other tasks
+         // submit normally).
+         { type: 'input', optional: true, block_id: 'desc_outro',
+           label: { type: 'plain_text', text: 'Descrição (obrigatório se for "Outro")' },
+           element: { type: 'plain_text_input', action_id: 'v',
+             placeholder: { type: 'plain_text', text: 'descreva a tarefa' } } },
          noteFieldBlock()]));
     }
     case 'start_batch': {
@@ -225,6 +232,21 @@ async function handleViewSubmission(payload) {
   const slackUser = payload.user && payload.user.id;
   if (!operatorId) return; // input block makes this required anyway
 
+  // F5 — "Outro" requires a description. Validate BEFORE any side effect
+  // and return a response_action so Slack keeps the modal open.
+  if (cb === 'submit_adhoc') {
+    const taskId = view.state.values?.task?.v?.selected_option?.value;
+    const tr = await db.query(`SELECT name FROM ad_hoc_tasks WHERE id = $1`, [taskId]);
+    const taskName = tr.rows[0]?.name || '';
+    const desc = (view.state.values?.desc_outro?.v?.value || '').trim();
+    if (/^outro$/i.test(taskName) && !desc) {
+      return {
+        response_action: 'errors',
+        errors: { desc_outro: 'Descreva a tarefa — obrigatório quando escolhe "Outro".' },
+      };
+    }
+  }
+
   try {
     switch (cb) {
       case 'submit_break':
@@ -254,7 +276,24 @@ async function handleViewSubmission(payload) {
       case 'submit_adhoc': {
         const taskId = view.state.values?.task?.v?.selected_option?.value;
         const tr = await db.query(`SELECT name FROM ad_hoc_tasks WHERE id = $1`, [taskId]);
-        await engine.startAdHocTask({ taskName: tr.rows[0]?.name || 'Outro', operatorId });
+        const picked = tr.rows[0]?.name || 'Outro';
+        const desc = (view.state.values?.desc_outro?.v?.value || '').trim();
+        // F5 — "Outro" + description → the description IS the task name.
+        // findOrCreateAdHocTask creates it admin_approved=FALSE (pending);
+        // alert admin so they can approve / merge / rename.
+        if (/^outro$/i.test(picked) && desc) {
+          await engine.startAdHocTask({
+            taskName: desc, operatorId, createdByOperatorId: operatorId,
+          });
+          const opn = await db.query(`SELECT name FROM operators WHERE id = $1`, [operatorId]);
+          try {
+            await require('../workflow/announce').adHocPending({
+              operatorName: opn.rows[0]?.name, taskName: desc,
+            });
+          } catch (e) { /* best-effort */ }
+        } else {
+          await engine.startAdHocTask({ taskName: picked, operatorId });
+        }
         break;
       }
       case 'submit_start_batch': {

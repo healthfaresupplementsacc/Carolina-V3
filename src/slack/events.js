@@ -83,7 +83,22 @@ router.post('/slack/events', async (req, res) => {
     let payload;
     try { payload = JSON.parse(req.body.payload); }
     catch { return res.status(400).json({ error: 'bad payload' }); }
-    // Ack within 3s — handle async
+    // view_submission may need a synchronous response_action (F5 — Slack
+    // keeps the modal open with field errors). handleViewSubmission does
+    // validation up front and fires the Home republish without awaiting,
+    // so this stays well under the 3s budget.
+    if (payload.type === 'view_submission') {
+      return interactive.handleViewSubmission(payload)
+        .then((result) => {
+          if (result && result.response_action) return res.json(result);
+          return res.status(200).end();
+        })
+        .catch((err) => {
+          console.error('[SlackEvents] view_submission error:', err.message);
+          if (!res.headersSent) res.status(200).end();
+        });
+    }
+    // Other interactivity (block_actions): ack fast, handle async
     res.status(200).end();
     interactive.handleInteraction(payload).catch((err) =>
       console.error('[SlackEvents] interaction error:', err.message));

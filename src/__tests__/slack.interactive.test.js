@@ -12,6 +12,10 @@ jest.mock('../workflow/engine', () => ({
   addNote: jest.fn().mockResolvedValue({ noteId: 1 }),
 }));
 jest.mock('../slack/home', () => ({ publishHome: jest.fn().mockResolvedValue() }));
+jest.mock('../workflow/announce', () => ({
+  adHocPending: jest.fn().mockResolvedValue(),
+  note: jest.fn().mockResolvedValue(),
+}));
 
 // Avoid real WebClient
 jest.mock('@slack/web-api', () => ({
@@ -78,6 +82,50 @@ describe('view_submission → engine', () => {
     }));
     expect(engine.addNote).toHaveBeenCalledTimes(1);
     expect(engine.addNote).toHaveBeenCalledWith({ operatorId: 5, text: 'nota principal' });
+  });
+
+  test('F5 — "Outro" with no description returns response_action errors', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [{ name: 'Outro' }] });
+    const r = await interactive.handleViewSubmission(viewSubmission('submit_adhoc', {}, {
+      ...WHO, task: { v: { selected_option: { value: '8' } } },
+      desc_outro: { v: { value: '' } },
+    }));
+    expect(r).toEqual({
+      response_action: 'errors',
+      errors: { desc_outro: expect.stringMatching(/obrigat/i) },
+    });
+    expect(engine.startAdHocTask).not.toHaveBeenCalled();
+  });
+
+  test('F5 — "Outro" + description starts task with desc + alerts admin', async () => {
+    const announce = require('../workflow/announce');
+    db.query = jest.fn().mockImplementation((sql) => {
+      if (/FROM ad_hoc_tasks WHERE id/.test(sql)) return Promise.resolve({ rows: [{ name: 'Outro' }] });
+      if (/FROM operators WHERE id/.test(sql)) return Promise.resolve({ rows: [{ name: 'Ana' }] });
+      return Promise.resolve({ rows: [] });
+    });
+    const r = await interactive.handleViewSubmission(viewSubmission('submit_adhoc', {}, {
+      ...WHO, task: { v: { selected_option: { value: '8' } } },
+      desc_outro: { v: { value: 'troca de filtro da máquina 3' } },
+    }));
+    expect(r).toBeUndefined(); // no error → modal closes
+    expect(engine.startAdHocTask).toHaveBeenCalledWith(expect.objectContaining({
+      taskName: 'troca de filtro da máquina 3', operatorId: 5,
+    }));
+    expect(announce.adHocPending).toHaveBeenCalledWith(
+      expect.objectContaining({ taskName: 'troca de filtro da máquina 3', operatorName: 'Ana' })
+    );
+  });
+
+  test('F5 — a normal catalog task submits without description', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [{ name: 'Limpeza' }] });
+    const r = await interactive.handleViewSubmission(viewSubmission('submit_adhoc', {}, {
+      ...WHO, task: { v: { selected_option: { value: '1' } } },
+    }));
+    expect(r).toBeUndefined();
+    expect(engine.startAdHocTask).toHaveBeenCalledWith(expect.objectContaining({
+      taskName: 'Limpeza', operatorId: 5,
+    }));
   });
 
   test('submit_join_phase passes phaseId from private_metadata', async () => {
