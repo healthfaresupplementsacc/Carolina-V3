@@ -541,6 +541,7 @@ function generateDashboard() {
     <a id="admin-link" href="/admin" target="_blank" title="Painel admin" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Admin</a>
     <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Audit</a>
     <a id="carolina-link" href="/admin/carolina-config" target="_blank" title="Config Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">⚙️ Carolina</a>
+    <a id="wf-config-link" href="/admin/workflows" target="_blank" title="Configuração de workflows/fases (admin)" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">🧪 Fase config</a>
     <button id="silent-text-btn" onclick="toggleSilent('text')" title="Bloqueia mensagens de texto da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">🔇 Texto: <span id="silent-text-state">…</span></button>
     <button id="silent-reactions-btn" onclick="toggleSilent('reactions')" title="Bloqueia reações ✅ da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">✅ Reactions: <span id="silent-reactions-state">…</span></button>
     <span id="admin-timer" title="Sessão admin (renova a cada ação)" style="display:none;background:rgba(46,168,74,0.25);border:1px solid rgba(46,168,74,0.5);color:white;padding:4px 8px;border-radius:8px;font-size:11px">Admin: 10:00</span>
@@ -1030,7 +1031,7 @@ function _applyLockedUI() {
   const btn = document.getElementById('lock-btn');
   if (btn) { btn.textContent = '🔒'; btn.classList.remove('unlocked'); btn.title = 'Admin'; }
   const hide = (id) => { const e = document.getElementById(id); if (e) e.style.display = 'none'; };
-  hide('admin-link'); hide('audit-link'); hide('carolina-link'); hide('silent-text-btn');
+  hide('admin-link'); hide('audit-link'); hide('carolina-link'); hide('wf-config-link'); hide('silent-text-btn');
   hide('silent-reactions-btn'); hide('merge-bar'); hide('admin-timer');
   if (_lastData) renderAll(_lastData);
 }
@@ -1041,6 +1042,7 @@ function _applyUnlockedUI() {
   if (btn) { btn.textContent = '🔓'; btn.classList.add('unlocked'); btn.title = 'Admin ativo — clique para sair'; }
   const show = (id, disp) => { const e = document.getElementById(id); if (e) e.style.display = disp; };
   show('admin-link', 'inline-block'); show('audit-link', 'inline-block'); show('carolina-link', 'inline-block');
+  show('wf-config-link', 'inline-block');
   show('silent-text-btn', 'inline-block'); show('silent-reactions-btn', 'inline-block');
   show('admin-timer', 'inline-block');
   const ct = document.getElementById('create-task-btn'); if (ct) ct.style.display = 'inline-flex';
@@ -1468,6 +1470,58 @@ async function deleteCount(id) {
                        confirm: 'Apagar essa contagem?' });
 }
 
+// ===== ISA-88 instance admin (phase_instance / ad_hoc_task_instance) =====
+// Restores the inline admin controls on workflow/phase/ad-hoc cards
+// (regression: G3 had replaced them with a single /admin/workflows
+// link). PIN-gated via adminAction. Endpoints already exist + audited.
+function _wfMeta(kind) {
+  return kind === 'adhoc'
+    ? { path: 'ad-hoc-task-instances', nameField: 'task_name', label: 'tarefa avulsa' }
+    : { path: 'phase-instances',       nameField: 'phase_name', label: 'fase' };
+}
+function _nowEt() {
+  return new Date().toLocaleString('sv-SE', { timeZone: 'America/New_York' })
+    .slice(0, 16).replace('T', ' ');
+}
+async function wfEditName(kind, id, cur) {
+  if (!adminUnlocked) return;
+  const m = _wfMeta(kind);
+  const v = prompt('Novo nome da ' + m.label + ':', cur || '');
+  if (v == null || !v.trim()) return;
+  return adminAction({ method: 'PUT', url: '/api/admin/' + m.path + '/' + id,
+                       body: { [m.nameField]: v.trim() } });
+}
+async function wfEditBottles(id) {
+  if (!adminUnlocked) return;
+  const v = prompt('Bottles produzidos nessa fase (número):', '');
+  if (v == null || v.trim() === '') return;
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) { alert('Número inválido'); return; }
+  return adminAction({ method: 'PUT', url: '/api/admin/phase-instances/' + id,
+                       body: { final_bottle_count: n } });
+}
+async function wfClose(kind, id) {
+  if (!adminUnlocked) return;
+  const m = _wfMeta(kind);
+  return adminAction({ method: 'PUT', url: '/api/admin/' + m.path + '/' + id,
+                       body: { status: 'closed', ended_at: _nowEt() },
+                       confirm: 'Fechar essa ' + m.label + ' agora?' });
+}
+async function wfCloseAt(kind, id) {
+  if (!adminUnlocked) return;
+  const m = _wfMeta(kind);
+  const v = prompt('Fechar com qual horário? (AAAA-MM-DD HH:MM, ET — pode ser passado ou futuro)', _nowEt());
+  if (v == null || !v.trim()) return;
+  return adminAction({ method: 'PUT', url: '/api/admin/' + m.path + '/' + id,
+                       body: { status: 'closed', ended_at: v.trim() } });
+}
+async function wfDelete(kind, id) {
+  if (!adminUnlocked) return;
+  const m = _wfMeta(kind);
+  return adminAction({ method: 'DELETE', url: '/api/admin/' + m.path + '/' + id,
+                       confirm: 'Excluir essa ' + m.label + '? (registrado no audit log)' });
+}
+
 // ===== Merge UI (commit 13) =====
 function onMergeSelChange() {
   const checks = document.querySelectorAll('.task-merge-check:checked');
@@ -1790,6 +1844,8 @@ function renderOpenTasks(tasks) {
     // invalid JS for string ids, so workflow items get a badge + admin
     // links instead.
     const isWf = !!task._source;
+    const wfKind = task._source === 'workflow_adhoc' ? 'adhoc' : 'phase';
+    const wfId = task.phase_instance_id || task.ad_hoc_task_instance_id || 0;
     const phaseTag = isWf
       ? \`<span class="task-badge" style="background:#e0e7ff;color:#3730a3">\${escHtml(task.task_type || (task._source === 'workflow_adhoc' ? 'avulsa' : 'fase'))} · App Home</span>\`
       : '';
@@ -1798,9 +1854,13 @@ function renderOpenTasks(tasks) {
          <button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:""})})'>\${tr('editBtn')}</button>
          <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick="closeTask(\${task.id})">Fechar</button>
          <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
-      : (adminUnlocked && isWf
-        ? \`<a class="edit-btn" style="background:#1d4f91;color:#fff;border:none;text-decoration:none" href="/admin/workflows" target="_blank">Gerenciar</a>
-           <button class="edit-btn" style="background:#6b7280;color:#fff;border:none" title="Nota interna admin (não vai pro time)" onclick="adminNote('\${task.phase_instance_id ? 'phase_instance' : 'ad_hoc_task_instance'}',\${task.phase_instance_id || task.ad_hoc_task_instance_id || 0})">🛠</button>\`
+      : (adminUnlocked && isWf && wfId
+        ? \`<button class="edit-btn" onclick='wfEditName("\${wfKind}",\${wfId},\${JSON.stringify(task.task_type || "")})' title="Editar nome">✏️</button>
+           \${wfKind === 'phase' ? \`<button class="edit-btn" onclick="wfEditBottles(\${wfId})" title="Editar bottles">🍾</button>\` : ''}
+           <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick='wfClose("\${wfKind}",\${wfId})' title="Fechar agora">Fechar</button>
+           <button class="edit-btn" onclick='wfCloseAt("\${wfKind}",\${wfId})' title="Fechar com horário específico (passado ou futuro)">🕐</button>
+           <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick='wfDelete("\${wfKind}",\${wfId})' title="Excluir">🗑</button>
+           <button class="edit-btn" style="background:#6b7280;color:#fff;border:none" title="Nota interna admin (não vai pro time)" onclick="adminNote('\${task.phase_instance_id ? 'phase_instance' : 'ad_hoc_task_instance'}',\${wfId})">🛠</button>\`
         : '');
     return \`
       <div class="task-card \${urgClass}" id="task-\${escHtml(String(task.id))}">
