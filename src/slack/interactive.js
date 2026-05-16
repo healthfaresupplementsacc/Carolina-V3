@@ -81,6 +81,16 @@ async function resolveSupplementValue(selected, deps = {}) {
   return { name: selected, isNew: false };
 }
 
+// F4 — optional free-text note appended to every wizard. block_id 'note'.
+function noteFieldBlock(label = 'Anotação (opcional)') {
+  return {
+    type: 'input', optional: true, block_id: 'note',
+    label: { type: 'plain_text', text: label },
+    element: { type: 'plain_text_input', action_id: 'v', multiline: true,
+      placeholder: { type: 'plain_text', text: 'algo que aconteceu, observação…' } },
+  };
+}
+
 function operatorPickerBlock(options) {
   return {
     type: 'input',
@@ -129,7 +139,8 @@ async function handleBlockAction(payload) {
     if (verb === 'join_phase') {
       return openModal(triggerId, modal('submit_join_phase', 'Entrar na fase',
         [operatorPickerBlock(opts),
-         { type: 'section', text: { type: 'mrkdwn', text: `Entrar na fase #${phaseId}?` } }],
+         { type: 'section', text: { type: 'mrkdwn', text: `Entrar na fase #${phaseId}?` } },
+         noteFieldBlock()],
         { phaseId: Number(phaseId) }));
     }
     if (verb === 'close_phase') {
@@ -138,7 +149,8 @@ async function handleBlockAction(payload) {
          { type: 'section', text: { type: 'mrkdwn', text: `Concluir a fase #${phaseId}?` } },
          { type: 'input', optional: true, block_id: 'bottles',
            label: { type: 'plain_text', text: 'Bottles (se aplicável)' },
-           element: { type: 'plain_text_input', action_id: 'v' } }],
+           element: { type: 'plain_text_input', action_id: 'v' } },
+         noteFieldBlock()],
         { phaseId: Number(phaseId) }));
     }
   }
@@ -149,11 +161,13 @@ async function handleBlockAction(payload) {
         [operatorPickerBlock(opts),
          { type: 'input', optional: true, block_id: 'reason',
            label: { type: 'plain_text', text: 'Motivo' },
-           element: { type: 'plain_text_input', action_id: 'v', placeholder: { type: 'plain_text', text: 'almoço, banheiro…' } } }]));
+           element: { type: 'plain_text_input', action_id: 'v', placeholder: { type: 'plain_text', text: 'almoço, banheiro…' } } },
+         noteFieldBlock()]));
     case 'end_break':
       return openModal(triggerId, modal('submit_end_break', 'Voltei',
         [operatorPickerBlock(opts),
-         { type: 'section', text: { type: 'mrkdwn', text: 'Marcar volta do break agora?' } }]));
+         { type: 'section', text: { type: 'mrkdwn', text: 'Marcar volta do break agora?' } },
+         noteFieldBlock()]));
     case 'start_adhoc': {
       const tasks = await db.query(`SELECT id, name FROM ad_hoc_tasks WHERE is_active = TRUE ORDER BY name`);
       return openModal(triggerId, modal('submit_adhoc', 'Tarefa avulsa',
@@ -161,7 +175,8 @@ async function handleBlockAction(payload) {
          { type: 'input', block_id: 'task',
            label: { type: 'plain_text', text: 'Qual tarefa?' },
            element: { type: 'static_select', action_id: 'v',
-             options: tasks.rows.map((t) => ({ text: { type: 'plain_text', text: t.name }, value: String(t.id) })) } }]));
+             options: tasks.rows.map((t) => ({ text: { type: 'plain_text', text: t.name }, value: String(t.id) })) } },
+         noteFieldBlock()]));
     }
     case 'start_batch': {
       const wts = await db.query(`SELECT id, name FROM workflow_templates WHERE is_active = TRUE ORDER BY id`);
@@ -174,14 +189,16 @@ async function handleBlockAction(payload) {
          supplementSelectBlock('product', 'Produto (se aplicável)', true),
          { type: 'input', optional: true, block_id: 'batch',
            label: { type: 'plain_text', text: 'Lote' },
-           element: { type: 'plain_text_input', action_id: 'v' } }]));
+           element: { type: 'plain_text_input', action_id: 'v' } },
+         noteFieldBlock()]));
     }
     case 'register_count':
       return openModal(triggerId, modal('submit_count', 'Registrar produção',
         [operatorPickerBlock(opts),
          supplementSelectBlock('supp', 'Suplemento'),
          { type: 'input', block_id: 'qty', label: { type: 'plain_text', text: 'Bottles' },
-           element: { type: 'plain_text_input', action_id: 'v' } }]));
+           element: { type: 'plain_text_input', action_id: 'v' } },
+         noteFieldBlock()]));
     case 'add_note':
       return openModal(triggerId, modal('submit_note', 'Nota',
         [operatorPickerBlock(opts),
@@ -192,7 +209,8 @@ async function handleBlockAction(payload) {
         const adhocId = Number(action.value);
         return openModal(triggerId, modal('submit_close_adhoc', 'Concluir tarefa',
           [operatorPickerBlock(opts),
-           { type: 'section', text: { type: 'mrkdwn', text: `Concluir a atividade #${adhocId}?` } }],
+           { type: 'section', text: { type: 'mrkdwn', text: `Concluir a atividade #${adhocId}?` } },
+           noteFieldBlock()],
           { adhocId }));
       }
   }
@@ -278,6 +296,18 @@ async function handleViewSubmission(payload) {
           await engine.addNote({ operatorId, text: noteText });
         }
         break;
+      }
+    }
+
+    // F4 — every other wizard carries an optional 'note' block. Persist
+    // it via engine.addNote, which auto-links to whatever activity is
+    // now active for this operator (the just-started phase/adhoc, or
+    // the break for pausa/voltei). submit_note handles its own text.
+    if (cb !== 'submit_note') {
+      const f4 = (view.state.values?.note?.v?.value || '').trim();
+      if (f4) {
+        try { await engine.addNote({ operatorId, text: f4 }); }
+        catch (e) { console.error('[Interactive] F4 note persist error:', e.message); }
       }
     }
   } catch (err) {

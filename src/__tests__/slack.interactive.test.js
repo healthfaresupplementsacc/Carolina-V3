@@ -9,6 +9,7 @@ jest.mock('../workflow/engine', () => ({
   startAdHocTask: jest.fn().mockResolvedValue({}),
   findOrCreateWorkflowInstance: jest.fn().mockResolvedValue({ workflowInstanceId: 1 }),
   startPhase: jest.fn().mockResolvedValue({}),
+  addNote: jest.fn().mockResolvedValue({ noteId: 1 }),
 }));
 jest.mock('../slack/home', () => ({ publishHome: jest.fn().mockResolvedValue() }));
 
@@ -52,6 +53,31 @@ describe('view_submission → engine', () => {
     db.query = jest.fn().mockResolvedValue({ rows: [] });
     await interactive.handleInteraction(viewSubmission('submit_end_break', {}, { ...WHO }));
     expect(engine.endBreak).toHaveBeenCalledWith(expect.objectContaining({ operatorId: 5 }));
+  });
+
+  test('F4 — optional note on a wizard is persisted via engine.addNote', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    await interactive.handleInteraction(viewSubmission('submit_break', {}, {
+      ...WHO, reason: { v: { value: 'almoço' } },
+      note: { v: { value: 'máquina fazendo barulho' } },
+    }));
+    expect(engine.startBreak).toHaveBeenCalled();
+    expect(engine.addNote).toHaveBeenCalledWith({ operatorId: 5, text: 'máquina fazendo barulho' });
+  });
+
+  test('F4 — no note block → engine.addNote NOT called', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    await interactive.handleInteraction(viewSubmission('submit_end_break', {}, { ...WHO }));
+    expect(engine.addNote).not.toHaveBeenCalled();
+  });
+
+  test('F4 — submit_note path does not double-persist via F4 block', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    await interactive.handleInteraction(viewSubmission('submit_note', {}, {
+      ...WHO, text: { v: { value: 'nota principal' } },
+    }));
+    expect(engine.addNote).toHaveBeenCalledTimes(1);
+    expect(engine.addNote).toHaveBeenCalledWith({ operatorId: 5, text: 'nota principal' });
   });
 
   test('submit_join_phase passes phaseId from private_metadata', async () => {
