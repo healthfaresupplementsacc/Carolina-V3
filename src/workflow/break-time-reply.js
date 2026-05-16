@@ -115,6 +115,59 @@ async function handleReply(operatorId, text, nowIso = null) {
   return { handled: true, outcome: 'retry', attempts };
 }
 
+// A1 — admin-side: an admin message in C0B36DR5MP1 answers the
+// "quando ele saiu?" question. Parse a time → convert the F6 untracked
+// pause into a proper retroactive break (started_at = informed time,
+// ended_at = returnedAt). Audited action='break.retroactive_create'.
+// Returns { handled:false } if no pending; otherwise an outcome.
+async function handleAdminRetroReply(text, deps = {}) {
+  const r = await db.query(`SELECT value FROM app_state WHERE key = 'retro_break_admin'`);
+  if (!r.rows[0]) return { handled: false };
+  let pend; try { pend = JSON.parse(r.rows[0].value); } catch { pend = null; }
+  if (!pend) { await db.query(`DELETE FROM app_state WHERE key = 'retro_break_admin'`); return { handled: false }; }
+
+  const t = String(text || '').trim().toLowerCase();
+  if (/^(ignora|deixa|esquece|n[aã]o|nada)\b/.test(t)) {
+    await db.query(`DELETE FROM app_state WHERE key = 'retro_break_admin'`);
+    return { handled: true, outcome: 'ignored', operatorName: pend.opName };
+  }
+  const parsed = parseTimeReply(text);
+  if (!parsed) return { handled: true, outcome: 'unparsed', operatorName: pend.opName };
+
+  const day = new Date(pend.returnedAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const whenLocal = `${day} ${String(parsed.h).padStart(2,'0')}:${String(parsed.m).padStart(2,'0')}:00`;
+  if (pend.pauseId) {
+    await db.query(
+      `UPDATE pauses
+       SET started_at = ($1::timestamp AT TIME ZONE 'America/New_York'),
+           reason = '[break retroativo via admin]', ended_reason = 'retroactive_admin'
+       WHERE id = $2`,
+      [whenLocal, pend.pauseId]);
+  }
+  if (pend.oalId) {
+    await db.query(
+      `UPDATE operator_activity_log
+       SET started_at = ($1::timestamp AT TIME ZONE 'America/New_York'),
+           duration_seconds = GREATEST(0, EXTRACT(EPOCH FROM
+             (ended_at - ($1::timestamp AT TIME ZONE 'America/New_York')))::int),
+           updated_at = NOW()
+       WHERE id = $2`,
+      [whenLocal, pend.oalId]);
+  }
+  try {
+    const audit = deps.auditAction || require('../admin/audit').auditAction;
+    await audit({
+      action: 'break.retroactive_create', entityType: 'pause',
+      entityId: pend.pauseId, source: 'slack_admin',
+      before: { reason: 'untracked_return' },
+      after: { started_at: whenLocal, operator: pend.opName },
+    });
+  } catch (_) {}
+  await db.query(`DELETE FROM app_state WHERE key = 'retro_break_admin'`);
+  return { handled: true, outcome: 'created', operatorName: pend.opName, when: whenLocal };
+}
+
 module.exports = {
   parseTimeReply, handleReply, setPending, getPending, clearPending, key,
+  handleAdminRetroReply,
 };

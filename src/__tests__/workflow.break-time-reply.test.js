@@ -75,3 +75,50 @@ describe('B4 — handleReply', () => {
     expect(seen.some((s) => /DELETE FROM app_state/.test(s))).toBe(true);
   });
 });
+
+describe('A1 — handleAdminRetroReply (admin-chat retroactive break)', () => {
+  function withRetro() {
+    db.query = jest.fn().mockImplementation((sql) => {
+      if (/SELECT value FROM app_state WHERE key = 'retro_break_admin'/.test(sql)) {
+        return Promise.resolve({ rows: [{ value: JSON.stringify({
+          operatorId: 4, opName: 'Simone', pauseId: 70, oalId: 80,
+          returnedAt: '2026-05-16T18:00:00Z' }) }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  test('no pending → handled:false', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    expect(await btr.handleAdminRetroReply('14:30')).toEqual({ handled: false });
+  });
+
+  test('valid time → creates retroactive break + audits break.retroactive_create', async () => {
+    withRetro();
+    const audit = jest.fn().mockResolvedValue();
+    const r = await btr.handleAdminRetroReply('saiu 14:30', { auditAction: audit });
+    expect(r.outcome).toBe('created');
+    expect(r.operatorName).toBe('Simone');
+    const calls = db.query.mock.calls.map((c) => c[0]);
+    expect(calls.some((s) => /UPDATE pauses[\s\S]*started_at/.test(s))).toBe(true);
+    expect(calls.some((s) => /UPDATE operator_activity_log/.test(s))).toBe(true);
+    expect(calls.some((s) => /DELETE FROM app_state WHERE key = 'retro_break_admin'/.test(s))).toBe(true);
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'break.retroactive_create', source: 'slack_admin',
+    }));
+  });
+
+  test('"ignora" → outcome ignored, clears pending, no audit', async () => {
+    withRetro();
+    const audit = jest.fn();
+    const r = await btr.handleAdminRetroReply('ignora', { auditAction: audit });
+    expect(r.outcome).toBe('ignored');
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  test('garbage → unparsed (keeps pending)', async () => {
+    withRetro();
+    const r = await btr.handleAdminRetroReply('sei lá cara');
+    expect(r.outcome).toBe('unparsed');
+  });
+});

@@ -263,9 +263,30 @@ async function pollManagerChannel() {
     console.log(`[Manager] ${senderName}: ${msg.text.substring(0, 80)}`);
 
     try {
+      let reply;
+      // A1 — if a "voltei sem break" retroactive question is pending,
+      // the admin's time reply creates the retroactive break.
+      const btr = require('../workflow/break-time-reply');
+      const retro = await btr.handleAdminRetroReply(msg.text);
+      if (retro.handled) {
+        const ann = require('../workflow/announce');
+        if (retro.outcome === 'created') {
+          await ann.retroBreakDone({ operatorName: retro.operatorName, when: retro.when });
+          reply = undefined; // retroBreakDone already posted to admin
+          // skip the rest of this iteration's chat
+          continue;
+        } else if (retro.outcome === 'ignored') {
+          reply = `Ok, deixei o break de ${retro.operatorName} como não-rastreado.`;
+        } else if (retro.outcome === 'unparsed') {
+          reply = `Não entendi o horário do break de ${retro.operatorName}. Manda tipo "14:30" (ou "ignora").`;
+        }
+        if (reply !== undefined) {
+          await slack.chat.postMessage({ channel: config.slack.managerChannelId, text: reply, username: 'Carolina' });
+          continue;
+        }
+      }
       // W6 — if a propose-then-confirm action is pending, the admin's
       // reply (sim/não/ajuste) resolves it before normal chat.
-      let reply;
       const adminTools = require('../ai/admin-tools');
       const pending = await adminTools.getProposal();
       if (pending) {

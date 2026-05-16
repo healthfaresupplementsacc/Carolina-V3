@@ -631,6 +631,14 @@ async function endBreak({ operatorId, when = null }) {
         pauseId, oalId, attempts: 0,
         day: new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
       });
+      // A1 — ALSO ask the admin (prod channel may be silenced). Admin's
+      // time reply in C0B36DR5MP1 → retroactive break.
+      await require('./announce').voltaSemBreakAdmin({ operatorName: opName });
+      await db.query(
+        `INSERT INTO app_state (key, value, updated_at) VALUES ('retro_break_admin', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+        [JSON.stringify({ operatorId, opName, pauseId, oalId, returnedAt: ts })]
+      );
     } catch (e) { /* best-effort */ }
     return { wasOnBreak: false, untrackedBreak: true, pauseId, oalId };
   }

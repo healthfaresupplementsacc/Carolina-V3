@@ -169,7 +169,23 @@ async function breakTimeGaveUp({ operatorName }) {
   );
 }
 
+// A1 — ask the ADMIN (not the silenced prod channel) for the missing
+// break start time. Admin's time reply → retroactive break.
+async function voltaSemBreakAdmin({ operatorName }) {
+  const n = operatorName || 'alguém';
+  await toAdmin(
+    `↩️ *${n}* voltou agora, mas não tinha break aberto. Quando ele(a) saiu? ` +
+    `Me diz o horário (ex: 14:30) que eu registro o break retroativo ` +
+    `(started_at = horário, ended_at = agora). Ou "ignora" pra deixar como está.`
+  );
+}
+async function retroBreakDone({ operatorName, when }) {
+  await toAdmin(`✅ Break retroativo de *${operatorName || 'operador'}* registrado: ` +
+    `saiu ${when}, voltou agora. (action=break.retroactive_create)`);
+}
+
 module.exports = {
   toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged,
   note, voltaSemBreak, breakTimeRetry, breakTimeGaveUp,
+  voltaSemBreakAdmin, retroBreakDone,
 };
