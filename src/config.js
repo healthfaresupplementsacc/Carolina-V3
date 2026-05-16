@@ -23,6 +23,10 @@ module.exports = {
       ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
       : 'http://localhost:3000',
   },
+  // BUG TZ — single source of truth. The plant is in Florida; the whole
+  // system is America/New_York (ET, DST-aware). DB stores timestamptz
+  // (UTC); typed input is interpreted as ET; everything renders in ET.
+  tz: process.env.TIMEZONE || 'America/New_York',
   polling: {
     intervalMs: parseInt(process.env.POLL_INTERVAL_MS) || 30000,
   },

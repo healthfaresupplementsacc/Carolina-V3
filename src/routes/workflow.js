@@ -378,7 +378,7 @@ router.post('/admin/workflow-instances', async (req, res) => {
       `INSERT INTO workflow_instances
          (workflow_template_id, product_id, product_name, batch_number,
           destination, pass_number, started_at, started_by_operator_id, notes, status)
-       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, NOW()), $8, $9, 'active')
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE(($7::timestamp AT TIME ZONE 'America/New_York'), NOW()), $8, $9, 'active')
        RETURNING id`,
       [workflow_template_id, product_id || null, product_name || null,
        batch_number || null, destination || null,
@@ -417,8 +417,8 @@ router.put('/admin/workflow-instances/:id', async (req, res) => {
     if (product_name   !== undefined) { sets.push(`product_name = $${params.length + 1}`);   params.push(product_name || null); }
     if (destination    !== undefined) { sets.push(`destination = $${params.length + 1}`);    params.push(destination || null); }
     if (pass_number    !== undefined) { sets.push(`pass_number = $${params.length + 1}`);    params.push(Number.isFinite(pass_number) ? pass_number : null); }
-    if (started_at)                   { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
-    if (ended_at !== undefined)       { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (started_at)                   { sets.push(`started_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`); params.push(started_at); }
+    if (ended_at !== undefined)       { sets.push(`ended_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`);   params.push(ended_at || null); }
     if (started_by_operator_id !== undefined) {
       sets.push(`started_by_operator_id = $${params.length + 1}`);
       params.push(started_by_operator_id || null);
@@ -637,7 +637,7 @@ router.post('/admin/phase-instances', async (req, res) => {
       `INSERT INTO phase_instances
          (workflow_instance_id, phase_template_id, phase_name, batch_number,
           started_at, started_by_operator_id, notes, status)
-       VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()), $6, $7, 'open')
+       VALUES ($1, $2, $3, $4, COALESCE(($5::timestamp AT TIME ZONE 'America/New_York'), NOW()), $6, $7, 'open')
        RETURNING id`,
       [workflow_instance_id, phase_template_id || null, name,
        batch_number || null, started_at || null, started_by_operator_id || null, notes || null]
@@ -667,8 +667,8 @@ router.put('/admin/phase-instances/:id', async (req, res) => {
     } = req.body;
 
     if (phase_name        !== undefined) { sets.push(`phase_name = $${params.length + 1}`); params.push(phase_name || null); }
-    if (started_at)                      { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
-    if (ended_at !== undefined)          { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (started_at)                      { sets.push(`started_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`); params.push(started_at); }
+    if (ended_at !== undefined)          { sets.push(`ended_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`);   params.push(ended_at || null); }
     if (status !== undefined)            { sets.push(`status = $${params.length + 1}`); params.push(status); }
     if (started_by_operator_id !== undefined) {
       sets.push(`started_by_operator_id = $${params.length + 1}`);
@@ -885,8 +885,8 @@ router.put('/admin/ad-hoc-task-instances/:id', async (req, res) => {
       linked_workflow_instance_id, linked_phase_instance_id, notes, ad_hoc_task_id, task_name,
     } = req.body;
     if (status !== undefined)        { sets.push(`status = $${params.length + 1}`); params.push(status); }
-    if (started_at)                  { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
-    if (ended_at !== undefined)      { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (started_at)                  { sets.push(`started_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`); params.push(started_at); }
+    if (ended_at !== undefined)      { sets.push(`ended_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`);   params.push(ended_at || null); }
     if (started_by_operator_id !== undefined) {
       sets.push(`started_by_operator_id = $${params.length + 1}`);
       params.push(started_by_operator_id || null);
@@ -1039,9 +1039,13 @@ router.post('/admin/operator-activity-log', async (req, res) => {
          (operator_id, activity_type, phase_instance_id, ad_hoc_task_instance_id,
           pause_id, started_at, ended_at, role, notes,
           duration_seconds)
-       VALUES ($1,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz,$8,$9,
-          CASE WHEN $7::timestamptz IS NOT NULL
-               THEN EXTRACT(EPOCH FROM ($7::timestamptz - $6::timestamptz))::int END)
+       VALUES ($1,$2,$3,$4,$5,
+          ($6::timestamp AT TIME ZONE 'America/New_York'),
+          ($7::timestamp AT TIME ZONE 'America/New_York'),$8,$9,
+          CASE WHEN $7 IS NOT NULL
+               THEN GREATEST(0, EXTRACT(EPOCH FROM (
+                 ($7::timestamp AT TIME ZONE 'America/New_York')
+                 - ($6::timestamp AT TIME ZONE 'America/New_York')))::int) END)
        RETURNING id`,
       [operator_id, activity_type, phase_instance_id || null,
        ad_hoc_task_instance_id || null, pause_id || null,
@@ -1078,8 +1082,8 @@ router.put('/admin/operator-activity-log/:id', async (req, res) => {
     if (phase_instance_id !== undefined)        { sets.push(`phase_instance_id = $${params.length + 1}`);        params.push(phase_instance_id || null); }
     if (ad_hoc_task_instance_id !== undefined)  { sets.push(`ad_hoc_task_instance_id = $${params.length + 1}`);  params.push(ad_hoc_task_instance_id || null); }
     if (pause_id !== undefined)                 { sets.push(`pause_id = $${params.length + 1}`);                 params.push(pause_id || null); }
-    if (started_at)                             { sets.push(`started_at = $${params.length + 1}::timestamptz`); params.push(started_at); }
-    if (ended_at !== undefined)                 { sets.push(`ended_at = $${params.length + 1}::timestamptz`);   params.push(ended_at || null); }
+    if (started_at)                             { sets.push(`started_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`); params.push(started_at); }
+    if (ended_at !== undefined)                 { sets.push(`ended_at = ($${params.length + 1}::timestamp AT TIME ZONE 'America/New_York')`);   params.push(ended_at || null); }
     if (role !== undefined)                     { sets.push(`role = $${params.length + 1}`); params.push(role || null); }
     if (left_for_id !== undefined)              { sets.push(`left_for_id = $${params.length + 1}`); params.push(left_for_id || null); }
     if (came_back_from_id !== undefined)        { sets.push(`came_back_from_id = $${params.length + 1}`); params.push(came_back_from_id || null); }

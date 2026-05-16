@@ -19,11 +19,16 @@ function key(operatorId) { return `brk_time_${operatorId}`; }
  */
 function parseTimeReply(text) {
   if (!text) return null;
-  const t = String(text).trim().toLowerCase();
+  const t0 = String(text).trim().toLowerCase();
   // reject obvious non-answers fast
-  if (!/\d/.test(t)) return null;
-  const pm = /\bpm\b|\bda tarde\b|\bda noite\b/.test(t);
-  const am = /\bam\b|\bda manh[ãa]\b/.test(t);
+  if (!/\d/.test(t0)) return null;
+  // BUG TZ/UI — am/pm must be detected even glued to a digit
+  // ("9:41am", "2pm", "9 p.m."). "amanhã" must NOT count as am.
+  const pm = /(?:\d\s*|\b)p\.?\s*m\.?\b|\bda tarde\b|\bda noite\b/.test(t0);
+  const am = /(?:\d\s*|\b)a\.?\s*m\.?\b|\bda manh[ãa]\b/.test(t0);
+  // Strip the am/pm token so digit extraction below still finds the hour
+  // ("2pm" → "2").
+  const t = t0.replace(/[ap]\.?\s*m\.?/g, ' ').trim();
   let h = null, m = 0;
   let mtc;
   if ((mtc = t.match(/\b(\d{1,2})\s*[:h]\s*(\d{2})\b/))) { h = +mtc[1]; m = +mtc[2]; }
@@ -33,6 +38,7 @@ function parseTimeReply(text) {
     if (n.length === 3) { h = +n.slice(0, 1); m = +n.slice(1); }
     else { h = +n.slice(0, 2); m = +n.slice(2); }
   } else if ((mtc = t.match(/\b(\d{1,2})\s*h?\b/))) { h = +mtc[1]; m = 0; }
+  else if ((mtc = t.match(/(\d{1,2})/))) { h = +mtc[1]; m = 0; }
   if (h == null || Number.isNaN(h) || Number.isNaN(m)) return null;
   if (pm && h < 12) h += 12;
   if (am && h === 12) h = 0;

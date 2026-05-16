@@ -142,6 +142,16 @@ const EXEC = {
 };
 
 // ─── Read tools (no side effects) ────────────────────────────────────────
+// BUG TZ — every timestamp Carolina sees must already be in ET
+// ("YYYY-MM-DD HH:MM"), never a raw UTC ISO string (she was converting
+// those to UTC/Brasília and reporting the wrong hour).
+function _etStr(ts) {
+  if (!ts) return null;
+  try {
+    return new Date(ts).toLocaleString('sv-SE', { timeZone: 'America/New_York' }).slice(0, 16);
+  } catch (_) { return null; }
+}
+
 // Returns counts AND the actual open entities (id + name) so the
 // agentic loop can resolve references like "fecha o que está aberto"
 // without asking the admin for an id when there's exactly one match.
@@ -158,10 +168,13 @@ async function getState() {
     db.query(`SELECT id, product_name, batch_number
               FROM workflow_instances WHERE status='active' ORDER BY started_at ASC LIMIT 25`),
   ]);
+  const etRows = (rows) => rows.map((r) => (
+    'started_at' in r ? { ...r, started_at: _etStr(r.started_at), tz: 'ET' } : r));
   return {
     active_workflows: wf.rows[0].n, open_phases: ph.rows[0].n,
     open_adhoc: ah.rows[0].n, on_break: br.rows[0].n,
-    phases: phList.rows, adhoc: ahList.rows, workflows: wfList.rows,
+    phases: etRows(phList.rows), adhoc: etRows(ahList.rows), workflows: wfList.rows,
+    timezone: 'America/New_York (ET)',
   };
 }
 async function getOperatorTimeline(operatorId, date) {
@@ -172,7 +185,9 @@ async function getOperatorTimeline(operatorId, date) {
      WHERE oal.operator_id = $1
        AND (oal.started_at AT TIME ZONE 'America/New_York')::date = $2::date
      ORDER BY oal.started_at ASC`, [operatorId, date || new Date().toISOString().slice(0,10)]);
-  return r.rows;
+  return r.rows.map((x) => ({
+    ...x, started_at: _etStr(x.started_at), ended_at: _etStr(x.ended_at), tz: 'ET',
+  }));
 }
 async function searchMessages(query, days = 7) {
   const r = await db.query(
