@@ -746,6 +746,17 @@ function generateDashboard() {
     </div>
   </div>
 
+  <!-- SECTION 2a: CONCLUÍDO HOJE (ISA-88 phases/adhoc/workflows closed today, ET) -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">✅ Concluído Hoje</span>
+      <span id="completed-count" style="font-size:12px;color:var(--text-light)"></span>
+    </div>
+    <div class="section-body" id="completed-today-body">
+      <div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Nada concluído ainda hoje</div></div>
+    </div>
+  </div>
+
   <!-- SECTION 2b: PRODUCAO DO DIA (closed supplement tasks) -->
   <div class="section">
     <div class="section-header">
@@ -1722,6 +1733,40 @@ async function submitCreateOrder() {
   }
 }
 
+// ===== CONCLUÍDO HOJE (ISA-88 closed today, ET) =====
+// BUG DASHBOARD — phases/ad-hoc/workflows that an operator finished no
+// longer just vanish; they land here with who worked + duration +
+// bottles. Auto-refreshes with renderAll; the server filters
+// ended_at::date in ET so it resets at ET midnight.
+function renderCompletedToday(items) {
+  const body = document.getElementById('completed-today-body');
+  const countEl = document.getElementById('completed-count');
+  if (!body) return;
+  if (countEl) countEl.textContent = items.length ? \`\${items.length}\` : '';
+  if (!items.length) {
+    body.innerHTML = \`<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Nada concluído ainda hoje</div></div>\`;
+    return;
+  }
+  const ICON = { phase: '🧪', adhoc: '🧹', workflow: '📦' };
+  body.innerHTML = items.map((it) => {
+    const tag = it.product_name
+      ? \` · \${escHtml(it.product_name)}\${it.batch_number ? ' #' + escHtml(it.batch_number) : ''}\`
+      : '';
+    const who = it.participants ? escHtml(it.participants) : '—';
+    const dur = it.duration_seconds != null ? formatDuration(it.duration_seconds) : '—';
+    const bottles = (it.bottles != null && it.bottles !== '')
+      ? \` · <strong>\${it.bottles}</strong> garrafas\` : '';
+    return \`
+      <div class="task-card" style="border-left:4px solid #10b981">
+        <div class="task-info">
+          <div class="task-name">\${ICON[it.kind] || '✅'} \${escHtml(it.name || '?')}\${tag}</div>
+          <div class="task-meta">\${who} · \${dur}\${bottles} · fechou \${formatTime(it.ended_at)}</div>
+        </div>
+        <span class="task-badge" style="background:#d1fae5;color:#065f46">concluído</span>
+      </div>\`;
+  }).join('');
+}
+
 // ===== BREAK BANNER =====
 // B5 — today's breaks list (open + closed) so a returned break shows.
 function renderTodayBreaks(breaks) {
@@ -2445,6 +2490,7 @@ function renderAll(data) {
   renderTodayBreaks(data.todayBreaks || []);
   renderOrders(data.todayOrders || []);
   renderOpenTasks(data.openTasks || []);
+  renderCompletedToday(data.completedToday || []);
   renderProd(data.todayTasks || [], data.counts || []);
   renderFormulations(data.todayFormulations || []);
   renderNotes(data.todayNotes || []);

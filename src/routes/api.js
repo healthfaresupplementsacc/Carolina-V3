@@ -254,6 +254,7 @@ router.get('/dashboard', async (req, res) => {
       pauseCount: parseInt(pauseResult.rows[0]?.cnt || 0),
       activeBreaks: activeBreaksResult.rows,
       todayBreaks: await getTodayBreaks(date),
+      completedToday: await getCompletedToday(date),
       viewingDate: date || null,
       todayBottles,
       yesterdayBottles,
@@ -1653,6 +1654,64 @@ async function getArchive() {
 // B5 — all of today's breaks (open AND closed) from operator_activity_log,
 // the source of truth. The legacy activeBreaks only lists open ones, so
 // a returned break (e.g. Simone's) vanished from the dashboard entirely.
+// BUG DASHBOARD — when an operator closes a phase/ad-hoc/workflow the
+// card vanished. This lists everything CLOSED TODAY (ET) so the day's
+// output stays visible. Filters on ended_at::date in ET, so it resets
+// at ET midnight automatically.
+async function getCompletedToday(date) {
+  const dExpr = date
+    ? `'${date}'::date`
+    : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+  const parts = (table, fk) => `(SELECT string_agg(DISTINCT op.name, ' + ' ORDER BY op.name)
+       FROM operator_activity_log oal JOIN operators op ON op.id = oal.operator_id
+       WHERE oal.${fk} = ${table}.id)`;
+  try {
+    const ph = await db.query(`
+      SELECT 'phase' AS kind, pi.id, pi.phase_name AS name,
+             wi.product_name, wi.batch_number,
+             pi.started_at, pi.ended_at, pi.final_bottle_count AS bottles,
+             GREATEST(0, EXTRACT(EPOCH FROM (pi.ended_at - pi.started_at))::int) AS duration_seconds,
+             ${parts('pi', 'phase_instance_id')} AS participants
+      FROM phase_instances pi
+      JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
+      WHERE pi.ended_at IS NOT NULL AND pi.status <> 'open'
+        AND (pi.ended_at AT TIME ZONE 'America/New_York')::date = ${dExpr}
+      ORDER BY pi.ended_at DESC LIMIT 100`);
+    const ah = await db.query(`
+      SELECT 'adhoc' AS kind, ati.id, ati.task_name AS name,
+             NULL AS product_name, NULL AS batch_number,
+             ati.started_at, ati.ended_at, NULL::int AS bottles,
+             GREATEST(0, EXTRACT(EPOCH FROM (ati.ended_at - ati.started_at))::int) AS duration_seconds,
+             ${parts('ati', 'ad_hoc_task_instance_id')} AS participants
+      FROM ad_hoc_task_instances ati
+      WHERE ati.ended_at IS NOT NULL AND ati.status <> 'open'
+        AND (ati.ended_at AT TIME ZONE 'America/New_York')::date = ${dExpr}
+      ORDER BY ati.ended_at DESC LIMIT 100`);
+    const wf = await db.query(`
+      SELECT 'workflow' AS kind, wi.id,
+             COALESCE(wi.product_name, wt.name) AS name,
+             wi.product_name, wi.batch_number,
+             wi.started_at, wi.ended_at, NULL::int AS bottles,
+             GREATEST(0, EXTRACT(EPOCH FROM (wi.ended_at - wi.started_at))::int) AS duration_seconds,
+             (SELECT string_agg(DISTINCT op.name, ' + ' ORDER BY op.name)
+                FROM operator_activity_log oal
+                JOIN phase_instances p2 ON p2.id = oal.phase_instance_id
+                JOIN operators op ON op.id = oal.operator_id
+                WHERE p2.workflow_instance_id = wi.id) AS participants
+      FROM workflow_instances wi
+      JOIN workflow_templates wt ON wt.id = wi.workflow_template_id
+      WHERE wi.ended_at IS NOT NULL AND wi.status <> 'active'
+        AND COALESCE(wi.notes,'') NOT LIKE '%[auto_cleanup_ghost]%'
+        AND (wi.ended_at AT TIME ZONE 'America/New_York')::date = ${dExpr}
+      ORDER BY wi.ended_at DESC LIMIT 100`);
+    return [...ph.rows, ...ah.rows, ...wf.rows]
+      .sort((a, b) => new Date(b.ended_at) - new Date(a.ended_at));
+  } catch (e) {
+    console.error('[Dashboard] completedToday error:', e.message);
+    return [];
+  }
+}
+
 async function getTodayBreaks(date) {
   try {
     const dExpr = date
