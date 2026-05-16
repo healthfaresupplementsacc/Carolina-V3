@@ -263,7 +263,29 @@ async function pollManagerChannel() {
     console.log(`[Manager] ${senderName}: ${msg.text.substring(0, 80)}`);
 
     try {
-      const reply = await askClaude(msg.text, senderName, productionContext);
+      // W6 — if a propose-then-confirm action is pending, the admin's
+      // reply (sim/não/ajuste) resolves it before normal chat.
+      let reply;
+      const adminTools = require('../ai/admin-tools');
+      const pending = await adminTools.getProposal();
+      if (pending) {
+        const r = await adminTools.resolveProposal(msg.text);
+        if (r.handled && r.outcome === 'executed') {
+          reply = `Feito ✅ (${r.kind}). ${JSON.stringify(r.result).slice(0, 180)}`;
+        } else if (r.handled && r.outcome === 'cancelled') {
+          reply = 'Beleza, deixei pra lá então.';
+        } else if (r.handled && r.outcome === 'error') {
+          reply = `Tentei mas deu ruim: ${r.error}. Não executei.`;
+        } else if (r.handled && r.outcome === 'adjust') {
+          // keep context, let the normal chat re-reason with the adjustment
+          reply = await askClaude(
+            `[ajuste à proposta pendente "${pending.kind}"]: ${msg.text}`,
+            senderName, productionContext);
+        }
+      }
+      if (reply === undefined) {
+        reply = await askClaude(msg.text, senderName, productionContext);
+      }
       await slack.chat.postMessage({
         channel: config.slack.managerChannelId,
         text: reply,
