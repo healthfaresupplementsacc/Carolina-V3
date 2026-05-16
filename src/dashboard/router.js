@@ -624,7 +624,7 @@ router.get('/operator/:id', async (req, res) => {
   const date = req.query.date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
   const timeline = await db.query(`
-    SELECT oal.activity_type, oal.started_at, oal.ended_at, oal.duration_seconds,
+    SELECT oal.id, oal.activity_type, oal.started_at, oal.ended_at, oal.duration_seconds,
            oal.role, pi.phase_name, wi.product_name, wi.batch_number,
            ati.task_name
     FROM operator_activity_log oal
@@ -697,8 +697,13 @@ router.get('/operator/:id', async (req, res) => {
       ? `${r.phase_name}${r.product_name ? ' · ' + r.product_name : ''}${r.batch_number ? ' #' + r.batch_number : ''}`
       : (r.task_name || (r.activity_type === 'break' ? '☕ break' : r.activity_type));
     const roleTag = r.role ? ` <span style="color:#6b7280">(${r.role})</span>` : '';
+    // A1 — admin action buttons per row (hidden until PIN unlock)
+    const adminTd = `<td class="adm" style="display:none;white-space:nowrap">
+      <button onclick="oalEdit(${r.id})" style="font-size:11px;padding:3px 7px;border:1px solid #d1d5db;border-radius:5px;cursor:pointer;background:#fff">Editar</button>
+      <button onclick="oalDel(${r.id})" style="font-size:11px;padding:3px 7px;border:none;border-radius:5px;cursor:pointer;background:#ef4444;color:#fff">Excluir</button>
+    </td>`;
     return `<tr><td>${fmtT(r.started_at)}–${fmtT(r.ended_at)}</td>
-      <td>${what}${roleTag}</td><td>${fmtD(r.duration_seconds)}</td></tr>`;
+      <td>${what}${roleTag}</td><td>${fmtD(r.duration_seconds)}</td>${adminTd}</tr>`;
   }).join('');
 
   res.send(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
@@ -712,7 +717,10 @@ router.get('/operator/:id', async (req, res) => {
   a{color:#1d4f91;text-decoration:none}.back{display:inline-block;margin-bottom:18px}
 </style></head><body>
 <a href="/" class="back">← Dashboard</a>
-<h1>${op.name}${op.role ? ` <span style="font-size:14px;color:#6b7280">· ${op.role}</span>` : ''}</h1>
+<h1 style="display:flex;align-items:center;gap:10px">${op.name}${op.role ? ` <span style="font-size:14px;color:#6b7280">· ${op.role}</span>` : ''}
+  <button id="lock" onclick="toggleLock()" title="Admin" style="font-size:13px;padding:4px 10px;border:1px solid #d1d5db;border-radius:8px;cursor:pointer;background:#fff">🔒</button>
+  <span id="adm-timer" style="display:none;font-size:11px;color:#059669"></span>
+</h1>
 
 <div class="card">
   <span class="stat"><b>${fmtD(w.worked)}</b>trabalhado (semana)</span>
@@ -746,6 +754,102 @@ ${(() => {
 <div class="card"><table>
   ${weekNotes.rows.map((n)=>`<tr><td style="white-space:nowrap;color:#6b7280">${fmtT(n.created_at)}</td><td>${String(n.text||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}${n.phase_name?` <span style="color:#6b7280">· ${n.phase_name}${n.product_name?' '+n.product_name:''}</span>`:''}</td></tr>`).join('') || '<tr><td colspan="2" style="color:#6b7280">Nenhuma nota essa semana</td></tr>'}
 </table></div>
+
+<div id="adm-retro" class="card" style="display:none">
+  <h2 style="margin-top:0">+ Entrada retroativa (admin)</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;align-items:end">
+    <label style="font-size:11px;color:#6b7280">Tipo
+      <select id="re-type" style="width:100%;padding:5px"><option value="phase">phase</option><option value="ad_hoc">ad_hoc</option><option value="break">break</option><option value="idle">idle</option></select></label>
+    <label style="font-size:11px;color:#6b7280">Início (ET)
+      <input id="re-start" type="datetime-local" style="width:100%;padding:5px"></label>
+    <label style="font-size:11px;color:#6b7280">Fim (opcional)
+      <input id="re-end" type="datetime-local" style="width:100%;padding:5px"></label>
+    <label style="font-size:11px;color:#6b7280">phase_instance_id
+      <input id="re-pi" type="number" style="width:100%;padding:5px"></label>
+    <label style="font-size:11px;color:#6b7280">notes
+      <input id="re-notes" type="text" style="width:100%;padding:5px"></label>
+    <button onclick="oalCreate()" style="padding:7px 12px;background:#1d4f91;color:#fff;border:none;border-radius:6px;cursor:pointer">Adicionar</button>
+  </div>
+  <div id="re-err" style="color:#ef4444;font-size:12px;margin-top:6px"></div>
+</div>
+
+<div id="pin-ov" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);align-items:center;justify-content:center;z-index:100">
+  <div style="background:#fff;padding:24px;border-radius:10px;min-width:260px">
+    <strong>Admin PIN</strong>
+    <input id="pin-in" type="password" autocomplete="off" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;margin:8px 0">
+    <div id="pin-er" style="color:#ef4444;font-size:12px;min-height:14px"></div>
+    <button onclick="doUnlock()" style="width:100%;padding:8px;background:#1d4f91;color:#fff;border:none;border-radius:6px;cursor:pointer">Entrar</button>
+  </div>
+</div>
+
+<script>
+  var OP_ID = ${id};
+  var SESS_MS = 10*60*1000;
+  function _admGet(){ try { return JSON.parse(localStorage.getItem('hf_admin')||'null'); } catch(_) { return null; } }
+  function _admPin(){ var s=_admGet(); return (s && (Date.now()-s.ts)<SESS_MS) ? s.pin : null; }
+  function _touch(){ var s=_admGet(); if(s){ s.ts=Date.now(); localStorage.setItem('hf_admin',JSON.stringify(s)); } }
+  var _admInt=null;
+  function applyAdmin(on){
+    document.querySelectorAll('.adm').forEach(function(e){ e.style.display = on?'':'none'; });
+    var r=document.getElementById('adm-retro'); if(r) r.style.display = on?'':'none';
+    var l=document.getElementById('lock'); if(l){ l.textContent = on?'🔓':'🔒'; }
+    var t=document.getElementById('adm-timer'); if(t) t.style.display = on?'':'none';
+    if(on){ if(_admInt) clearInterval(_admInt); _admInt=setInterval(tickTimer,1000); tickTimer(); }
+    else if(_admInt){ clearInterval(_admInt); _admInt=null; }
+  }
+  function tickTimer(){
+    var s=_admGet(); var t=document.getElementById('adm-timer');
+    if(!s){ applyAdmin(false); return; }
+    var left=SESS_MS-(Date.now()-s.ts);
+    if(left<=0){ localStorage.removeItem('hf_admin'); applyAdmin(false); return; }
+    if(t){ var m=Math.floor(left/60000),x=Math.floor((left%60000)/1000); t.textContent='Admin '+m+':'+(x<10?'0':'')+x; }
+  }
+  function toggleLock(){
+    if(_admPin()){ localStorage.removeItem('hf_admin'); applyAdmin(false); }
+    else { document.getElementById('pin-ov').style.display='flex'; setTimeout(function(){document.getElementById('pin-in').focus();},100); }
+  }
+  async function doUnlock(){
+    var pin=document.getElementById('pin-in').value.trim();
+    var r=await fetch('/api/admin/operators?pin='+encodeURIComponent(pin));
+    if(r.status===403){ document.getElementById('pin-er').textContent='PIN incorreto'; return; }
+    if(!r.ok){ document.getElementById('pin-er').textContent='Erro '+r.status; return; }
+    localStorage.setItem('hf_admin',JSON.stringify({pin:pin,ts:Date.now()}));
+    document.getElementById('pin-ov').style.display='none';
+    applyAdmin(true);
+  }
+  document.getElementById('pin-in').addEventListener('keypress',function(e){ if(e.key==='Enter') doUnlock(); });
+  async function oalDel(id){
+    var pin=_admPin(); if(!pin){ applyAdmin(false); return; }
+    if(!confirm('Excluir essa entrada da timeline?')) return;
+    _touch();
+    var r=await fetch('/api/admin/operator-activity-log/'+id+'?pin='+encodeURIComponent(pin),{method:'DELETE'});
+    if(r.ok) location.reload(); else alert('Erro');
+  }
+  async function oalEdit(id){
+    var pin=_admPin(); if(!pin){ applyAdmin(false); return; }
+    var ns=prompt('Novo started_at ET (YYYY-MM-DD HH:MM) — deixa vazio p/ não mudar:');
+    var body={pin:pin}; if(ns) body.started_at=ns;
+    var nn=prompt('Notes (vazio = não mudar):'); if(nn) body.notes=nn;
+    if(!ns && !nn) return;
+    _touch();
+    var r=await fetch('/api/admin/operator-activity-log/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.ok) location.reload(); else alert('Erro');
+  }
+  async function oalCreate(){
+    var pin=_admPin(); if(!pin){ applyAdmin(false); return; }
+    var body={pin:pin,operator_id:OP_ID,activity_type:document.getElementById('re-type').value,
+      started_at:document.getElementById('re-start').value,
+      ended_at:document.getElementById('re-end').value||null,
+      phase_instance_id:parseInt(document.getElementById('re-pi').value)||null,
+      notes:document.getElementById('re-notes').value||null};
+    if(!body.started_at){ document.getElementById('re-err').textContent='Início obrigatório'; return; }
+    _touch();
+    var r=await fetch('/api/admin/operator-activity-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(r.ok) location.reload(); else { var d=await r.json().catch(function(){return{};}); document.getElementById('re-err').textContent=d.error||'Erro'; }
+  }
+  // Restore A2 session on load
+  if(_admPin()) applyAdmin(true);
+</script>
 </body></html>`);
 });
 

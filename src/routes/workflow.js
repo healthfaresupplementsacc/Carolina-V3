@@ -926,6 +926,40 @@ router.get('/operator-activity-log', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// A1 — POST a retroactive timeline entry for an operator.
+router.post('/admin/operator-activity-log', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const {
+      operator_id, activity_type, started_at, ended_at,
+      phase_instance_id, ad_hoc_task_instance_id, pause_id, role, notes,
+    } = req.body;
+    if (!Number.isFinite(operator_id)) return res.status(400).json({ error: 'operator_id obrigatório' });
+    if (!['phase', 'ad_hoc', 'break', 'idle'].includes(activity_type)) {
+      return res.status(400).json({ error: 'activity_type inválido' });
+    }
+    if (!started_at) return res.status(400).json({ error: 'started_at obrigatório' });
+    const ins = await db.query(
+      `INSERT INTO operator_activity_log
+         (operator_id, activity_type, phase_instance_id, ad_hoc_task_instance_id,
+          pause_id, started_at, ended_at, role, notes,
+          duration_seconds)
+       VALUES ($1,$2,$3,$4,$5,$6::timestamptz,$7::timestamptz,$8,$9,
+          CASE WHEN $7::timestamptz IS NOT NULL
+               THEN EXTRACT(EPOCH FROM ($7::timestamptz - $6::timestamptz))::int END)
+       RETURNING id`,
+      [operator_id, activity_type, phase_instance_id || null,
+       ad_hoc_task_instance_id || null, pause_id || null,
+       started_at, ended_at || null, role || null, notes || null]
+    );
+    const after = await snapshotRow('operator_activity_log', 'id', ins.rows[0].id);
+    await auditAction({ req, action: 'oal.create_retroactive',
+                        entityType: 'operator_activity_log',
+                        entityId: ins.rows[0].id, before: null, after });
+    res.json({ ok: true, id: ins.rows[0].id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.put('/admin/operator-activity-log/:id', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
