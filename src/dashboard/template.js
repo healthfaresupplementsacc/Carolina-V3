@@ -1607,9 +1607,20 @@ function updateBreakTime() {
 
 function getUrgencyClass(task) {
   const t = task.urgency_tier;
-  if (t >= 3) return 'critical';
-  if (t >= 2) return 'red';
-  if (t >= 1) return 'amber';
+  if (t != null) {
+    if (t >= 3) return 'critical';
+    if (t >= 2) return 'red';
+    if (t >= 1) return 'amber';
+    return 'normal';
+  }
+  // U3: workflow phase / ad-hoc items have no urgency_tier — derive a
+  // time-based colour from elapsed so a long-running phase still goes
+  // amber/red like legacy tasks. > 4h red, > 2h amber, else normal.
+  if (task.started_at) {
+    const hrs = (Date.now() - new Date(task.started_at).getTime()) / 3600000;
+    if (hrs >= 4) return 'red';
+    if (hrs >= 2) return 'amber';
+  }
   return 'normal';
 }
 function getBadgeClass(uc) {

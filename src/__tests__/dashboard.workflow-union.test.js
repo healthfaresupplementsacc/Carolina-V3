@@ -96,6 +96,17 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     expect(wfQ).toMatch(/NOT EXISTS\s*\(\s*SELECT 1 FROM tasks t/);
   });
 
+  test('U3 — workflow cards get time-based urgency colour (no urgency_tier)', () => {
+    const tpl = require('../dashboard/template');
+    const html = tpl.generateDashboard();
+    // getUrgencyClass derives colour from elapsed when tier is absent
+    expect(html).toMatch(/U3: workflow phase \/ ad-hoc items have no urgency_tier/);
+    expect(html).toMatch(/if \(hrs >= 4\) return 'red'/);
+    expect(html).toMatch(/if \(hrs >= 2\) return 'amber'/);
+    // the timer div is rendered for every card (string-id safe)
+    expect(html).toMatch(/class="task-timer" id="timer-\$\{escHtml\(String\(task\.id\)\)\}"/);
+  });
+
   test('U1 — operator strip renders independently of renderAll', () => {
     const tpl = require('../dashboard/template');
     const html = tpl.generateDashboard();
