@@ -423,7 +423,7 @@ async function runOperatorCRUD() {
 
   await step('POST /admin/operator/create → 200 + DB row + audit operator.create', async () => {
     const r = await adminPost('/api/admin/operator/create', {
-      name: uniqueName, slack_user_id: 'UTEST', aliases: 'TestA,TestB', role: 'qa',
+      name: uniqueName, slack_user_id: 'UTEST', aliases: 'TestA,TestB', role: 'operator',
     });
     assert2xx(r, 'operator.create');
     opId = r.body.id;
@@ -431,7 +431,7 @@ async function runOperatorCRUD() {
     const rows = await dbQuery('SELECT name, aliases, role FROM operators WHERE id = $1', [opId]);
     assert(rows[0].name === uniqueName, 'name not in DB');
     assert(rows[0].aliases === 'TestA,TestB', 'aliases not in DB');
-    assert(rows[0].role === 'qa', 'role not in DB');
+    assert(rows[0].role === 'operator', 'role not in DB');
     const a = await lastAudit('operator.create', opId);
     assert(a, 'audit not written');
   });
@@ -443,10 +443,10 @@ async function runOperatorCRUD() {
   });
 
   await step('PUT  /admin/operator/:id → audit operator.edit', async () => {
-    const r = await adminPut(`/api/admin/operator/${opId}`, { role: 'producao' });
+    const r = await adminPut(`/api/admin/operator/${opId}`, { role: 'manager' });
     assert2xx(r, 'operator.edit');
     const rows = await dbQuery('SELECT role FROM operators WHERE id = $1', [opId]);
-    assert(rows[0].role === 'producao', 'role not updated');
+    assert(rows[0].role === 'manager', 'role not updated');
     const a = await lastAudit('operator.edit', opId);
     assert(a, 'audit not written');
   });
