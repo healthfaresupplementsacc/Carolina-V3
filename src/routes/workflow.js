@@ -1120,13 +1120,38 @@ router.delete('/admin/operator-activity-log/:id', async (req, res) => {
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
     const before = await snapshotRow('operator_activity_log', 'id', id);
     if (!before) return res.status(404).json({ error: 'not found' });
+    // BUG FK — operator_activity_log self-references itself: a "volta" row
+    // points at this row via came_back_from_id, and a "saída" row via
+    // left_for_id. A plain DELETE then violates
+    // operator_activity_log_came_back_from_id_fkey. Untether the linked
+    // rows first (we lose the saiu/voltou trail but the row deletes and
+    // the operator timeline keeps working), then delete. The audit keeps
+    // 'before' forever and records which rows were untethered.
+    const cb = await db.query(
+      `UPDATE operator_activity_log SET came_back_from_id = NULL, updated_at = NOW()
+       WHERE came_back_from_id = $1 RETURNING id`, [id]);
+    const lf = await db.query(
+      `UPDATE operator_activity_log SET left_for_id = NULL, updated_at = NOW()
+       WHERE left_for_id = $1 RETURNING id`, [id]);
     // Hard delete: operator_activity_log is finely-grained, soft-delete adds
     // noise to the timeline. Audit log preserves the before state forever.
     await db.query('DELETE FROM operator_activity_log WHERE id = $1', [id]);
+    const untethered = {
+      came_back_from: cb.rows.map((r) => r.id),
+      left_for: lf.rows.map((r) => r.id),
+    };
     await auditAction({ req, action: 'oal.delete', entityType: 'operator_activity_log',
-                        entityId: id, before, after: null });
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+                        entityId: id, before, after: { deleted: true, untethered } });
+    res.json({ ok: true, untethered });
+  } catch (err) {
+    // Never leak a raw Postgres FK message to the admin UI.
+    if (err && err.code === '23503') {
+      return res.status(409).json({
+        error: 'Não consegui excluir: esse registro ainda está ligado a outro '
+             + '(saída/volta). Atualize a página e tente de novo.' });
+    }
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/admin/move-operator
