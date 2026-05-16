@@ -10,7 +10,9 @@ describe('buildHomeView', () => {
     const v = home.buildHomeView({ operators: [], workflows: [], phases: [], adhoc: [], breaks: [] });
     expect(v.type).toBe('home');
     const txt = JSON.stringify(v);
-    expect(txt).toMatch(/Carolina — HealthFare Production/);
+    // U4: header no longer prefixed with "Carolina — "
+    expect(txt).toMatch(/🌿 HealthFare Production/);
+    expect(txt).not.toMatch(/Carolina — HealthFare/);
     expect(txt).toMatch(/Nenhum batch ativo/);
     expect(txt).toMatch(/Ningu[ée]m em break/);
     // Primary action buttons present
@@ -35,6 +37,32 @@ describe('buildHomeView', () => {
     expect(txt).toMatch(/Bruno/);
     expect(txt).toMatch(/join_phase:50/);
     expect(txt).toMatch(/close_phase:50/);
+  });
+
+  test('F1 — phase shows all participants (starter + joiners) not just starter', () => {
+    const v = home.buildHomeView({
+      operators: [{ id: 1, name: 'Vitor' }],
+      workflows: [{ id: 10, product_name: 'Green Tea', batch_number: '0098',
+                    started_at: new Date(Date.now() - 3600000).toISOString(),
+                    batch_change_approved: true, workflow_name: 'Produção de Suplemento' }],
+      phases: [{ id: 50, workflow_instance_id: 10, phase_name: 'Formulação',
+                 status: 'open', started_at: new Date(Date.now() - 600000).toISOString(),
+                 starter_name: 'Vitor', participants: 'Ana + Vitor' }],
+      adhoc: [], breaks: [],
+    });
+    const txt = JSON.stringify(v);
+    expect(txt).toMatch(/Ana \+ Vitor/);
+  });
+
+  test('F1 — falls back to starter_name when no participants string', () => {
+    const v = home.buildHomeView({
+      operators: [], workflows: [{ id: 10, product_name: 'X', batch_number: '1',
+        started_at: new Date().toISOString(), batch_change_approved: true, workflow_name: 'W' }],
+      phases: [{ id: 51, workflow_instance_id: 10, phase_name: 'Mix', status: 'open',
+                 started_at: new Date().toISOString(), starter_name: 'Bruno', participants: null }],
+      adhoc: [], breaks: [],
+    });
+    expect(JSON.stringify(v)).toMatch(/Bruno/);
   });
 
   test('flags batch change with hourglass', () => {

@@ -128,7 +128,12 @@ router.get('/dashboard', async (req, res) => {
     try {
       const wf = await db.query(`
         SELECT pi.id, pi.phase_name, pi.batch_number, pi.started_at,
-               wi.product_name, o.name AS operator_name
+               wi.product_name, o.name AS operator_name,
+               (SELECT string_agg(DISTINCT op2.name, ' + ' ORDER BY op2.name)
+                  FROM operator_activity_log oal2
+                  JOIN operators op2 ON op2.id = oal2.operator_id
+                  WHERE oal2.phase_instance_id = pi.id
+                    AND oal2.ended_at IS NULL) AS participants
         FROM phase_instances pi
         JOIN workflow_instances wi ON wi.id = pi.workflow_instance_id
         LEFT JOIN operators o ON o.id = pi.started_by_operator_id
@@ -144,7 +149,12 @@ router.get('/dashboard', async (req, res) => {
           )
         ORDER BY pi.started_at DESC`);
       const ah = await db.query(`
-        SELECT ati.id, ati.task_name, ati.started_at, o.name AS operator_name
+        SELECT ati.id, ati.task_name, ati.started_at, o.name AS operator_name,
+               (SELECT string_agg(DISTINCT op2.name, ' + ' ORDER BY op2.name)
+                  FROM operator_activity_log oal2
+                  JOIN operators op2 ON op2.id = oal2.operator_id
+                  WHERE oal2.ad_hoc_task_instance_id = ati.id
+                    AND oal2.ended_at IS NULL) AS participants
         FROM ad_hoc_task_instances ati
         LEFT JOIN operators o ON o.id = ati.started_by_operator_id
         WHERE ati.status = 'open' AND ati.ended_at IS NULL
@@ -156,7 +166,9 @@ router.get('/dashboard', async (req, res) => {
           id: `ph-${r.id}`, phase_instance_id: r.id,
           supplement_name: r.product_name || null,
           batch_number: r.batch_number || null,
-          operator: r.operator_name || null,
+          // F1+U2: show every active participant (starter + joiners),
+          // falling back to the phase starter name.
+          operator: r.participants || r.operator_name || null,
           task_type: r.phase_name || null,
           started_at: r.started_at,
           _source: 'workflow_phase',
@@ -165,7 +177,7 @@ router.get('/dashboard', async (req, res) => {
         ...ah.rows.map((r) => ({
           id: `ah-${r.id}`, ad_hoc_task_instance_id: r.id,
           supplement_name: null, batch_number: null,
-          operator: r.operator_name || null,
+          operator: r.participants || r.operator_name || null,
           task_type: r.task_name || null,
           started_at: r.started_at,
           _source: 'workflow_adhoc',

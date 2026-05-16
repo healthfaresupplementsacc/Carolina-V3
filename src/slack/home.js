@@ -46,14 +46,24 @@ async function fetchHomeState() {
       ORDER BY wi.started_at DESC`),
     db.query(`
       SELECT pi.id, pi.workflow_instance_id, pi.phase_name, pi.status,
-             pi.started_at, o.name AS starter_name
+             pi.started_at, o.name AS starter_name,
+             (SELECT string_agg(DISTINCT op2.name, ' + ' ORDER BY op2.name)
+                FROM operator_activity_log oal2
+                JOIN operators op2 ON op2.id = oal2.operator_id
+                WHERE oal2.phase_instance_id = pi.id
+                  AND oal2.ended_at IS NULL) AS participants
       FROM phase_instances pi
       LEFT JOIN operators o ON o.id = pi.started_by_operator_id
       WHERE pi.status = 'open' AND pi.ended_at IS NULL
       ORDER BY pi.started_at DESC`),
     db.query(`
       SELECT ati.id, ati.task_name, ati.started_at, aht.admin_approved,
-             o.name AS starter_name
+             o.name AS starter_name,
+             (SELECT string_agg(DISTINCT op2.name, ' + ' ORDER BY op2.name)
+                FROM operator_activity_log oal2
+                JOIN operators op2 ON op2.id = oal2.operator_id
+                WHERE oal2.ad_hoc_task_instance_id = ati.id
+                  AND oal2.ended_at IS NULL) AS participants
       FROM ad_hoc_task_instances ati
       LEFT JOIN ad_hoc_tasks aht ON aht.id = ati.ad_hoc_task_id
       LEFT JOIN operators o ON o.id = ati.started_by_operator_id
@@ -78,7 +88,7 @@ async function fetchHomeState() {
 function buildHomeView(state) {
   const blocks = [];
 
-  blocks.push({ type: 'header', text: { type: 'plain_text', text: '🌿 Carolina — HealthFare Production' } });
+  blocks.push({ type: 'header', text: { type: 'plain_text', text: '🌿 HealthFare Production' } });
 
   // E. Primary actions (top so they're always reachable)
   blocks.push({
@@ -110,7 +120,7 @@ function buildHomeView(state) {
       for (const p of phs) {
         blocks.push({
           type: 'section',
-          text: { type: 'mrkdwn', text: `   🟢 *${p.phase_name}* · ${p.starter_name || '?'} · ${fmtElapsed(p.started_at)}` },
+          text: { type: 'mrkdwn', text: `   🟢 *${p.phase_name}* · ${p.participants || p.starter_name || '?'} · ${fmtElapsed(p.started_at)}` },
           accessory: {
             type: 'overflow',
             action_id: `phase_menu_${p.id}`,
@@ -134,7 +144,7 @@ function buildHomeView(state) {
       const pend = a.admin_approved === false ? ' ⏳ _pendente de revisão_' : '';
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `🧹 *${a.task_name}*${pend} · ${a.starter_name || '?'} · ${fmtElapsed(a.started_at)}` },
+        text: { type: 'mrkdwn', text: `🧹 *${a.task_name}*${pend} · ${a.participants || a.starter_name || '?'} · ${fmtElapsed(a.started_at)}` },
         accessory: {
           type: 'button', text: { type: 'plain_text', text: 'Concluir' },
           action_id: `close_adhoc_${a.id}`, value: `${a.id}`,
