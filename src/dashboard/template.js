@@ -2239,14 +2239,24 @@ async function fetchAndRender() {
     if (!res.ok) throw new Error('API ' + res.status);
     const data = await res.json();
     _lastData = data;
-    renderAll(data);
+    // U1: render the operator strip FIRST and independently. It has its
+    // own fetch + try/catch, so a renderAll() exception (renderAll is
+    // large and changed often) can no longer prevent the strip from
+    // showing — that was the U1 bug.
     renderOperatorStrip();
+    try {
+      renderAll(data);
+    } catch (e) {
+      console.error('renderAll error (strip already rendered):', e);
+    }
     if (adminUnlocked && !_viewingDate && !window._backupChecked) {
       window._backupChecked = true;
       checkBackupStatus();
     }
   } catch (err) {
     console.error('Dashboard fetch error:', err);
+    // Last-resort: still attempt the strip even if /api/dashboard failed.
+    try { renderOperatorStrip(); } catch (_) {}
   }
 }
 

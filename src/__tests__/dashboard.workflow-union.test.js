@@ -96,6 +96,22 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     expect(wfQ).toMatch(/NOT EXISTS\s*\(\s*SELECT 1 FROM tasks t/);
   });
 
+  test('U1 — operator strip renders independently of renderAll', () => {
+    const tpl = require('../dashboard/template');
+    const html = tpl.generateDashboard();
+    // container exists at top of main
+    expect(html).toMatch(/<div id="operator-strip"/);
+    // strip is invoked BEFORE renderAll and renderAll is wrapped so its
+    // failure can't suppress the strip
+    const sIdx = html.indexOf('renderOperatorStrip();');
+    const aIdx = html.indexOf('renderAll(data);');
+    expect(sIdx).toBeGreaterThan(0);
+    expect(aIdx).toBeGreaterThan(sIdx);
+    expect(html).toMatch(/renderAll error \(strip already rendered\)/);
+    // fallback strip attempt on /api/dashboard failure
+    expect(html).toMatch(/Last-resort: still attempt the strip/);
+  });
+
   test('Bug A frontend — renderOpenTasks guards workflow items (no invalid JS)', () => {
     const tpl = require('../dashboard/template');
     const html = tpl.generateDashboard();
