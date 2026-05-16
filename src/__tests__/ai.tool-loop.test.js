@@ -13,7 +13,7 @@ describe('P1 — runTool dispatch', () => {
     db.query = jest.fn().mockResolvedValue({ rows: [{ n: 2 }] });
     const audit = jest.fn();
     const r = await at.runTool('get_state', {}, { auditAction: audit });
-    expect(r).toEqual({ active_workflows: 2, open_phases: 2, open_adhoc: 2, on_break: 2 });
+    expect(r).toEqual(expect.objectContaining({ active_workflows: 2, open_phases: 2, open_adhoc: 2, on_break: 2 }));
     expect(audit).not.toHaveBeenCalled();
   });
 

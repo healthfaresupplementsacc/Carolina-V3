@@ -142,15 +142,27 @@ const EXEC = {
 };
 
 // ─── Read tools (no side effects) ────────────────────────────────────────
+// Returns counts AND the actual open entities (id + name) so the
+// agentic loop can resolve references like "fecha o que está aberto"
+// without asking the admin for an id when there's exactly one match.
 async function getState() {
-  const [wf, ph, ah, br] = await Promise.all([
+  const [wf, ph, ah, br, phList, ahList, wfList] = await Promise.all([
     db.query(`SELECT count(*)::int n FROM workflow_instances WHERE status='active'`),
     db.query(`SELECT count(*)::int n FROM phase_instances WHERE status='open'`),
     db.query(`SELECT count(*)::int n FROM ad_hoc_task_instances WHERE status='open'`),
     db.query(`SELECT count(*)::int n FROM operator_activity_log WHERE activity_type='break' AND ended_at IS NULL`),
+    db.query(`SELECT id, phase_name, workflow_instance_id, started_at
+              FROM phase_instances WHERE status='open' ORDER BY started_at ASC LIMIT 25`),
+    db.query(`SELECT id, task_name, started_at
+              FROM ad_hoc_task_instances WHERE status='open' ORDER BY started_at ASC LIMIT 25`),
+    db.query(`SELECT id, product_name, batch_number
+              FROM workflow_instances WHERE status='active' ORDER BY started_at ASC LIMIT 25`),
   ]);
-  return { active_workflows: wf.rows[0].n, open_phases: ph.rows[0].n,
-           open_adhoc: ah.rows[0].n, on_break: br.rows[0].n };
+  return {
+    active_workflows: wf.rows[0].n, open_phases: ph.rows[0].n,
+    open_adhoc: ah.rows[0].n, on_break: br.rows[0].n,
+    phases: phList.rows, adhoc: ahList.rows, workflows: wfList.rows,
+  };
 }
 async function getOperatorTimeline(operatorId, date) {
   const r = await db.query(

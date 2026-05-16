@@ -10,6 +10,48 @@ const db = require('../db');
 const BOSS_IDS = [config.slack.brunoUserId, config.slack.thassioUserId].filter(Boolean);
 const STATE_KEY_PREFIX = 'dm_last_ts_';
 
+// ── Conversation memory (manager channel) ─────────────────────────────
+// Carries the tool-use transcript (incl. get_state results) across the
+// admin's consecutive messages, so "fecha o que está aberto" can be
+// resolved from the get_state Carolina just ran. Bounded + freshness-
+// gated so stale state never resurfaces.
+const MGR_HISTORY_KEY = 'manager_chat_history';
+const HISTORY_FRESH_MS = 30 * 60 * 1000; // 30 min
+const HISTORY_MAX_TURNS = 6;             // last N real admin exchanges
+
+// Trim at REAL-user (string content) boundaries only — never split a
+// tool_use/tool_result pair or start the slice on an orphan tool_use.
+function trimHistory(messages, maxTurns = HISTORY_MAX_TURNS) {
+  if (!Array.isArray(messages)) return [];
+  const userIdx = [];
+  messages.forEach((m, i) => {
+    if (m && m.role === 'user' && typeof m.content === 'string') userIdx.push(i);
+  });
+  if (userIdx.length <= maxTurns) return messages.slice();
+  return messages.slice(userIdx[userIdx.length - maxTurns]);
+}
+
+async function loadManagerHistory() {
+  try {
+    const r = await db.query(`SELECT value FROM app_state WHERE key = $1`, [MGR_HISTORY_KEY]);
+    if (!r.rows[0]) return [];
+    const parsed = JSON.parse(r.rows[0].value);
+    if (!parsed || !parsed.ts || (Date.now() - parsed.ts) > HISTORY_FRESH_MS) return [];
+    return trimHistory(parsed.messages || []);
+  } catch (_) { return []; }
+}
+
+async function saveManagerHistory(messages) {
+  try {
+    const trimmed = trimHistory(messages);
+    await db.query(
+      `INSERT INTO app_state (key, value, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+      [MGR_HISTORY_KEY, JSON.stringify({ ts: Date.now(), messages: trimmed })]
+    );
+  } catch (_) { /* memory is best-effort */ }
+}
+
 let WebClient;
 let Anthropic;
 
@@ -119,7 +161,24 @@ REGRAS:
 - Se o admin claramente quer descartar a pendência ("ignora", "esquece",
   "fecha essa", "deixa", "cancela", "para com isso", "deleta"), chama
   dismiss_pending_question. Se passar um horário, chama
-  update_break_retroactive.`;
+  update_break_retroactive.
+
+MEMÓRIA: você TEM o histórico recente desta conversa, incluindo os
+RESULTADOS das tools que você já chamou (ex: o get_state com a lista de
+fases abertas: cada uma com id e nome). USE esse histórico — não peça de
+novo o que você acabou de ver.
+
+RESOLUÇÃO DE REFERÊNCIA: ordens vagas como "fecha o que está aberto",
+"fecha a fase aberta", "fecha essa", "encerra a fase que tá rolando",
+"aquela", "a que tá aberta" referem-se ao que está no get_state mais
+recente do histórico. Procedimento:
+- Se NÃO tem um get_state recente no histórico (ou pode estar
+  desatualizado), chama get_state primeiro.
+- Olha a lista 'phases' (e 'adhoc'/'workflows' quando fizer sentido):
+  • Exatamente 1 que casa → chama close_phase com o id dela e confirma
+    ("Fechei a fase #5 Encapsulação."). NÃO peça o id ao admin.
+  • Várias → lista curtinha (id + nome) e pergunta qual.
+  • Zero → diz que não tem fase aberta agora.`;
 
 async function askClaude(userMessage, senderName, productionContext, deps = {}) {
   const anthropic = deps.anthropic || getAnthropic();
@@ -145,7 +204,10 @@ Se pedirem algo que não dá pra fazer (mexer em arquivo, rodar código), fala q
   // block (tools render before it and are deterministic, so the whole
   // prefix caches across the admin's rapid follow-ups).
   const system = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
-  const messages = [{ role: 'user', content: `${senderName}: ${userMessage}` }];
+  // Prior transcript (tool results included) so references like "fecha
+  // o aberto" resolve from the get_state Carolina just ran.
+  const prior = Array.isArray(deps.history) ? deps.history.slice() : [];
+  const messages = [...prior, { role: 'user', content: `${senderName}: ${userMessage}` }];
   const MAX_ITERS = 4;
   let finalText = '';
 
@@ -160,7 +222,10 @@ Se pedirem algo que não dá pra fazer (mexer em arquivo, rodar código), fala q
     const blocks = response.content || [];
     const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
     if (text) finalText = text;
-    if (response.stop_reason !== 'tool_use') break;
+    if (response.stop_reason !== 'tool_use') {
+      messages.push({ role: 'assistant', content: blocks }); // close transcript
+      break;
+    }
 
     messages.push({ role: 'assistant', content: blocks });
     const results = [];
@@ -180,6 +245,16 @@ Se pedirem algo que não dá pra fazer (mexer em arquivo, rodar código), fala q
     messages.push({ role: 'user', content: results });
   }
 
+  // Keep the transcript valid for the next turn (must not end on a
+  // dangling tool_result user turn after MAX_ITERS).
+  const last = messages[messages.length - 1];
+  if (last && last.role === 'user' && Array.isArray(last.content)) {
+    messages.push({ role: 'assistant', content: [{ type: 'text', text: finalText || '...' }] });
+  }
+
+  if (typeof deps.saveHistory === 'function') {
+    try { await deps.saveHistory(messages); } catch (_) {}
+  }
   return finalText || 'não entendi, pode repetir?';
 }
 
@@ -324,6 +399,9 @@ async function pollManagerChannel() {
 
     try {
       let reply;
+      // Conversation memory: prior tool-use transcript (get_state etc.)
+      // so the loop can resolve "fecha o aberto" from what it just saw.
+      const chatDeps = { history: await loadManagerHistory(), saveHistory: saveManagerHistory };
       // A1 — retro-break: ONLY intercept when the message is essentially
       // a time answer ("14:30"). Any other message (questions, "fecha
       // essa", "ignora", orders) must NOT be swallowed/repeated here —
@@ -371,7 +449,7 @@ async function pollManagerChannel() {
           // keep context, let the normal chat re-reason with the adjustment
           reply = await askClaude(
             `[ajuste à proposta pendente "${pending.kind}"]: ${msg.text}`,
-            senderName, productionContext);
+            senderName, productionContext, chatDeps);
         }
       }
       // P2 — deterministic direct-order pre-parse: "ignora / esquece /
@@ -385,7 +463,7 @@ async function pollManagerChannel() {
         // "fecha essa" / ambiguity correctly.
         let ctxFull = productionContext;
         try { ctxFull += '\n\n' + (await adminTools.pendingContextLine()); } catch (_) {}
-        reply = await askClaude(msg.text, senderName, ctxFull);
+        reply = await askClaude(msg.text, senderName, ctxFull, chatDeps);
       }
       await slack.chat.postMessage({
         channel: config.slack.managerChannelId,
@@ -407,4 +485,7 @@ async function pollManagerChannel() {
   );
 }
 
-module.exports = { pollBossDMs, pollManagerChannel, askClaude, getProductionContext };
+module.exports = {
+  pollBossDMs, pollManagerChannel, askClaude, getProductionContext,
+  trimHistory, loadManagerHistory, saveManagerHistory,
+};

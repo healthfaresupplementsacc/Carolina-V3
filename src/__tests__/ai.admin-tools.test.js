@@ -81,10 +81,15 @@ describe('W6 — resolveProposal', () => {
 });
 
 describe('W6 — read tools', () => {
-  test('getState aggregates counts', async () => {
+  test('getState aggregates counts + returns entity lists', async () => {
     db.query = jest.fn().mockResolvedValue({ rows: [{ n: 3 }] });
     const s = await at.getState();
-    expect(s).toEqual({ active_workflows: 3, open_phases: 3, open_adhoc: 3, on_break: 3 });
+    expect(s).toEqual(expect.objectContaining({
+      active_workflows: 3, open_phases: 3, open_adhoc: 3, on_break: 3,
+    }));
+    expect(s).toHaveProperty('phases');
+    expect(s).toHaveProperty('adhoc');
+    expect(s).toHaveProperty('workflows');
   });
   test('suggestClaudeCodePrompt formats a prompt', () => {
     const p = at.suggestClaudeCodePrompt('o parser ignora X');
