@@ -1876,7 +1876,11 @@ function renderTodayBreaks(breaks) {
       const status = b.open ? '<span style="color:#b45309">em break</span>'
         : b.untracked ? '<span style="color:#9333ea">não-rastreado</span>'
         : '<span style="color:#059669">voltou</span>';
-      const dur = b.open ? '' : (b.untracked ? '' : ' · ' + fmtDur(b.duration_seconds));
+      // BUG LIVE-DURATION — open break counts up live (no fetch);
+      // closed/untracked keep their fixed duration.
+      const dur = b.open
+        ? \` · <span class="live-dur" data-started-at="\${escHtml(String(b.started_at||''))}" data-dur-prefix="há ">há …</span>\`
+        : (b.untracked ? '' : ' · ' + fmtDur(b.duration_seconds));
       const adminBtns = adminUnlocked
         ? \`<span style="display:inline-flex;gap:4px;margin-left:8px">
              <button class="edit-btn" title="Editar horário de saída (início)" onclick='oalEditTime(\${b.id},"started_at",\${JSON.stringify(b.started_at||"")},"horário de saída")'>✏️ saída</button>
@@ -2135,6 +2139,23 @@ function tickTimers() {
       const elapsed = Math.floor((Date.now() - startMs) / 1000);
       el.textContent = formatDuration(elapsed);
     }
+  }
+}
+
+// BUG LIVE-DURATION — any ongoing entry (break/fase/ad-hoc, i.e.
+// ended_at IS NULL) renders its elapsed time into a [data-started-at]
+// element so it counts up without a fetch. querySelectorAll re-reads
+// the live DOM every tick, so an element removed on the next render is
+// simply no longer updated — no stale handlers, no leak.
+function tickLiveDurations() {
+  const els = document.querySelectorAll('[data-started-at]');
+  const now = Date.now();
+  for (let i = 0; i < els.length; i++) {
+    const el = els[i];
+    const t = Date.parse(el.getAttribute('data-started-at'));
+    if (isNaN(t)) continue;
+    const secs = Math.max(0, Math.floor((now - t) / 1000));
+    el.textContent = (el.getAttribute('data-dur-prefix') || '') + formatDuration(secs);
   }
 }
 
@@ -2747,8 +2768,14 @@ fetchAndRender().finally(() => {
 });
 
 setInterval(() => {
-  if (!_viewingDate) { tickTimers(); updateBreakTime(); }
+  if (!_viewingDate) { tickTimers(); updateBreakTime(); tickLiveDurations(); }
 }, 1000);
+// BUG LIVE-DURATION — spec cadence: recompute live durations every 60s
+// (no fetch). The 1s tick above already keeps it smooth; this guarantees
+// it even if the fast tick is ever gated off.
+setInterval(() => {
+  if (!_viewingDate) tickLiveDurations();
+}, 60000);
 setInterval(() => {
   if (!_viewingDate) { updateDate(); fetchAndRender(); }
 }, 30000);
