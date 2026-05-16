@@ -45,6 +45,10 @@ async function start() {
     console.log('[Boot] Running migrations...');
     await db.migrate();
 
+    // 1a0. BLOCO B / C5: seed message_variations from code defaults
+    //      (idempotent — only seeds a type that has no rows yet).
+    await require('./message-variations').seedDefaults();
+
     // 1a. N3: close any breaks that were left open from previous days.
     await db.cleanupStaleBreaks();
 

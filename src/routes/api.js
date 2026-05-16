@@ -15,6 +15,7 @@ const parser = require('../parser');
 const { auditAction, snapshotRow, checkPin, getAdminPin } = require('../admin/audit');
 const { mergeTasks } = require('../admin/merge');
 const appState = require('../app-state');
+const msgVar = require('../message-variations');
 
 /**
  * Load custom supplements from DB into the parser at startup.
@@ -893,7 +894,7 @@ router.get('/admin/carolina-config', async (req, res) => {
   try {
     const appName = await appState.getAppName();
     const toggles = await appState.getMsgToggles();
-    res.json({ app_name: appName, toggles });
+    res.json({ app_name: appName, toggles, variation_types: msgVar.listTypes() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -918,6 +919,88 @@ router.post('/admin/carolina-config/toggle', async (req, res) => {
       before: { type, enabled: before }, after: { type, enabled },
     });
     res.json({ ok: true, type, enabled });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ===== C5 — message variations CRUD =====
+// GET /api/admin/carolina-config/variations?pin&type=
+//   no type → { types:[...] };  type → { type,label,placeholders,
+//   example, variations:[...] }
+router.get('/admin/carolina-config/variations', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const type = req.query.type ? String(req.query.type) : null;
+    if (!type) return res.json({ types: msgVar.listTypes() });
+    const reg = msgVar.VARIATION_SETS[type];
+    if (!reg) return res.status(400).json({ error: 'tipo inválido' });
+    res.json({
+      type, label: reg.label, placeholders: reg.placeholders,
+      example: reg.example, variations: await msgVar.list(type),
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/carolina-config/variations  body: { pin, type, template }
+router.post('/admin/carolina-config/variations', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const type = String(req.body?.type ?? '');
+    if (!msgVar.VARIATION_SETS[type]) return res.status(400).json({ error: 'tipo inválido' });
+    const template = String(req.body?.template ?? '').trim();
+    if (!template) return res.status(400).json({ error: 'Texto não pode ser vazio' });
+    if (template.length > 500) return res.status(400).json({ error: 'Texto muito longo (máx 500)' });
+
+    const row = await msgVar.create(type, template);
+    await auditAction({
+      req, action: 'carolina_config.variation_create', entityType: 'message_variations',
+      entityId: row.id, before: null, after: { type, template },
+    });
+    res.json({ ok: true, variation: row });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/admin/carolina-config/variations/:id  body: { pin, template?, active?, position? }
+router.put('/admin/carolina-config/variations/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    const before = await msgVar.getById(id);
+    if (!before) return res.status(404).json({ error: 'variação não encontrada' });
+
+    const fields = {};
+    if (req.body?.template !== undefined) {
+      const t = String(req.body.template).trim();
+      if (!t) return res.status(400).json({ error: 'Texto não pode ser vazio' });
+      if (t.length > 500) return res.status(400).json({ error: 'Texto muito longo (máx 500)' });
+      fields.template = t;
+    }
+    if (req.body?.active !== undefined) fields.active = req.body.active === true || req.body.active === 'true';
+    if (req.body?.position !== undefined) fields.position = req.body.position;
+
+    const row = await msgVar.update(id, fields);
+    await auditAction({
+      req, action: 'carolina_config.variation_edit', entityType: 'message_variations',
+      entityId: id,
+      before: { template: before.template, active: before.active, position: before.position },
+      after: { template: row.template, active: row.active, position: row.position },
+    });
+    res.json({ ok: true, variation: row });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/carolina-config/variations/:id?pin
+router.delete('/admin/carolina-config/variations/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const id = parseInt(req.params.id);
+    const before = await msgVar.getById(id);
+    if (!before) return res.status(404).json({ error: 'variação não encontrada' });
+    await msgVar.remove(id);
+    await auditAction({
+      req, action: 'carolina_config.variation_delete', entityType: 'message_variations',
+      entityId: id, before: { type: before.type, template: before.template }, after: null,
+    });
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

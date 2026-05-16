@@ -48,7 +48,7 @@ function request(method, url, body) {
   });
 }
 
-// app_state-backed key/value store + captured audit rows.
+// app_state kv + message_variations rows + captured audit rows.
 function wireDb(store) {
   db.query = jest.fn().mockImplementation((sql, params) => {
     if (/SELECT value FROM app_state WHERE key = \$1/.test(sql)) {
@@ -64,6 +64,40 @@ function wireDb(store) {
         before: params[4], after: params[5] });
       return Promise.resolve({ rows: [{ id: store.audit.length }] });
     }
+    // ---- message_variations ----
+    if (/SELECT COALESCE\(MAX\(position\)/.test(sql)) {
+      const pos = store.mv.filter((r) => r.type === params[0])
+        .reduce((m, r) => Math.max(m, r.position), -1) + 1;
+      return Promise.resolve({ rows: [{ pos }] });
+    }
+    if (/INSERT INTO message_variations/.test(sql)) {
+      const row = { id: ++store.mvSeq, type: params[0], template: params[1],
+        position: params[2], active: true };
+      store.mv.push(row);
+      return Promise.resolve({ rows: [row] });
+    }
+    if (/SELECT \* FROM message_variations WHERE id = \$1/.test(sql)) {
+      const r = store.mv.find((x) => x.id === params[0]);
+      return Promise.resolve({ rows: r ? [r] : [] });
+    }
+    if (/SELECT id, type, template, position, active[\s\S]*FROM message_variations WHERE type = \$1/.test(sql)) {
+      const rows = store.mv.filter((r) => r.type === params[0])
+        .sort((a, b) => a.position - b.position || a.id - b.id);
+      return Promise.resolve({ rows });
+    }
+    if (/UPDATE message_variations SET/.test(sql)) {
+      const id = params[params.length - 1];
+      const r = store.mv.find((x) => x.id === id);
+      if (r) {
+        if (/template = \$1/.test(sql)) r.template = params[0];
+        if (/active = \$/.test(sql)) r.active = params.find((p) => typeof p === 'boolean');
+      }
+      return Promise.resolve({ rows: r ? [r] : [] });
+    }
+    if (/DELETE FROM message_variations WHERE id = \$1/.test(sql)) {
+      store.mv = store.mv.filter((x) => x.id !== params[0]);
+      return Promise.resolve({ rows: [] });
+    }
     return Promise.resolve({ rows: [] });
   });
 }
@@ -71,7 +105,7 @@ function wireDb(store) {
 let store;
 beforeEach(() => {
   jest.clearAllMocks();
-  store = { kv: {}, audit: [] };
+  store = { kv: {}, audit: [], mv: [], mvSeq: 0 };
   wireDb(store);
   require('../app-state').invalidateAppNameCache();
 });
@@ -154,5 +188,74 @@ describe('POST /api/admin/carolina-config/toggle', () => {
       { pin: PIN, type: 'break', enabled: true });
     expect(r.status).toBe(200);
     expect(store.kv.break_enabled).toBe('true');
+  });
+});
+
+describe('C5 — message variations endpoints', () => {
+  test('GET carolina-config exposes variation_types', async () => {
+    const r = await request('GET', '/api/admin/carolina-config?pin=' + PIN);
+    expect(r.status).toBe(200);
+    const types = (r.body.variation_types || []).map((t) => t.type).sort();
+    expect(types).toEqual(['break_time_retry', 'conflict', 'greeting', 'note', 'voltei']);
+  });
+
+  test('GET /variations without type lists the sets; with type lists rows', async () => {
+    const overview = await request('GET', '/api/admin/carolina-config/variations?pin=' + PIN);
+    expect(overview.status).toBe(200);
+    expect(overview.body.types.length).toBe(5);
+
+    const byType = await request('GET', '/api/admin/carolina-config/variations?pin=' + PIN + '&type=note');
+    expect(byType.status).toBe(200);
+    expect(byType.body.type).toBe('note');
+    expect(byType.body.placeholders).toEqual(['op', 'texto']);
+    expect(Array.isArray(byType.body.variations)).toBe(true);
+  });
+
+  test('GET /variations 403 without PIN, 400 invalid type', async () => {
+    expect((await request('GET', '/api/admin/carolina-config/variations')).status).toBe(403);
+    expect((await request('GET', '/api/admin/carolina-config/variations?pin=' + PIN + '&type=bogus')).status).toBe(400);
+  });
+
+  test('POST creates a variation + audit row', async () => {
+    const r = await request('POST', '/api/admin/carolina-config/variations',
+      { pin: PIN, type: 'note', template: '📝 {op}: {texto}' });
+    expect(r.status).toBe(200);
+    expect(r.body.variation.type).toBe('note');
+    expect(store.mv).toHaveLength(1);
+    expect(store.audit[0].action).toBe('carolina_config.variation_create');
+    expect(store.audit[0].entity_type).toBe('message_variations');
+  });
+
+  test('POST rejects empty / over-long / bad type', async () => {
+    expect((await request('POST', '/api/admin/carolina-config/variations', { pin: PIN, type: 'note', template: '  ' })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/variations', { pin: PIN, type: 'note', template: 'x'.repeat(501) })).status).toBe(400);
+    expect((await request('POST', '/api/admin/carolina-config/variations', { pin: PIN, type: 'bogus', template: 'x' })).status).toBe(400);
+  });
+
+  test('PUT edits, DELETE removes, both audited; 404 on missing', async () => {
+    const created = await request('POST', '/api/admin/carolina-config/variations',
+      { pin: PIN, type: 'voltei', template: '{nome}, voltou?' });
+    const id = created.body.variation.id;
+
+    const put = await request('PUT', '/api/admin/carolina-config/variations/' + id,
+      { pin: PIN, template: '{nome}, já voltou?' });
+    expect(put.status).toBe(200);
+    expect(store.mv.find((v) => v.id === id).template).toBe('{nome}, já voltou?');
+    expect(store.audit.some((a) => a.action === 'carolina_config.variation_edit')).toBe(true);
+
+    expect((await request('PUT', '/api/admin/carolina-config/variations/99999', { pin: PIN, template: 'x' })).status).toBe(404);
+
+    const del = await request('DELETE', '/api/admin/carolina-config/variations/' + id + '?pin=' + PIN);
+    expect(del.status).toBe(200);
+    expect(store.mv.find((v) => v.id === id)).toBeUndefined();
+    expect(store.audit.some((a) => a.action === 'carolina_config.variation_delete')).toBe(true);
+
+    expect((await request('DELETE', '/api/admin/carolina-config/variations/88888?pin=' + PIN)).status).toBe(404);
+  });
+
+  test('PUT/DELETE/POST 403 without PIN', async () => {
+    expect((await request('POST', '/api/admin/carolina-config/variations', { type: 'note', template: 'x' })).status).toBe(403);
+    expect((await request('PUT', '/api/admin/carolina-config/variations/1', { template: 'x' })).status).toBe(403);
+    expect((await request('DELETE', '/api/admin/carolina-config/variations/1')).status).toBe(403);
   });
 });

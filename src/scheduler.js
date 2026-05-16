@@ -70,14 +70,6 @@ function startEodJob() {
 // configurable in C6; the message picks from variations in C5.
 const GREETING_HOUR_ET = 8; // default 08:00 ET (configurable in C6)
 
-const DEFAULT_GREETINGS = [
-  'Bom dia, time! Bora começar o dia. Qualquer coisa é só marcar por aqui.',
-  'Bom dia! Novo dia, novo lote — vamo que vamo.',
-  'Oi gente, bom dia! Tô por aqui acompanhando, manda ver.',
-  'Bom dia, pessoal! Lembrem de marcar início e fim das tarefas.',
-  'Bom diaa! Dia produtivo pra todo mundo, conta comigo.',
-];
-
 async function runGreeting() {
   try {
     const appState = require('./app-state');
@@ -98,7 +90,7 @@ async function runGreeting() {
     const override = await appState.get('greeting_text', null);
     const text = (override && String(override).trim())
       ? String(override).trim()
-      : DEFAULT_GREETINGS[Math.floor(Math.random() * DEFAULT_GREETINGS.length)];
+      : await require('./message-variations').pick('greeting', {});
 
     // postMessage self-suppresses to silent_log when silent_text=ON or
     // when the 'greeting' toggle is off (C4).

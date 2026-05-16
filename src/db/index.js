@@ -510,6 +510,18 @@ async function migrate() {
       ('Simone', 'U07FG34TMPF', FALSE)
     ON CONFLICT (name) DO NOTHING;
 
+    -- BLOCO B / C5: editable message variations (seeded from code defaults)
+    CREATE TABLE IF NOT EXISTS message_variations (
+      id SERIAL PRIMARY KEY,
+      type TEXT NOT NULL,
+      template TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_msg_var_type ON message_variations(type);
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_slack_ts ON messages(slack_ts);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);

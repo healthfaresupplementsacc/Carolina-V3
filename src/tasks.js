@@ -182,19 +182,9 @@ const ASK_LABEL_MSGS = [
   (who) => `${who}qual produto está recebendo o label?`,
 ];
 
-// When someone starts "linha de producao" and there's one other open task — check if joining
-const CONFIRM_JOIN_MSGS = [
-  (op, partner, supp) => `${op}, você está trabalhando com ${partner} no ${supp}?`,
-  (op, partner, supp) => `${op}, vai ajudar ${partner} com o ${supp}?`,
-  (op, partner, supp) => `${op}, está junto com ${partner} no ${supp}?`,
-  (op, partner, supp) => `${op}, você se juntou a ${partner} no ${supp}?`,
-  (op, partner, supp) => `${op}, trabalho conjunto com ${partner} no ${supp}?`,
-  (op, partner, supp) => `${op}, está na mesma linha que ${partner} — ${supp}?`,
-  (op, partner, supp) => `${op}, vai trabalhar com ${partner} no ${supp}?`,
-  (op, partner, supp) => `${op}, confirmando — você está com ${partner} no ${supp}?`,
-  (op, partner, supp) => `${op}, você entrou no ${supp} junto com ${partner}?`,
-  (op, partner, supp) => `${op}, está colaborando com ${partner} no ${supp}?`,
-];
+// 'conflict' join question — variations moved to message_variations
+// (type 'conflict'); see src/message-variations.js. Resolved at call
+// site via msgVar.pick('conflict', { nome, parceiro, supp }).
 
 // Confirmation that someone was added as helper
 const JOIN_YES_MSGS = [
@@ -629,9 +619,13 @@ async function handleStart(parsed, rawMsg) {
       // During working hours: ask if they're joining the other person's task
       const other = openByOthers.rows[0];
       const op = operator ? `${operator}, ` : '';
-      const msgFn = pick(CONFIRM_JOIN_MSGS);
       try {
-        await slackClient.postMessage(msgFn(op.trim().replace(', ', ''), other.operator, other.supplement_name), null, 'conflict');
+        const _msg = await require('./message-variations').pick('conflict', {
+          nome: op.trim().replace(', ', ''),
+          parceiro: other.operator,
+          supp: other.supplement_name,
+        });
+        await slackClient.postMessage(_msg, null, 'conflict');
         await storePendingQuestion(operator, {
           questionType: 'confirm_join',
           joiningTaskId: other.id,

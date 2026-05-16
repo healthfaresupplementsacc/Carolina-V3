@@ -1,6 +1,9 @@
 'use strict';
 jest.mock('../slack/client', () => ({ postToChannel: jest.fn().mockResolvedValue('ts') }));
 jest.mock('../config', () => ({ slack: { managerChannelId: 'C0B36DR5MP1' } }));
+// C5: announce now sources variations via message-variations → db.
+// Empty rows → resolveTemplates falls back to the code defaults.
+jest.mock('../db', () => ({ query: jest.fn().mockResolvedValue({ rows: [] }) }));
 
 const slack = require('../slack/client');
 const announce = require('../workflow/announce');

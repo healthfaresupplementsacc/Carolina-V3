@@ -686,6 +686,21 @@ router.get('/admin/carolina-config', (req, res) => {
     <div class="ok" id="tog-msg"></div>
   </div>
 
+  <div class="card">
+    <h2>Variações de mensagem</h2>
+    <div class="hint">A Carolina sorteia uma variação a cada envio. Placeholders entre chaves (ex: <code>{nome}</code>) são preenchidos na hora.</div>
+    <label class="fld" for="var-type" style="margin-top:10px">Conjunto</label>
+    <select id="var-type" onchange="loadVariations()" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:13px"></select>
+    <div id="var-ph" class="hint" style="margin-top:6px"></div>
+    <div id="var-list" style="margin-top:12px">—</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="var-new" type="text" maxlength="500" placeholder="Nova variação (use {placeholders})" style="flex:1">
+      <button class="btn" onclick="addVariation()" style="margin-top:0">+ Adicionar</button>
+    </div>
+    <div class="ok" id="var-msg"></div>
+    <div class="err" id="var-err"></div>
+  </div>
+
   <script>
     const TOGGLE_LABELS = {
       greeting: 'Saudação de manhã', eod: 'Lembrete EOD',
@@ -711,6 +726,7 @@ router.get('/admin/carolina-config', (req, res) => {
         document.getElementById('save-btn').disabled = false;
         renderPreview();
         renderToggles(data.toggles || {});
+        initVariations(data.variation_types || []);
       } catch (e) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
@@ -772,6 +788,104 @@ router.get('/admin/carolina-config', (req, res) => {
         else { msg.textContent = (TOGGLE_LABELS[type] || type) + ': ' + (enabled ? 'ligado' : 'desligado'); }
       } catch (e) { el.checked = !enabled; msg.textContent = 'Erro de conexão'; }
       el.disabled = false;
+    }
+
+    // ----- C5: message variations -----
+    let _varTypes = [];
+    function initVariations(types) {
+      _varTypes = types || [];
+      var sel = document.getElementById('var-type');
+      sel.innerHTML = _varTypes.map(function (t) {
+        return '<option value="' + esc(t.type) + '">' + esc(t.label) + ' (' + t.default_count + ')</option>';
+      }).join('');
+      if (_varTypes.length) loadVariations();
+    }
+    function curMeta() {
+      var ty = document.getElementById('var-type').value;
+      for (var i = 0; i < _varTypes.length; i++) { if (_varTypes[i].type === ty) return _varTypes[i]; }
+      return null;
+    }
+    function previewOf(tpl) {
+      var m = curMeta(); var ex = (m && m.example) || {};
+      return String(tpl).replace(/\\{(\\w+)\\}/g, function (_, k) {
+        return (ex[k] !== undefined && ex[k] !== null) ? ex[k] : ('{' + k + '}');
+      });
+    }
+    function setVarMsg(ok, err) {
+      document.getElementById('var-msg').textContent = ok || '';
+      document.getElementById('var-err').textContent = err || '';
+    }
+    async function loadVariations() {
+      var ty = document.getElementById('var-type').value;
+      var m = curMeta();
+      document.getElementById('var-ph').textContent = (m && m.placeholders && m.placeholders.length)
+        ? ('Placeholders: ' + m.placeholders.map(function (p) { return '{' + p + '}'; }).join('  '))
+        : 'Sem placeholders.';
+      document.getElementById('var-list').textContent = 'Carregando…';
+      setVarMsg('', '');
+      try {
+        var r = await fetch('/api/admin/carolina-config/variations?pin=' + encodeURIComponent(_pin) + '&type=' + encodeURIComponent(ty));
+        var data = await r.json();
+        if (!r.ok) { document.getElementById('var-list').textContent = data.error || ('Erro ' + r.status); return; }
+        renderVarList(data.variations || []);
+      } catch (e) { document.getElementById('var-list').textContent = 'Erro de conexão'; }
+    }
+    function renderVarList(rows) {
+      var box = document.getElementById('var-list');
+      if (!rows.length) { box.textContent = 'Nenhuma variação cadastrada (usando defaults do código).'; return; }
+      box.innerHTML = rows.map(function (v) {
+        return '<div style="border-bottom:1px solid #f3f4f6;padding:8px 0">'
+          + '<input id="vt_' + v.id + '" type="text" value="' + esc(v.template) + '" oninput="onVarInput(' + v.id + ')" '
+          +   'style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px' + (v.active ? '' : ';opacity:.55') + '">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:12px">'
+          +   '<span class="hint" id="vp_' + v.id + '">▶ ' + esc(previewOf(v.template)) + '</span>'
+          +   '<span style="white-space:nowrap">'
+          +     '<label class="hint" style="margin-right:10px"><input type="checkbox" ' + (v.active ? 'checked' : '') + ' onchange="toggleVariation(' + v.id + ',this.checked)"> ativa</label>'
+          +     '<button class="btn" style="margin-top:0;padding:4px 10px" onclick="saveVariation(' + v.id + ')">Salvar</button> '
+          +     '<button class="btn" style="margin-top:0;padding:4px 10px;background:#ef4444" onclick="delVariation(' + v.id + ')">Excluir</button>'
+          +   '</span>'
+          + '</div></div>';
+      }).join('');
+    }
+    function onVarInput(id) {
+      document.getElementById('vp_' + id).textContent = '▶ ' + previewOf(document.getElementById('vt_' + id).value);
+    }
+    async function varPut(id, body) {
+      body.pin = _pin; setVarMsg('', '');
+      try {
+        var r = await fetch('/api/admin/carolina-config/variations/' + id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        var data = await r.json();
+        if (!r.ok) { setVarMsg('', data.error || ('Erro ' + r.status)); return false; }
+        setVarMsg('Salvo.', ''); return true;
+      } catch (e) { setVarMsg('', 'Erro de conexão'); return false; }
+    }
+    function saveVariation(id) { return varPut(id, { template: document.getElementById('vt_' + id).value }); }
+    function toggleVariation(id, active) { return varPut(id, { active: active }); }
+    async function addVariation() {
+      var inp = document.getElementById('var-new'); var t = inp.value.trim();
+      setVarMsg('', '');
+      if (!t) { setVarMsg('', 'Texto não pode ser vazio'); return; }
+      try {
+        var r = await fetch('/api/admin/carolina-config/variations', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: _pin, type: document.getElementById('var-type').value, template: t }),
+        });
+        var data = await r.json();
+        if (!r.ok) { setVarMsg('', data.error || ('Erro ' + r.status)); return; }
+        inp.value = ''; setVarMsg('Adicionada.', ''); loadVariations();
+      } catch (e) { setVarMsg('', 'Erro de conexão'); }
+    }
+    async function delVariation(id) {
+      if (!confirm('Excluir esta variação?')) return;
+      setVarMsg('', '');
+      try {
+        var r = await fetch('/api/admin/carolina-config/variations/' + id + '?pin=' + encodeURIComponent(_pin), { method: 'DELETE' });
+        var data = await r.json();
+        if (!r.ok) { setVarMsg('', data.error || ('Erro ' + r.status)); return; }
+        setVarMsg('Excluída.', ''); loadVariations();
+      } catch (e) { setVarMsg('', 'Erro de conexão'); }
     }
   </script>
 </body>
