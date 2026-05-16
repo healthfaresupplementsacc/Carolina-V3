@@ -510,6 +510,22 @@ async function migrate() {
       ('Simone', 'U07FG34TMPF', FALSE)
     ON CONFLICT (name) DO NOTHING;
 
+    -- BUG IDENTIDADE — team hierarchy. role ∈ {'owner','manager',
+    -- 'operator'} (app-validated; column already exists). Owners
+    -- (Bruno Camp, Thassio) and the manager (Henrique) give orders
+    -- Carolina obeys without extra confirmation. Bruno Camp is the
+    -- existing U03URLL1D4L row (avoids a duplicate slack id).
+    UPDATE operators SET role = 'owner', updated_at = NOW()
+      WHERE slack_user_id = 'U03URLL1D4L';
+    INSERT INTO operators (name, slack_user_id, is_shared_account, role) VALUES
+      ('Thassio',           'U03S46L2EUA', FALSE, 'owner'),
+      ('Henrique Monteiro', 'U085SDY3F4Z', FALSE, 'manager')
+    ON CONFLICT (name) DO UPDATE
+      SET slack_user_id = EXCLUDED.slack_user_id,
+          role = EXCLUDED.role, updated_at = NOW();
+    UPDATE operators SET role = 'operator', updated_at = NOW()
+      WHERE role IS NULL OR btrim(role) = '';
+
     -- BLOCO C / P4: Carolina autonomous proposals (multi-row, expiring)
     CREATE TABLE IF NOT EXISTS carolina_proposals (
       id SERIAL PRIMARY KEY,

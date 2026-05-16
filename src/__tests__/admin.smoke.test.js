@@ -308,7 +308,7 @@ describe('Operator full flow — create → edit role → deactivate', () => {
       }
       if (/UPDATE operators SET[\s\S]*WHERE id = /.test(sql)) {
         if (/active = FALSE/.test(sql)) active = false;
-        if (/role/.test(sql)) role = 'producao';
+        if (/role/.test(sql)) role = 'manager';
         return Promise.resolve({ rows: [] });
       }
       return Promise.resolve({ rows: [] });
@@ -317,7 +317,7 @@ describe('Operator full flow — create → edit role → deactivate', () => {
     let r = await request('POST', '/api/admin/operator/create', { pin: '510510', name: 'TestOp' });
     expect(r.status).toBe(200);
 
-    r = await request('PUT', '/api/admin/operator/50', { pin: '510510', role: 'producao' });
+    r = await request('PUT', '/api/admin/operator/50', { pin: '510510', role: 'manager' });
     expect(r.status).toBe(200);
 
     r = await request('DELETE', '/api/admin/operator/50?pin=510510');

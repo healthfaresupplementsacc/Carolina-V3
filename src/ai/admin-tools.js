@@ -175,6 +175,30 @@ async function resolveOperatorId(ref) {
   return r.rows[0] ? r.rows[0].id : null;
 }
 
+// BUG IDENTIDADE — resolve a name/id to { id, name, role } so callers
+// know who outranks whom (owners/manager give orders Carolina obeys).
+async function resolveOperator(ref) {
+  if (ref == null || ref === '') return null;
+  const s = String(ref).trim();
+  const byId = typeof ref === 'number' || /^\d+$/.test(s);
+  const r = await db.query(
+    byId
+      ? `SELECT id, name, COALESCE(role,'operator') AS role FROM operators WHERE id = $1 LIMIT 1`
+      : `SELECT id, name, COALESCE(role,'operator') AS role FROM operators
+         WHERE LOWER(name) = LOWER($1)
+            OR EXISTS (
+              SELECT 1 FROM regexp_split_to_table(LOWER(COALESCE(aliases,'')), '\\s*,\\s*') a
+              WHERE a <> '' AND a = LOWER($1)
+            )
+         ORDER BY active DESC, (LOWER(name) = LOWER($1)) DESC, id ASC LIMIT 1`,
+    [byId ? parseInt(s, 10) : s]);
+  return r.rows[0] || null;
+}
+async function getOperatorRole(ref) {
+  const op = await resolveOperator(ref);
+  return op ? op.role : null;
+}
+
 // Returns counts AND the actual open entities (id + name) so the
 // agentic loop can resolve references like "fecha o que está aberto"
 // without asking the admin for an id when there's exactly one match.
@@ -599,7 +623,7 @@ async function interpretDirectOrder(text, deps = {}) {
 module.exports = {
   propose, resolveProposal, parseConfirmation, buildProposeMessage,
   getProposal, setProposal, clearProposal,
-  getState, getOperatorTimeline, resolveOperatorId, getBreaksToday,
+  getState, getOperatorTimeline, resolveOperatorId, resolveOperator, getOperatorRole, getBreaksToday,
   SUSPICIOUS_BREAK_MIN, searchMessages, suggestClaudeCodePrompt,
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive, postToProductionChannel,

@@ -157,7 +157,11 @@ router.get('/admin', async (req, res) => {
       <input id="new-op-name" type="text" placeholder="Nome">
       <input id="new-op-slack" type="text" placeholder="Slack ID">
       <input id="new-op-aliases" type="text" placeholder="aliases">
-      <input id="new-op-role" type="text" placeholder="role">
+      <select id="new-op-role" title="Função">
+        <option value="operator" selected>operator</option>
+        <option value="manager">manager</option>
+        <option value="owner">owner</option>
+      </select>
       <span></span>
       <button class="btn btn-green" onclick="createOperator()">+ Adicionar</button>
     </div>
@@ -224,7 +228,11 @@ router.get('/admin', async (req, res) => {
           <input type="text" value="\${esc(o.name)}" id="op-name-\${o.id}">
           <input type="text" value="\${esc(o.slack_user_id||'')}" id="op-slack-\${o.id}" placeholder="-">
           <input type="text" value="\${esc(o.aliases||'')}" id="op-aliases-\${o.id}">
-          <input type="text" value="\${esc(o.role||'')}" id="op-role-\${o.id}">
+          <select id="op-role-\${o.id}">\${
+            ['operator','manager','owner'].map(rv =>
+              '<option value="'+rv+'"'+((o.role||'operator')===rv?' selected':'')+'>'+rv+'</option>'
+            ).join('')
+          }</select>
           <span>\${o.active ? '<span class="pill-on">Ativo</span>' : '<span class="pill-off">Inativo</span>'}</span>
           <span style="display:flex;gap:4px">
             <button class="btn" onclick="saveOperator(\${o.id})">Salvar</button>
@@ -288,7 +296,8 @@ router.get('/admin', async (req, res) => {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { document.getElementById('new-op-err').textContent = data.error || 'Erro'; return; }
       document.getElementById('new-op-err').textContent = '';
-      ['new-op-name','new-op-slack','new-op-aliases','new-op-role'].forEach(id => document.getElementById(id).value = '');
+      ['new-op-name','new-op-slack','new-op-aliases'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('new-op-role').value = 'operator';
       loadOperators();
     }
 

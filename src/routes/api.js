@@ -1370,6 +1370,10 @@ router.post('/admin/operator/create', async (req, res) => {
   try {
     const { name, slack_user_id, is_shared_account, aliases, role } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'name é obrigatório' });
+    // BUG IDENTIDADE — role is an enum-like field.
+    if (role != null && role !== '' && !['owner', 'manager', 'operator'].includes(role)) {
+      return res.status(400).json({ error: "role inválido (owner|manager|operator)" });
+    }
 
     const result = await db.query(
       `INSERT INTO operators (name, slack_user_id, is_shared_account, aliases, role)
@@ -1398,6 +1402,9 @@ router.put('/admin/operator/:id', async (req, res) => {
     if (!before) return res.status(404).json({ error: 'Operator not found' });
 
     const { name, slack_user_id, is_shared_account, active, aliases, role } = req.body;
+    if (role != null && role !== '' && !['owner', 'manager', 'operator'].includes(role)) {
+      return res.status(400).json({ error: "role inválido (owner|manager|operator)" });
+    }
     const sets = ['updated_at = NOW()'];
     const params = [];
     if (name              !== undefined) { sets.push(`name              = $${params.length+1}`); params.push(name.trim()); }

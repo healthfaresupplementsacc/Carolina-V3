@@ -82,7 +82,7 @@ describe('POST /api/admin/operator/create', () => {
       return Promise.resolve({ rows: [] });
     });
     const r = await request('POST', '/api/admin/operator/create', {
-      pin: '510510', name: 'Caroline', slack_user_id: 'UABC123', aliases: 'Carol,Cá', role: 'producao',
+      pin: '510510', name: 'Caroline', slack_user_id: 'UABC123', aliases: 'Carol,Cá', role: 'operator',
     });
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(42);
@@ -108,22 +108,22 @@ describe('PUT /api/admin/operator/:id', () => {
       if (/SELECT \* FROM operators/.test(sql)) {
         n++;
         return Promise.resolve({
-          rows: [{ id: 5, name: 'Ana', role: n === 1 ? null : 'producao' }],
+          rows: [{ id: 5, name: 'Ana', role: n === 1 ? null : 'manager' }],
         });
       }
       return Promise.resolve({ rows: [] });
     });
-    const r = await request('PUT', '/api/admin/operator/5', { pin: '510510', role: 'producao' });
+    const r = await request('PUT', '/api/admin/operator/5', { pin: '510510', role: 'manager' });
     expect(r.status).toBe(200);
     const audit = findAudit('operator.edit');
     expect(audit).toBeTruthy();
     expect(JSON.parse(audit[1][4]).role).toBeNull();
-    expect(JSON.parse(audit[1][5]).role).toBe('producao');
+    expect(JSON.parse(audit[1][5]).role).toBe('manager');
   });
 
   test('404 when not found', async () => {
     db.query = jest.fn().mockResolvedValue({ rows: [] });
-    const r = await request('PUT', '/api/admin/operator/999', { pin: '510510', role: 'X' });
+    const r = await request('PUT', '/api/admin/operator/999', { pin: '510510', name: 'Z' });
     expect(r.status).toBe(404);
   });
 
