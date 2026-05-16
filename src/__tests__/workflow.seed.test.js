@@ -66,7 +66,7 @@ describe('Entrega 3 Fase 1.5 — seed templates', () => {
     ]);
   });
 
-  test('Produção de Suplemento has 7 phases including Mix as required and Encapsulação/Tablet parallel', async () => {
+  test('Produção de Suplemento has 8 phases (W1/W2: Limpeza maquinário seq1) incl. Mix required + Encapsulação/Tablet parallel', async () => {
     const s = buildMock();
     await seedTemplates();
     const wfId = s.workflows.get('Produção de Suplemento');
@@ -75,9 +75,14 @@ describe('Entrega 3 Fase 1.5 — seed templates', () => {
       .filter((k) => k.startsWith(wfId + '::'))
       .map((k) => k.split('::')[1]).sort();
     expect(phaseNames).toEqual([
-      'Contagem', 'Encapsulação', 'Formulação', 'Linha de Produção',
-      'Mix', 'Revisão', 'Tablet',
+      'Contagem', 'Encapsulação', 'Formulação', 'Limpeza maquinário',
+      'Linha de Produção', 'Mix', 'Revisão', 'Tablet',
     ]);
+    // W1/W2 — Limpeza maquinário is seq 1, optional, no prereq
+    const insertCallsAll = s.calls.filter((c) => /INSERT INTO phase_templates/.test(c.sql) && c.params[0] === wfId);
+    const limp = insertCallsAll.find((c) => c.params[1] === 'Limpeza maquinário');
+    expect(limp.params[2]).toBe(1);     // sequence_order
+    expect(limp.params[3]).toBe(false); // is_required (optional)
 
     // Verify Mix is required and Encapsulação/Tablet share parallel_group
     const insertCalls = s.calls.filter((c) => /INSERT INTO phase_templates/.test(c.sql) && c.params[0] === wfId);
@@ -166,6 +171,6 @@ describe('Entrega 3 Fase 1.5 — seed templates', () => {
     // Same phase count (no duplicates created)
     const wfId = s.workflows.get('Produção de Suplemento');
     const dup = [...s.phases.keys()].filter((k) => k.startsWith(wfId + '::')).length;
-    expect(dup).toBe(7);
+    expect(dup).toBe(8); // W1/W2: + Limpeza maquinário
   });
 });

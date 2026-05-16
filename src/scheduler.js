@@ -54,6 +54,32 @@ function startEodJob() {
     timezone: config.eod.timezone,
   });
   console.log(`[Scheduler] EOD job scheduled at ${config.eod.hourEdt}:00 ${config.eod.timezone}`);
+
+  // P4 — daily maintenance at 03:30 ET: stale-break cleanup (N3),
+  // audit TTL (L2) and legacy orphan cleanup (>24h open phases/adhoc).
+  cron.schedule('30 3 * * *', () => runDailyCleanup(), {
+    timezone: config.eod.timezone,
+  });
+  console.log('[Scheduler] Daily cleanup scheduled at 03:30 ' + config.eod.timezone);
+}
+
+async function runDailyCleanup() {
+  try {
+    const closed = await db.cleanupStaleBreaks();
+    const audited = await db.cleanupAuditLog();
+    let orphans = { phases_closed: 0, adhoc_closed: 0, workflows_closed: 0 };
+    try {
+      orphans = await require('./workflow/legacy-cleanup')
+        .cleanupLegacyOrphans({ dryRun: false, olderThanHours: 24 });
+    } catch (e) { console.error('[Cleanup] legacy orphans error:', e.message); }
+    console.log(
+      `[Cleanup] daily: stale-breaks=${Array.isArray(closed) ? closed.length : closed}, ` +
+      `audit-ttl=${audited}, orphan-phases=${orphans.phases_closed}, ` +
+      `orphan-adhoc=${orphans.adhoc_closed}, orphan-wf=${orphans.workflows_closed}`
+    );
+  } catch (err) {
+    console.error('[Cleanup] daily run error:', err.message);
+  }
 }
 
 async function runEod() {
@@ -177,4 +203,4 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}m` : `${m}min`;
 }
 
-module.exports = { startPolling, startEodJob, runEod, runPollCycle };
+module.exports = { startPolling, startEodJob, runEod, runPollCycle, runDailyCleanup };

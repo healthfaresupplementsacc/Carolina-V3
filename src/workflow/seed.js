@@ -17,13 +17,15 @@ const WORKFLOWS = [
     description: 'Batch de produção de um suplemento, da Formulação à Contagem.',
     allows_product: true,
     phases: [
-      { name: 'Formulação',         seq: 1, required: true,  parallel_group: null,        prereq: [],                         mode: 'all', soft: true },
-      { name: 'Mix',                seq: 2, required: true,  parallel_group: null,        prereq: ['Formulação'],             mode: 'all', soft: true },
-      { name: 'Encapsulação',       seq: 3, required: false, parallel_group: 'cap_or_tab', prereq: ['Mix'],                   mode: 'all', soft: true },
-      { name: 'Tablet',             seq: 3, required: false, parallel_group: 'cap_or_tab', prereq: ['Mix'],                   mode: 'all', soft: true },
-      { name: 'Revisão',            seq: 4, required: true,  parallel_group: null,        prereq: ['Encapsulação','Tablet'],  mode: 'any', soft: true },
-      { name: 'Linha de Produção',  seq: 5, required: true,  parallel_group: null,        prereq: ['Revisão'],                mode: 'all', soft: true },
-      { name: 'Contagem',           seq: 6, required: true,  parallel_group: null,        prereq: ['Linha de Produção'],      mode: 'all', soft: true },
+      // W1/W2 — Limpeza maquinário is now the optional first phase.
+      { name: 'Limpeza maquinário', seq: 1, required: false, parallel_group: null,        prereq: [],                         mode: 'all', soft: true },
+      { name: 'Formulação',         seq: 2, required: true,  parallel_group: null,        prereq: [],                         mode: 'all', soft: true },
+      { name: 'Mix',                seq: 3, required: true,  parallel_group: null,        prereq: ['Formulação'],             mode: 'all', soft: true },
+      { name: 'Encapsulação',       seq: 4, required: false, parallel_group: 'cap_or_tab', prereq: ['Mix'],                   mode: 'all', soft: true },
+      { name: 'Tablet',             seq: 4, required: false, parallel_group: 'cap_or_tab', prereq: ['Mix'],                   mode: 'all', soft: true },
+      { name: 'Revisão',            seq: 5, required: true,  parallel_group: null,        prereq: ['Encapsulação','Tablet'],  mode: 'any', soft: true },
+      { name: 'Linha de Produção',  seq: 6, required: true,  parallel_group: null,        prereq: ['Revisão'],                mode: 'all', soft: true },
+      { name: 'Contagem',           seq: 7, required: true,  parallel_group: null,        prereq: ['Linha de Produção'],      mode: 'all', soft: true },
     ],
   },
   {
