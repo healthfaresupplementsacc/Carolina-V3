@@ -557,12 +557,19 @@ function generateDashboard() {
              color:white;padding:4px 8px;border-radius:8px;font-size:12px;cursor:pointer;
              color-scheme:dark">
     <button class="lang-btn" onclick="toggleLang()" id="lang-btn">🇧🇷 PT</button>
-    <a id="admin-link" href="/admin" target="_blank" title="Painel admin" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Admin</a>
-    <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Audit</a>
-    <a id="carolina-link" href="/admin/carolina-config" target="_blank" title="Config Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">⚙️ Carolina</a>
-    <a id="wf-config-link" href="/admin/workflows" target="_blank" title="Configuração de workflows/fases (admin)" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">🧪 Fase config</a>
-    <button id="silent-text-btn" onclick="toggleSilent('text')" title="Bloqueia mensagens de texto da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">🔇 Texto: <span id="silent-text-state">…</span></button>
-    <button id="silent-reactions-btn" onclick="toggleSilent('reactions')" title="Bloqueia reações ✅ da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">✅ Reactions: <span id="silent-reactions-state">…</span></button>
+    <!-- BUG UX — ONE PIN-gated admin menu (no scattered header buttons; operators see nothing) -->
+    <div id="admin-menu" style="display:none;position:relative">
+      <button id="admin-menu-btn" onclick="toggleAdminMenu()" title="Menu admin" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600">🛠 Admin ▾</button>
+      <div id="admin-menu-list" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:#1b2a4a;border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:6px;min-width:220px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,0.35);flex-direction:column;gap:2px">
+        <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;color:white;padding:9px 12px;border-radius:6px;font-size:13px;text-decoration:none">📊 Audit Log</a>
+        <a id="carolina-link" href="/admin/carolina-config" target="_blank" title="Config Carolina" style="display:none;color:white;padding:9px 12px;border-radius:6px;font-size:13px;text-decoration:none">⚙️ Carolina Config</a>
+        <a id="wf-config-link" href="/admin/workflows" target="_blank" title="Configuração de workflows/fases (admin)" style="display:none;color:white;padding:9px 12px;border-radius:6px;font-size:13px;text-decoration:none">🧪 Fase config</a>
+        <a id="admin-link" href="/admin" target="_blank" title="Operadores e suplementos" style="display:none;color:white;padding:9px 12px;border-radius:6px;font-size:13px;text-decoration:none">👤 Operadores / 💊 Suplementos</a>
+        <button id="silent-text-btn" onclick="toggleSilent('text')" title="Bloqueia mensagens de texto da Carolina" style="display:none;background:none;border:0;border-top:1px solid rgba(255,255,255,0.12);margin-top:2px;color:white;padding:9px 12px;font-size:13px;cursor:pointer;text-align:left">🔇 Texto: <span id="silent-text-state">…</span></button>
+        <button id="silent-reactions-btn" onclick="toggleSilent('reactions')" title="Bloqueia reações ✅ da Carolina" style="display:none;background:none;border:0;color:white;padding:9px 12px;font-size:13px;cursor:pointer;text-align:left">✅ Reactions: <span id="silent-reactions-state">…</span></button>
+        <button onclick="toggleAdmin()" title="Sair do modo admin" style="background:none;border:0;border-top:1px solid rgba(255,255,255,0.12);margin-top:2px;color:#ffb4b4;padding:9px 12px;font-size:13px;cursor:pointer;text-align:left">🔓 Sair do admin</button>
+      </div>
+    </div>
     <span id="admin-timer" title="Sessão admin (renova a cada ação)" style="display:none;background:rgba(46,168,74,0.25);border:1px solid rgba(46,168,74,0.5);color:white;padding:4px 8px;border-radius:8px;font-size:11px">Admin: 10:00</span>
     <button class="lock-btn" onclick="toggleAdmin()" id="lock-btn" title="Admin">🔒</button>
     <div class="live-badge" id="live-badge">
@@ -883,7 +890,6 @@ function generateDashboard() {
   <div class="section">
     <div class="section-header">
       <span class="section-title" data-i18n="archive">Arquivo</span>
-      <a href="/admin" class="admin-link">⚙️ Admin</a>
     </div>
     <div class="section-body">
       <div class="archive-grid" id="archive-grid">
@@ -1063,6 +1069,8 @@ function _applyLockedUI() {
   const hide = (id) => { const e = document.getElementById(id); if (e) e.style.display = 'none'; };
   hide('admin-link'); hide('audit-link'); hide('carolina-link'); hide('wf-config-link'); hide('silent-text-btn');
   hide('silent-reactions-btn'); hide('merge-bar'); hide('admin-timer');
+  // BUG UX — the single admin menu wrapper (operators must see nothing) + close its dropdown
+  hide('admin-menu'); hide('admin-menu-list');
   if (_lastData) renderAll(_lastData);
 }
 
@@ -1075,6 +1083,8 @@ function _applyUnlockedUI() {
   show('wf-config-link', 'inline-block');
   show('silent-text-btn', 'inline-block'); show('silent-reactions-btn', 'inline-block');
   show('admin-timer', 'inline-block');
+  // BUG UX — reveal the single admin menu button (dropdown stays closed until clicked)
+  show('admin-menu', 'inline-block');
   const ct = document.getElementById('create-task-btn'); if (ct) ct.style.display = 'inline-flex';
   const sc = document.getElementById('supp-catalog-section'); if (sc) sc.style.display = '';
   const bc = document.getElementById('broadcast-section'); if (bc) bc.style.display = '';
@@ -1139,6 +1149,19 @@ function toggleAdmin() {
     setTimeout(() => document.getElementById('pin-input').focus(), 120);
   }
 }
+
+// BUG UX — single consolidated admin menu (opens only after PIN; operators never see it)
+function toggleAdminMenu() {
+  const l = document.getElementById('admin-menu-list');
+  if (!l) return;
+  l.style.display = (l.style.display === 'flex') ? 'none' : 'flex';
+}
+// close the dropdown when clicking anywhere outside it
+document.addEventListener('click', function (e) {
+  const m = document.getElementById('admin-menu');
+  const l = document.getElementById('admin-menu-list');
+  if (l && m && l.style.display === 'flex' && !m.contains(e.target)) l.style.display = 'none';
+});
 
 function showModal(id) {
   const m = document.getElementById(id);
