@@ -720,6 +720,17 @@ router.get('/admin/carolina-config', (req, res) => {
   </div>
 
   <div class="card">
+    <h2>Formato de hora</h2>
+    <div class="hint">Como os horários aparecem no dashboard, na App Home e nas respostas da Carolina. O banco continua em UTC — isso muda só a exibição. (Flórida usa AM/PM.)</div>
+    <div id="tf-wrap" style="display:flex;gap:18px;margin-top:12px;font-size:14px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="tf" value="12h" onchange="saveTimeFormat('12h')"> 12h — AM/PM <span style="color:#6b7280">(5:24 PM)</span></label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="tf" value="24h" onchange="saveTimeFormat('24h')"> 24h — militar <span style="color:#6b7280">(17:24)</span></label>
+    </div>
+    <div class="ok" id="tf-msg"></div>
+    <div class="err" id="tf-err"></div>
+  </div>
+
+  <div class="card">
     <h2>Variações de mensagem</h2>
     <div class="hint">A Carolina sorteia uma variação a cada envio. Placeholders entre chaves (ex: <code>{nome}</code>) são preenchidos na hora.</div>
     <label class="fld" for="var-type" style="margin-top:10px">Conjunto</label>
@@ -777,6 +788,7 @@ router.get('/admin/carolina-config', (req, res) => {
         document.getElementById('save-btn').disabled = false;
         renderPreview();
         renderToggles(data.toggles || {});
+        initTimeFormat(data.time_format || '12h');
         initVariations(data.variation_types || []);
         initSchedule(data.schedule || {});
         initPersona(data.persona || {});
@@ -812,6 +824,27 @@ router.get('/admin/carolina-config', (req, res) => {
         ok.textContent = 'Salvo. Já vale na App Home e na persona.';
       } catch (e) { err.textContent = 'Erro de conexão'; }
       btn.disabled = false;
+    }
+
+    function initTimeFormat(fmt) {
+      const v = fmt === '24h' ? '24h' : '12h';
+      document.querySelectorAll('input[name="tf"]').forEach(r => { r.checked = (r.value === v); });
+    }
+    async function saveTimeFormat(fmt) {
+      const ok = document.getElementById('tf-msg'); const err = document.getElementById('tf-err');
+      ok.textContent = ''; err.textContent = '';
+      try {
+        const r = await fetch('/api/admin/carolina-config/time-format', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: _pin, format: fmt }),
+        });
+        const data = await r.json();
+        if (!r.ok) { err.textContent = data.error || ('Erro ' + r.status); return; }
+        initTimeFormat(data.time_format);
+        ok.textContent = data.time_format === '24h'
+          ? 'Salvo. Agora mostra 24h (17:24) em todo lugar.'
+          : 'Salvo. Agora mostra 12h AM/PM (5:24 PM) em todo lugar.';
+      } catch (e) { err.textContent = 'Erro de conexão'; }
     }
 
     function renderToggles(t) {
@@ -1095,7 +1128,10 @@ router.get('/operator/:id', async (req, res) => {
       ORDER BY n.created_at DESC`, [id]);
   } catch (_) { weekNotes = { rows: [] }; }
 
-  const fmtT = (ts) => ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
+  // BUG AMPM — operator timeline clock in the admin's chosen format.
+  const _tf = await require('../app-state').getTimeFormat();
+  const { formatTime } = require('../utils/time');
+  const fmtT = (ts) => formatTime(ts, { format: _tf, empty: '—' });
   const fmtD = (s) => s == null ? '—' : (s >= 3600 ? `${Math.floor(s/3600)}h${Math.floor((s%3600)/60)}m` : `${Math.floor(s/60)}min`);
   const w = week.rows[0] || { worked: 0, brk: 0, phases: 0 };
 

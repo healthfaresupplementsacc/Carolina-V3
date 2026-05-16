@@ -999,6 +999,7 @@ let adminUnlocked = false;
 let _adminPin = '';
 let _editTarget = null;
 let _lastData = null;
+let _timeFormat = '12h'; // BUG AMPM — mirrors app_state.time_format (set from /api/dashboard)
 let openTaskStartTimes = {};
 let breakStartTimes = {};
 
@@ -1034,9 +1035,19 @@ function formatDuration(seconds) {
   return \`\${String(m).padStart(2,'0')}:\${String(s).padStart(2,'0')}\`;
 }
 
+// BUG AMPM — one renderer for every clock time on the dashboard. Default
+// "5:24 PM" (12h AM/PM — Florida admins); "17:24" when the admin flips
+// the toggle to 24h. Always ET; never language-dependent.
 function formatTime(ts) {
-  return new Date(ts).toLocaleTimeString(lang === 'en' ? 'en-US' : 'pt-BR',
-    { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' });
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '--';
+  const h24 = _timeFormat === '24h';
+  return d.toLocaleTimeString('en-US', {
+    timeZone: 'America/New_York',
+    hour: h24 ? '2-digit' : 'numeric',
+    minute: '2-digit',
+    hour12: !h24,
+  }).replace(/[  ]/g, ' ');
 }
 
 function fmtMins(secs) {
@@ -1855,8 +1866,7 @@ function renderTodayBreaks(breaks) {
   const el = document.getElementById('today-breaks');
   if (!el) return;
   if (!breaks || breaks.length === 0) { el.style.display = 'none'; return; }
-  const fmtHM = (ts) => ts ? new Date(ts).toLocaleTimeString('pt-BR',
-    { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
+  const fmtHM = (ts) => ts ? formatTime(ts) : '—'; // BUG AMPM — honor 12h/24h toggle
   const fmtDur = (s) => s == null ? '' :
     (s >= 3600 ? \`\${Math.floor(s/3600)}h\${String(Math.floor((s%3600)/60)).padStart(2,'0')}m\`
                : \`\${Math.floor(s/60)}min\`);
@@ -2495,6 +2505,9 @@ async function submitManualTotal() {
 
 // ===== RENDER ALL =====
 function renderAll(data) {
+  // BUG AMPM — adopt the admin's clock-format choice before any
+  // formatTime() call below (default stays 12h AM/PM).
+  _timeFormat = data.timeFormat === '24h' ? '24h' : '12h';
   // Silent mode chips + banner. Each sub-flag has its own chip; banner
   // appears if EITHER is on (silentModeActive aggregates both).
   const silentBanner = document.getElementById('silent-banner');

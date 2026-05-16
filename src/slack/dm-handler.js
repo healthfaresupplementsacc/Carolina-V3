@@ -105,7 +105,12 @@ async function getProductionContext() {
       const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
       return h > 0 ? `${h}h${String(m).padStart(2,'0')}m` : `${m}m`;
     };
-    const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '--';
+    // BUG AMPM — Carolina repeats these times verbatim; render them in
+    // the admin's chosen format (12h AM/PM default) so she never says
+    // "marcou 17:24" when the floor talks in "5:24 PM".
+    const { formatTime } = require('../utils/time');
+    const _tf = await require('../app-state').getTimeFormat();
+    const fmtTime = (ts) => formatTime(ts, { format: _tf, empty: '--' });
 
     let ctx = `=== CONTEXTO DA LINHA DE PRODUCAO (${new Date().toLocaleString('pt-BR', { timeZone: 'America/New_York' })}) ===\n\n`;
 
@@ -167,7 +172,10 @@ FUSO HORÁRIO: a fábrica fica na Flórida. TODOS os horários — os que
 você recebe das tools e os que você fala — estão em horário do leste
 dos EUA (ET, America/New_York), já convertidos. NUNCA mencione "UTC",
 nunca mencione "Brasília"/"Brasil", nunca faça conversão de fuso. Se um
-horário chega como "2026-05-16 09:41" isso JÁ é 09:41 ET — fale "9:41".
+horário chega como "2026-05-16 09:41" isso JÁ é 09:41 ET. Ao FALAR
+horário pro pessoal use 12h AM/PM (o jeito da fábrica na Flórida): diga
+"9:41 AM" / "5:24 PM", não "09:41" / "17:24" (a não ser que o admin
+peça 24h).
 
 MEMÓRIA: você TEM o histórico recente desta conversa, incluindo os
 RESULTADOS das tools que você já chamou (ex: o get_state com a lista de

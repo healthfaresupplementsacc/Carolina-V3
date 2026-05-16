@@ -38,10 +38,12 @@ function isAfterSixPmEt() {
 }
 module.exports.isAfterSixPmEt = isAfterSixPmEt;
 
+// BUG AMPM — EOD summary times follow the admin's 12h/24h choice
+// (sync cache; default 12h AM/PM). DB stays UTC; display only.
 function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString('pt-BR', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York',
-  });
+  const { formatTime } = require('./utils/time');
+  const fmt = require('./app-state').getTimeFormatSync();
+  return formatTime(ts, { format: fmt });
 }
 
 function fmtElapsed(startedAt) {

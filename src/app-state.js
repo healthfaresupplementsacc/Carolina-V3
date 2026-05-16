@@ -208,6 +208,36 @@ async function getSchedule() {
   };
 }
 
+// ===== BUG AMPM — clock display format (12h AM/PM default | 24h) =====
+// Florida admins use AM/PM; 24h confused them. DB stays UTC; this only
+// flips DISPLAY. Read on hot paths (every Carolina context, every
+// dashboard payload) so it gets the same sync-cache treatment as
+// app_name/persona.
+const TIME_FORMAT_DEFAULT = '12h';
+let _timeFmtCache = TIME_FORMAT_DEFAULT;
+let _timeFmtLoadedAt = 0;
+const TIME_FORMAT_TTL_MS = 60 * 1000;
+
+function _normTimeFormat(v) {
+  return String(v) === '24h' ? '24h' : '12h';
+}
+async function getTimeFormat() {
+  const now = Date.now();
+  if (now - _timeFmtLoadedAt < TIME_FORMAT_TTL_MS) return _timeFmtCache;
+  _timeFmtCache = _normTimeFormat(await get('time_format', TIME_FORMAT_DEFAULT));
+  _timeFmtLoadedAt = now;
+  return _timeFmtCache;
+}
+function getTimeFormatSync() { return _timeFmtCache; }
+async function setTimeFormat(value) {
+  const v = _normTimeFormat(value);
+  await set('time_format', v);
+  _timeFmtCache = v;
+  _timeFmtLoadedAt = Date.now();
+  return v;
+}
+function invalidateTimeFormatCache() { _timeFmtLoadedAt = 0; }
+
 module.exports = {
   get, set,
   getAppName, getAppNameSync, setAppName, invalidateAppNameCache,
@@ -217,4 +247,6 @@ module.exports = {
   getGreetingTime, getEodTime, getPendingWindowMinutes,
   getActiveWeekdays, isActiveToday, getSchedule,
   getPersonaOverrides, getPersonaSync, setPersonaField, invalidatePersonaCache,
+  TIME_FORMAT_DEFAULT, getTimeFormat, getTimeFormatSync, setTimeFormat,
+  invalidateTimeFormatCache,
 };

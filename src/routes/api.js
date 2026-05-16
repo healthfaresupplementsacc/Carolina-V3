@@ -255,6 +255,7 @@ router.get('/dashboard', async (req, res) => {
       activeBreaks: activeBreaksResult.rows,
       todayBreaks: await getTodayBreaks(date),
       completedToday: await getCompletedToday(date),
+      timeFormat: await appState.getTimeFormat(), // BUG AMPM — client mirrors this
       viewingDate: date || null,
       todayBottles,
       yesterdayBottles,
@@ -901,6 +902,7 @@ router.get('/admin/carolina-config', async (req, res) => {
     const pparts = require('../ai/persona').getPersonaParts(appName);
     res.json({
       app_name: appName, toggles, schedule,
+      time_format: await appState.getTimeFormat(), // BUG AMPM (12h default)
       variation_types: msgVar.listTypes(),
       persona: {
         identity: pov.identity, personality: pov.personality,
@@ -1023,6 +1025,26 @@ router.post('/admin/carolina-config/toggle', async (req, res) => {
       before: { type, enabled: before }, after: { type, enabled },
     });
     res.json({ ok: true, type, enabled });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/carolina-config/time-format  body: { pin, format }
+// BUG AMPM — flip how clock times are DISPLAYED everywhere (Carolina
+// context, dashboard, admin pages). '12h' (AM/PM, default) | '24h'.
+router.post('/admin/carolina-config/time-format', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const fmt = String(req.body?.format ?? '');
+    if (fmt !== '12h' && fmt !== '24h') {
+      return res.status(400).json({ error: "format inválido (use '12h' ou '24h')" });
+    }
+    const before = await appState.getTimeFormat();
+    const after = await appState.setTimeFormat(fmt);
+    await auditAction({
+      req, action: 'carolina_config.time_format', entityType: 'app_state',
+      entityId: 'time_format', before: { format: before }, after: { format: after },
+    });
+    res.json({ ok: true, time_format: after });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
