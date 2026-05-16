@@ -65,7 +65,9 @@ describe('GET /api/admin/operators', () => {
     expect(r.status).toBe(200);
     expect(r.body.length).toBe(3);
     const sql = db.query.mock.calls[0][0];
-    expect(sql).toMatch(/ORDER BY active DESC, name ASC/);
+    // OPERATOR-CRUD changed the list ordering (active first, perms before
+    // helpers, then name) and added the CRUD columns.
+    expect(sql).toMatch(/ORDER BY is_active DESC, is_temporary ASC, name ASC/);
   });
 
   test('wrong pin → 403', async () => {

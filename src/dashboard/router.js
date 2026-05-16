@@ -146,26 +146,58 @@ router.get('/admin', async (req, res) => {
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">Operadores</h2>
-    <div class="row row-head">
-      <span>Nome</span><span>Slack ID</span><span>Aliases (sep. ,)</span>
-      <span>Role</span><span>Ativo</span><span>Ações</span>
-    </div>
-    <div id="ops-list">Carregando...</div>
-
-    <div class="form-add">
-      <input id="new-op-name" type="text" placeholder="Nome">
-      <input id="new-op-slack" type="text" placeholder="Slack ID">
-      <input id="new-op-aliases" type="text" placeholder="aliases">
-      <select id="new-op-role" title="Função">
-        <option value="operator" selected>operator</option>
-        <option value="manager">manager</option>
-        <option value="owner">owner</option>
+    <h2 style="margin-top:0">Funcionários</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+      <select id="f-role" onchange="loadOperators()" style="width:auto">
+        <option value="">Role: todos</option><option value="operator">operator</option>
+        <option value="manager">manager</option><option value="owner">owner</option>
       </select>
-      <span></span>
-      <button class="btn btn-green" onclick="createOperator()">+ Adicionar</button>
+      <select id="f-status" onchange="loadOperators()" style="width:auto">
+        <option value="">Status: todos</option><option value="active">Ativos</option>
+        <option value="inactive">Inativos</option>
+      </select>
+      <select id="f-type" onchange="loadOperators()" style="width:auto">
+        <option value="">Tipo: todos</option><option value="permanent">Permanentes</option>
+        <option value="temp">Helpers</option>
+      </select>
+      <span style="flex:1"></span>
+      <button class="btn btn-green" onclick="openOpModal(null,false)">+ Novo funcionário</button>
+      <button class="btn" style="background:#7c3aed" onclick="openOpModal(null,true)">+ Helper temporário</button>
     </div>
-    <div class="err" id="new-op-err"></div>
+    <table>
+      <thead><tr>
+        <th>Nome</th><th>Role</th><th>Tipo</th><th>Expira</th><th>Ativo</th>
+        <th style="width:240px">Ações</th>
+      </tr></thead>
+      <tbody id="ops-list"><tr><td colspan="6">Carregando...</td></tr></tbody>
+    </table>
+    <div class="err" id="op-err"></div>
+  </div>
+
+  <div id="op-modal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:120">
+    <div style="background:#fff;padding:22px;border-radius:10px;min-width:340px;max-width:92vw">
+      <strong id="op-modal-title">Novo funcionário</strong>
+      <input type="hidden" id="m-id">
+      <div style="margin-top:12px"><label class="hint">Nome</label>
+        <input id="m-name" type="text"></div>
+      <div style="margin-top:10px"><label class="hint">Slack user ID (opcional — pode adicionar depois)</label>
+        <input id="m-slack" type="text" placeholder="U..."></div>
+      <div style="margin-top:10px"><label class="hint">Role</label>
+        <select id="m-role"><option value="operator">operator</option>
+          <option value="manager">manager</option><option value="owner">owner</option></select></div>
+      <div id="m-temp-wrap" style="margin-top:10px">
+        <label style="display:flex;gap:6px;align-items:center;font-size:13px">
+          <input type="checkbox" id="m-temp" style="width:auto" onchange="document.getElementById('m-exp-wrap').style.display=this.checked?'block':'none'">
+          Helper temporário (expira automaticamente)</label>
+        <div id="m-exp-wrap" style="display:none;margin-top:8px">
+          <label class="hint">Data fim (default 30 dias)</label><input id="m-exp" type="date"></div>
+      </div>
+      <div class="err" id="m-err"></div>
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-gray" onclick="closeOpModal()">Cancelar</button>
+        <button class="btn btn-green" onclick="submitOpModal()">Salvar</button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -220,84 +252,120 @@ router.get('/admin', async (req, res) => {
 
     function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
+    var _opsCache = [];
+    function _opErr(m) { document.getElementById('op-err').textContent = m || ''; }
+    function fmtDay(ts) {
+      if (!ts) return '—';
+      try { return new Date(ts).toLocaleDateString('pt-BR', { timeZone: 'America/New_York' }); }
+      catch (e) { return '—'; }
+    }
+
     async function loadOperators() {
-      const r = await fetch('/api/admin/operators?pin=' + encodeURIComponent(_pin));
-      const ops = await r.json();
-      document.getElementById('ops-list').innerHTML = ops.map(o => \`
-        <div class="row" data-id="\${o.id}">
-          <input type="text" value="\${esc(o.name)}" id="op-name-\${o.id}">
-          <input type="text" value="\${esc(o.slack_user_id||'')}" id="op-slack-\${o.id}" placeholder="-">
-          <input type="text" value="\${esc(o.aliases||'')}" id="op-aliases-\${o.id}">
-          <select id="op-role-\${o.id}">\${
-            ['operator','manager','owner'].map(rv =>
-              '<option value="'+rv+'"'+((o.role||'operator')===rv?' selected':'')+'>'+rv+'</option>'
-            ).join('')
-          }</select>
-          <span>\${o.active ? '<span class="pill-on">Ativo</span>' : '<span class="pill-off">Inativo</span>'}</span>
-          <span style="display:flex;gap:4px">
-            <button class="btn" onclick="saveOperator(\${o.id})">Salvar</button>
-            <button class="btn \${o.active ? 'btn-red' : 'btn-green'}" onclick="toggleOperator(\${o.id}, \${o.active})">\${o.active ? 'Desativar' : 'Ativar'}</button>
-          </span>
-        </div>
-      \`).join('');
+      _opErr('');
+      const qs = new URLSearchParams({ pin: _pin });
+      const fr = document.getElementById('f-role').value;
+      const fs = document.getElementById('f-status').value;
+      const ft = document.getElementById('f-type').value;
+      if (fr) qs.set('role', fr);
+      if (fs) qs.set('status', fs);
+      if (ft) qs.set('type', ft);
+      const r = await fetch('/api/admin/operators?' + qs.toString());
+      const ops = await r.json().catch(() => []);
+      if (!r.ok) { _opErr((ops && ops.error) || ('Erro ' + r.status)); return; }
+      _opsCache = ops;
+      const body = document.getElementById('ops-list');
+      if (!ops.length) { body.innerHTML = '<tr><td colspan="6">Nenhum funcionário</td></tr>'; return; }
+      body.innerHTML = ops.map(o => {
+        const act = o.is_active !== false && o.active !== false;
+        const tipo = o.is_temporary
+          ? '<span class="pill-off" style="background:#ede9fe;color:#5b21b6">Helper</span>'
+          : '<span class="pill-on" style="background:#dbeafe;color:#1e3a8a">Permanente</span>';
+        const ativo = act ? '<span class="pill-on">Ativo</span>' : '<span class="pill-off">Inativo</span>';
+        const acts = []
+          .concat('<button class="btn" onclick="openOpModal(' + o.id + ',false)">✏️ Editar</button>')
+          .concat(act
+            ? '<button class="btn btn-red" onclick="opAction(' + o.id + ',\\'deactivate\\',\\'Desativar (sai da empresa)? Histórico fica preservado.\\')">🔄 Desativar</button>'
+            : '<button class="btn btn-green" onclick="opAction(' + o.id + ',\\'reactivate\\')">🔄 Reativar</button>')
+          .concat(o.is_temporary
+            ? '<button class="btn" style="background:#7c3aed" onclick="opAction(' + o.id + ',\\'promote\\',\\'Promover helper a permanente?\\')">⬆️ Promover</button>'
+            : '')
+          .concat('<button class="btn btn-gray" onclick="deleteOp(' + o.id + ')">🗑</button>');
+        return '<tr>'
+          + '<td><strong>' + esc(o.name) + '</strong>' + (o.slack_user_id ? '<div class="hint">' + esc(o.slack_user_id) + '</div>' : '') + '</td>'
+          + '<td>' + esc(o.role || 'operator') + '</td>'
+          + '<td>' + tipo + '</td>'
+          + '<td>' + (o.is_temporary ? fmtDay(o.expires_at) : '—') + '</td>'
+          + '<td>' + ativo + '</td>'
+          + '<td><span style="display:flex;gap:4px;flex-wrap:wrap">' + acts.filter(Boolean).join('') + '</span></td>'
+          + '</tr>';
+      }).join('');
     }
 
-    async function saveOperator(id) {
-      const body = {
-        pin: _pin,
-        name:          document.getElementById('op-name-'+id).value.trim(),
-        slack_user_id: document.getElementById('op-slack-'+id).value.trim(),
-        aliases:       document.getElementById('op-aliases-'+id).value.trim(),
-        role:          document.getElementById('op-role-'+id).value.trim(),
-      };
-      const r = await fetch('/api/admin/operator/'+id, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) { alert(data.error || ('Erro ' + r.status)); return; }
-      loadOperators();
+    function openOpModal(id, helper) {
+      document.getElementById('m-err').textContent = '';
+      const o = id != null ? _opsCache.find(x => x.id === id) : null;
+      document.getElementById('m-id').value = o ? o.id : '';
+      document.getElementById('m-name').value = o ? o.name : '';
+      document.getElementById('m-slack').value = o ? (o.slack_user_id || '') : '';
+      document.getElementById('m-role').value = o ? (o.role || 'operator') : 'operator';
+      document.getElementById('op-modal-title').textContent = o ? 'Editar funcionário' : (helper ? 'Novo helper temporário' : 'Novo funcionário');
+      // temp section: only when creating (edit doesn't change temp here)
+      const tempWrap = document.getElementById('m-temp-wrap');
+      tempWrap.style.display = o ? 'none' : 'block';
+      const chk = document.getElementById('m-temp');
+      chk.checked = !!helper && !o;
+      document.getElementById('m-exp-wrap').style.display = chk.checked ? 'block' : 'none';
+      const d = new Date(Date.now() + 30 * 86400000);
+      document.getElementById('m-exp').value = d.toISOString().slice(0, 10);
+      document.getElementById('op-modal').style.display = 'flex';
     }
+    function closeOpModal() { document.getElementById('op-modal').style.display = 'none'; }
 
-    async function toggleOperator(id, active) {
-      if (active) {
-        if (!confirm('Desativar esse operador?')) return;
-        const r = await fetch('/api/admin/operator/'+id+'?pin='+encodeURIComponent(_pin), { method: 'DELETE' });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) { alert(data.error || 'Erro'); return; }
-      } else {
-        // Reactivate via PUT { active: true }
-        const r = await fetch('/api/admin/operator/'+id, {
+    async function submitOpModal() {
+      const id = document.getElementById('m-id').value;
+      const name = document.getElementById('m-name').value.trim();
+      const slack = document.getElementById('m-slack').value.trim();
+      const role = document.getElementById('m-role').value;
+      const errEl = document.getElementById('m-err');
+      errEl.textContent = '';
+      if (!name) { errEl.textContent = 'Nome é obrigatório'; return; }
+      let r, data;
+      if (id) {
+        r = await fetch('/api/admin/operators/' + id, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: _pin, active: true }),
+          body: JSON.stringify({ pin: _pin, name: name, slack_user_id: slack, role: role }),
         });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) { alert(data.error || 'Erro'); return; }
+      } else {
+        const isTemp = document.getElementById('m-temp').checked;
+        const body = { pin: _pin, name: name, slack_user_id: slack, role: role, is_temporary: isTemp };
+        if (isTemp) body.expires_at = document.getElementById('m-exp').value || null;
+        r = await fetch('/api/admin/operators', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
       }
+      data = await r.json().catch(() => ({}));
+      if (!r.ok) { errEl.textContent = data.error || ('Erro ' + r.status); return; }
+      closeOpModal();
       loadOperators();
     }
 
-    async function createOperator() {
-      const body = {
-        pin: _pin,
-        name:          document.getElementById('new-op-name').value.trim(),
-        slack_user_id: document.getElementById('new-op-slack').value.trim() || null,
-        aliases:       document.getElementById('new-op-aliases').value.trim(),
-        role:          document.getElementById('new-op-role').value.trim() || null,
-      };
-      if (!body.name) {
-        document.getElementById('new-op-err').textContent = 'Nome é obrigatório';
-        return;
-      }
-      const r = await fetch('/api/admin/operator/create', {
+    async function opAction(id, action, confirmMsg) {
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      const r = await fetch('/api/admin/operators/' + id + '/' + action, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ pin: _pin }),
       });
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) { document.getElementById('new-op-err').textContent = data.error || 'Erro'; return; }
-      document.getElementById('new-op-err').textContent = '';
-      ['new-op-name','new-op-slack','new-op-aliases'].forEach(id => document.getElementById(id).value = '');
-      document.getElementById('new-op-role').value = 'operator';
+      if (!r.ok) { _opErr(data.error || ('Erro ' + r.status)); return; }
+      loadOperators();
+    }
+
+    async function deleteOp(id) {
+      if (!confirm('Excluir DEFINITIVAMENTE? (só funciona se nunca teve atividade — senão use Desativar)')) return;
+      const r = await fetch('/api/admin/operators/' + id + '?pin=' + encodeURIComponent(_pin), { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) { _opErr(data.error || ('Erro ' + r.status)); return; }
       loadOperators();
     }
 

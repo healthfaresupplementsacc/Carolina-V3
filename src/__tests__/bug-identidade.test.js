@@ -101,10 +101,13 @@ describe('BUG IDENTIDADE — API role is an enum', () => {
 });
 
 describe('BUG IDENTIDADE — admin UI role dropdown', () => {
-  test('/admin/operators renders a <select> for role (owner/manager/operator)', () => {
+  test('/admin/operators exposes role as a select (modal + filter), owner/manager/operator', () => {
     const router = fs.readFileSync(path.join(__dirname, '..', 'dashboard', 'router.js'), 'utf8');
-    expect(router).toMatch(/<select id="op-role-/);
-    expect(router).toMatch(/<select id="new-op-role"/);
-    expect(router).toMatch(/\['operator','manager','owner'\]/);
+    // OPERATOR-CRUD moved role editing into the add/edit modal + a filter.
+    expect(router).toMatch(/<select id="m-role">/);     // modal role picker
+    expect(router).toMatch(/<select id="f-role"/);      // list filter
+    for (const role of ['operator', 'manager', 'owner']) {
+      expect(router).toMatch(new RegExp('<option value="' + role + '"'));
+    }
   });
 });

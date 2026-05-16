@@ -1350,15 +1350,45 @@ router.delete('/admin/note/:ts', async (req, res) => {
 
 // ===== Admin: Operators CRUD =====
 
-// GET /api/admin/operators?pin=XXX — list all operators (active + inactive)
+const OP_ROLES = ['owner', 'manager', 'operator'];
+
+// Has this operator any linked history? (oal by id, tasks/pauses by
+// name). DELETE is only allowed when there is NONE — otherwise we
+// deactivate to preserve the timeline.
+async function operatorHasActivity(id, name) {
+  const r = await db.query(
+    `SELECT
+       EXISTS(SELECT 1 FROM operator_activity_log WHERE operator_id = $1) AS oal,
+       EXISTS(SELECT 1 FROM tasks  WHERE operator = $2) AS tasks,
+       EXISTS(SELECT 1 FROM pauses WHERE operator = $2) AS pauses`,
+    [id, name || '']);
+  const x = r.rows[0] || {};
+  return !!(x.oal || x.tasks || x.pauses);
+}
+
+// GET /api/admin/operators?pin=XXX[&role=&status=active|inactive&type=temp|permanent]
+// Lists all operators (active + inactive) with the CRUD columns.
 router.get('/admin/operators', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
+    const where = [];
+    const params = [];
+    const role = String(req.query.role || '').trim();
+    if (OP_ROLES.includes(role)) { params.push(role); where.push(`COALESCE(role,'operator') = $${params.length}`); }
+    const status = String(req.query.status || '').trim();
+    if (status === 'active')   where.push('is_active = TRUE');
+    if (status === 'inactive') where.push('is_active = FALSE');
+    const type = String(req.query.type || '').trim();
+    if (type === 'temp')       where.push('is_temporary = TRUE');
+    if (type === 'permanent')  where.push('is_temporary = FALSE');
     const result = await db.query(
-      `SELECT id, name, slack_user_id, is_shared_account, active, aliases, role,
+      `SELECT id, name, slack_user_id, is_shared_account, active, is_active,
+              is_temporary, expires_at, hired_at, aliases, role,
               created_at, updated_at
        FROM operators
-       ORDER BY active DESC, name ASC`
+       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY is_active DESC, is_temporary ASC, name ASC`,
+      params
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1410,7 +1440,7 @@ router.put('/admin/operator/:id', async (req, res) => {
     if (name              !== undefined) { sets.push(`name              = $${params.length+1}`); params.push(name.trim()); }
     if (slack_user_id     !== undefined) { sets.push(`slack_user_id     = NULLIF($${params.length+1},'')`); params.push(slack_user_id || ''); }
     if (is_shared_account !== undefined) { sets.push(`is_shared_account = $${params.length+1}`); params.push(!!is_shared_account); }
-    if (active            !== undefined) { sets.push(`active            = $${params.length+1}`); params.push(!!active); }
+    if (active            !== undefined) { sets.push(`active            = $${params.length+1}`); sets.push(`is_active = $${params.length+1}`); params.push(!!active); }
     if (aliases           !== undefined) { sets.push(`aliases           = $${params.length+1}`); params.push(aliases || ''); }
     if (role              !== undefined) { sets.push(`role              = NULLIF($${params.length+1},'')`); params.push(role || ''); }
     if (sets.length === 1) return res.status(400).json({ error: 'Nada para atualizar' });
@@ -1437,10 +1467,146 @@ router.delete('/admin/operator/:id', async (req, res) => {
     if (!before) return res.status(404).json({ error: 'Operator not found' });
     if (!before.active) return res.status(400).json({ error: 'Operator já está inativo' });
 
-    await db.query('UPDATE operators SET active = FALSE, updated_at = NOW() WHERE id = $1', [req.params.id]);
+    await db.query('UPDATE operators SET active = FALSE, is_active = FALSE, updated_at = NOW() WHERE id = $1', [req.params.id]);
     const after = await snapshotRow('operators', 'id', req.params.id);
     await auditAction({ req, action: 'operator.deactivate', entityType: 'operator',
                         entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ===== OPERATOR-CRUD — full employee management (PARTE F) =====
+// New plural endpoints. Legacy singular /admin/operator/* stays for
+// back-compat (admin-validate). All PIN-gated + audited; every
+// activation write sets BOTH active and is_active so they never drift.
+
+// POST /api/admin/operators — create permanent OR temporary helper.
+// body: { pin, name, slack_user_id?, role?, is_temporary?, expires_at?,
+//         days? (helper window, default 30) }
+router.post('/admin/operators', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const b = req.body || {};
+    if (!b.name || !String(b.name).trim()) return res.status(400).json({ error: 'name é obrigatório' });
+    const role = b.role || 'operator';
+    if (!OP_ROLES.includes(role)) return res.status(400).json({ error: 'role inválido (owner|manager|operator)' });
+    const isTemp = b.is_temporary === true || b.is_temporary === 'true';
+    let expiresAt = null;
+    if (isTemp) {
+      if (b.expires_at) {
+        const d = new Date(b.expires_at);
+        if (isNaN(d.getTime())) return res.status(400).json({ error: 'expires_at inválido' });
+        expiresAt = d.toISOString();
+      } else {
+        const days = Number.isFinite(+b.days) && +b.days > 0 ? Math.floor(+b.days) : 30;
+        expiresAt = new Date(Date.now() + days * 86400000).toISOString();
+      }
+    }
+    const r = await db.query(
+      `INSERT INTO operators
+         (name, slack_user_id, role, is_shared_account, aliases,
+          active, is_active, is_temporary, expires_at, hired_at)
+       VALUES ($1, NULLIF($2,''), $3, FALSE, '', TRUE, TRUE, $4, $5::timestamptz, NOW())
+       RETURNING id`,
+      [String(b.name).trim(), b.slack_user_id || '', role, isTemp, expiresAt]);
+    const id = r.rows[0].id;
+    const after = await snapshotRow('operators', 'id', id);
+    await auditAction({ req, action: isTemp ? 'operator.create_helper' : 'operator.create',
+                        entityType: 'operator', entityId: id, before: null, after });
+    res.json({ ok: true, id, is_temporary: isTemp, expires_at: expiresAt });
+  } catch (err) {
+    if (/duplicate key/.test(err.message)) return res.status(409).json({ error: 'Operador com esse nome já existe' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/admin/operators/:id — edit name / slack_user_id / role.
+router.put('/admin/operators/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+    const b = req.body || {};
+    if (b.role !== undefined && !OP_ROLES.includes(b.role)) {
+      return res.status(400).json({ error: 'role inválido (owner|manager|operator)' });
+    }
+    const sets = ['updated_at = NOW()']; const params = [];
+    if (b.name          !== undefined) { params.push(String(b.name).trim()); sets.push(`name = $${params.length}`); }
+    if (b.slack_user_id !== undefined) { params.push(b.slack_user_id || ''); sets.push(`slack_user_id = NULLIF($${params.length},'')`); }
+    if (b.role          !== undefined) { params.push(b.role); sets.push(`role = $${params.length}`); }
+    if (sets.length === 1) return res.status(400).json({ error: 'Nada para atualizar' });
+    params.push(req.params.id);
+    await db.query(`UPDATE operators SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    const after = await snapshotRow('operators', 'id', req.params.id);
+    await auditAction({ req, action: 'operator.edit', entityType: 'operator',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) {
+    if (/duplicate key/.test(err.message)) return res.status(409).json({ error: 'Nome já usado por outro operador' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/operators/:id/deactivate — soft delete (left the
+// company). History (timeline/breaks) preserved.
+router.post('/admin/operators/:id/deactivate', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+    await db.query('UPDATE operators SET active = FALSE, is_active = FALSE, updated_at = NOW() WHERE id = $1', [req.params.id]);
+    const after = await snapshotRow('operators', 'id', req.params.id);
+    await auditAction({ req, action: 'operator.deactivate', entityType: 'operator',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/operators/:id/reactivate — employee came back.
+router.post('/admin/operators/:id/reactivate', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+    await db.query('UPDATE operators SET active = TRUE, is_active = TRUE, updated_at = NOW() WHERE id = $1', [req.params.id]);
+    const after = await snapshotRow('operators', 'id', req.params.id);
+    await auditAction({ req, action: 'operator.reactivate', entityType: 'operator',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/operators/:id/promote — helper → permanent.
+router.post('/admin/operators/:id/promote', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+    if (!before.is_temporary) return res.status(400).json({ error: 'Operador já é permanente' });
+    await db.query(
+      `UPDATE operators SET is_temporary = FALSE, expires_at = NULL, updated_at = NOW() WHERE id = $1`,
+      [req.params.id]);
+    const after = await snapshotRow('operators', 'id', req.params.id);
+    await auditAction({ req, action: 'operator.promote', entityType: 'operator',
+                        entityId: req.params.id, before, after });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/admin/operators/:id — hard delete, ONLY when the operator
+// never had any linked activity (otherwise 409 → use deactivate).
+router.delete('/admin/operators/:id', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const before = await snapshotRow('operators', 'id', req.params.id);
+    if (!before) return res.status(404).json({ error: 'Operator not found' });
+    if (await operatorHasActivity(req.params.id, before.name)) {
+      return res.status(409).json({
+        error: 'Operador tem histórico vinculado — desative em vez de excluir (preserva timeline).' });
+    }
+    await db.query('DELETE FROM operators WHERE id = $1', [req.params.id]);
+    await auditAction({ req, action: 'operator.delete', entityType: 'operator',
+                        entityId: req.params.id, before, after: null });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
