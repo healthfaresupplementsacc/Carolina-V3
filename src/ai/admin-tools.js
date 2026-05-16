@@ -217,17 +217,69 @@ async function getOperatorTimeline(operatorRef, date) {
   if (!operatorId) return [];
   const r = await db.query(
     `SELECT oal.activity_type, oal.started_at, oal.ended_at, pi.phase_name,
-            o.name AS operator
+            o.name AS operator,
+            (COALESCE(oal.duration_seconds,
+                      EXTRACT(EPOCH FROM (NOW() - oal.started_at)))::int / 60) AS duration_minutes
      FROM operator_activity_log oal
      JOIN operators o ON o.id = oal.operator_id
      LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
      WHERE oal.operator_id = $1
        AND (oal.started_at AT TIME ZONE 'America/New_York')::date = $2::date
      ORDER BY oal.started_at ASC`, [operatorId, date || new Date().toISOString().slice(0,10)]);
-  return r.rows.map((x) => ({
-    ...x, started_at: _etStr(x.started_at), ended_at: _etStr(x.ended_at), tz: 'ET',
-  }));
+  return r.rows.map((x) => {
+    const mins = Math.max(0, parseInt(x.duration_minutes, 10) || 0);
+    // BUG TIMES — flag impossible break lengths (forgotten "Voltei").
+    const suspicious = x.activity_type === 'break' && mins > SUSPICIOUS_BREAK_MIN;
+    return {
+      activity_type: x.activity_type, phase_name: x.phase_name, operator: x.operator,
+      started_at: _etStr(x.started_at), ended_at: _etStr(x.ended_at),
+      duration_minutes: mins, duration_suspicious: suspicious, tz: 'ET',
+    };
+  });
 }
+// BUG TIMES — breaks of 3-5h are physically impossible: the operator
+// forgot to mark "Voltei". A break longer than this is flagged so
+// Carolina calls it out instead of reciting it as fact.
+const SUSPICIOUS_BREAK_MIN = 90;
+
+// Today's breaks (every operator), each with ET start/end, duration in
+// minutes and duration_suspicious when it ran longer than 90 min (open
+// breaks count elapsed time so a forgotten "Voltei" still trips it).
+async function getBreaksToday(date) {
+  const d = date || new Date().toISOString().slice(0, 10);
+  const r = await db.query(
+    `SELECT o.name AS operator, oal.started_at, oal.ended_at,
+            (COALESCE(oal.duration_seconds,
+                      EXTRACT(EPOCH FROM (NOW() - oal.started_at)))::int / 60) AS duration_minutes
+     FROM operator_activity_log oal
+     JOIN operators o ON o.id = oal.operator_id
+     WHERE oal.activity_type = 'break'
+       AND (oal.started_at AT TIME ZONE 'America/New_York')::date = $1::date
+     ORDER BY oal.started_at ASC`, [d]);
+  const breaks = r.rows.map((x) => {
+    const mins = Math.max(0, parseInt(x.duration_minutes, 10) || 0);
+    return {
+      operator: x.operator,
+      started_at: _etStr(x.started_at),
+      ended_at: _etStr(x.ended_at),
+      ongoing: !x.ended_at,
+      duration_minutes: mins,
+      duration_suspicious: mins > SUSPICIOUS_BREAK_MIN,
+      tz: 'ET',
+    };
+  });
+  const suspicious = breaks.filter((b) => b.duration_suspicious);
+  return {
+    date: d, tz: 'ET', breaks,
+    suspicious_count: suspicious.length,
+    has_suspicious: suspicious.length > 0,
+    suspicious_threshold_min: SUSPICIOUS_BREAK_MIN,
+    note: suspicious.length
+      ? 'Há break(s) com duração impossível (>90min) — provável "Voltei" esquecido. AVISE o admin e ofereça corrigir o horário ou descartar a entry.'
+      : undefined,
+  };
+}
+
 async function searchMessages(query, days = 7) {
   const r = await db.query(
     `SELECT slack_ts, user_name, text FROM messages
@@ -333,6 +385,7 @@ const TOOL_DEFS = [
   // read (execute freely)
   { name: 'get_state', description: 'Estado atual: contagem de workflows ativos, fases abertas, ad-hoc abertos, pessoas em break.', input_schema: { type: 'object', properties: {} } },
   { name: 'get_operator_timeline', description: 'Timeline (breaks/fases/atividades) de UM operador específico num dia (default hoje). Passe o NOME citado pelo admin em "operator" (ex: "Simone") — a tool resolve o operador e retorna SÓ as entradas dele. Use SEMPRE isto pra responder sobre o que/quando um operador fez algo; nunca infira de get_state.', input_schema: { type: 'object', properties: { operator: { type: 'string', description: 'Nome do operador citado (ex: "Simone"). Preferencial.' }, operator_id: { type: 'integer', description: 'Alternativa ao nome, se souber o id.' }, date: { type: 'string', description: 'YYYY-MM-DD' } } } },
+  { name: 'get_breaks_today', description: 'Lista os breaks de hoje (todos os operadores) com duração em minutos e duration_suspicious=true quando passou de 90min (alguém esqueceu de marcar "Voltei"). Use pra perguntas sobre breaks do dia / "quem ficou muito tempo em break".', input_schema: { type: 'object', properties: { date: { type: 'string', description: 'YYYY-MM-DD (default hoje)' } } } },
   { name: 'search_messages', description: 'Busca mensagens recentes do canal de produção por texto.', input_schema: { type: 'object', properties: { query: { type: 'string' }, days: { type: 'integer' } }, required: ['query'] } },
   { name: 'list_proposals', description: 'Lista as propostas da Carolina aguardando resposta do admin.', input_schema: { type: 'object', properties: {} } },
   // mutation (admin order in chat = explicit confirmation → execute + audit)
@@ -347,7 +400,7 @@ const TOOL_DEFS = [
   { name: 'dismiss_pending_question', description: 'Cancela/descarta a pergunta pendente sem responder (ex: admin disse "ignora").', input_schema: { type: 'object', properties: { question_id: { type: 'string' } } } },
   { name: 'update_break_retroactive', description: 'Responde a pergunta retroativa de break com o horário (ex: "14:30").', input_schema: { type: 'object', properties: { time: { type: 'string' }, question_id: { type: 'string' } }, required: ['time'] } },
 ];
-const READ_TOOLS = new Set(['get_state', 'get_operator_timeline', 'search_messages', 'list_proposals']);
+const READ_TOOLS = new Set(['get_state', 'get_operator_timeline', 'get_breaks_today', 'search_messages', 'list_proposals']);
 const MUTATION_TOOLS = new Set(['close_phase', 'approve_adhoc', 'approve_supplement', 'rename', 'merge_tasks', 'move_operator', 'create_workflow']);
 const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroactive']);
 
@@ -368,6 +421,7 @@ async function runTool(name, input = {}, deps = {}) {
       const entries = operator_id ? await getOperatorTimeline(operator_id, input.date) : [];
       // Envelope self-identifies the operator so the answer can never be
       // attributed to the wrong person (BUG TZ-NAME).
+      const suspicious = entries.filter((e) => e.duration_suspicious);
       return {
         operator: (entries[0] && entries[0].operator)
           || (typeof ref === 'string' ? ref : null),
@@ -375,10 +429,17 @@ async function runTool(name, input = {}, deps = {}) {
         date: input.date || new Date().toISOString().slice(0, 10),
         tz: 'ET',
         found: !!operator_id,
-        note: operator_id ? undefined : 'operador não encontrado pelo nome — confirme o nome com o admin',
+        has_suspicious: suspicious.length > 0, // BUG TIMES
+        suspicious_count: suspicious.length,
+        note: !operator_id
+          ? 'operador não encontrado pelo nome — confirme o nome com o admin'
+          : (suspicious.length
+            ? 'Há break(s) com duração impossível (>90min) — provável "Voltei" esquecido. AVISE o admin e ofereça corrigir o horário ou descartar a entry.'
+            : undefined),
         entries,
       };
     }
+    if (name === 'get_breaks_today') return getBreaksToday(input.date);
     if (name === 'search_messages') return searchMessages(input.query, input.days || 7);
     if (name === 'list_proposals') {
       try { return { pending: await require('./proposals').listPending() }; }
@@ -493,7 +554,8 @@ async function interpretDirectOrder(text, deps = {}) {
 module.exports = {
   propose, resolveProposal, parseConfirmation, buildProposeMessage,
   getProposal, setProposal, clearProposal,
-  getState, getOperatorTimeline, resolveOperatorId, searchMessages, suggestClaudeCodePrompt,
+  getState, getOperatorTimeline, resolveOperatorId, getBreaksToday,
+  SUSPICIOUS_BREAK_MIN, searchMessages, suggestClaudeCodePrompt,
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, runTool,

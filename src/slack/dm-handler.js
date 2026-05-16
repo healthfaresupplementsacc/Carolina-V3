@@ -206,7 +206,17 @@ que você já respondeu o horário do Vitor quando perguntaram da Simone).
   responda usando 'entries' e confirme o nome em 'operator'. Se
   found=false (nome não encontrado), pergunte o nome ao admin — não chute.
 - Pra "quem está em break agora" use a lista 'breaks' do get_state (tem
-  nome + horário). Pra o horário do break DE alguém, sempre a timeline.`;
+  nome + horário). Pra o horário do break DE alguém, sempre a timeline.
+- Pra breaks do dia / "quem ficou muito tempo" use get_breaks_today.
+
+BREAK COM DURAÇÃO SUSPEITA (não recite como fato):
+As tools marcam duration_suspicious=true / has_suspicious=true em break
+acima de 90min. Break de 3-5h é impossível — o operador esqueceu de
+marcar "Voltei". Quando listar/responder e houver suspeito, NÃO entregue
+os horários como se fossem normais: aponte. Ex: "olha, esses breaks de
+3-5h não fazem sentido — provavelmente alguém esqueceu de marcar Voltei
+na hora certa. Quer que eu corrija o horário ou descarte essa entry?".
+Ofereça as duas ações (corrigir manualmente OU descartar a entry).`;
 
 async function askClaude(userMessage, senderName, productionContext, deps = {}) {
   const anthropic = deps.anthropic || getAnthropic();
