@@ -427,6 +427,13 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_oal_started
       ON operator_activity_log(started_at);
 
+    -- A3: admin-only internal notes per instance. NEVER exposed to the
+    -- team / timeline / Slack — only the PIN-gated admin endpoint reads
+    -- them. The dashboard union query must never SELECT these columns.
+    ALTER TABLE workflow_instances    ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+    ALTER TABLE phase_instances       ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+    ALTER TABLE ad_hoc_task_instances ADD COLUMN IF NOT EXISTS admin_notes TEXT;
+
     -- F2: notes written via App Home (or admin) live here. Channel-typed
     -- notes still live in messages(parsed_type='note'); getTodayNotes
     -- unions both. linked_* auto-filled from the author's active activity.

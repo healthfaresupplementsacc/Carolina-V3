@@ -884,6 +884,49 @@ router.delete('/admin/ad-hoc-task-instances/:id', async (req, res) => {
 
 // ─── operator_activity_log (Fase 2.6) ───────────────────────────────────
 
+// ===== A3 — admin-only internal notes per instance =====
+const ADMIN_NOTE_TABLES = {
+  workflow_instance: 'workflow_instances',
+  phase_instance: 'phase_instances',
+  ad_hoc_task_instance: 'ad_hoc_task_instances',
+};
+
+// GET /api/admin/admin-note?pin&entity_type&entity_id  → { text }
+router.get('/admin/admin-note', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  const tbl = ADMIN_NOTE_TABLES[req.query.entity_type];
+  const eid = parseInt(req.query.entity_id);
+  if (!tbl || !Number.isFinite(eid)) return res.status(400).json({ error: 'entity_type/entity_id inválido' });
+  try {
+    const r = await db.query(`SELECT admin_notes FROM ${tbl} WHERE id = $1`, [eid]);
+    res.json({ text: r.rows[0]?.admin_notes || '' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/admin-note  body: { pin, entity_type, entity_id, text }
+router.post('/admin/admin-note', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  const { entity_type, entity_id, text } = req.body || {};
+  const tbl = ADMIN_NOTE_TABLES[entity_type];
+  const eid = parseInt(entity_id);
+  if (!tbl || !Number.isFinite(eid)) return res.status(400).json({ error: 'entity_type/entity_id inválido' });
+  try {
+    const before = await db.query(`SELECT admin_notes FROM ${tbl} WHERE id = $1`, [eid]);
+    if (before.rows.length === 0) return res.status(404).json({ error: 'not found' });
+    await db.query(
+      `UPDATE ${tbl} SET admin_notes = NULLIF($1,''), updated_at = NOW() WHERE id = $2`,
+      [String(text || ''), eid]
+    );
+    await auditAction({
+      req, action: before.rows[0].admin_notes ? 'admin_note.edit' : 'admin_note.create',
+      entityType: entity_type, entityId: eid,
+      before: { admin_notes: before.rows[0].admin_notes || null },
+      after: { admin_notes: text || null },
+    });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // GET /api/operator-activity-log?operator_id=N&date=YYYY-MM-DD&since=ISO&active_only=1
 router.get('/operator-activity-log', async (req, res) => {
   try {

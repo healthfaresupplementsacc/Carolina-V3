@@ -1395,6 +1395,28 @@ async function closeTask(id) {
 // ===== Entrega 2 admin actions =====
 // Generic helper that POSTs/DELETEs an admin endpoint with the PIN,
 // confirms first, and refreshes the dashboard on success.
+// A3 — admin-only internal note on a workflow/phase/adhoc instance.
+async function adminNote(entityType, entityId) {
+  if (!adminUnlocked || !entityId) return;
+  adminTouch();
+  let cur = '';
+  try {
+    const g = await fetch('/api/admin/admin-note?pin=' + encodeURIComponent(_adminPin)
+      + '&entity_type=' + entityType + '&entity_id=' + entityId);
+    if (g.ok) cur = (await g.json()).text || '';
+  } catch (_) {}
+  const txt = prompt('Nota interna admin (só você vê — não vai pro time/Slack):', cur);
+  if (txt === null) return;
+  try {
+    const r = await fetch('/api/admin/admin-note', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: _adminPin, entity_type: entityType, entity_id: entityId, text: txt }),
+    });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || 'Erro'); return; }
+    await fetchAndRender();
+  } catch (err) { alert('Erro de conexão'); }
+}
+
 async function adminAction(opts) {
   if (!adminUnlocked) return;
   adminTouch(); // A2 — slide the 10-min window on every admin action
@@ -1776,7 +1798,8 @@ function renderOpenTasks(tasks) {
          <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick="closeTask(\${task.id})">Fechar</button>
          <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
       : (adminUnlocked && isWf
-        ? \`<a class="edit-btn" style="background:#1d4f91;color:#fff;border:none;text-decoration:none" href="/admin/workflows" target="_blank">Gerenciar</a>\`
+        ? \`<a class="edit-btn" style="background:#1d4f91;color:#fff;border:none;text-decoration:none" href="/admin/workflows" target="_blank">Gerenciar</a>
+           <button class="edit-btn" style="background:#6b7280;color:#fff;border:none" title="Nota interna admin (não vai pro time)" onclick="adminNote('\${task.phase_instance_id ? 'phase_instance' : 'ad_hoc_task_instance'}',\${task.phase_instance_id || task.ad_hoc_task_instance_id || 0})">🛠</button>\`
         : '');
     return \`
       <div class="task-card \${urgClass}" id="task-\${escHtml(String(task.id))}">
