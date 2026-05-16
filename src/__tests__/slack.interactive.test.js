@@ -163,6 +163,21 @@ describe('view_submission → engine', () => {
     expect(engine.startPhase).toHaveBeenCalledWith(expect.objectContaining({ phaseTemplateId: 10 }));
   });
 
+  test('W3 — chosen phase ("wfId:ptId") overrides workflow + opens that phase', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    await interactive.handleInteraction(viewSubmission('submit_start_batch', {}, {
+      ...WHO,
+      wt: { v: { selected_option: { value: '1' } } },           // workflow 1 picked
+      phase: { v: { selected_option: { value: '2:7' } } },      // but phase from workflow 2, pt 7
+      product: { supplement_select: { selected_option: { value: 'Berberine' } } },
+      batch: { v: { value: '0119' } },
+    }));
+    expect(engine.findOrCreateWorkflowInstance).toHaveBeenCalledWith(expect.objectContaining({
+      workflowTemplateId: 2, // phase's workflow wins
+    }));
+    expect(engine.startPhase).toHaveBeenCalledWith(expect.objectContaining({ phaseTemplateId: 7 }));
+  });
+
   test('no operator selected → engine not called', async () => {
     db.query = jest.fn().mockResolvedValue({ rows: [] });
     await interactive.handleInteraction(viewSubmission('submit_break', {}, {

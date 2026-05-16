@@ -203,17 +203,46 @@ async function handleBlockAction(payload) {
     }
     case 'start_batch': {
       const wts = await db.query(`SELECT id, name FROM workflow_templates WHERE is_active = TRUE ORDER BY id`);
-      return openModal(triggerId, modal('submit_start_batch', 'Iniciar batch',
-        [operatorPickerBlock(opts),
-         { type: 'input', block_id: 'wt',
-           label: { type: 'plain_text', text: 'Tipo de trabalho' },
-           element: { type: 'static_select', action_id: 'v',
-             options: wts.rows.map((w) => ({ text: { type: 'plain_text', text: w.name }, value: String(w.id) })) } },
-         supplementSelectBlock('product', 'Produto (se aplicável)', true),
-         { type: 'input', optional: true, block_id: 'batch',
-           label: { type: 'plain_text', text: 'Lote' },
-           element: { type: 'plain_text_input', action_id: 'v' } },
-         noteFieldBlock()]));
+      // W3 — list every active phase grouped by workflow so the operator
+      // picks exactly which phase they're starting (value = "wfId:ptId").
+      const phs = await db.query(`
+        SELECT pt.id AS pt_id, pt.name AS phase_name, pt.sequence_order,
+               wt.id AS wt_id, wt.name AS workflow_name
+        FROM phase_templates pt
+        JOIN workflow_templates wt ON wt.id = pt.workflow_template_id
+        WHERE wt.is_active = TRUE
+        ORDER BY wt.id, pt.sequence_order, pt.id`);
+      const groupsMap = {};
+      for (const p of phs.rows) {
+        (groupsMap[p.workflow_name] = groupsMap[p.workflow_name] || []).push({
+          text: { type: 'plain_text', text: `${p.sequence_order}. ${p.phase_name}`.slice(0, 75) },
+          value: `${p.wt_id}:${p.pt_id}`,
+        });
+      }
+      const phaseGroups = Object.entries(groupsMap).map(([wfName, options]) => ({
+        label: { type: 'plain_text', text: wfName.slice(0, 75) }, options,
+      }));
+      const blocks = [
+        operatorPickerBlock(opts),
+        { type: 'input', block_id: 'wt',
+          label: { type: 'plain_text', text: 'Tipo de trabalho' },
+          element: { type: 'static_select', action_id: 'v',
+            options: wts.rows.map((w) => ({ text: { type: 'plain_text', text: w.name }, value: String(w.id) })) } },
+      ];
+      if (phaseGroups.length > 0) {
+        blocks.push({
+          type: 'input', optional: true, block_id: 'phase',
+          label: { type: 'plain_text', text: 'Fase (qual você está iniciando?)' },
+          element: { type: 'static_select', action_id: 'v', option_groups: phaseGroups },
+        });
+      }
+      blocks.push(
+        supplementSelectBlock('product', 'Produto (se aplicável)', true),
+        { type: 'input', optional: true, block_id: 'batch',
+          label: { type: 'plain_text', text: 'Lote' },
+          element: { type: 'plain_text_input', action_id: 'v' } },
+        noteFieldBlock());
+      return openModal(triggerId, modal('submit_start_batch', 'Iniciar batch', blocks));
     }
     case 'register_count':
       return openModal(triggerId, modal('submit_count', 'Registrar produção',
@@ -313,7 +342,15 @@ async function handleViewSubmission(payload) {
         break;
       }
       case 'submit_start_batch': {
-        const wt = parseInt(view.state.values?.wt?.v?.selected_option?.value);
+        let wt = parseInt(view.state.values?.wt?.v?.selected_option?.value);
+        // W3 — the operator may have picked a specific phase ("wfId:ptId").
+        // Its workflow wins over the "Tipo de trabalho" select if they differ.
+        const phaseSel = view.state.values?.phase?.v?.selected_option?.value || null;
+        let chosenPhaseTemplateId = null;
+        if (phaseSel && /^\d+:\d+$/.test(phaseSel)) {
+          const [pWf, pPt] = phaseSel.split(':').map(Number);
+          wt = pWf; chosenPhaseTemplateId = pPt;
+        }
         const productSel = view.state.values?.product?.supplement_select?.selected_option?.value || null;
         const { name: product } = await resolveSupplementValue(productSel);
         const batch = view.state.values?.batch?.v?.value || null;
@@ -321,14 +358,18 @@ async function handleViewSubmission(payload) {
           workflowTemplateId: wt, productName: product, batchNumber: batch,
           startedByOperatorId: operatorId,
         });
-        // Open the first phase of that template
-        const ph = await db.query(
-          `SELECT id FROM phase_templates WHERE workflow_template_id = $1
-           ORDER BY sequence_order ASC, id ASC LIMIT 1`, [wt]);
-        if (ph.rows[0]) {
+        // Open the chosen phase, or fall back to the first phase of the wf
+        let phaseTemplateId = chosenPhaseTemplateId;
+        if (!phaseTemplateId) {
+          const ph = await db.query(
+            `SELECT id FROM phase_templates WHERE workflow_template_id = $1
+             ORDER BY sequence_order ASC, id ASC LIMIT 1`, [wt]);
+          phaseTemplateId = ph.rows[0]?.id || null;
+        }
+        if (phaseTemplateId) {
           await engine.startPhase({
             workflowInstanceId: wf.workflowInstanceId,
-            phaseTemplateId: ph.rows[0].id, operatorId, batchNumber: batch,
+            phaseTemplateId, operatorId, batchNumber: batch,
           });
         }
         break;
