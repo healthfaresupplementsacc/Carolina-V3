@@ -1640,7 +1640,27 @@ function buildTimelineText(r) {
 
 async function getOperatorStats(date) {
   const dateExpr = date ? `'${date}'::date` : 'CURRENT_DATE';
-  const ops = await db.query('SELECT name FROM operators WHERE active = true ORDER BY name');
+  // BUG BOARD-FILTER — operators (role='operator') always show on the
+  // board when active; owners/managers only when they actually worked
+  // the line today (an oal row today in ET). Keeps Henrique/Thassio off
+  // the board unless they touched a phase/ad-hoc/break today.
+  const etToday = date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+  const ops = await db.query(
+    `SELECT o.name
+     FROM operators o
+     WHERE o.active = true
+       AND (
+         COALESCE(o.role, 'operator') = 'operator'
+         OR (
+           COALESCE(o.role, 'operator') IN ('owner', 'manager')
+           AND EXISTS (
+             SELECT 1 FROM operator_activity_log oal
+             WHERE oal.operator_id = o.id
+               AND (oal.started_at AT TIME ZONE 'America/New_York')::date = ${etToday}
+           )
+         )
+       )
+     ORDER BY o.name`);
 
   return Promise.all(ops.rows.map(async (op) => {
     const [taskRes, bottleRes, timeRes] = await Promise.all([
