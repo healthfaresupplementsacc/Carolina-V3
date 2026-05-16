@@ -519,6 +519,58 @@ router.post('/admin/workflow-instances/merge', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// W5 — POST /admin/phase-instances/merge (mirrors workflow merge).
+// Oldest survives; others soft-deleted; oal rows + production_counts
+// re-pointed to the survivor; task_aliases learns phase_name synonyms.
+router.post('/admin/phase-instances/merge', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const ids = Array.isArray(req.body?.phase_ids)
+      ? req.body.phase_ids.map(Number).filter(Number.isFinite) : [];
+    if (ids.length < 2) return res.status(400).json({ error: 'precisa de 2+ phase_ids' });
+    const rows = await db.query(
+      `SELECT id, started_at, phase_name FROM phase_instances
+       WHERE id = ANY($1::int[]) ORDER BY started_at ASC`, [ids]);
+    if (rows.rows.length !== ids.length) {
+      return res.status(400).json({ error: 'algum id não existe' });
+    }
+    const [survivor, ...others] = rows.rows;
+    const survivorId = survivor.id;
+    const mergedIds = others.map((r) => r.id);
+
+    await db.query(
+      `UPDATE operator_activity_log SET phase_instance_id = $1, updated_at = NOW()
+       WHERE phase_instance_id = ANY($2::int[])`, [survivorId, mergedIds]);
+    await db.query(
+      `UPDATE production_counts SET phase_instance_id = $1
+       WHERE phase_instance_id = ANY($2::int[])`, [survivorId, mergedIds]
+    ).catch(() => {}); // production_counts may not have the column in all envs
+    await db.query(
+      `UPDATE phase_instances
+       SET status = 'deleted',
+           notes = COALESCE(notes,'') || ' [merged into #' || $1 || ']',
+           updated_at = NOW()
+       WHERE id = ANY($2::int[])`, [survivorId, mergedIds]);
+    // Learn phase-name synonyms
+    for (const o of others) {
+      if (o.phase_name && survivor.phase_name &&
+          o.phase_name.toLowerCase() !== survivor.phase_name.toLowerCase()) {
+        await db.query(
+          `INSERT INTO task_aliases (canonical_term, alias_term, learned_from_task_id)
+           VALUES ($1, $2, $3) ON CONFLICT (canonical_term, alias_term) DO NOTHING`,
+          [survivor.phase_name, o.phase_name, survivorId]
+        ).catch(() => {});
+      }
+    }
+    await auditAction({
+      req, action: 'phase_instance.merge', entityType: 'phase_instance',
+      entityId: survivorId, before: { ids },
+      after: { survivor_id: survivorId, merged_ids: mergedIds },
+    });
+    res.json({ ok: true, survivor_id: survivorId, merged_ids: mergedIds });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── phase_instances (Fase 2.4) ─────────────────────────────────────────
 
 router.get('/phase-instances', async (req, res) => {
