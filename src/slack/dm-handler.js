@@ -90,37 +90,88 @@ async function getProductionContext() {
   }
 }
 
-/**
- * Call Claude and get a response as Carolina.
- */
-async function askClaude(userMessage, senderName, productionContext) {
-  const anthropic = getAnthropic();
+// BLOCO C — agentic tool-use loop. Carolina decides when to call a tool.
+// Read tools run freely; mutation tools execute (an admin order in the
+// chat IS the explicit confirmation — Part 5); dismiss/retro answer
+// pending questions. Manual loop with a hard iteration cap (anti-loop).
+const ADMIN_TASK_PROMPT_TAIL = `
+FERRAMENTAS: você tem ferramentas pra ler o estado (get_state,
+get_operator_timeline, search_messages, list_proposals) e pra AGIR quando
+o admin te mandar (close_phase, approve_adhoc, approve_supplement, rename,
+merge_tasks, move_operator, create_workflow). Há também
+dismiss_pending_question (quando mandarem "ignora/esquece/deixa" e houver
+pergunta pendente) e update_break_retroactive (quando passarem um horário
+pra uma pergunta de break).
 
+REGRAS:
+- Ordem direta clara do admin ("fecha a fase #5", "renomeia #10 pra X")
+  = confirmação explícita: chama a ferramenta e confirma o que fez.
+- Ordem AMBÍGUA ("fecha essa" com várias fases abertas): NÃO chama
+  ferramenta — pergunta qual, pedindo número ou descrição.
+- Pergunta/análise: usa as read tools e responde, sem agir.
+- Depois de executar, confirma curto: "Fechei a fase #5 (X), durou 1h45."
+- Nunca inventa id. Se não souber, pergunta ou usa get_state/search.`;
+
+async function askClaude(userMessage, senderName, productionContext, deps = {}) {
+  const anthropic = deps.anthropic || getAnthropic();
+  const adminTools = deps.adminTools || require('../ai/admin-tools');
   const { withPersona } = require('../ai/persona');
-  const systemPrompt = withPersona(`Você responde no Slack do Bruno Camp e do Thassio (donos), e também no canal dos gerentes. O que eles pedirem, você faz — eles mandam.
+
+  const systemText = withPersona(`Você responde no canal dos gerentes (admin) e nas DMs do Bruno Camp e do Thassio. O que eles pedirem, você faz — eles mandam.
 
 Estilo:
 - Português carioca informal mas profissional. "tá", "né", "cara", "olha", "ó" — natural, sem forçar.
 - Frases curtas. Sem enrolação. Sem "claro!", "com certeza!", "ótimo!".
-- Quando a coisa tá errada ou atrasada, fala com firmeza: "ó, isso tá errado", "já tá na hora de fechar essa tarefa".
-- Uma pitada de humor quando a situação deixa. Máximo 1 emoji por mensagem.
-- Nunca pergunta mais de uma coisa por mensagem.
+- Quando a coisa tá errada ou atrasada, fala com firmeza.
+- Máximo 1 emoji por mensagem. Nunca pergunta mais de uma coisa por mensagem.
 
 Você conhece o time: Ana, Vitor, Simone, Bruno (trabalhador), e os donos Bruno Camp e Thassio.
 
 Estado atual da linha de produção:
 ${productionContext}
 
-Use esses dados quando perguntarem sobre tarefas, operadores, ritmo ou produção do dia. Se pedirem algo que não dá pra fazer pelo Slack (mexer em arquivo, rodar código), fala que precisa ser feito no Claude Code.`, 'admin');
+Se pedirem algo que não dá pra fazer (mexer em arquivo, rodar código), fala que precisa ser feito no Claude Code.${ADMIN_TASK_PROMPT_TAIL}`, 'admin');
 
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: `${senderName}: ${userMessage}` }],
-  });
+  // Prompt caching: stable persona+context as a single cached system
+  // block (tools render before it and are deterministic, so the whole
+  // prefix caches across the admin's rapid follow-ups).
+  const system = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
+  const messages = [{ role: 'user', content: `${senderName}: ${userMessage}` }];
+  const MAX_ITERS = 4;
+  let finalText = '';
 
-  return response.content[0]?.text || 'não entendi, pode repetir?';
+  for (let i = 0; i < MAX_ITERS; i++) {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 700,
+      system,
+      tools: adminTools.TOOL_DEFS,
+      messages,
+    });
+    const blocks = response.content || [];
+    const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+    if (text) finalText = text;
+    if (response.stop_reason !== 'tool_use') break;
+
+    messages.push({ role: 'assistant', content: blocks });
+    const results = [];
+    for (const b of blocks) {
+      if (b.type !== 'tool_use') continue;
+      let out; let isErr = false;
+      try {
+        out = await adminTools.runTool(b.name, b.input || {}, deps);
+      } catch (e) {
+        out = { error: e.message }; isErr = true;
+      }
+      results.push({
+        type: 'tool_result', tool_use_id: b.id,
+        content: JSON.stringify(out).slice(0, 3000), is_error: isErr,
+      });
+    }
+    messages.push({ role: 'user', content: results });
+  }
+
+  return finalText || 'não entendi, pode repetir?';
 }
 
 /**
@@ -327,4 +378,4 @@ async function pollManagerChannel() {
   );
 }
 
-module.exports = { pollBossDMs, pollManagerChannel };
+module.exports = { pollBossDMs, pollManagerChannel, askClaude, getProductionContext };

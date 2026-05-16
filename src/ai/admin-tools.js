@@ -217,9 +217,113 @@ async function resolveProposal(text, deps = {}) {
   }
 }
 
+// ─── BLOCO C / P1 — new direct tools (responses to pending questions) ────
+// These are NOT propose-then-confirm: they cancel/answer something the
+// admin is being asked about, so an explicit admin order is itself the
+// confirmation. Both audited.
+async function dismissPendingQuestion(args = {}, deps = {}) {
+  const dismissed = [];
+  // 1. retro-break admin question (A1)
+  const rb = await db.query(`SELECT value FROM app_state WHERE key = 'retro_break_admin'`);
+  if (rb.rows[0]) {
+    await db.query(`DELETE FROM app_state WHERE key = 'retro_break_admin'`);
+    dismissed.push('retro_break_admin');
+  }
+  // 2. W6 single proposal
+  const w6 = await getProposal();
+  if (w6) { await clearProposal(); dismissed.push('w6_proposal:' + w6.kind); }
+  // 3. latest carolina_proposals pending → rejected
+  try {
+    const proposals = require('./proposals');
+    const r = await proposals.resolveLatest('rejected', 'slack_admin');
+    if (r) dismissed.push('proposal#' + r.id);
+  } catch (_) { /* table may not exist in some tests */ }
+  const audit = deps.auditAction || require('../admin/audit').auditAction;
+  await audit({
+    action: 'ai_admin_executed', entityType: 'ai_admin',
+    entityId: 'dismiss_pending_question', source: 'slack_admin',
+    before: { question_id: args.question_id || null }, after: { dismissed },
+  });
+  return { dismissed };
+}
+
+async function updateBreakRetroactive(args = {}, deps = {}) {
+  const time = String(args.time || args.question_id || '').trim();
+  const btr = require('../workflow/break-time-reply');
+  const r = await btr.handleAdminRetroReply(time, deps);
+  const audit = deps.auditAction || require('../admin/audit').auditAction;
+  await audit({
+    action: 'ai_admin_executed', entityType: 'ai_admin',
+    entityId: 'update_break_retroactive', source: 'slack_admin',
+    before: { time }, after: { outcome: r.outcome || (r.handled ? 'handled' : 'no_pending') },
+  });
+  return r;
+}
+
+// ─── Tool schemas (DETERMINISTIC order — keep stable for prompt cache) ───
+const TOOL_DEFS = [
+  // read (execute freely)
+  { name: 'get_state', description: 'Estado atual: contagem de workflows ativos, fases abertas, ad-hoc abertos, pessoas em break.', input_schema: { type: 'object', properties: {} } },
+  { name: 'get_operator_timeline', description: 'Timeline de atividades de um operador num dia (default hoje).', input_schema: { type: 'object', properties: { operator_id: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['operator_id'] } },
+  { name: 'search_messages', description: 'Busca mensagens recentes do canal de produção por texto.', input_schema: { type: 'object', properties: { query: { type: 'string' }, days: { type: 'integer' } }, required: ['query'] } },
+  { name: 'list_proposals', description: 'Lista as propostas da Carolina aguardando resposta do admin.', input_schema: { type: 'object', properties: {} } },
+  // mutation (admin order in chat = explicit confirmation → execute + audit)
+  { name: 'close_phase', description: 'Fecha uma fase aberta pelo id.', input_schema: { type: 'object', properties: { phase_instance_id: { type: 'integer' }, bottle_count: { type: 'integer' } }, required: ['phase_instance_id'] } },
+  { name: 'approve_adhoc', description: 'Aprova uma tarefa avulsa pendente.', input_schema: { type: 'object', properties: { adhoc_task_id: { type: 'integer' } }, required: ['adhoc_task_id'] } },
+  { name: 'approve_supplement', description: 'Aprova um suplemento pendente no catálogo.', input_schema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } },
+  { name: 'rename', description: 'Renomeia uma entidade (workflow_template|phase_template|ad_hoc_task).', input_schema: { type: 'object', properties: { entity_type: { type: 'string' }, id: { type: 'integer' }, new_name: { type: 'string' } }, required: ['entity_type', 'id', 'new_name'] } },
+  { name: 'merge_tasks', description: 'Mescla tarefas duplicadas.', input_schema: { type: 'object', properties: { task_ids: { type: 'array', items: { type: 'integer' } } }, required: ['task_ids'] } },
+  { name: 'move_operator', description: 'Move um operador para outra atividade.', input_schema: { type: 'object', properties: { operator_id: { type: 'integer' }, target_phase_instance_id: { type: 'integer' }, target_ad_hoc_task_instance_id: { type: 'integer' } }, required: ['operator_id'] } },
+  { name: 'create_workflow', description: 'Cria um workflow novo com fases.', input_schema: { type: 'object', properties: { name: { type: 'string' }, phases: { type: 'array', items: { type: 'string' } } }, required: ['name'] } },
+  // direct responses to pending questions
+  { name: 'dismiss_pending_question', description: 'Cancela/descarta a pergunta pendente sem responder (ex: admin disse "ignora").', input_schema: { type: 'object', properties: { question_id: { type: 'string' } } } },
+  { name: 'update_break_retroactive', description: 'Responde a pergunta retroativa de break com o horário (ex: "14:30").', input_schema: { type: 'object', properties: { time: { type: 'string' }, question_id: { type: 'string' } }, required: ['time'] } },
+];
+const READ_TOOLS = new Set(['get_state', 'get_operator_timeline', 'search_messages', 'list_proposals']);
+const MUTATION_TOOLS = new Set(['close_phase', 'approve_adhoc', 'approve_supplement', 'rename', 'merge_tasks', 'move_operator', 'create_workflow']);
+const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroactive']);
+
+/**
+ * Execute one tool call from the agentic loop.
+ *  - read tools: run freely, no audit.
+ *  - mutation tools: an admin order in chat IS the explicit confirmation
+ *    (Part 5) → execute via the audited EXEC, audit ai_admin_executed.
+ *  - direct tools: dismiss / retro-break, audited inside.
+ * Returns a JSON-serialisable result for the tool_result block.
+ */
+async function runTool(name, input = {}, deps = {}) {
+  if (READ_TOOLS.has(name)) {
+    if (name === 'get_state') return getState();
+    if (name === 'get_operator_timeline') return getOperatorTimeline(input.operator_id, input.date);
+    if (name === 'search_messages') return searchMessages(input.query, input.days || 7);
+    if (name === 'list_proposals') {
+      try { return { pending: await require('./proposals').listPending() }; }
+      catch (_) { return { pending: [] }; }
+    }
+  }
+  if (DIRECT_TOOLS.has(name)) {
+    if (name === 'dismiss_pending_question') return dismissPendingQuestion(input, deps);
+    if (name === 'update_break_retroactive') return updateBreakRetroactive(input, deps);
+  }
+  if (MUTATION_TOOLS.has(name)) {
+    if (!EXEC[name]) throw new Error('mutation tool sem executor: ' + name);
+    const result = await EXEC[name](input);
+    const audit = deps.auditAction || require('../admin/audit').auditAction;
+    await audit({
+      action: 'ai_admin_executed', entityType: 'ai_admin',
+      entityId: name, source: deps.source || 'slack_admin',
+      before: { tool: name, input }, after: { result },
+    });
+    return result;
+  }
+  throw new Error('tool desconhecida: ' + name);
+}
+
 module.exports = {
   propose, resolveProposal, parseConfirmation, buildProposeMessage,
   getProposal, setProposal, clearProposal,
   getState, getOperatorTimeline, searchMessages, suggestClaudeCodePrompt,
   EXEC,
+  dismissPendingQuestion, updateBreakRetroactive,
+  TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, runTool,
 };
