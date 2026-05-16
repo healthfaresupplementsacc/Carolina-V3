@@ -173,6 +173,19 @@ async function handleAdminRetroReply(text, deps = {}) {
  * ("14:30", "14h30", "1430", "2pm") — never arbitrary admin messages
  * like "fecha a fase #5" (parseTimeReply alone would misread the "5").
  */
+// Bug 3 — operator ids that currently have a pending break-time
+// question (F6 untracked-break follow-up), so the production poller can
+// route a bare time reply ("13:30") even when the parser couldn't
+// resolve an operator from the text.
+async function findPendingOperatorIds() {
+  try {
+    const r = await db.query(`SELECT key FROM app_state WHERE key LIKE 'brk_time_%'`);
+    return r.rows
+      .map((x) => parseInt(String(x.key).replace('brk_time_', ''), 10))
+      .filter((n) => Number.isFinite(n));
+  } catch (_) { return []; }
+}
+
 function looksLikeTimeReply(text) {
   const t = String(text || '').trim().toLowerCase();
   if (!t || t.length > 24) return false;
@@ -185,5 +198,5 @@ function looksLikeTimeReply(text) {
 
 module.exports = {
   parseTimeReply, handleReply, setPending, getPending, clearPending, key,
-  handleAdminRetroReply, looksLikeTimeReply,
+  handleAdminRetroReply, looksLikeTimeReply, findPendingOperatorIds,
 };

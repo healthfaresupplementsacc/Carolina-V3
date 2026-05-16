@@ -122,3 +122,18 @@ describe('A1 — handleAdminRetroReply (admin-chat retroactive break)', () => {
     expect(r.outcome).toBe('unparsed');
   });
 });
+
+describe('Bug 3 — findPendingOperatorIds', () => {
+  test('parses operator ids from brk_time_* app_state keys', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [{ key: 'brk_time_7' }, { key: 'brk_time_12' }] });
+    expect(await btr.findPendingOperatorIds()).toEqual([7, 12]);
+  });
+  test('none pending → []', async () => {
+    db.query = jest.fn().mockResolvedValue({ rows: [] });
+    expect(await btr.findPendingOperatorIds()).toEqual([]);
+  });
+  test('db error → [] (never throws)', async () => {
+    db.query = jest.fn().mockRejectedValue(new Error('x'));
+    expect(await btr.findPendingOperatorIds()).toEqual([]);
+  });
+});

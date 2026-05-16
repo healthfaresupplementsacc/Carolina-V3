@@ -93,35 +93,53 @@ async function processMessage(msg) {
     await maybeSendBomDia();
   }
 
-  if (!parsed || parsedType === 'ignore') return;
-
-  const TRACKED_TYPES = ['start', 'finish', 'count', 'orders_start', 'orders_finish', 'orders_continue', 'formulation_start', 'formulation_finish', 'pause_start', 'pause_end'];
-  if (!isBackfilling && TRACKED_TYPES.includes(parsedType)) {
-    await slackClient.addReaction(ts);
-  }
-
-  // B4 — break-time reply interception (F6 untracked-break follow-up).
-  // Runs before the generic pending-question path so a garbage time
-  // answer ("assfdf") is caught and retried instead of falling through.
-  if (!isBackfilling && parsed.operator
+  // B4 / Bug 3 — break-time reply interception (F6 untracked-break
+  // follow-up) IN THE PRODUCTION CHANNEL. Runs BEFORE the ignore
+  // early-return: a bare "13:30" parses as type 'ignore', so the
+  // operator's answer used to be dropped here. If the message looks
+  // like a time and has no resolved operator, resolve by the author's
+  // Slack account, else by the sole pending question. On success,
+  // confirm (human persona) — the channel post self-suppresses to
+  // silent_log when silent_text=ON; the admin chat (never silenced) is
+  // always told.
+  if (!isBackfilling
       && !['start', 'finish', 'orders_start', 'orders_finish'].includes(parsedType)) {
     try {
-      const opRow = await db.query(
-        `SELECT id FROM operators WHERE LOWER(name) = LOWER($1) LIMIT 1`,
-        [parsed.operator]
-      );
-      const opId = opRow.rows[0]?.id;
+      const btr = require('../workflow/break-time-reply');
+      let opId = null;
+      if (parsed && parsed.operator) {
+        const opRow = await db.query(
+          `SELECT id FROM operators WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+          [parsed.operator]);
+        opId = opRow.rows[0]?.id || null;
+      }
+      if (!opId && btr.looksLikeTimeReply(text)) {
+        if (msg.user) {
+          const acc = await db.query(
+            `SELECT id FROM operators WHERE slack_user_id = $1 LIMIT 1`, [msg.user]);
+          opId = acc.rows[0]?.id || null;
+        }
+        if (!opId || !(await btr.getPending(opId))) {
+          const pend = await btr.findPendingOperatorIds();
+          if (pend.length === 1) opId = pend[0];
+        }
+      }
       if (opId) {
-        const btr = require('../workflow/break-time-reply');
         const r = await btr.handleReply(opId, text);
         if (r.handled) {
           const announce = require('../workflow/announce');
+          let opName = parsed.operator;
+          if (!opName) {
+            const nm = await db.query(`SELECT name FROM operators WHERE id = $1`, [opId]);
+            opName = nm.rows[0]?.name || 'você';
+          }
           if (r.outcome === 'resolved') {
             await slackClient.addReaction(ts);
+            await announce.breakTimeResolved({ operatorName: opName, when: r.when });
           } else if (r.outcome === 'retry') {
-            await announce.breakTimeRetry({ operatorName: parsed.operator });
+            await announce.breakTimeRetry({ operatorName: opName });
           } else if (r.outcome === 'gaveup') {
-            await announce.breakTimeGaveUp({ operatorName: parsed.operator });
+            await announce.breakTimeGaveUp({ operatorName: opName });
           }
           return; // consumed
         }
@@ -129,6 +147,13 @@ async function processMessage(msg) {
     } catch (err) {
       console.error('[Poller] B4 break-time reply error:', err.message);
     }
+  }
+
+  if (!parsed || parsedType === 'ignore') return;
+
+  const TRACKED_TYPES = ['start', 'finish', 'count', 'orders_start', 'orders_finish', 'orders_continue', 'formulation_start', 'formulation_finish', 'pause_start', 'pause_end'];
+  if (!isBackfilling && TRACKED_TYPES.includes(parsedType)) {
+    await slackClient.addReaction(ts);
   }
 
   // Pending question interception

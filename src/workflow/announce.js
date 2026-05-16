@@ -122,8 +122,20 @@ async function retroBreakDone({ operatorName, when }) {
     `saiu ${when}, voltou agora. (action=break.retroactive_create)`);
 }
 
+// Bug 3 — operator answered the "que horas vc saiu?" question in the
+// PRODUCTION channel. Confirm to them (human persona, never AI). The
+// channel post self-suppresses to silent_log when silent_text=ON;
+// regardless, the admin chat (never silenced) always gets the update —
+// so with silent_text=true the confirmation lands in the admin chat.
+async function breakTimeResolved({ operatorName, when }) {
+  const n = operatorName || 'você';
+  const hm = /\d{1,2}:\d{2}/.test(String(when || '')) ? String(when).match(/\d{1,2}:\d{2}/)[0] : when;
+  try { await slack().postMessage(`anotei aqui, ${n}: você saiu ${hm}, voltou agora ✅`); } catch (e) { /* non-fatal */ }
+  await toAdmin(`✅ Atualizei o break de *${n}* retroativo pra ${hm} (resposta no canal de produção).`);
+}
+
 module.exports = {
   toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged,
   note, voltaSemBreak, breakTimeRetry, breakTimeGaveUp,
-  voltaSemBreakAdmin, retroBreakDone,
+  voltaSemBreakAdmin, retroBreakDone, breakTimeResolved,
 };

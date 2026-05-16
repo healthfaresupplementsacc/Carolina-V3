@@ -40,4 +40,13 @@ describe('announce — all alerts go to manager channel only', () => {
     slack.postToChannel.mockRejectedValueOnce(new Error('slack down'));
     await expect(announce.adHocPending({ operatorName: 'X', taskName: 'Y' })).resolves.toBeUndefined();
   });
+
+  test('Bug 3 — breakTimeResolved always mirrors to admin (silent_text-safe)', async () => {
+    // slack().postMessage is absent in this mock → channel post throws &
+    // is swallowed; the admin mirror must still fire (so with
+    // silent_text=true the confirmation lands in the admin chat).
+    await announce.breakTimeResolved({ operatorName: 'Simone', when: '2026-05-16 13:30:00' });
+    expect(slack.postToChannel).toHaveBeenCalledWith(
+      'C0B36DR5MP1', expect.stringMatching(/Atualizei o break.*Simone.*13:30/s));
+  });
 });
