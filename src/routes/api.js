@@ -14,6 +14,7 @@ const formulation = require('../formulation');
 const parser = require('../parser');
 const { auditAction, snapshotRow, checkPin, getAdminPin } = require('../admin/audit');
 const { mergeTasks } = require('../admin/merge');
+const appState = require('../app-state');
 
 /**
  * Load custom supplements from DB into the parser at startup.
@@ -881,6 +882,39 @@ router.post('/admin/silent-toggle', async (req, res) => {
       silent_reactions: after.silent_reactions === 'true',
       silent_master:    after.silent_mode      === 'true',
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ===== BLOCO B — Painel Config Carolina =====
+// GET /api/admin/carolina-config?pin=XXX — current config snapshot.
+// Extended by later BLOCO B commits (toggles, schedules, persona).
+router.get('/admin/carolina-config', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const appName = await appState.getAppName();
+    res.json({ app_name: appName });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/carolina-config/app-name  body: { pin, app_name }
+// B1 item 1 — rename the app. Persisted in app_state, refreshes the
+// in-process cache (App Home header + Carolina persona), audited.
+router.post('/admin/carolina-config/app-name', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const raw = String(req.body?.app_name ?? '').trim();
+    if (!raw) return res.status(400).json({ error: 'Nome não pode ser vazio' });
+    if (raw.length > 80) return res.status(400).json({ error: 'Nome muito longo (máx 80)' });
+
+    const before = await appState.get('app_name', appState.DEFAULT_APP_NAME);
+    const after = await appState.setAppName(raw);
+
+    await auditAction({
+      req, action: 'carolina_config.app_name', entityType: 'app_state',
+      entityId: 'app_name',
+      before: { app_name: before }, after: { app_name: after },
+    });
+    res.json({ ok: true, app_name: after });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

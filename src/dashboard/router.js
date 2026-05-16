@@ -120,6 +120,17 @@ router.get('/admin', async (req, res) => {
   <h1>Admin</h1>
 
   <div class="card">
+    <h2 style="margin-top:0">Ferramentas</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn" style="text-decoration:none" href="/admin/carolina-config">⚙️ Config Carolina</a>
+      <a class="btn btn-gray" style="text-decoration:none" href="/admin/workflows">Workflows</a>
+      <a class="btn btn-gray" style="text-decoration:none" href="/admin/ad-hoc-tasks">Tarefas avulsas</a>
+      <a class="btn btn-gray" style="text-decoration:none" href="/admin/audit">Auditoria</a>
+      <a class="btn btn-gray" style="text-decoration:none" href="/admin/silent-log">Silent log</a>
+    </div>
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">Operadores</h2>
     <div class="row row-head">
       <span>Nome</span><span>Slack ID</span><span>Aliases (sep. ,)</span>
@@ -607,6 +618,116 @@ router.get('/admin/silent-log', (req, res) => {
       } catch (err) {
         document.getElementById('results').innerHTML = '<div style="color:#ef4444">Erro de conexão</div>';
       }
+    }
+  </script>
+</body>
+</html>`);
+});
+
+// BLOCO B — Painel Config Carolina. PIN-gated, mirrors the silent-log
+// page pattern. Sections grow over BLOCO B (app name now; toggles,
+// variações, horários, persona land in C4/C5/C6/C7).
+router.get('/admin/carolina-config', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Config Carolina — HealthFare</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; padding: 24px; max-width: 860px; margin: 0 auto; color: #1f2937; background:#f5f7fb; }
+    h1 { color: #1d4f91; margin-bottom: 6px; }
+    .sub { color:#6b7280; margin-bottom: 22px; font-size:13px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin: 0 0 12px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:18px; margin-bottom:16px; }
+    label.fld { display:block; font-size:11px; color:#6b7280; text-transform:uppercase; font-weight:600; margin-bottom:6px; }
+    input[type=text] { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; box-sizing:border-box; }
+    .btn { background:#1d4f91; color:white; border:none; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; margin-top:12px; }
+    .btn:disabled { opacity:.5; cursor:default; }
+    .preview { margin-top:14px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px 14px; font-size:15px; font-weight:700; color:#065f46; }
+    .ok { color:#059669; font-size:12px; margin-top:8px; min-height:14px; }
+    .err { color:#ef4444; font-size:12px; margin-top:8px; min-height:14px; }
+    .hint { color:#6b7280; font-size:11px; margin-top:6px; }
+    a { color: #1d4f91; }
+    .back { display: inline-block; margin-bottom: 16px; color: #1d4f91; text-decoration: none; }
+    #pin-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+    #pin-overlay .box { background:#fff; padding:24px; border-radius:10px; min-width:280px; }
+    #pin-overlay input { width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; margin:8px 0; }
+  </style>
+</head>
+<body>
+  <div id="pin-overlay">
+    <div class="box">
+      <strong>Admin PIN</strong>
+      <input id="pin-input" type="password" autocomplete="off" autofocus>
+      <div class="err" id="pin-err"></div>
+      <button class="btn" onclick="unlock()" style="width:100%">Entrar</button>
+    </div>
+  </div>
+
+  <a href="/admin" class="back">← Voltar ao Admin</a>
+  <h1>⚙️ Config Carolina</h1>
+  <div class="sub">Configurações do comportamento da Carolina. Toda alteração é registrada no log de auditoria.</div>
+
+  <div class="card">
+    <h2>Nome do app</h2>
+    <label class="fld" for="app-name">Usado no cabeçalho da App Home e na identidade da Carolina</label>
+    <input id="app-name" type="text" maxlength="80" placeholder="Carregando…" disabled>
+    <div class="hint">Aparece como <code>🌿 &lt;nome&gt;</code> na App Home e em "Você trabalha na &lt;nome&gt;" na persona.</div>
+    <div class="preview" id="preview">🌿 …</div>
+    <button class="btn" id="save-btn" onclick="saveName()" disabled>Salvar nome</button>
+    <div class="ok" id="ok-msg"></div>
+    <div class="err" id="err-msg"></div>
+  </div>
+
+  <script>
+    let _pin = '';
+    function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+    async function unlock() {
+      const pin = document.getElementById('pin-input').value.trim();
+      try {
+        const r = await fetch('/api/admin/carolina-config?pin=' + encodeURIComponent(pin));
+        if (r.status === 403) { document.getElementById('pin-err').textContent = 'PIN incorreto'; return; }
+        if (!r.ok) { document.getElementById('pin-err').textContent = 'Erro ' + r.status; return; }
+        const data = await r.json();
+        _pin = pin;
+        document.getElementById('pin-overlay').style.display = 'none';
+        const inp = document.getElementById('app-name');
+        inp.value = data.app_name || '';
+        inp.disabled = false;
+        document.getElementById('save-btn').disabled = false;
+        renderPreview();
+      } catch (e) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
+    }
+    document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
+
+    function renderPreview() {
+      const v = document.getElementById('app-name').value.trim() || '…';
+      document.getElementById('preview').textContent = '🌿 ' + v;
+    }
+    document.getElementById('app-name').addEventListener('input', () => {
+      renderPreview();
+      document.getElementById('ok-msg').textContent = '';
+    });
+
+    async function saveName() {
+      const name = document.getElementById('app-name').value.trim();
+      const ok = document.getElementById('ok-msg'); const err = document.getElementById('err-msg');
+      ok.textContent = ''; err.textContent = '';
+      if (!name) { err.textContent = 'Nome não pode ser vazio'; return; }
+      const btn = document.getElementById('save-btn'); btn.disabled = true;
+      try {
+        const r = await fetch('/api/admin/carolina-config/app-name', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: _pin, app_name: name }),
+        });
+        const data = await r.json();
+        if (!r.ok) { err.textContent = data.error || ('Erro ' + r.status); btn.disabled = false; return; }
+        document.getElementById('app-name').value = data.app_name;
+        renderPreview();
+        ok.textContent = 'Salvo. Já vale na App Home e na persona.';
+      } catch (e) { err.textContent = 'Erro de conexão'; }
+      btn.disabled = false;
     }
   </script>
 </body>

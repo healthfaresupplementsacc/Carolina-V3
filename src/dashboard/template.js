@@ -540,6 +540,7 @@ function generateDashboard() {
     <button class="lang-btn" onclick="toggleLang()" id="lang-btn">🇧🇷 PT</button>
     <a id="admin-link" href="/admin" target="_blank" title="Painel admin" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Admin</a>
     <a id="audit-link" href="/admin/audit" target="_blank" title="Log de auditoria" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">Audit</a>
+    <a id="carolina-link" href="/admin/carolina-config" target="_blank" title="Config Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;text-decoration:none">⚙️ Carolina</a>
     <button id="silent-text-btn" onclick="toggleSilent('text')" title="Bloqueia mensagens de texto da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">🔇 Texto: <span id="silent-text-state">…</span></button>
     <button id="silent-reactions-btn" onclick="toggleSilent('reactions')" title="Bloqueia reações ✅ da Carolina" style="display:none;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer">✅ Reactions: <span id="silent-reactions-state">…</span></button>
     <span id="admin-timer" title="Sessão admin (renova a cada ação)" style="display:none;background:rgba(46,168,74,0.25);border:1px solid rgba(46,168,74,0.5);color:white;padding:4px 8px;border-radius:8px;font-size:11px">Admin: 10:00</span>
@@ -1029,7 +1030,7 @@ function _applyLockedUI() {
   const btn = document.getElementById('lock-btn');
   if (btn) { btn.textContent = '🔒'; btn.classList.remove('unlocked'); btn.title = 'Admin'; }
   const hide = (id) => { const e = document.getElementById(id); if (e) e.style.display = 'none'; };
-  hide('admin-link'); hide('audit-link'); hide('silent-text-btn');
+  hide('admin-link'); hide('audit-link'); hide('carolina-link'); hide('silent-text-btn');
   hide('silent-reactions-btn'); hide('merge-bar'); hide('admin-timer');
   if (_lastData) renderAll(_lastData);
 }
@@ -1039,7 +1040,7 @@ function _applyUnlockedUI() {
   const btn = document.getElementById('lock-btn');
   if (btn) { btn.textContent = '🔓'; btn.classList.add('unlocked'); btn.title = 'Admin ativo — clique para sair'; }
   const show = (id, disp) => { const e = document.getElementById(id); if (e) e.style.display = disp; };
-  show('admin-link', 'inline-block'); show('audit-link', 'inline-block');
+  show('admin-link', 'inline-block'); show('audit-link', 'inline-block'); show('carolina-link', 'inline-block');
   show('silent-text-btn', 'inline-block'); show('silent-reactions-btn', 'inline-block');
   show('admin-timer', 'inline-block');
   const ct = document.getElementById('create-task-btn'); if (ct) ct.style.display = 'inline-flex';
