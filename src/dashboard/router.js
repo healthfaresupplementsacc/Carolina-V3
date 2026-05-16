@@ -658,6 +658,19 @@ router.get('/operator/:id', async (req, res) => {
     ORDER BY n DESC
   `, [id]);
 
+  // F2 — this operator's notes for the week (App Home + admin sourced)
+  let weekNotes = { rows: [] };
+  try {
+    weekNotes = await db.query(`
+      SELECT n.text, n.created_at, n.source, pi.phase_name, wi.product_name
+      FROM operator_notes n
+      LEFT JOIN phase_instances pi ON pi.id = n.linked_phase_instance_id
+      LEFT JOIN workflow_instances wi ON wi.id = n.linked_workflow_instance_id
+      WHERE n.operator_id = $1 AND n.deleted_at IS NULL
+        AND n.created_at >= date_trunc('week', NOW() AT TIME ZONE 'America/New_York')
+      ORDER BY n.created_at DESC`, [id]);
+  } catch (_) { weekNotes = { rows: [] }; }
+
   const fmtT = (ts) => ts ? new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
   const fmtD = (s) => s == null ? '—' : (s >= 3600 ? `${Math.floor(s/3600)}h${Math.floor((s%3600)/60)}m` : `${Math.floor(s/60)}min`);
   const w = week.rows[0] || { worked: 0, brk: 0, phases: 0 };
@@ -697,6 +710,11 @@ router.get('/operator/:id', async (req, res) => {
 <div class="card"><table>
   <tr><td><b>Fase</b></td><td><b>Qtd</b></td><td><b>Média</b></td></tr>
   ${byPhase.rows.map((p)=>`<tr><td>${p.phase_name}</td><td>${p.n}</td><td>${p.avg_min} min</td></tr>`).join('') || '<tr><td colspan="3" style="color:#6b7280">Sem dados</td></tr>'}
+</table></div>
+
+<h2>Notas da semana</h2>
+<div class="card"><table>
+  ${weekNotes.rows.map((n)=>`<tr><td style="white-space:nowrap;color:#6b7280">${fmtT(n.created_at)}</td><td>${String(n.text||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}${n.phase_name?` <span style="color:#6b7280">· ${n.phase_name}${n.product_name?' '+n.product_name:''}</span>`:''}</td></tr>`).join('') || '<tr><td colspan="2" style="color:#6b7280">Nenhuma nota essa semana</td></tr>'}
 </table></div>
 </body></html>`);
 });

@@ -427,6 +427,24 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_oal_started
       ON operator_activity_log(started_at);
 
+    -- F2: notes written via App Home (or admin) live here. Channel-typed
+    -- notes still live in messages(parsed_type='note'); getTodayNotes
+    -- unions both. linked_* auto-filled from the author's active activity.
+    CREATE TABLE IF NOT EXISTS operator_notes (
+      id SERIAL PRIMARY KEY,
+      operator_id INTEGER REFERENCES operators(id),
+      text TEXT NOT NULL,
+      linked_phase_instance_id INTEGER REFERENCES phase_instances(id),
+      linked_workflow_instance_id INTEGER REFERENCES workflow_instances(id),
+      source VARCHAR(20) DEFAULT 'app_home', -- 'app_home' | 'channel' | 'admin'
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_operator_notes_created
+      ON operator_notes(created_at DESC) WHERE deleted_at IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_operator_notes_operator
+      ON operator_notes(operator_id);
+
     -- Entrega 2: every admin write goes through auditAction() and lands here.
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id SERIAL PRIMARY KEY,

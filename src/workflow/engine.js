@@ -653,6 +653,51 @@ async function getCurrentActivity(operatorId) {
   return r.rows[0] || null;
 }
 
+/**
+ * F2 — persist a note. Auto-links to the author's currently-open
+ * phase/workflow (from operator_activity_log) when there is one.
+ * F3 — announces it (channel via postMessage → silent_log when muted,
+ * plus an admin mirror).
+ */
+async function addNote({ operatorId, text, when = null }) {
+  if (!Number.isFinite(operatorId)) throw new Error('operatorId required');
+  const body = String(text || '').trim();
+  if (!body) throw new Error('note text required');
+
+  // Find the author's active activity to auto-link the note.
+  const act = await db.query(
+    `SELECT phase_instance_id, ad_hoc_task_instance_id
+     FROM operator_activity_log
+     WHERE operator_id = $1 AND ended_at IS NULL
+     ORDER BY id DESC LIMIT 1`,
+    [operatorId]
+  );
+  let linkedPhase = act.rows[0]?.phase_instance_id || null;
+  let linkedWf = null;
+  if (linkedPhase) {
+    const w = await db.query(
+      `SELECT workflow_instance_id FROM phase_instances WHERE id = $1`,
+      [linkedPhase]
+    );
+    linkedWf = w.rows[0]?.workflow_instance_id || null;
+  }
+
+  const ins = await db.query(
+    `INSERT INTO operator_notes
+       (operator_id, text, linked_phase_instance_id, linked_workflow_instance_id, source, created_at)
+     VALUES ($1, $2, $3, $4, 'app_home', COALESCE($5::timestamptz, NOW()))
+     RETURNING id`,
+    [operatorId, body, linkedPhase, linkedWf, when]
+  );
+
+  const opRow = await db.query(`SELECT name FROM operators WHERE id = $1`, [operatorId]);
+  try {
+    await require('./announce').note({ operatorName: opRow.rows[0]?.name, text: body });
+  } catch (e) { /* announce is best-effort */ }
+
+  return { noteId: ins.rows[0].id, linkedPhaseInstanceId: linkedPhase };
+}
+
 module.exports = {
   closeActiveOal, openOal, checkPrereqs,
   startPhase, joinPhase, leaveCurrent, closePhase,
@@ -660,4 +705,5 @@ module.exports = {
   findOrCreateAdHocTask, resolveReporteLink,
   startAdHocTask, closeAdHocTask,
   startBreak, endBreak, getCurrentActivity,
+  addNote,
 };

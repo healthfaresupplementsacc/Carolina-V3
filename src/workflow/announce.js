@@ -59,4 +59,44 @@ async function batchChanged({ entityType, entityId, from, to, who }) {
   );
 }
 
-module.exports = { toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged };
+// F3 — note announcement to the production channel. 20 variations,
+// random pick, no same-message-twice within a process tick. While
+// silent_text is ON, slack.postMessage() suppresses → silent_log;
+// we ALSO ping admin so a note is never silently lost.
+const NOTE_VARIATIONS = [
+  (op, t) => `📝 ${op} anotou: ${t}`,
+  (op, t) => `📝 anotação de ${op}: ${t}`,
+  (op, t) => `📝 ${op} deixou registrado: ${t}`,
+  (op, t) => `📝 observação do ${op}: ${t}`,
+  (op, t) => `📝 ${op} apontou aqui: ${t}`,
+  (op, t) => `📝 nota do ${op} — ${t}`,
+  (op, t) => `📝 ${op} quis registrar: ${t}`,
+  (op, t) => `📝 fica anotado (${op}): ${t}`,
+  (op, t) => `📝 ${op} mandou anotar: ${t}`,
+  (op, t) => `📝 registrando o que ${op} falou: ${t}`,
+  (op, t) => `📝 ${op} avisou: ${t}`,
+  (op, t) => `📝 anotei pro ${op}: ${t}`,
+  (op, t) => `📝 ${op} deixou recado: ${t}`,
+  (op, t) => `📝 ó, ${op} anotou: ${t}`,
+  (op, t) => `📝 ${op} pediu pra registrar: ${t}`,
+  (op, t) => `📝 nota rápida do ${op}: ${t}`,
+  (op, t) => `📝 ${op} reportou: ${t}`,
+  (op, t) => `📝 anotação na conta do ${op}: ${t}`,
+  (op, t) => `📝 ${op} sinalizou: ${t}`,
+  (op, t) => `📝 guardando aqui (${op}): ${t}`,
+];
+let _lastNoteIdx = -1;
+async function note({ operatorName, text }) {
+  const op = operatorName || 'alguém';
+  const t = String(text || '').trim();
+  let idx = Math.floor(Math.random() * NOTE_VARIATIONS.length);
+  if (idx === _lastNoteIdx) idx = (idx + 1) % NOTE_VARIATIONS.length;
+  _lastNoteIdx = idx;
+  const msg = NOTE_VARIATIONS[idx](op, t);
+  // postMessage self-suppresses to silent_log when silent_text is on.
+  try { await slack().postMessage(msg); } catch (e) { /* non-fatal */ }
+  // Mirror to admin so the note is visible even while muted.
+  await toAdmin(`📝 Nota de *${op}*: ${t}`);
+}
+
+module.exports = { toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged, note };

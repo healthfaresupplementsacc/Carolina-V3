@@ -269,14 +269,16 @@ async function handleViewSubmission(payload) {
         });
         break;
       }
-      case 'submit_note':
-        // Notes live as oal notes on the current activity (lightweight)
-        await db.query(
-          `UPDATE operator_activity_log SET notes = $1, updated_at = NOW()
-           WHERE operator_id = $2 AND ended_at IS NULL`,
-          [view.state.values?.text?.v?.value || '', operatorId]
-        );
+      case 'submit_note': {
+        // F2/F3 — persist to operator_notes (auto-linked to the author's
+        // active phase) + announce. The old UPDATE-oal approach silently
+        // lost the note when the operator had no open activity.
+        const noteText = view.state.values?.text?.v?.value || '';
+        if (noteText.trim()) {
+          await engine.addNote({ operatorId, text: noteText });
+        }
         break;
+      }
     }
   } catch (err) {
     console.error('[Interactive] engine error:', cb, err.message);

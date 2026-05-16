@@ -1407,7 +1407,7 @@ async function getTodayNotes(date) {
       AND deleted_at IS NULL
     ORDER BY slack_ts ASC
   `);
-  return res.rows.map(r => {
+  const channelNotes = res.rows.map(r => {
     let noteText = (r.text || '').trim();
     noteText = noteText.replace(/<@[A-Z0-9]+(?:\|[^>]+)?>/g, '').replace(/<[^>]+>/g, '').trim();
     noteText = noteText.replace(/^(Ana|Bruno|Vitor|Simone)\s*[-:]\s*\n?/i, '').trim();
@@ -1416,8 +1416,32 @@ async function getTodayNotes(date) {
       ts: new Date(parseFloat(r.ts) * 1000).toISOString(),
       operator: resolveDisplayName(r.user_id, r.user_name),
       text: noteText,
+      source: 'channel',
     };
   });
+
+  // F2 — App Home / admin notes from operator_notes
+  let homeNotes = [];
+  try {
+    const r2 = await db.query(`
+      SELECT n.created_at AS ts, o.name AS operator, n.text,
+             n.source, n.linked_phase_instance_id
+      FROM operator_notes n
+      LEFT JOIN operators o ON o.id = n.operator_id
+      WHERE (n.created_at AT TIME ZONE 'America/New_York')::date =
+            ${date ? `'${date}'::date` : `(NOW() AT TIME ZONE 'America/New_York')::date`}
+        AND n.deleted_at IS NULL
+      ORDER BY n.created_at ASC`);
+    homeNotes = r2.rows.map((r) => ({
+      ts: new Date(r.ts).toISOString(),
+      operator: r.operator || '?',
+      text: (r.text || '').trim(),
+      source: r.source || 'app_home',
+      linked_phase_instance_id: r.linked_phase_instance_id || null,
+    }));
+  } catch (_) { homeNotes = []; }
+
+  return [...channelNotes, ...homeNotes].sort((a, b) => new Date(a.ts) - new Date(b.ts));
 }
 
 async function getTodayMessages(date) {
