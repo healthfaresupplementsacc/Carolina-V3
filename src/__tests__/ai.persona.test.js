@@ -1,5 +1,5 @@
 'use strict';
-const { PERSONA_PROD, PERSONA_ADMIN, withPersona } = require('../ai/persona');
+const { PERSONA_PROD, PERSONA_ADMIN, withPersona, buildPersona } = require('../ai/persona');
 
 describe('Carolina persona (P2)', () => {
   test('PERSONA_PROD forbids AI disclosure', () => {
@@ -27,6 +27,18 @@ describe('Carolina persona (P2)', () => {
     const p = withPersona('FAÇA Y', 'admin');
     expect(p).toMatch(/C0B36DR5MP1/);
     expect(p).toMatch(/TAREFA:\nFAÇA Y/);
+  });
+
+  test('B1 — buildPersona threads the app name into IDENTITY (both scopes)', () => {
+    expect(buildPersona('prod', 'Acme Labs')).toMatch(/trabalha na Acme Labs/);
+    expect(buildPersona('admin', 'Acme Labs')).toMatch(/trabalha na Acme Labs/);
+    // default still works and keeps the AI-disclosure guardrail
+    expect(buildPersona('prod')).toMatch(/trabalha na HealthFare Production/);
+    expect(buildPersona('prod')).toMatch(/NUNCA admita ser AI/);
+  });
+
+  test('B1 — withPersona uses the cached app name (default until warmed)', () => {
+    expect(withPersona('X')).toMatch(/trabalha na HealthFare Production/);
   });
 
   test('note-classifier SYSTEM_PROMPT carries persona', () => {

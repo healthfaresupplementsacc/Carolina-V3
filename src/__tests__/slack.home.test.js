@@ -20,6 +20,16 @@ describe('buildHomeView', () => {
     expect(txt).toMatch(/Tarefa avulsa/);
   });
 
+  test('B1 — header reflects the configured app name when provided in state', () => {
+    const v = home.buildHomeView({
+      appName: 'Minha Fábrica', operators: [], workflows: [],
+      phases: [], adhoc: [], breaks: [],
+    });
+    const txt = JSON.stringify(v);
+    expect(txt).toMatch(/🌿 Minha Fábrica/);
+    expect(txt).not.toMatch(/🌿 HealthFare Production/);
+  });
+
   test('renders active workflow with its open phases + overflow menu', () => {
     const v = home.buildHomeView({
       operators: [{ id: 1, name: 'Vitor' }],

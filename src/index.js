@@ -105,6 +105,9 @@ async function start() {
     // 5. Start EOD cron
     startEodJob();
 
+    // 5b. Warm the app_name cache (App Home header + Carolina persona).
+    require('./app-state').getAppName().catch(() => {});
+
     // 6. Start HTTP server
     const port = config.app.port;
     app.listen(port, () => {

@@ -17,6 +17,7 @@
 
 const config = require('../config');
 const db = require('../db');
+const appState = require('../app-state');
 
 let _client = null;
 function client() {
@@ -88,7 +89,8 @@ async function fetchHomeState() {
 function buildHomeView(state) {
   const blocks = [];
 
-  blocks.push({ type: 'header', text: { type: 'plain_text', text: '🌿 HealthFare Production' } });
+  const appName = state.appName || appState.getAppNameSync();
+  blocks.push({ type: 'header', text: { type: 'plain_text', text: `🌿 ${appName}` } });
 
   // E. Primary actions (top so they're always reachable)
   blocks.push({
