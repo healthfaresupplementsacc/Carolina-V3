@@ -243,6 +243,7 @@ router.get('/dashboard', async (req, res) => {
       archive,
       pauseCount: parseInt(pauseResult.rows[0]?.cnt || 0),
       activeBreaks: activeBreaksResult.rows,
+      todayBreaks: await getTodayBreaks(date),
       viewingDate: date || null,
       todayBottles,
       yesterdayBottles,
@@ -1395,6 +1396,37 @@ async function getArchive() {
      LIMIT 30`
   );
   return res.rows;
+}
+
+// B5 — all of today's breaks (open AND closed) from operator_activity_log,
+// the source of truth. The legacy activeBreaks only lists open ones, so
+// a returned break (e.g. Simone's) vanished from the dashboard entirely.
+async function getTodayBreaks(date) {
+  try {
+    const dExpr = date
+      ? `'${date}'::date`
+      : `(NOW() AT TIME ZONE 'America/New_York')::date`;
+    const r = await db.query(`
+      SELECT oal.id, o.name AS operator, oal.started_at, oal.ended_at,
+             oal.duration_seconds,
+             p.reason, p.ended_reason
+      FROM operator_activity_log oal
+      JOIN operators o ON o.id = oal.operator_id
+      LEFT JOIN pauses p ON p.id = oal.pause_id
+      WHERE oal.activity_type = 'break'
+        AND (oal.started_at AT TIME ZONE 'America/New_York')::date = ${dExpr}
+      ORDER BY oal.started_at DESC`);
+    return r.rows.map((x) => ({
+      id: x.id,
+      operator: x.operator,
+      started_at: x.started_at,
+      ended_at: x.ended_at,
+      open: x.ended_at == null,
+      duration_seconds: x.duration_seconds,
+      untracked: x.ended_reason === 'untracked_return'
+        || /não-rastreado|nao-rastreado/i.test(x.reason || ''),
+    }));
+  } catch (_) { return []; }
 }
 
 async function getTodayNotes(date) {

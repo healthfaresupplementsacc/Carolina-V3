@@ -662,6 +662,9 @@ function generateDashboard() {
   <!-- BREAK ADMIN LIST (admin only — Entrega 2 commit 10) -->
   <div id="break-admin-list" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px"></div>
 
+  <!-- B5: today's breaks (open + closed) so a returned break is visible -->
+  <div id="today-breaks" style="display:none;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:12px"></div>
+
   <!-- CREATE TASK MODAL (admin only) -->
   <div id="create-task-modal" class="modal-overlay">
     <div class="modal-box">
@@ -1546,6 +1549,30 @@ async function submitCreateOrder() {
 }
 
 // ===== BREAK BANNER =====
+// B5 — today's breaks list (open + closed) so a returned break shows.
+function renderTodayBreaks(breaks) {
+  const el = document.getElementById('today-breaks');
+  if (!el) return;
+  if (!breaks || breaks.length === 0) { el.style.display = 'none'; return; }
+  const fmtHM = (ts) => ts ? new Date(ts).toLocaleTimeString('pt-BR',
+    { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' }) : '—';
+  const fmtDur = (s) => s == null ? '' :
+    (s >= 3600 ? \`\${Math.floor(s/3600)}h\${String(Math.floor((s%3600)/60)).padStart(2,'0')}m\`
+               : \`\${Math.floor(s/60)}min\`);
+  el.style.display = 'block';
+  el.innerHTML = '<div style="font-weight:700;margin-bottom:6px">☕ Breaks de hoje</div>' +
+    breaks.map(b => {
+      const status = b.open ? '<span style="color:#b45309">em break</span>'
+        : b.untracked ? '<span style="color:#9333ea">não-rastreado</span>'
+        : '<span style="color:#059669">voltou</span>';
+      const dur = b.open ? '' : (b.untracked ? '' : ' · ' + fmtDur(b.duration_seconds));
+      return \`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid #f3f4f6">
+        <span>\${escHtml(b.operator || '?')} — \${status}</span>
+        <span style="color:#6b7280">\${fmtHM(b.started_at)}\${b.ended_at ? '→' + fmtHM(b.ended_at) : ''}\${dur}</span>
+      </div>\`;
+    }).join('');
+}
+
 function renderBreakBanner(breaks) {
   const banner = document.getElementById('break-banner');
   const adminList = document.getElementById('break-admin-list');
@@ -2175,6 +2202,7 @@ function renderAll(data) {
   if (createOrderBtn) createOrderBtn.style.display = adminUnlocked ? 'inline-block' : 'none';
 
   renderBreakBanner(data.activeBreaks || []);
+  renderTodayBreaks(data.todayBreaks || []);
   renderOrders(data.todayOrders || []);
   renderOpenTasks(data.openTasks || []);
   renderProd(data.todayTasks || [], data.counts || []);
