@@ -174,11 +174,18 @@ async function runDailyCleanup() {
       ghosts = await require('../scripts/cleanup-ghost-workflows')
         .cleanupGhostWorkflows({ apply: true, db, source: 'cron' });
     } catch (e) { console.error('[Cleanup] ghost workflows error:', e.message); }
+    // OPERATOR-CRUD — expire temporary helpers whose expires_at passed
+    // (soft deactivate, never delete; audited action='operator.expired').
+    let helpers = { count: 0 };
+    try {
+      helpers = await require('../scripts/expire-helpers')
+        .expireHelpers({ apply: true, db, source: 'cron' });
+    } catch (e) { console.error('[Cleanup] expire helpers error:', e.message); }
     console.log(
       `[Cleanup] daily: stale-breaks=${Array.isArray(closed) ? closed.length : closed}, ` +
       `audit-ttl=${audited}, orphan-phases=${orphans.phases_closed}, ` +
       `orphan-adhoc=${orphans.adhoc_closed}, orphan-wf=${orphans.workflows_closed}, ` +
-      `ghost-wf=${ghosts.count}`
+      `ghost-wf=${ghosts.count}, expired-helpers=${helpers.count}`
     );
   } catch (err) {
     console.error('[Cleanup] daily run error:', err.message);
