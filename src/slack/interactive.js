@@ -38,6 +38,49 @@ async function operatorOptions() {
   }));
 }
 
+// Bug B — supplement autocomplete via external_select. Slack calls the
+// app's Options Load URL (/slack/options) as the user types.
+function supplementSelectBlock(blockId, label, optional = false) {
+  return {
+    type: 'input',
+    block_id: blockId,
+    optional,
+    label: { type: 'plain_text', text: label },
+    element: {
+      type: 'external_select',
+      action_id: 'supplement_select',
+      min_query_length: 0, // 0 → also fetch on open (top-used list)
+      placeholder: { type: 'plain_text', text: 'Digite p/ buscar…' },
+    },
+  };
+}
+
+// Resolve an external_select supplement value. Returns
+// { name, isNew }. '__create__:<typed>' → brand-new supplement.
+async function resolveSupplementValue(selected, deps = {}) {
+  if (!selected) return { name: null, isNew: false };
+  if (selected.startsWith('__create__:')) {
+    const name = selected.slice('__create__:'.length).trim();
+    if (!name) return { name: null, isNew: false };
+    const db = deps.db || require('../db');
+    const parser = deps.parser || require('../parser');
+    const announce = deps.announce || require('../workflow/announce');
+    try {
+      await db.query(
+        `INSERT INTO supplement_catalog (canonical_name, aliases)
+         VALUES ($1, '') ON CONFLICT (canonical_name) DO NOTHING`,
+        [name]
+      );
+      if (typeof parser.addCustomSupplement === 'function') parser.addCustomSupplement(name, '');
+      await announce.adHocPending({ operatorName: 'App Home', taskName: `suplemento novo "${name}"` });
+    } catch (err) {
+      console.error('[Interactive] new supplement create error:', err.message);
+    }
+    return { name, isNew: true };
+  }
+  return { name: selected, isNew: false };
+}
+
 function operatorPickerBlock(options) {
   return {
     type: 'input',
@@ -128,9 +171,7 @@ async function handleBlockAction(payload) {
            label: { type: 'plain_text', text: 'Tipo de trabalho' },
            element: { type: 'static_select', action_id: 'v',
              options: wts.rows.map((w) => ({ text: { type: 'plain_text', text: w.name }, value: String(w.id) })) } },
-         { type: 'input', optional: true, block_id: 'product',
-           label: { type: 'plain_text', text: 'Produto (se aplicável)' },
-           element: { type: 'plain_text_input', action_id: 'v' } },
+         supplementSelectBlock('product', 'Produto (se aplicável)', true),
          { type: 'input', optional: true, block_id: 'batch',
            label: { type: 'plain_text', text: 'Lote' },
            element: { type: 'plain_text_input', action_id: 'v' } }]));
@@ -138,8 +179,7 @@ async function handleBlockAction(payload) {
     case 'register_count':
       return openModal(triggerId, modal('submit_count', 'Registrar produção',
         [operatorPickerBlock(opts),
-         { type: 'input', block_id: 'supp', label: { type: 'plain_text', text: 'Suplemento' },
-           element: { type: 'plain_text_input', action_id: 'v' } },
+         supplementSelectBlock('supp', 'Suplemento'),
          { type: 'input', block_id: 'qty', label: { type: 'plain_text', text: 'Bottles' },
            element: { type: 'plain_text_input', action_id: 'v' } }]));
     case 'add_note':
@@ -201,7 +241,8 @@ async function handleViewSubmission(payload) {
       }
       case 'submit_start_batch': {
         const wt = parseInt(view.state.values?.wt?.v?.selected_option?.value);
-        const product = view.state.values?.product?.v?.value || null;
+        const productSel = view.state.values?.product?.supplement_select?.selected_option?.value || null;
+        const { name: product } = await resolveSupplementValue(productSel);
         const batch = view.state.values?.batch?.v?.value || null;
         const wf = await engine.findOrCreateWorkflowInstance({
           workflowTemplateId: wt, productName: product, batchNumber: batch,
@@ -219,12 +260,15 @@ async function handleViewSubmission(payload) {
         }
         break;
       }
-      case 'submit_count':
+      case 'submit_count': {
+        const suppSel = view.state.values?.supp?.supplement_select?.selected_option?.value || null;
+        const { name: suppName } = await resolveSupplementValue(suppSel);
         await engine.startAdHocTask({
           taskName: 'Reporte no sistema', operatorId,
-          text: `${view.state.values?.supp?.v?.value || ''} ${view.state.values?.qty?.v?.value || ''}`,
+          text: `${suppName || ''} ${view.state.values?.qty?.v?.value || ''}`,
         });
         break;
+      }
       case 'submit_note':
         // Notes live as oal notes on the current activity (lightweight)
         await db.query(

@@ -80,7 +80,7 @@ describe('view_submission → engine', () => {
     await interactive.handleInteraction(viewSubmission('submit_start_batch', {}, {
       ...WHO,
       wt: { v: { selected_option: { value: '1' } } },
-      product: { v: { value: 'Green Tea' } },
+      product: { supplement_select: { selected_option: { value: 'Green Tea' } } },
       batch: { v: { value: '0098' } },
     }));
     expect(engine.findOrCreateWorkflowInstance).toHaveBeenCalledWith(expect.objectContaining({

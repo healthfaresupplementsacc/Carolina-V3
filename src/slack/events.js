@@ -104,4 +104,27 @@ router.post('/slack/events', async (req, res) => {
   res.status(200).end();
 });
 
+// Bug B — Options Load URL for external_select (supplement autocomplete).
+// Slack POSTs a block_suggestion payload here (form-encoded payload=<json>).
+// Must respond within 3s with { options:[…] }.
+router.post('/slack/options', async (req, res) => {
+  const v = verifySlackSignature(req);
+  if (!v.ok) {
+    console.warn('[SlackOptions] signature rejected:', v.reason);
+    return res.status(401).json({ options: [] });
+  }
+  let payload = {};
+  try {
+    payload = req.body && req.body.payload ? JSON.parse(req.body.payload) : (req.body || {});
+  } catch { payload = {}; }
+  try {
+    const options = require('./options');
+    const out = await options.buildOptionsResponse(payload);
+    return res.json(out);
+  } catch (err) {
+    console.error('[SlackOptions] error:', err.message);
+    return res.json({ options: [] });
+  }
+});
+
 module.exports = { router, verifySlackSignature };
