@@ -132,6 +132,28 @@ const DETECTORS = [
   adhocPending, supplementsPending, duplicateBatches,
 ];
 
+// BLOCO C / P7 — Bloco B message toggles also gate the autonomous
+// Carolina. If the admin turns a category OFF in the Config Carolina
+// panel, the cron stops proposing that category. (Spec example: disable
+// "Pergunta de conflito" → no proposals to close open phases.)
+const PROPOSAL_TYPE_TOGGLE = {
+  close_phase: 'conflict',
+  ask_batch: 'conflict',
+  merge_tasks: 'conflict',
+  operator_idle: 'urgency',
+  approve_adhoc: 'task',
+  approve_supplement: 'task',
+};
+async function defaultIsTypeEnabled(proposalType) {
+  const toggle = PROPOSAL_TYPE_TOGGLE[proposalType];
+  if (!toggle) return true; // unmapped → not gated
+  try {
+    return await require('../app-state').isMsgEnabled(toggle);
+  } catch (_) {
+    return true; // never let a config read failure silence detection
+  }
+}
+
 function buildProposeText(c) {
   if (c.alertOnly) {
     return `🤖 Detectei: ${c.summary}. Quer que eu faça algo? Responda "sim" ou "não".`;
@@ -150,7 +172,7 @@ async function detectAndPropose(deps = {}) {
   const adminTools = deps.adminTools || require('./admin-tools');
   const postToAdmin = deps.postToAdmin
     || (async (t) => require('../workflow/announce').toAdmin(t));
-  const isTypeEnabled = deps.isTypeEnabled || (async () => true);
+  const isTypeEnabled = deps.isTypeEnabled || defaultIsTypeEnabled;
 
   const made = [];
   for (const detector of DETECTORS) {
@@ -196,4 +218,5 @@ module.exports = {
   detectAndPropose, buildProposeText, DETECTORS,
   phasesStale, operatorsIdle, workflowsNoBatch,
   adhocPending, supplementsPending, duplicateBatches,
+  PROPOSAL_TYPE_TOGGLE, defaultIsTypeEnabled,
 };
