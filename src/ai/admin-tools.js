@@ -423,6 +423,68 @@ async function postToProductionChannel(args = {}, deps = {}) {
   };
 }
 
+// BUG REBELLION (Part A) — Carolina claimed she had no tool to close a
+// break. She does now: this reuses engine.endBreak (the canonical path
+// that closes the oal break + linked pause + opens idle), looping so
+// duplicate open break rows for the same operator all get closed.
+async function _endAllOpenBreaks(operatorId, when, deps) {
+  const engine = deps.engine || require('../workflow/engine');
+  let closed = 0; let lastTs = null;
+  for (let i = 0; i < 8; i++) {
+    const chk = await db.query(
+      `SELECT 1 FROM operator_activity_log
+       WHERE operator_id = $1 AND ended_at IS NULL AND activity_type = 'break' LIMIT 1`,
+      [operatorId]);
+    if (!chk.rows.length) break;
+    await engine.endBreak({ operatorId, when: when || null });
+    closed++;
+    lastTs = when || new Date().toISOString();
+  }
+  return { closed, lastTs };
+}
+async function closeActiveBreak(args = {}, deps = {}) {
+  const ref = args.operator != null && args.operator !== ''
+    ? args.operator : args.operator_id;
+  const op = await resolveOperator(ref);
+  if (!op) return { closed: false, found: false, error: 'operador não encontrado — confirme o nome' };
+  const { closed, lastTs } = await _endAllOpenBreaks(op.id, args.ended_at, deps);
+  if (deps._skipAudit !== true) {
+    const audit = deps.auditAction || require('../admin/audit').auditAction;
+    await audit({
+      action: 'ai_admin_closed_break', entityType: 'operator_activity_log',
+      entityId: op.id, source: deps.source || 'slack_admin',
+      before: { operator: op.name, triggered_by: deps.triggeredBy || 'slack_admin_order' },
+      after: { closed_count: closed, ended_at: lastTs },
+    });
+  }
+  return {
+    closed: closed > 0, closed_count: closed, operator: op.name, ended_at: lastTs,
+    note: closed === 0 ? 'esse operador não tinha break ativo' : undefined,
+  };
+}
+async function closeAllActiveBreaks(args = {}, deps = {}) {
+  const r = await db.query(
+    `SELECT DISTINCT oal.operator_id, o.name AS operator
+     FROM operator_activity_log oal JOIN operators o ON o.id = oal.operator_id
+     WHERE oal.ended_at IS NULL AND oal.activity_type = 'break'`);
+  const results = [];
+  for (const row of r.rows) {
+    const { closed } = await _endAllOpenBreaks(row.operator_id, args.ended_at, deps);
+    if (closed > 0) results.push({ operator: row.operator, closed_count: closed });
+  }
+  const audit = deps.auditAction || require('../admin/audit').auditAction;
+  await audit({
+    action: 'ai_admin_closed_break', entityType: 'operator_activity_log',
+    entityId: 'all', source: deps.source || 'slack_admin',
+    before: { scope: 'all', triggered_by: deps.triggeredBy || 'slack_admin_order' },
+    after: { closed: results },
+  });
+  return {
+    closed_operators: results.length, results,
+    note: results.length === 0 ? 'ninguém estava em break' : undefined,
+  };
+}
+
 async function updateBreakRetroactive(args = {}, deps = {}) {
   const time = String(args.time || args.question_id || '').trim();
   const btr = require('../workflow/break-time-reply');
@@ -454,6 +516,8 @@ const TOOL_DEFS = [
   { name: 'move_operator', description: 'Move um operador para outra atividade.', input_schema: { type: 'object', properties: { operator_id: { type: 'integer' }, target_phase_instance_id: { type: 'integer' }, target_ad_hoc_task_instance_id: { type: 'integer' } }, required: ['operator_id'] } },
   { name: 'create_workflow', description: 'Cria um workflow novo com fases.', input_schema: { type: 'object', properties: { name: { type: 'string' }, phases: { type: 'array', items: { type: 'string' } } }, required: ['name'] } },
   { name: 'post_to_production_channel', description: 'Posta uma mensagem NO canal de produção (ou orders/inventário) como Carolina. USE SEMPRE que o admin pedir pra você "mandar/avisar/postar/escrever lá no canal". Você TEM essa capacidade — nunca diga que só lê. Respeita o modo silencioso automaticamente.', input_schema: { type: 'object', properties: { message_text: { type: 'string', description: 'Texto exato a postar (na sua voz humana; não revele que o admin pediu)' }, channel_type: { type: 'string', enum: ['production', 'orders_inventory'], description: "default 'production'" } }, required: ['message_text'] } },
+  { name: 'close_active_break', description: 'Fecha o break ATIVO de um operador (passe o nome em "operator"). Você TEM essa ferramenta — nunca diga que não consegue fechar break. Fecha todos os breaks abertos dele (lida com linhas duplicadas).', input_schema: { type: 'object', properties: { operator: { type: 'string', description: 'Nome do operador (ex: "Simone")' }, operator_id: { type: 'integer' }, ended_at: { type: 'string', description: "horário de fim (default agora)" } } } },
+  { name: 'close_all_active_breaks', description: 'Fecha o break ativo de TODOS os operadores que estão em break agora (ex: admin "fecha o break dos 2"). Você TEM essa ferramenta.', input_schema: { type: 'object', properties: { ended_at: { type: 'string', description: 'horário de fim (default agora)' } } } },
   // direct responses to pending questions
   { name: 'dismiss_pending_question', description: 'Cancela/descarta a pergunta pendente sem responder (ex: admin disse "ignora").', input_schema: { type: 'object', properties: { question_id: { type: 'string' } } } },
   { name: 'update_break_retroactive', description: 'Responde a pergunta retroativa de break com o horário (ex: "14:30").', input_schema: { type: 'object', properties: { time: { type: 'string' }, question_id: { type: 'string' } }, required: ['time'] } },
@@ -463,7 +527,9 @@ const MUTATION_TOOLS = new Set(['close_phase', 'approve_adhoc', 'approve_supplem
 const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroactive']);
 // Action tools that audit under their own action name (an admin order in
 // chat IS the confirmation, like mutation tools).
-const CHANNEL_TOOLS = new Set(['post_to_production_channel']);
+const CHANNEL_TOOLS = new Set([
+  'post_to_production_channel', 'close_active_break', 'close_all_active_breaks',
+]);
 
 /**
  * Execute one tool call from the agentic loop.
@@ -518,6 +584,8 @@ async function runTool(name, input = {}, deps = {}) {
       throw new Error('postar no canal requer ordem explícita do admin');
     }
     if (name === 'post_to_production_channel') return postToProductionChannel(input, deps);
+    if (name === 'close_active_break') return closeActiveBreak(input, deps);
+    if (name === 'close_all_active_breaks') return closeAllActiveBreaks(input, deps);
   }
   if (MUTATION_TOOLS.has(name)) {
     if (!EXEC[name]) throw new Error('mutation tool sem executor: ' + name);
@@ -627,6 +695,7 @@ module.exports = {
   SUSPICIOUS_BREAK_MIN, searchMessages, suggestClaudeCodePrompt,
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive, postToProductionChannel,
+  closeActiveBreak, closeAllActiveBreaks,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, CHANNEL_TOOLS, runTool,
   detectDismissIntent, stripVocative, pendingSummary, pendingContextLine, interpretDirectOrder,
 };
