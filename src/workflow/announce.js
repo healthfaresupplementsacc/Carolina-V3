@@ -99,4 +99,47 @@ async function note({ operatorName, text }) {
   await toAdmin(`📝 Nota de *${op}*: ${t}`);
 }
 
-module.exports = { toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged, note };
+// F6 — operator clicked "Voltei" with no open break. 20 variations of
+// the "what time did you actually leave?" question. postMessage
+// self-suppresses to silent_log while silent_text=ON; we also tell
+// admin it was suppressed so they can fix the time by hand.
+const VOLTA_SEM_BREAK = [
+  (n) => `${n}, vc voltou mas eu não vi vc sair — que horas vc saiu mesmo?`,
+  (n) => `oi ${n}, não registrei sua saída. que horas vc parou pro break?`,
+  (n) => `${n} que horas vc tinha saído? não peguei o início do break`,
+  (n) => `${n}, cadê o horário que vc saiu? não vi vc ir`,
+  (n) => `${n} me ajuda: que horas começou seu break? não tinha registro`,
+  (n) => `ué ${n}, não vi vc sair. que horas foi?`,
+  (n) => `${n}, faltou o início do seu break — que horas vc saiu?`,
+  (n) => `${n} que horas vc saiu pro break? não tinha anotado`,
+  (n) => `oi ${n}, voltou de onde? não registrei a saída — que horas foi?`,
+  (n) => `${n}, me diz a que horas vc saiu que eu acerto aqui`,
+  (n) => `${n} não peguei vc saindo. qual foi o horário do break?`,
+  (n) => `${n}, que horas vc tinha parado? preciso pro registro`,
+  (n) => `eita ${n}, sumiu e voltou — que horas vc saiu?`,
+  (n) => `${n} qual horário vc saiu pro intervalo? não tinha aqui`,
+  (n) => `${n}, sem registro da saída. me passa o horário que vc parou`,
+  (n) => `${n} voltou! mas que horas vc tinha saído mesmo?`,
+  (n) => `oi ${n}, que horas começou o break? não vi vc sair`,
+  (n) => `${n}, preciso do horário que vc saiu — não foi registrado`,
+  (n) => `${n} me fala que horas vc parou que eu ajusto`,
+  (n) => `${n}, não vi vc saindo. a que horas foi o break?`,
+];
+let _lastVoltaIdx = -1;
+async function voltaSemBreak({ operatorName }) {
+  const n = operatorName || 'oi';
+  let i = Math.floor(Math.random() * VOLTA_SEM_BREAK.length);
+  if (i === _lastVoltaIdx) i = (i + 1) % VOLTA_SEM_BREAK.length;
+  _lastVoltaIdx = i;
+  try { await slack().postMessage(VOLTA_SEM_BREAK[i](n)); } catch (e) { /* non-fatal */ }
+  await toAdmin(
+    `↩️ *${n}* clicou "Voltei" mas não havia break aberto. Criei um break ` +
+    `não-rastreado (horário a confirmar). A pergunta do horário foi pro ` +
+    `canal (suprimida se silent_text=ON) — edita manualmente se quiser.`
+  );
+}
+
+module.exports = {
+  toAdmin, prereqWarning, duplicateBatch, adHocPending, batchChanged,
+  note, voltaSemBreak,
+};

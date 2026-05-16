@@ -598,7 +598,36 @@ async function endBreak({ operatorId, when = null }) {
      ORDER BY id DESC LIMIT 1`,
     [operatorId]
   );
-  if (cur.rows.length === 0) return { wasOnBreak: false };
+  if (cur.rows.length === 0) {
+    // F6 — "Voltei" with no open break. Record a retroactive,
+    // untracked break (start time to be confirmed) so the day's
+    // accounting isn't silently wrong, then ask the operator what
+    // time they actually left (announce → silent_log when muted +
+    // admin notice).
+    const opRow = await db.query(`SELECT name FROM operators WHERE id = $1`, [operatorId]);
+    const opName = opRow.rows[0]?.name || null;
+    const pauseRes = await db.query(
+      `INSERT INTO pauses (operator, reason, started_at, ended_at, ended_reason)
+       VALUES ($1, '[break não-rastreado]', $2::timestamptz, $2::timestamptz, 'untracked_return')
+       RETURNING id`,
+      [opName, ts]
+    );
+    const pauseId = pauseRes.rows[0]?.id || null;
+    const oalId = await openOal({
+      operatorId, activityType: 'break', pauseId,
+      role: null, when: ts, notes: '[break não-rastreado]',
+    });
+    await db.query(
+      `UPDATE operator_activity_log
+       SET ended_at = $1::timestamptz, duration_seconds = 0, updated_at = NOW()
+       WHERE id = $2`,
+      [ts, oalId]
+    );
+    try {
+      await require('./announce').voltaSemBreak({ operatorName: opName });
+    } catch (e) { /* best-effort */ }
+    return { wasOnBreak: false, untrackedBreak: true, pauseId, oalId };
+  }
   const prev = cur.rows[0];
 
   await db.query(

@@ -68,10 +68,27 @@ describe('engine — break/return primitives (Fase 3.3)', () => {
     expect(openedIdle).toBe(true);
   });
 
-  test('endBreak when not on break returns wasOnBreak=false', async () => {
-    db.query = jest.fn().mockResolvedValue({ rows: [] });
+  test('F6 — endBreak with no open break creates an untracked break', async () => {
+    const seen = [];
+    db.query = jest.fn().mockImplementation((sql) => {
+      seen.push(sql);
+      // current break lookup → none
+      if (/activity_type = 'break'/.test(sql) && /ended_at IS NULL/.test(sql)) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (/SELECT name FROM operators WHERE id/.test(sql)) {
+        return Promise.resolve({ rows: [{ name: 'Ana' }] });
+      }
+      if (/INSERT INTO pauses/.test(sql)) return Promise.resolve({ rows: [{ id: 77 }] });
+      if (/INSERT INTO operator_activity_log/.test(sql)) return Promise.resolve({ rows: [{ id: 88 }] });
+      return Promise.resolve({ rows: [] });
+    });
     const r = await engine.endBreak({ operatorId: 5 });
     expect(r.wasOnBreak).toBe(false);
+    expect(r.untrackedBreak).toBe(true);
+    expect(r.pauseId).toBe(77);
+    // an untracked pause row was inserted with the marker reason
+    expect(seen.some((s) => /INSERT INTO pauses[\s\S]*untracked_return/.test(s))).toBe(true);
   });
 
   test('getCurrentActivity returns active row with joined display fields', async () => {
