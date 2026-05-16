@@ -242,7 +242,8 @@ async function dismissPendingQuestion(args = {}, deps = {}) {
   await audit({
     action: 'ai_admin_executed', entityType: 'ai_admin',
     entityId: 'dismiss_pending_question', source: 'slack_admin',
-    before: { question_id: args.question_id || null }, after: { dismissed },
+    before: { question_id: args.question_id || null, triggered_by: deps.triggeredBy || 'slack_admin_order' },
+    after: { dismissed },
   });
   return { dismissed };
 }
@@ -255,7 +256,8 @@ async function updateBreakRetroactive(args = {}, deps = {}) {
   await audit({
     action: 'ai_admin_executed', entityType: 'ai_admin',
     entityId: 'update_break_retroactive', source: 'slack_admin',
-    before: { time }, after: { outcome: r.outcome || (r.handled ? 'handled' : 'no_pending') },
+    before: { time, triggered_by: deps.triggeredBy || 'slack_admin_order' },
+    after: { outcome: r.outcome || (r.handled ? 'handled' : 'no_pending') },
   });
   return r;
 }
@@ -307,12 +309,22 @@ async function runTool(name, input = {}, deps = {}) {
   }
   if (MUTATION_TOOLS.has(name)) {
     if (!EXEC[name]) throw new Error('mutation tool sem executor: ' + name);
+    // P5 GUARDRAIL — mutation tools execute ONLY with explicit
+    // confirmation. In the admin-chat loop the admin's order IS the
+    // confirmation (allowMutations defaults to true there). Any caller
+    // without confirmation (autonomous/cron) must pass
+    // allowMutations:false → the cron NEVER runs mutations directly,
+    // it proposes (P3) and waits for the admin's "sim".
+    if (deps.allowMutations === false) {
+      throw new Error('mutação requer confirmação explícita do admin (use propose → sim)');
+    }
+    const triggered_by = deps.triggeredBy || 'slack_admin_order';
     const result = await EXEC[name](input);
     const audit = deps.auditAction || require('../admin/audit').auditAction;
     await audit({
       action: 'ai_admin_executed', entityType: 'ai_admin',
       entityId: name, source: deps.source || 'slack_admin',
-      before: { tool: name, input }, after: { result },
+      before: { tool: name, input, triggered_by }, after: { result },
     });
     return result;
   }
