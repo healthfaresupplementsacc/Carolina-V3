@@ -23,11 +23,23 @@ function db(ghosts) {
   };
 }
 
-describe('BUG GHOST — detection SQL', () => {
-  test('GHOST_SQL targets active >24h with no recently-active child', () => {
+describe('BUG GHOST-2 — refined detection SQL (>24h OR no-open-phase >2h)', () => {
+  test('targets active+open workflows by EITHER the 24h OR the 2h-no-phase rule', () => {
     expect(ghost.GHOST_SQL).toMatch(/status = 'active'/);
-    expect(ghost.GHOST_SQL).toMatch(/started_at < NOW\(\) - INTERVAL '24 hours'/);
-    expect(ghost.GHOST_SQL).toMatch(/NOT EXISTS[\s\S]*phase_instances pi[\s\S]*started_at > NOW\(\) - INTERVAL '24 hours'/);
+    expect(ghost.GHOST_SQL).toMatch(/wi\.ended_at IS NULL/);
+    // branch (a): older than 24h regardless of children
+    expect(ghost.GHOST_SQL).toMatch(/wi\.started_at < NOW\(\) - INTERVAL '24 hours'/);
+    // branch (b): no currently-open child phase AND older than 2h
+    expect(ghost.GHOST_SQL).toMatch(/wi\.started_at < NOW\(\) - INTERVAL '2 hours'/);
+    expect(ghost.GHOST_SQL).toMatch(/NOT EXISTS[\s\S]*phase_instances pi[\s\S]*pi\.status = 'open'/);
+    // the two branches are OR'd, the 2h branch AND's the NOT EXISTS
+    expect(ghost.GHOST_SQL).toMatch(/INTERVAL '24 hours'\s*OR\s*\(/);
+    expect(ghost.GHOST_SQL).toMatch(/INTERVAL '2 hours'\s*AND\s*NOT EXISTS/);
+    // dry-run visibility: age + reason are selected
+    expect(ghost.GHOST_SQL).toMatch(/AS age_hours/);
+    expect(ghost.GHOST_SQL).toMatch(/AS reason/);
+    // the old over-narrow "child started_at > NOW() - 24h" rule is gone
+    expect(ghost.GHOST_SQL).not.toMatch(/pi\.started_at > NOW\(\) - INTERVAL '24 hours'/);
   });
   test('findGhosts returns the rows', async () => {
     const d = db([{ id: 1 }, { id: 2 }]);

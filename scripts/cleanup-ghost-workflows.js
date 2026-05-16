@@ -14,16 +14,31 @@
  *   (also runs daily at 03:30 ET via scheduler.runDailyCleanup)
  */
 
+// BUG GHOST-2 — the >24h-only rule left recent junk batches alive
+// ("iniciado 2h/3h atrás" with no real work). Refined: a workflow is a
+// ghost when it's active+open AND either
+//   (a) it's older than 24h (regardless of children), OR
+//   (b) it has NO currently-open child phase AND is older than 2h
+//       (started, nobody working it, just sitting there).
+// Still idempotent (only status='active'); age_hours + reason surface
+// in the dry-run so we can see WHO would be closed and how old.
 const GHOST_SQL = `
-  SELECT wi.id, wi.product_name, wi.batch_number, wi.started_at
+  SELECT wi.id, wi.product_name, wi.batch_number, wi.started_at,
+         round(EXTRACT(EPOCH FROM (NOW() - wi.started_at)) / 3600.0, 1) AS age_hours,
+         CASE WHEN wi.started_at < NOW() - INTERVAL '24 hours'
+              THEN 'older_than_24h' ELSE 'no_open_phase_over_2h' END AS reason
   FROM workflow_instances wi
   WHERE wi.status = 'active' AND wi.ended_at IS NULL
-    AND wi.started_at < NOW() - INTERVAL '24 hours'
-    AND NOT EXISTS (
-      SELECT 1 FROM phase_instances pi
-      WHERE pi.workflow_instance_id = wi.id
-        AND pi.status = 'open' AND pi.ended_at IS NULL
-        AND pi.started_at > NOW() - INTERVAL '24 hours'
+    AND (
+      wi.started_at < NOW() - INTERVAL '24 hours'
+      OR (
+        wi.started_at < NOW() - INTERVAL '2 hours'
+        AND NOT EXISTS (
+          SELECT 1 FROM phase_instances pi
+          WHERE pi.workflow_instance_id = wi.id
+            AND pi.status = 'open' AND pi.ended_at IS NULL
+        )
+      )
     )
   ORDER BY wi.started_at ASC`;
 
@@ -86,7 +101,9 @@ if (require.main === module) {
       const res = await cleanupGhostWorkflows({ apply, db: pool, source: 'script' });
       console.log(`[ghost-cleanup] ${apply ? 'APPLIED' : 'DRY-RUN'} — ${res.count} ghost workflow(s):`);
       for (const g of res.ghosts) {
-        console.log(`  #${g.id} ${g.product_name || '?'} ${g.batch_number || ''} (started ${g.started_at})`);
+        console.log(`  #${g.id} ${g.product_name || '?'} ${g.batch_number || ''} `
+          + `— ${g.age_hours != null ? g.age_hours + 'h' : '?'} old [${g.reason || '?'}] `
+          + `(started ${g.started_at})`);
       }
       if (!apply && res.count > 0) console.log('[ghost-cleanup] re-run with --apply to close them.');
     } catch (e) {
