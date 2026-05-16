@@ -12,7 +12,7 @@ const apiRouter = require('./routes/api');
 const workflowRouter = require('./routes/workflow');
 const { loadCustomSupplements } = apiRouter;
 const poller = require('./slack/poller');
-const { startPolling, startEodJob } = require('./scheduler');
+const { startPolling, startEodJob, startGreetingJob } = require('./scheduler');
 
 const app = express();
 
@@ -104,6 +104,9 @@ async function start() {
 
     // 5. Start EOD cron
     startEodJob();
+
+    // 5a. Start the morning greeting cron (BLOCO B / C3).
+    startGreetingJob();
 
     // 5b. Warm the app_name cache (App Home header + Carolina persona).
     require('./app-state').getAppName().catch(() => {});

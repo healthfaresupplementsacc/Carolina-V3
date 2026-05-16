@@ -63,6 +63,59 @@ function startEodJob() {
   console.log('[Scheduler] Daily cleanup scheduled at 03:30 ' + config.eod.timezone);
 }
 
+// ===== BLOCO B / C3 — morning greeting =====
+// Posts a greeting to the production channel each morning. Reads its
+// on/off flag and (optional) override text from app_state, so the
+// Config Carolina panel controls it. The schedule hour becomes
+// configurable in C6; the message picks from variations in C5.
+const GREETING_HOUR_ET = 8; // default 08:00 ET (configurable in C6)
+
+const DEFAULT_GREETINGS = [
+  'Bom dia, time! Bora começar o dia. Qualquer coisa é só marcar por aqui.',
+  'Bom dia! Novo dia, novo lote — vamo que vamo.',
+  'Oi gente, bom dia! Tô por aqui acompanhando, manda ver.',
+  'Bom dia, pessoal! Lembrem de marcar início e fim das tarefas.',
+  'Bom diaa! Dia produtivo pra todo mundo, conta comigo.',
+];
+
+async function runGreeting() {
+  try {
+    const appState = require('./app-state');
+
+    const enabled = await appState.get('greeting_enabled', 'true');
+    if (String(enabled) === 'false') {
+      console.log('[Greeting] disabled — skipping');
+      return;
+    }
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: config.eod.timezone });
+    const lastRun = await appState.get('greeting_last_run', null);
+    if (lastRun === today) {
+      console.log(`[Greeting] already sent for ${today} — skipping`);
+      return;
+    }
+
+    const override = await appState.get('greeting_text', null);
+    const text = (override && String(override).trim())
+      ? String(override).trim()
+      : DEFAULT_GREETINGS[Math.floor(Math.random() * DEFAULT_GREETINGS.length)];
+
+    // postMessage self-suppresses to silent_log when silent_text=ON.
+    await slackClient.postMessage(text);
+    await appState.set('greeting_last_run', today);
+    console.log(`[Greeting] sent for ${today}`);
+  } catch (err) {
+    console.error('[Greeting] error:', err.message);
+  }
+}
+
+function startGreetingJob() {
+  cron.schedule(`0 ${GREETING_HOUR_ET} * * *`, () => runGreeting(), {
+    timezone: config.eod.timezone,
+  });
+  console.log(`[Scheduler] Morning greeting scheduled at ${GREETING_HOUR_ET}:00 ${config.eod.timezone}`);
+}
+
 async function runDailyCleanup() {
   try {
     const closed = await db.cleanupStaleBreaks();
@@ -203,4 +256,7 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}m` : `${m}min`;
 }
 
-module.exports = { startPolling, startEodJob, runEod, runPollCycle, runDailyCleanup };
+module.exports = {
+  startPolling, startEodJob, runEod, runPollCycle, runDailyCleanup,
+  startGreetingJob, runGreeting,
+};
