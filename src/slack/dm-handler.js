@@ -342,6 +342,16 @@ async function pollManagerChannel() {
       const pending = await adminTools.getProposal();
       if (pending) {
         const r = await adminTools.resolveProposal(msg.text);
+        // P3 — keep the carolina_proposals ledger in sync when a
+        // cron-mirrored proposal is accepted/rejected.
+        if (r.handled && (r.outcome === 'executed' || r.outcome === 'cancelled')) {
+          try {
+            const proposals = require('../ai/proposals');
+            const status = r.outcome === 'executed' ? 'accepted' : 'rejected';
+            if (pending.carolina_proposal_id) await proposals.resolve(pending.carolina_proposal_id, status, 'slack_admin');
+            else await proposals.resolveLatest(status, 'slack_admin');
+          } catch (_) {}
+        }
         if (r.handled && r.outcome === 'executed') {
           reply = `Feito ✅ (${r.kind}). ${JSON.stringify(r.result).slice(0, 180)}`;
         } else if (r.handled && r.outcome === 'cancelled') {

@@ -138,6 +138,26 @@ async function rescheduleJobs() {
   await _scheduleEod();
 }
 
+// BLOCO C / P3 — autonomous detection every 30 min. Detectors self-gate
+// (business hours, dedupe); proposals go to the admin channel.
+async function runDetect() {
+  try {
+    const made = await require('./ai/detect').detectAndPropose();
+    if (made.length) console.log(`[Detect] proposed ${made.length}: ` +
+      made.map((m) => m.type).join(', '));
+  } catch (err) {
+    console.error('[Detect] error:', err.message);
+  }
+}
+let _detectTask = null;
+function startDetectJob() {
+  _stop(_detectTask);
+  _detectTask = cron.schedule('*/30 * * * *', () => runDetect(), {
+    timezone: config.eod.timezone,
+  });
+  console.log('[Scheduler] Autonomous detect scheduled every 30min ' + config.eod.timezone);
+}
+
 async function runDailyCleanup() {
   try {
     const closed = await db.cleanupStaleBreaks();
@@ -293,4 +313,5 @@ function formatDuration(seconds) {
 module.exports = {
   startPolling, startEodJob, runEod, runPollCycle, runDailyCleanup,
   startGreetingJob, runGreeting, rescheduleJobs,
+  startDetectJob, runDetect,
 };
