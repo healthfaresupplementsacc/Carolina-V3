@@ -537,6 +537,20 @@ async function migrate() {
     );
     CREATE INDEX IF NOT EXISTS idx_msg_var_type ON message_variations(type);
 
+    -- BUG DUP BREAK: at most ONE open break per operator (master doc
+    -- §9.1). Close stale duplicate open pauses keeping the earliest,
+    -- then enforce with a partial unique index. Idempotent.
+    UPDATE pauses SET ended_at = started_at, ended_reason = 'auto_dedup'
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+          PARTITION BY operator ORDER BY started_at ASC, id ASC) AS rn
+        FROM pauses WHERE ended_at IS NULL AND operator IS NOT NULL
+      ) d WHERE d.rn > 1
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_open_pause_per_operator
+      ON pauses (operator) WHERE ended_at IS NULL AND operator IS NOT NULL;
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_slack_ts ON messages(slack_ts);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);

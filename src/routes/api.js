@@ -64,13 +64,14 @@ router.get('/dashboard', async (req, res) => {
       getTodayMessages(date),
       getTodayNotes(date),
       date ? Promise.resolve({ rows: [] }) : db.query(`
-        SELECT p.id, p.task_id, p.started_at,
+        SELECT DISTINCT ON (COALESCE(p.operator, t.operator))
+               p.id, p.task_id, p.started_at,
                COALESCE(p.operator, t.operator) AS operator,
                t.supplement_name
         FROM pauses p
         LEFT JOIN tasks t ON t.id = p.task_id
         WHERE p.ended_at IS NULL
-        ORDER BY p.started_at ASC
+        ORDER BY COALESCE(p.operator, t.operator), p.started_at ASC
       `),
       // Yesterday's total bottles
       db.query(`
