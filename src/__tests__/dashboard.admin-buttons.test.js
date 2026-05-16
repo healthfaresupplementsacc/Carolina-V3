@@ -53,6 +53,27 @@ describe('regression — "Fase config" lives only in the admin menu, PIN-gated',
   });
 });
 
+describe('Bug 1 — break/activity entries get PIN-gated admin edit', () => {
+  const breakRegion = HTML.slice(
+    HTML.indexOf('function renderTodayBreaks'),
+    HTML.indexOf('function renderBreakBanner')
+  );
+
+  test('break rows expose edit-saída / edit-volta / excluir only when adminUnlocked', () => {
+    expect(breakRegion).toMatch(/adminBtns\s*=\s*adminUnlocked/);     // gated
+    expect(breakRegion).toMatch(/oalEditTime\(\$\{b\.id\},"started_at"/);
+    expect(breakRegion).toMatch(/oalEditTime\(\$\{b\.id\},"ended_at"/);
+    expect(breakRegion).toMatch(/oalDelete\(\$\{b\.id\}\)/);
+    expect(breakRegion).toMatch(/:\s*''/);                            // operators → no buttons
+  });
+
+  test('oal helpers hit the existing PIN-audited operator-activity-log endpoint', () => {
+    expect(HTML).toMatch(/async function oalEditTime[\s\S]*\/api\/admin\/operator-activity-log\/'\s*\+\s*id/);
+    expect(HTML).toMatch(/async function oalEditTime[\s\S]*adminAction\(/);
+    expect(HTML).toMatch(/async function oalDelete[\s\S]*method: 'DELETE'[\s\S]*operator-activity-log/);
+  });
+});
+
 describe('regression — wf* helpers hit the existing PIN-audited endpoints', () => {
   test('helpers map to phase/ad-hoc instance endpoints + correct fields', () => {
     expect(HTML).toContain("path: 'ad-hoc-task-instances'");

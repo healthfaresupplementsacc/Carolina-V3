@@ -1522,6 +1522,28 @@ async function wfDelete(kind, id) {
                        confirm: 'Excluir essa ' + m.label + '? (registrado no audit log)' });
 }
 
+// ===== operator_activity_log entry admin (breaks/atividades) =====
+// Bug 1/2: untracked breaks ("Simone — não-rastreado 13:53→13:53") had
+// no admin controls. PIN-gated edit of started_at/ended_at + delete via
+// the existing audited endpoint. Bug 2 adds flexible time parsing here.
+function _oalDefault(ts) {
+  return ts
+    ? new Date(ts).toLocaleString('sv-SE', { timeZone: 'America/New_York' }).slice(0, 16).replace('T', ' ')
+    : _nowEt();
+}
+async function oalEditTime(id, field, curTs, label) {
+  if (!adminUnlocked) return;
+  const v = prompt('Novo ' + label + ' (AAAA-MM-DD HH:MM, ET):', _oalDefault(curTs));
+  if (v == null || !v.trim()) return;
+  return adminAction({ method: 'PUT', url: '/api/admin/operator-activity-log/' + id,
+                       body: { [field]: v.trim(), retroactive: true } });
+}
+async function oalDelete(id) {
+  if (!adminUnlocked) return;
+  return adminAction({ method: 'DELETE', url: '/api/admin/operator-activity-log/' + id,
+                       confirm: 'Excluir esse registro de break/atividade? (vai pro audit log)' });
+}
+
 // ===== Merge UI (commit 13) =====
 function onMergeSelChange() {
   const checks = document.querySelectorAll('.task-merge-check:checked');
@@ -1681,9 +1703,16 @@ function renderTodayBreaks(breaks) {
         : b.untracked ? '<span style="color:#9333ea">não-rastreado</span>'
         : '<span style="color:#059669">voltou</span>';
       const dur = b.open ? '' : (b.untracked ? '' : ' · ' + fmtDur(b.duration_seconds));
-      return \`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid #f3f4f6">
+      const adminBtns = adminUnlocked
+        ? \`<span style="display:inline-flex;gap:4px;margin-left:8px">
+             <button class="edit-btn" title="Editar horário de saída (início)" onclick='oalEditTime(\${b.id},"started_at",\${JSON.stringify(b.started_at||"")},"horário de saída")'>✏️ saída</button>
+             <button class="edit-btn" title="Editar horário de volta (fim)" onclick='oalEditTime(\${b.id},"ended_at",\${JSON.stringify(b.ended_at||"")},"horário de volta")'>✏️ volta</button>
+             <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" title="Excluir" onclick="oalDelete(\${b.id})">🗑</button>
+           </span>\`
+        : '';
+      return \`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-top:1px solid #f3f4f6">
         <span>\${escHtml(b.operator || '?')} — \${status}</span>
-        <span style="color:#6b7280">\${fmtHM(b.started_at)}\${b.ended_at ? '→' + fmtHM(b.ended_at) : ''}\${dur}</span>
+        <span style="display:flex;align-items:center"><span style="color:#6b7280">\${fmtHM(b.started_at)}\${b.ended_at ? '→' + fmtHM(b.ended_at) : ''}\${dur}</span>\${adminBtns}</span>
       </div>\`;
     }).join('');
 }
