@@ -167,10 +167,18 @@ async function runDailyCleanup() {
       orphans = await require('./workflow/legacy-cleanup')
         .cleanupLegacyOrphans({ dryRun: false, olderThanHours: 24 });
     } catch (e) { console.error('[Cleanup] legacy orphans error:', e.message); }
+    // BUG GHOST — close ghost workflow_instances (>24h active, no
+    // recently-active child phase). Audited action='ghost_cleanup'.
+    let ghosts = { count: 0 };
+    try {
+      ghosts = await require('../scripts/cleanup-ghost-workflows')
+        .cleanupGhostWorkflows({ apply: true, db, source: 'cron' });
+    } catch (e) { console.error('[Cleanup] ghost workflows error:', e.message); }
     console.log(
       `[Cleanup] daily: stale-breaks=${Array.isArray(closed) ? closed.length : closed}, ` +
       `audit-ttl=${audited}, orphan-phases=${orphans.phases_closed}, ` +
-      `orphan-adhoc=${orphans.adhoc_closed}, orphan-wf=${orphans.workflows_closed}`
+      `orphan-adhoc=${orphans.adhoc_closed}, orphan-wf=${orphans.workflows_closed}, ` +
+      `ghost-wf=${ghosts.count}`
     );
   } catch (err) {
     console.error('[Cleanup] daily run error:', err.message);
