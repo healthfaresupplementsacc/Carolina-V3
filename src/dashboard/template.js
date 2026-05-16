@@ -1682,20 +1682,34 @@ function renderOpenTasks(tasks) {
     const urgClass = getUrgencyClass(task);
     const batchLabel = task.batch_number ? \` #\${task.batch_number}\` : '';
     const operatorLabel = task.operator ? \` • \${task.operator}\` : '';
-    const adminBtns = adminUnlocked
+    // Bug A: items from the ISA-88 model have a string id ('ph-418' /
+    // 'ah-5') and a _source tag. The legacy admin buttons call
+    // tasks-table endpoints (closeTask/deleteTask/openEdit("task",...))
+    // which don't apply to phase_instances AND would emit invalid JS
+    // (onclick="closeTask(ph-418)" — unquoted, breaks the card). For
+    // workflow items: render the card normally (so it shows in EM
+    // ANDAMENTO and counts in the metric) but swap the task-admin
+    // buttons for a phase badge + link to the workflow admin page.
+    const isWf = !!task._source;
+    const phaseTag = isWf
+      ? \`<span class="task-badge" style="background:#e0e7ff;color:#3730a3">\${escHtml(task.task_type || (task._source === 'workflow_adhoc' ? 'avulsa' : 'fase'))} · App Home</span>\`
+      : '';
+    const adminBtns = (adminUnlocked && !isWf)
       ? \`<input type="checkbox" class="task-merge-check" data-id="\${task.id}" onchange="onMergeSelChange()" title="Selecionar para mesclar">
          <button class="edit-btn" onclick='openEdit("task",\${task.id},\${JSON.stringify({supplement_name:task.supplement_name,batch_number:task.batch_number,operator:task.operator||"",started_at:task.started_at?new Date(task.started_at).toLocaleString("sv-SE",{timeZone:"America/New_York"}).replace(" ","T").slice(0,16):"",ended_at:""})})'>\${tr('editBtn')}</button>
          <button class="edit-btn" style="background:#10b981;color:#fff;border:none" onclick="closeTask(\${task.id})">Fechar</button>
          <button class="edit-btn" style="background:#ef4444;color:#fff;border:none" onclick="deleteTask(\${task.id})">Excluir</button>\`
-      : '';
+      : (adminUnlocked && isWf
+        ? \`<a class="edit-btn" style="background:#1d4f91;color:#fff;border:none;text-decoration:none" href="/admin/workflows" target="_blank">Gerenciar</a>\`
+        : '');
     return \`
-      <div class="task-card \${urgClass}" id="task-\${task.id}">
-        <div class="task-timer" id="timer-\${task.id}">\${formatDuration(elapsed)}</div>
+      <div class="task-card \${urgClass}" id="task-\${escHtml(String(task.id))}">
+        <div class="task-timer" id="timer-\${escHtml(String(task.id))}">\${formatDuration(elapsed)}</div>
         <div class="task-info">
-          <div class="task-name">\${escHtml(task.supplement_name || '?')}\${escHtml(batchLabel)}</div>
+          <div class="task-name">\${escHtml(task.supplement_name || task.task_type || '?')}\${escHtml(batchLabel)}</div>
           <div class="task-meta">\${tr('startedAt')} \${formatTime(task.started_at)}\${escHtml(operatorLabel)}</div>
         </div>
-        <span class="task-badge \${getBadgeClass(urgClass)}">\${getBadgeLabel(urgClass)}</span>
+        \${isWf ? phaseTag : \`<span class="task-badge \${getBadgeClass(urgClass)}">\${getBadgeLabel(urgClass)}</span>\`}
         \${adminBtns}
       </div>\`;
   }).join('');

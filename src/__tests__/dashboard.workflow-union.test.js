@@ -96,6 +96,21 @@ describe('Bug 4 — dashboard union with workflow model', () => {
     expect(wfQ).toMatch(/NOT EXISTS\s*\(\s*SELECT 1 FROM tasks t/);
   });
 
+  test('Bug A frontend — renderOpenTasks guards workflow items (no invalid JS)', () => {
+    const tpl = require('../dashboard/template');
+    const html = tpl.generateDashboard();
+    // The renderOpenTasks function must branch on _source so string ids
+    // ('ph-418') never reach closeTask(...)/deleteTask(...)/openEdit(...)
+    expect(html).toMatch(/const isWf = !!task\._source/);
+    // task-admin buttons gated behind (adminUnlocked && !isWf)
+    expect(html).toMatch(/adminUnlocked && !isWf/);
+    // workflow items get a "Gerenciar" link to /admin/workflows instead
+    expect(html).toMatch(/adminUnlocked && isWf/);
+    expect(html).toMatch(/href="\/admin\/workflows"/);
+    // ids are stringified+escaped in the card/timer element ids
+    expect(html).toMatch(/id="task-\$\{escHtml\(String\(task\.id\)\)\}"/);
+  });
+
   test('workflow union failure does not break dashboard (fail closed)', async () => {
     db.query = jest.fn().mockImplementation((sql) => {
       if (/FROM phase_instances pi\s+JOIN workflow_instances wi/.test(sql)) {
