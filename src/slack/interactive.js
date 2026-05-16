@@ -72,7 +72,23 @@ async function resolveSupplementValue(selected, deps = {}) {
         [name]
       );
       if (typeof parser.addCustomSupplement === 'function') parser.addCustomSupplement(name, '');
-      await announce.adHocPending({ operatorName: 'App Home', taskName: `suplemento novo "${name}"` });
+      // B3 — AI reviews the typed text vs the catalog and gives admin a
+      // concrete propose-then-confirm choice in the admin channel.
+      let aiHint = '';
+      try {
+        const corrector = deps.corrector || require('../ai/supplement-corrector');
+        const guess = await corrector.correctSupplement(name);
+        if (guess && guess.supplement && guess.supplement.toLowerCase() !== name.toLowerCase()) {
+          aiHint = `\nAcho que quis dizer *${guess.supplement}* ` +
+            `(${guess.via}, confiança ${guess.confidence}). Me diz no chat: ` +
+            `*[a]* trocar pra ${guess.supplement} · *[b]* manter "${name}" como novo · ` +
+            `*[c]* mesclar com outro.`;
+        }
+      } catch (_) { /* AI hint is best-effort */ }
+      await announce.toAdmin(
+        `🆕 Operador digitou o suplemento *"${name}"* (não estava no catálogo). ` +
+        `Criei como pendente (admin_approved=false).${aiHint}`
+      );
     } catch (err) {
       console.error('[Interactive] new supplement create error:', err.message);
     }
@@ -363,4 +379,7 @@ async function handleInteraction(payload) {
   if (payload.type === 'view_submission') return handleViewSubmission(payload);
 }
 
-module.exports = { handleInteraction, handleBlockAction, handleViewSubmission };
+module.exports = {
+  handleInteraction, handleBlockAction, handleViewSubmission,
+  resolveSupplementValue,
+};
