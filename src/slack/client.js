@@ -122,7 +122,15 @@ async function fetchRecentMessages(limit = 50) {
  * Post a message to the production channel as Carolina.
  * Suppressed when silent_mode is on — call is logged to silent_log instead.
  */
-async function postMessage(text, threadTs = null) {
+async function postMessage(text, threadTs = null, msgType = null) {
+  // BLOCO B / C4 — per-type toggle. Suppressed messages are logged to
+  // silent_log (kind='toggle:<type>') just like silent_text. Untagged
+  // calls (msgType=null) are never gated here.
+  if (msgType && !(await require('../app-state').isMsgEnabled(msgType))) {
+    console.log(`[Msg toggle:${msgType}] suppressed:`, String(text).slice(0, 200));
+    await logSilent(config.slack.channelId, 'postMessage', text, threadTs, 'toggle:' + msgType);
+    return 'toggled-' + Date.now();
+  }
   if (await isSilent('text')) {
     console.log('[Silent text] Would have posted:', String(text).slice(0, 200));
     await logSilent(config.slack.channelId, 'postMessage', text, threadTs, 'text');
@@ -145,7 +153,15 @@ async function postMessage(text, threadTs = null) {
  * Silent mode only suppresses posts to the production channel — the admin /
  * manager channel always goes through, so Bruno keeps seeing notifications.
  */
-async function postToChannel(channelId, text) {
+async function postToChannel(channelId, text, msgType = null) {
+  // Admin/manager channel always goes through (toggles, like silent_text,
+  // never silence the admin). Otherwise honour the per-type toggle.
+  if (!isAdminChannel(channelId) && msgType
+      && !(await require('../app-state').isMsgEnabled(msgType))) {
+    console.log(`[Msg toggle:${msgType}] suppressed to`, channelId, ':', String(text).slice(0, 200));
+    await logSilent(channelId, 'postToChannel', text, null, 'toggle:' + msgType);
+    return 'toggled-' + Date.now();
+  }
   if (!isAdminChannel(channelId) && await isSilent('text')) {
     console.log('[Silent text] Would have posted to', channelId, ':', String(text).slice(0, 200));
     await logSilent(channelId, 'postToChannel', text, null, 'text');

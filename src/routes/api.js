@@ -892,7 +892,32 @@ router.get('/admin/carolina-config', async (req, res) => {
   if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
   try {
     const appName = await appState.getAppName();
-    res.json({ app_name: appName });
+    const toggles = await appState.getMsgToggles();
+    res.json({ app_name: appName, toggles });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/admin/carolina-config/toggle  body: { pin, type, enabled }
+// C4 — enable/disable a message type (greeting, eod, urgency, conflict,
+// task, bottles, break). Honored centrally by the slack client gate.
+router.post('/admin/carolina-config/toggle', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const type = String(req.body?.type ?? '');
+    if (!appState.MSG_TYPE_KEYS[type]) {
+      return res.status(400).json({ error: 'tipo inválido' });
+    }
+    const enabled = req.body?.enabled === true || req.body?.enabled === 'true';
+
+    const before = await appState.isMsgEnabled(type);
+    await appState.setMsgToggle(type, enabled);
+
+    await auditAction({
+      req, action: 'carolina_config.toggle', entityType: 'app_state',
+      entityId: appState.MSG_TYPE_KEYS[type],
+      before: { type, enabled: before }, after: { type, enabled },
+    });
+    res.json({ ok: true, type, enabled });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

@@ -69,4 +69,47 @@ describe('app-state', () => {
     await appState.set('k', 'v');
     expect(db.query.mock.calls[0][1]).toEqual(['k', 'v']);
   });
+
+  // ---- C4 message-type toggles ----
+  function kvDb(kv) {
+    db.query = jest.fn().mockImplementation((sql, params) => {
+      if (/SELECT value FROM app_state WHERE key = \$1/.test(sql)) {
+        const v = kv[params[0]];
+        return Promise.resolve({ rows: v == null ? [] : [{ value: v }] });
+      }
+      if (/INSERT INTO app_state/.test(sql)) { kv[params[0]] = params[1]; return Promise.resolve({ rows: [] }); }
+      return Promise.resolve({ rows: [] });
+    });
+  }
+
+  test('isMsgEnabled defaults ON and reflects a false key', async () => {
+    const kv = {}; kvDb(kv);
+    expect(await appState.isMsgEnabled('greeting')).toBe(true);
+    kv.eod_enabled = 'false';
+    expect(await appState.isMsgEnabled('eod')).toBe(false);
+  });
+
+  test('isMsgEnabled returns true for unknown/untagged type (safe default)', async () => {
+    kvDb({});
+    expect(await appState.isMsgEnabled('something-untagged')).toBe(true);
+    expect(await appState.isMsgEnabled(null)).toBe(true);
+  });
+
+  test('getMsgToggles returns all 7 with defaults', async () => {
+    const kv = { urgency_enabled: 'false' }; kvDb(kv);
+    const t = await appState.getMsgToggles();
+    expect(Object.keys(t).sort()).toEqual(
+      ['bottles','break','conflict','eod','greeting','task','urgency']);
+    expect(t.urgency).toBe(false);
+    expect(t.greeting).toBe(true);
+  });
+
+  test('setMsgToggle writes true/false and rejects bad type', async () => {
+    const kv = {}; kvDb(kv);
+    await appState.setMsgToggle('break', false);
+    expect(kv.break_enabled).toBe('false');
+    await appState.setMsgToggle('break', true);
+    expect(kv.break_enabled).toBe('true');
+    await expect(appState.setMsgToggle('nope', true)).rejects.toThrow(/inválido/);
+  });
 });

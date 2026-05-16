@@ -631,7 +631,7 @@ async function handleStart(parsed, rawMsg) {
       const op = operator ? `${operator}, ` : '';
       const msgFn = pick(CONFIRM_JOIN_MSGS);
       try {
-        await slackClient.postMessage(msgFn(op.trim().replace(', ', ''), other.operator, other.supplement_name));
+        await slackClient.postMessage(msgFn(op.trim().replace(', ', ''), other.operator, other.supplement_name), null, 'conflict');
         await storePendingQuestion(operator, {
           questionType: 'confirm_join',
           joiningTaskId: other.id,

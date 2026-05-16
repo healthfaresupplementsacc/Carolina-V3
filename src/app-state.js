@@ -71,8 +71,48 @@ function invalidateAppNameCache() {
   _appNameLoadedAt = 0;
 }
 
+// ===== BLOCO B / C4 — per-message-type on/off toggles =====
+// Each of the 7 panel toggles maps to an app_state key. Default ON
+// (absent key → enabled) so existing behaviour is preserved until an
+// admin explicitly turns something off. Unknown/untagged types are
+// treated as enabled — the central client gate must never suppress a
+// message it can't classify.
+const MSG_TYPE_KEYS = {
+  greeting: 'greeting_enabled',
+  eod: 'eod_enabled',
+  urgency: 'urgency_enabled',
+  conflict: 'conflict_enabled',
+  task: 'task_enabled',
+  bottles: 'bottles_enabled',
+  break: 'break_enabled',
+};
+
+async function isMsgEnabled(type) {
+  const key = MSG_TYPE_KEYS[type];
+  if (!key) return true; // unknown/untagged → enabled (safe default)
+  const v = await get(key, 'true');
+  return String(v) !== 'false';
+}
+
+async function getMsgToggles() {
+  const out = {};
+  for (const [type, key] of Object.entries(MSG_TYPE_KEYS)) {
+    const v = await get(key, 'true');
+    out[type] = String(v) !== 'false';
+  }
+  return out;
+}
+
+async function setMsgToggle(type, enabled) {
+  const key = MSG_TYPE_KEYS[type];
+  if (!key) throw new Error('tipo de mensagem inválido: ' + type);
+  await set(key, enabled ? 'true' : 'false');
+  return !!enabled;
+}
+
 module.exports = {
   get, set,
   getAppName, getAppNameSync, setAppName, invalidateAppNameCache,
   DEFAULT_APP_NAME,
+  MSG_TYPE_KEYS, isMsgEnabled, getMsgToggles, setMsgToggle,
 };

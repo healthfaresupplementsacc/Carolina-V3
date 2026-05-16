@@ -100,8 +100,9 @@ async function runGreeting() {
       ? String(override).trim()
       : DEFAULT_GREETINGS[Math.floor(Math.random() * DEFAULT_GREETINGS.length)];
 
-    // postMessage self-suppresses to silent_log when silent_text=ON.
-    await slackClient.postMessage(text);
+    // postMessage self-suppresses to silent_log when silent_text=ON or
+    // when the 'greeting' toggle is off (C4).
+    await slackClient.postMessage(text, null, 'greeting');
     await appState.set('greeting_last_run', today);
     console.log(`[Greeting] sent for ${today}`);
   } catch (err) {
@@ -145,6 +146,12 @@ async function runEod() {
   );
   if (existing.rows.length > 0) {
     console.log(`[EOD] Already ran for ${today}, skipping`);
+    return;
+  }
+
+  // BLOCO B / C4 — EOD reminder toggle.
+  if (!(await require('./app-state').isMsgEnabled('eod'))) {
+    console.log('[EOD] disabled via Config Carolina — skipping');
     return;
   }
 

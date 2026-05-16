@@ -182,7 +182,7 @@ async function checkUrgency() {
     if (!message) continue;
 
     try {
-      const slackTs = await slackClient.postMessage(message); // no thread_ts — post to main channel
+      const slackTs = await slackClient.postMessage(message, null, 'urgency'); // no thread_ts — post to main channel; C4 toggle
       await recordNotification(id, tier, slackTs);
       console.log(`[Urgency] Tier ${tier} message sent for task #${id} (${task.supplement_name})`);
     } catch (err) {

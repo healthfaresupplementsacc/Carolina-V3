@@ -70,7 +70,7 @@ describe('C3 — runGreeting', () => {
     const state = { greeting_text: '  Bom dia equipe HealthFare!  ' };
     wireStore(state);
     await sched.runGreeting();
-    expect(slackClient.postMessage).toHaveBeenCalledWith('Bom dia equipe HealthFare!');
+    expect(slackClient.postMessage).toHaveBeenCalledWith('Bom dia equipe HealthFare!', null, 'greeting');
     expect(state.greeting_last_run).toBe(TODAY);
   });
 

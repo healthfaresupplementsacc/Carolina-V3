@@ -679,7 +679,20 @@ router.get('/admin/carolina-config', (req, res) => {
     <div class="err" id="err-msg"></div>
   </div>
 
+  <div class="card">
+    <h2>Tipos de mensagem</h2>
+    <div class="hint">Desligar suprime aquele tipo (registrado no silent log). O chat admin nunca é silenciado.</div>
+    <div id="toggles" style="margin-top:10px">Carregando…</div>
+    <div class="ok" id="tog-msg"></div>
+  </div>
+
   <script>
+    const TOGGLE_LABELS = {
+      greeting: 'Saudação de manhã', eod: 'Lembrete EOD',
+      urgency: 'Pergunta de urgência', conflict: 'Pergunta de conflito',
+      task: 'Anúncio de início/fim de tarefa', bottles: 'Anúncio de bottles produzidos',
+      break: 'Anúncio de break/voltei',
+    };
     let _pin = '';
     function esc(s) { return String(s||'').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -697,6 +710,7 @@ router.get('/admin/carolina-config', (req, res) => {
         inp.disabled = false;
         document.getElementById('save-btn').disabled = false;
         renderPreview();
+        renderToggles(data.toggles || {});
       } catch (e) { document.getElementById('pin-err').textContent = 'Erro de conexão'; }
     }
     document.getElementById('pin-input').addEventListener('keypress', e => { if (e.key === 'Enter') unlock(); });
@@ -728,6 +742,36 @@ router.get('/admin/carolina-config', (req, res) => {
         ok.textContent = 'Salvo. Já vale na App Home e na persona.';
       } catch (e) { err.textContent = 'Erro de conexão'; }
       btn.disabled = false;
+    }
+
+    function renderToggles(t) {
+      const order = ['greeting','eod','urgency','conflict','task','bottles','break'];
+      document.getElementById('toggles').innerHTML = order.map(type => {
+        const on = t[type] !== false;
+        return '<label style="display:flex;align-items:center;justify-content:space-between;'
+          + 'padding:8px 0;border-bottom:1px solid #f3f4f6;font-size:13px">'
+          + '<span>' + esc(TOGGLE_LABELS[type] || type) + '</span>'
+          + '<input type="checkbox" data-type="' + type + '"' + (on ? ' checked' : '')
+          + ' onchange="setToggle(this)" style="width:18px;height:18px;cursor:pointer"></label>';
+      }).join('');
+    }
+
+    async function setToggle(el) {
+      const type = el.getAttribute('data-type');
+      const enabled = el.checked;
+      const msg = document.getElementById('tog-msg');
+      msg.textContent = '';
+      el.disabled = true;
+      try {
+        const r = await fetch('/api/admin/carolina-config/toggle', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: _pin, type, enabled }),
+        });
+        const data = await r.json();
+        if (!r.ok) { el.checked = !enabled; msg.textContent = data.error || ('Erro ' + r.status); }
+        else { msg.textContent = (TOGGLE_LABELS[type] || type) + ': ' + (enabled ? 'ligado' : 'desligado'); }
+      } catch (e) { el.checked = !enabled; msg.textContent = 'Erro de conexão'; }
+      el.disabled = false;
     }
   </script>
 </body>

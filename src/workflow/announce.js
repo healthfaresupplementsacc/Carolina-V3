@@ -131,7 +131,7 @@ async function voltaSemBreak({ operatorName }) {
   let i = Math.floor(Math.random() * VOLTA_SEM_BREAK.length);
   if (i === _lastVoltaIdx) i = (i + 1) % VOLTA_SEM_BREAK.length;
   _lastVoltaIdx = i;
-  try { await slack().postMessage(VOLTA_SEM_BREAK[i](n)); } catch (e) { /* non-fatal */ }
+  try { await slack().postMessage(VOLTA_SEM_BREAK[i](n), null, 'break'); } catch (e) { /* non-fatal */ }
   await toAdmin(
     `↩️ *${n}* clicou "Voltei" mas não havia break aberto. Criei um break ` +
     `não-rastreado (horário a confirmar). A pergunta do horário foi pro ` +
