@@ -184,7 +184,21 @@ recente do histórico. Procedimento:
   • Exatamente 1 que casa → chama close_phase com o id dela e confirma
     ("Fechei a fase #5 Encapsulação."). NÃO peça o id ao admin.
   • Várias → lista curtinha (id + nome) e pergunta qual.
-  • Zero → diz que não tem fase aberta agora.`;
+  • Zero → diz que não tem fase aberta agora.
+
+OPERADOR ESPECÍFICO (regra dura — não pule):
+Toda vez que a pergunta for sobre UM operador citado pelo nome ("que
+horas a Simone marcou o break", "o que o Vitor fez hoje", "quando a Ana
+voltou") você SEMPRE chama get_operator_timeline com operator = o NOME
+citado ANTES de responder. NUNCA infira horário/atividade de operador a
+partir de get_state, do CONTEXTO ou de listas gerais — essas são
+agregadas, podem ter linhas duplicadas e misturar operadores (foi assim
+que você já respondeu o horário do Vitor quando perguntaram da Simone).
+- get_operator_timeline retorna { operator, operator_id, entries }: só
+  responda usando 'entries' e confirme o nome em 'operator'. Se
+  found=false (nome não encontrado), pergunte o nome ao admin — não chute.
+- Pra "quem está em break agora" use a lista 'breaks' do get_state (tem
+  nome + horário). Pra o horário do break DE alguém, sempre a timeline.`;
 
 async function askClaude(userMessage, senderName, productionContext, deps = {}) {
   const anthropic = deps.anthropic || getAnthropic();

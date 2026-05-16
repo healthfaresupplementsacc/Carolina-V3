@@ -152,11 +152,34 @@ function _etStr(ts) {
   } catch (_) { return null; }
 }
 
+// BUG TZ-NAME — Carolina was answering "que horas a Simone marcou o break"
+// with Vitor's times: get_operator_timeline only took an integer id and
+// there was NO name→id path, so she inferred from aggregate lists. This
+// resolves a NAME (or numeric id) to a single operator_id by exact name
+// or alias (active preferred), so the per-operator SQL filter actually
+// gets the right operator. Numeric input short-circuits (no DB hit).
+async function resolveOperatorId(ref) {
+  if (ref == null || ref === '') return null;
+  if (typeof ref === 'number') return Number.isFinite(ref) ? ref : null;
+  const s = String(ref).trim();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const r = await db.query(
+    `SELECT id, name FROM operators
+     WHERE LOWER(name) = LOWER($1)
+        OR EXISTS (
+          SELECT 1 FROM regexp_split_to_table(LOWER(COALESCE(aliases,'')), '\\s*,\\s*') a
+          WHERE a <> '' AND a = LOWER($1)
+        )
+     ORDER BY active DESC, (LOWER(name) = LOWER($1)) DESC, id ASC
+     LIMIT 1`, [s]);
+  return r.rows[0] ? r.rows[0].id : null;
+}
+
 // Returns counts AND the actual open entities (id + name) so the
 // agentic loop can resolve references like "fecha o que está aberto"
 // without asking the admin for an id when there's exactly one match.
 async function getState() {
-  const [wf, ph, ah, br, phList, ahList, wfList] = await Promise.all([
+  const [wf, ph, ah, br, phList, ahList, wfList, brkList] = await Promise.all([
     db.query(`SELECT count(*)::int n FROM workflow_instances WHERE status='active'`),
     db.query(`SELECT count(*)::int n FROM phase_instances WHERE status='open'`),
     db.query(`SELECT count(*)::int n FROM ad_hoc_task_instances WHERE status='open'`),
@@ -167,6 +190,13 @@ async function getState() {
               FROM ad_hoc_task_instances WHERE status='open' ORDER BY started_at ASC LIMIT 25`),
     db.query(`SELECT id, product_name, batch_number
               FROM workflow_instances WHERE status='active' ORDER BY started_at ASC LIMIT 25`),
+    // BUG TZ-NAME — expose WHO is on break (name + ET start), not just a
+    // count, so "quem tá em break / break da Simone" is answerable and a
+    // duplicated row (Vitor 2x) is visible instead of silently mixed in.
+    db.query(`SELECT o.name AS operator, oal.started_at
+              FROM operator_activity_log oal JOIN operators o ON o.id = oal.operator_id
+              WHERE oal.activity_type='break' AND oal.ended_at IS NULL
+              ORDER BY oal.started_at ASC LIMIT 25`),
   ]);
   const etRows = (rows) => rows.map((r) => (
     'started_at' in r ? { ...r, started_at: _etStr(r.started_at), tz: 'ET' } : r));
@@ -174,13 +204,22 @@ async function getState() {
     active_workflows: wf.rows[0].n, open_phases: ph.rows[0].n,
     open_adhoc: ah.rows[0].n, on_break: br.rows[0].n,
     phases: etRows(phList.rows), adhoc: etRows(ahList.rows), workflows: wfList.rows,
+    breaks: etRows(brkList.rows),
     timezone: 'America/New_York (ET)',
   };
 }
-async function getOperatorTimeline(operatorId, date) {
+// Accepts a NAME ("Simone") or a numeric id. Resolves to one operator
+// and returns ONLY that operator's entries (the SQL filters by the
+// resolved operator_id; every row is tagged with the operator name so
+// the answer can never be attributed to the wrong person).
+async function getOperatorTimeline(operatorRef, date) {
+  const operatorId = await resolveOperatorId(operatorRef);
+  if (!operatorId) return [];
   const r = await db.query(
-    `SELECT oal.activity_type, oal.started_at, oal.ended_at, pi.phase_name
+    `SELECT oal.activity_type, oal.started_at, oal.ended_at, pi.phase_name,
+            o.name AS operator
      FROM operator_activity_log oal
+     JOIN operators o ON o.id = oal.operator_id
      LEFT JOIN phase_instances pi ON pi.id = oal.phase_instance_id
      WHERE oal.operator_id = $1
        AND (oal.started_at AT TIME ZONE 'America/New_York')::date = $2::date
@@ -293,7 +332,7 @@ async function updateBreakRetroactive(args = {}, deps = {}) {
 const TOOL_DEFS = [
   // read (execute freely)
   { name: 'get_state', description: 'Estado atual: contagem de workflows ativos, fases abertas, ad-hoc abertos, pessoas em break.', input_schema: { type: 'object', properties: {} } },
-  { name: 'get_operator_timeline', description: 'Timeline de atividades de um operador num dia (default hoje).', input_schema: { type: 'object', properties: { operator_id: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD' } }, required: ['operator_id'] } },
+  { name: 'get_operator_timeline', description: 'Timeline (breaks/fases/atividades) de UM operador específico num dia (default hoje). Passe o NOME citado pelo admin em "operator" (ex: "Simone") — a tool resolve o operador e retorna SÓ as entradas dele. Use SEMPRE isto pra responder sobre o que/quando um operador fez algo; nunca infira de get_state.', input_schema: { type: 'object', properties: { operator: { type: 'string', description: 'Nome do operador citado (ex: "Simone"). Preferencial.' }, operator_id: { type: 'integer', description: 'Alternativa ao nome, se souber o id.' }, date: { type: 'string', description: 'YYYY-MM-DD' } } } },
   { name: 'search_messages', description: 'Busca mensagens recentes do canal de produção por texto.', input_schema: { type: 'object', properties: { query: { type: 'string' }, days: { type: 'integer' } }, required: ['query'] } },
   { name: 'list_proposals', description: 'Lista as propostas da Carolina aguardando resposta do admin.', input_schema: { type: 'object', properties: {} } },
   // mutation (admin order in chat = explicit confirmation → execute + audit)
@@ -323,7 +362,23 @@ const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroact
 async function runTool(name, input = {}, deps = {}) {
   if (READ_TOOLS.has(name)) {
     if (name === 'get_state') return getState();
-    if (name === 'get_operator_timeline') return getOperatorTimeline(input.operator_id, input.date);
+    if (name === 'get_operator_timeline') {
+      const ref = input.operator != null && input.operator !== '' ? input.operator : input.operator_id;
+      const operator_id = await resolveOperatorId(ref);
+      const entries = operator_id ? await getOperatorTimeline(operator_id, input.date) : [];
+      // Envelope self-identifies the operator so the answer can never be
+      // attributed to the wrong person (BUG TZ-NAME).
+      return {
+        operator: (entries[0] && entries[0].operator)
+          || (typeof ref === 'string' ? ref : null),
+        operator_id,
+        date: input.date || new Date().toISOString().slice(0, 10),
+        tz: 'ET',
+        found: !!operator_id,
+        note: operator_id ? undefined : 'operador não encontrado pelo nome — confirme o nome com o admin',
+        entries,
+      };
+    }
     if (name === 'search_messages') return searchMessages(input.query, input.days || 7);
     if (name === 'list_proposals') {
       try { return { pending: await require('./proposals').listPending() }; }
@@ -438,7 +493,7 @@ async function interpretDirectOrder(text, deps = {}) {
 module.exports = {
   propose, resolveProposal, parseConfirmation, buildProposeMessage,
   getProposal, setProposal, clearProposal,
-  getState, getOperatorTimeline, searchMessages, suggestClaudeCodePrompt,
+  getState, getOperatorTimeline, resolveOperatorId, searchMessages, suggestClaudeCodePrompt,
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, runTool,
