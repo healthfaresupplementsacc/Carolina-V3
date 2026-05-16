@@ -189,6 +189,33 @@ async function processMessage(msg) {
     return;
   }
 
+  // F8 — typed channel message parsed as start/finish/count but no
+  // supplement resolved → try to recover the intended one. Channel-only
+  // (App Home uses the external_select dropdown, never this path).
+  if (!isBackfilling
+      && ['start', 'finish', 'count'].includes(parsedType)
+      && !parsed.supplement
+      && /[a-zA-Z]{3,}/.test(parsed.raw || '')) {
+    try {
+      const corrector = require('../ai/supplement-corrector');
+      const fix = await corrector.correctSupplement(parsed.raw || '');
+      if (fix && fix.confidence === 'high') {
+        parsed.supplement = fix.supplement;
+        await eodEngine.notifyAdmin(
+          `🔧 [auto-corrigido] "${(parsed.raw || '').slice(0, 80)}" → ` +
+          `*${fix.supplement}* (${fix.via}, confiança alta). Registrei automático.`
+        );
+      } else if (fix) {
+        await eodEngine.notifyAdmin(
+          `❓ "${(parsed.raw || '').slice(0, 80)}" não bateu nenhum suplemento. ` +
+          `Sugestão: *${fix.supplement}* (${fix.via}, confiança ${fix.confidence}) — confirmar?`
+        );
+      }
+    } catch (err) {
+      console.error('[Poller] F8 supplement corrector error:', err.message);
+    }
+  }
+
   // Route production tasks to task engine
   await taskEngine.handleParsed(parsed, msg);
 
