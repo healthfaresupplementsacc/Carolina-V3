@@ -510,6 +510,21 @@ async function migrate() {
       ('Simone', 'U07FG34TMPF', FALSE)
     ON CONFLICT (name) DO NOTHING;
 
+    -- BLOCO C / P4: Carolina autonomous proposals (multi-row, expiring)
+    CREATE TABLE IF NOT EXISTS carolina_proposals (
+      id SERIAL PRIMARY KEY,
+      proposal_type TEXT NOT NULL,
+      target_entity_type TEXT,
+      target_entity_id TEXT,
+      proposed_action JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      source TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      resolved_at TIMESTAMPTZ,
+      resolved_by TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_carolina_proposals_status ON carolina_proposals(status);
+
     -- BLOCO B / C5: editable message variations (seeded from code defaults)
     CREATE TABLE IF NOT EXISTS message_variations (
       id SERIAL PRIMARY KEY,
