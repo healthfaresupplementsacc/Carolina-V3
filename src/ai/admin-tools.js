@@ -546,6 +546,21 @@ async function _operatorActivation(ref, action, deps) {
   return { ok: true, operator: op.name, operator_id: op.id, action };
 }
 
+// PARTE 4 — admin's answer to the hourly activity-freshness question.
+// "sim/ok/tá/continua" → keep (no re-ask 2h); "fechar/encerra" → close
+// at last oal; "pausa/break" → retroactive break since last oal.
+async function resolveActivityCheckTool(args = {}, deps = {}) {
+  const raw = String(args.action || args.answer || '').trim().toLowerCase();
+  let action = null;
+  if (['keep', 'close', 'break'].includes(raw)) action = raw;
+  else if (/^(sim|ok|t[áa]|isso|pode|continua|mant[ée]m|deixa aberto|certo|positivo)/.test(raw)) action = 'keep';
+  else if (/(fechar|fecha|encerra|encerrar|finaliza)/.test(raw)) action = 'close';
+  else if (/(pausa|break|retroativ)/.test(raw)) action = 'break';
+  if (!action) return { handled: false, reason: 'resposta não reconhecida (sim / fechar / pausa)' };
+  const af = deps.activityFreshness || require('../workflow/activity-freshness');
+  return af.resolveActivityCheck(action, deps);
+}
+
 async function updateBreakRetroactive(args = {}, deps = {}) {
   const time = String(args.time || args.question_id || '').trim();
   const btr = require('../workflow/break-time-reply');
@@ -583,6 +598,7 @@ const TOOL_DEFS = [
   { name: 'deactivate_operator', description: 'Desativa um funcionário que saiu da empresa (passe o nome em "operator"). SOFT delete — NUNCA apaga, preserva histórico. Para de aparecer no board.', input_schema: { type: 'object', properties: { operator: { type: 'string' }, operator_id: { type: 'integer' } } } },
   { name: 'reactivate_operator', description: 'Reativa um funcionário que voltou.', input_schema: { type: 'object', properties: { operator: { type: 'string' }, operator_id: { type: 'integer' } } } },
   { name: 'promote_helper', description: 'Promove um helper temporário a permanente (tira a data de expiração).', input_schema: { type: 'object', properties: { operator: { type: 'string' }, operator_id: { type: 'integer' } } } },
+  { name: 'resolve_activity_check', description: 'Responde a pergunta horária de atividade parada (>1h sem oal). action: "keep" (admin disse sim/ok/tá → mantém aberto, não repergunta por 2h), "close" (admin disse fechar → encerra no horário do último oal), "break" (admin disse pausa → break retroativo desde o último oal).', input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['keep', 'close', 'break'] }, answer: { type: 'string', description: 'texto cru do admin se não souber mapear' } } } },
   // direct responses to pending questions
   { name: 'dismiss_pending_question', description: 'Cancela/descarta a pergunta pendente sem responder (ex: admin disse "ignora").', input_schema: { type: 'object', properties: { question_id: { type: 'string' } } } },
   { name: 'update_break_retroactive', description: 'Responde a pergunta retroativa de break com o horário (ex: "14:30").', input_schema: { type: 'object', properties: { time: { type: 'string' }, question_id: { type: 'string' } }, required: ['time'] } },
@@ -595,6 +611,7 @@ const DIRECT_TOOLS = new Set(['dismiss_pending_question', 'update_break_retroact
 const CHANNEL_TOOLS = new Set([
   'post_to_production_channel', 'close_active_break', 'close_all_active_breaks',
   'create_operator', 'deactivate_operator', 'reactivate_operator', 'promote_helper',
+  'resolve_activity_check',
 ]);
 
 /**
@@ -662,6 +679,7 @@ async function runTool(name, input = {}, deps = {}) {
     if (name === 'promote_helper') {
       return _operatorActivation(input.operator != null && input.operator !== '' ? input.operator : input.operator_id, 'promote', deps);
     }
+    if (name === 'resolve_activity_check') return resolveActivityCheckTool(input, deps);
   }
   if (MUTATION_TOOLS.has(name)) {
     if (!EXEC[name]) throw new Error('mutation tool sem executor: ' + name);
@@ -740,6 +758,14 @@ async function pendingSummary() {
     const list = await proposals.listPending();
     if (list.length) parts.push(`${list.length} proposta(s) da Carolina pendente(s)`);
   } catch (_) {}
+  try {
+    // PARTE 4 — unanswered activity-freshness question(s).
+    const af = await require('../workflow/activity-freshness')
+      .pendingFreshness(require('../app-state'));
+    if (af && af.length) {
+      parts.push(`${af.length} verificação(ões) de atividade parada aguardando ("sim"/"fechar"/"pausa")`);
+    }
+  } catch (_) {}
   return { hasAny: parts.length > 0, parts };
 }
 
@@ -772,7 +798,7 @@ module.exports = {
   EXEC,
   dismissPendingQuestion, updateBreakRetroactive, postToProductionChannel,
   closeActiveBreak, closeAllActiveBreaks,
-  createOperatorTool, _operatorActivation,
+  createOperatorTool, _operatorActivation, resolveActivityCheckTool,
   TOOL_DEFS, READ_TOOLS, MUTATION_TOOLS, DIRECT_TOOLS, CHANNEL_TOOLS, runTool,
   detectDismissIntent, stripVocative, pendingSummary, pendingContextLine, interpretDirectOrder,
 };

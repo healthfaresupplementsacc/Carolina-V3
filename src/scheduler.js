@@ -158,6 +158,25 @@ function startDetectJob() {
   console.log('[Scheduler] Autonomous detect scheduled every 30min ' + config.eod.timezone);
 }
 
+// PARTE 4 — hourly activity-freshness auto-check (open phase/ad-hoc with
+// no oal from the responsible operator for > 1h → Carolina asks admin).
+async function runActivityCheck() {
+  try {
+    const r = await require('./workflow/activity-freshness').checkActivityFreshness();
+    if (r.asked) console.log(`[ActivityCheck] asked about ${r.asked} stale activit(y/ies)`);
+  } catch (err) {
+    console.error('[ActivityCheck] error:', err.message);
+  }
+}
+let _activityTask = null;
+function startActivityCheckJob() {
+  _stop(_activityTask);
+  _activityTask = cron.schedule('0 * * * *', () => runActivityCheck(), {
+    timezone: config.eod.timezone,
+  });
+  console.log('[Scheduler] Activity freshness check scheduled hourly ' + config.eod.timezone);
+}
+
 async function runDailyCleanup() {
   try {
     const closed = await db.cleanupStaleBreaks();
@@ -329,4 +348,5 @@ module.exports = {
   startPolling, startEodJob, runEod, runPollCycle, runDailyCleanup,
   startGreetingJob, runGreeting, rescheduleJobs,
   startDetectJob, runDetect,
+  startActivityCheckJob, runActivityCheck,
 };

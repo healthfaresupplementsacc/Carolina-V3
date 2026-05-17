@@ -12,7 +12,7 @@ const apiRouter = require('./routes/api');
 const workflowRouter = require('./routes/workflow');
 const { loadCustomSupplements } = apiRouter;
 const poller = require('./slack/poller');
-const { startPolling, startEodJob, startGreetingJob, startDetectJob } = require('./scheduler');
+const { startPolling, startEodJob, startGreetingJob, startDetectJob, startActivityCheckJob } = require('./scheduler');
 
 const app = express();
 
@@ -114,6 +114,9 @@ async function start() {
 
     // 5a2. BLOCO C / P3 — autonomous detection cron (every 30min).
     startDetectJob();
+
+    // 5a3. PARTE 4 — activity-freshness auto-check cron (hourly).
+    startActivityCheckJob();
 
     // 5b. Warm the app_name + persona caches (App Home header + Carolina
     //     persona are built synchronously on hot paths).

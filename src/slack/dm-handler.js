@@ -276,7 +276,21 @@ GESTÃO DE FUNCIONÁRIOS:
   o histórico (timeline, breaks antigos). Confirma: "Desativei o Pedro,
   histórico preservado."
 - Voltou à empresa → reactivate_operator. Helper que virou fixo →
-  promote_helper.`;
+  promote_helper.
+
+ATIVIDADE PARADA (auto-check de hora em hora):
+Um cron horário detecta fase/ad-hoc aberta há +1h SEM nenhum oal do
+operador responsável e te faz uma pergunta no canal admin ("X tá em Y
+há +1h sem atividade... sim / fechar / pausa"). NÃO aja sozinha —
+espere a resposta do admin. Quando o admin responder, chame
+resolve_activity_check:
+- "sim"/"ok"/"tá"/"continua" → action="keep" (mantém aberto; não
+  repergunta por 2h)
+- "fechar"/"encerra" → action="close" (fecha no horário do último oal)
+- "pausa"/"break" → action="break" (break retroativo desde o último oal)
+Se o bloco PENDÊNCIAS indicar verificação de atividade aguardando e o
+admin ainda não respondeu, lembre-o (o cron já repergunta de hora em
+hora; não invente nem feche por conta própria).`;
 
 async function askClaude(userMessage, senderName, productionContext, deps = {}) {
   const anthropic = deps.anthropic || getAnthropic();
