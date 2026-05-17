@@ -19,7 +19,7 @@ function fakeDb() {
       if (/FROM pg_tables/.test(s)) return Promise.resolve({ rows: [
         ...wipe.WIPE_TABLES.map((t) => ({ tablename: t })),
         ...wipe.PRESERVE_TABLES.map((t) => ({ tablename: t })),
-        { tablename: 'messages' }, { tablename: 'orders_sessions' }, // unlisted
+        { tablename: 'task_aliases' }, { tablename: 'mystery_table' }, // genuinely unlisted
       ] });
       if (/COUNT\(\*\)::int n FROM app_state WHERE key/.test(s)) return Promise.resolve({ rows: [{ n: 1 }] });
       if (/COUNT\(\*\)::int n/.test(s)) return Promise.resolve({ rows: [{ n: 5 }] });
@@ -36,11 +36,13 @@ function fakeDb() {
 }
 
 describe('WIPE — list integrity (apaga vs preserva)', () => {
-  test('WIPE_TABLES is exactly the spec activity set, child→parent', () => {
+  test('WIPE_TABLES = spec set + admin-confirmed "100% limpo" extra, child→parent', () => {
     expect(wipe.WIPE_TABLES).toEqual([
       'operator_activity_log', 'production_counts', 'pauses',
       'phase_instances', 'ad_hoc_task_instances', 'workflow_instances',
-      'tasks', 'operator_notes', 'carolina_proposals', 'silent_log',
+      'urgency_notifications', 'tasks', 'operator_notes',
+      'carolina_proposals', 'silent_log',
+      'orders_sessions', 'formulation_sessions', 'messages', 'eod_snapshots',
     ]);
     // children strictly before their parents
     const idx = (t) => wipe.WIPE_TABLES.indexOf(t);
@@ -48,6 +50,7 @@ describe('WIPE — list integrity (apaga vs preserva)', () => {
     expect(idx('production_counts')).toBeLessThan(idx('tasks'));
     expect(idx('pauses')).toBeLessThan(idx('tasks'));
     expect(idx('phase_instances')).toBeLessThan(idx('workflow_instances'));
+    expect(idx('urgency_notifications')).toBeLessThan(idx('tasks')); // FK -> tasks
   });
   test('manager_chat_history is an app_state KEY, not a table', () => {
     expect(wipe.WIPE_APP_STATE_KEYS).toEqual(['manager_chat_history']);
@@ -72,7 +75,7 @@ describe('WIPE — dry-run report', () => {
     expect(Object.keys(r.wipe)).toEqual(wipe.WIPE_TABLES);
     expect(r.mch).toBe(1);
     expect(r.preserve.operators).toBe(5);
-    expect(r.unlisted).toEqual({ messages: 5, orders_sessions: 5 }); // surfaced, NOT wiped
+    expect(r.unlisted).toEqual({ task_aliases: 5, mystery_table: 5 }); // surfaced, NOT wiped
     expect(r.operators[0]).toMatchObject({ name: 'Bruno', role: 'owner' });
     expect(r.wfTemplates).toEqual(['WF1']);
   });

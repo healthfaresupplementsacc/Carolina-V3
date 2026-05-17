@@ -29,16 +29,23 @@
 // Child → parent: anything with an inbound FK is deleted before its
 // parent so plain DELETE never hits a constraint.
 const WIPE_TABLES = [
-  'operator_activity_log', // -> pauses / phase_instances / ad_hoc_task_instances
-  'production_counts',     // -> tasks
-  'pauses',                // -> tasks
-  'phase_instances',       // -> workflow_instances
+  'operator_activity_log',  // -> pauses / phase_instances / ad_hoc_task_instances
+  'production_counts',      // -> tasks
+  'pauses',                 // -> tasks
+  'phase_instances',        // -> workflow_instances
   'ad_hoc_task_instances',
   'workflow_instances',
-  'tasks',                 // legacy model
-  'operator_notes',        // spec: "notes"
+  'urgency_notifications',  // -> tasks  (must precede tasks)
+  'tasks',                  // legacy model
+  'operator_notes',         // spec: "notes"
   'carolina_proposals',
   'silent_log',
+  // admin-confirmed extension — "100% limpo": day-to-day activity the
+  // spec didn't enumerate. All standalone (no inbound FKs).
+  'orders_sessions',
+  'formulation_sessions',
+  'messages',
+  'eod_snapshots',
 ];
 const WIPE_APP_STATE_KEYS = ['manager_chat_history'];
 
