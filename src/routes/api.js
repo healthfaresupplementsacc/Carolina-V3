@@ -1829,7 +1829,7 @@ async function getOperatorStats(date) {
      ORDER BY o.name`);
 
   return Promise.all(ops.rows.map(async (op) => {
-    const [taskRes, bottleRes, timeRes] = await Promise.all([
+    const [taskRes, bottleRes, timeRes, ordRes] = await Promise.all([
       db.query(
         `SELECT COUNT(*) as cnt FROM tasks WHERE operator = $1 AND started_at::date = ${dateExpr} AND status = 'closed'`,
         [op.name]
@@ -1845,13 +1845,29 @@ async function getOperatorStats(date) {
          WHERE operator = $1 AND started_at::date = ${dateExpr} AND status = 'closed'`,
         [op.name]
       ),
+      // EMERGÊNCIA L-03/L-09 — P&P (orders_sessions) estava 100% fora
+      // da conta: a Simone fez 502+32 ordens (51min) e o card mostrava
+      // "0min". Soma a duração das sessões de P&P encerradas do dia.
+      // (Não somamos oal/phase aqui de propósito: o dispatcher espelha
+      // task→phase, então somar os dois dobraria a produção — dívida do
+      // modelo duplo, fora do escopo da emergência.)
+      db.query(
+        `SELECT COUNT(*)::int AS cnt,
+                COALESCE(SUM(GREATEST(0,
+                  EXTRACT(EPOCH FROM (ended_at - started_at))::int)), 0) AS secs
+         FROM orders_sessions
+         WHERE operator = $1 AND started_at::date = ${dateExpr}
+           AND ended_at IS NOT NULL`,
+        [op.name]
+      ),
     ]);
 
     return {
       name: op.name,
-      tasks_today: parseInt(taskRes.rows[0]?.cnt || 0),
+      tasks_today: parseInt(taskRes.rows[0]?.cnt || 0) + parseInt(ordRes.rows[0]?.cnt || 0),
       bottles_today: parseInt(bottleRes.rows[0]?.total || 0),
-      active_seconds_today: parseInt(timeRes.rows[0]?.secs || 0),
+      active_seconds_today:
+        parseInt(timeRes.rows[0]?.secs || 0) + parseInt(ordRes.rows[0]?.secs || 0),
     };
   }));
 }
