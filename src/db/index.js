@@ -610,6 +610,25 @@ async function migrate() {
     CREATE UNIQUE INDEX IF NOT EXISTS uniq_open_pause_per_operator
       ON pauses (operator) WHERE ended_at IS NULL AND operator IS NOT NULL;
 
+    -- ─── FASE 1: canonical dispatcher idempotency index ────────────────
+    -- Maps a source_id (slack_ts | wizard_event_id | tool_call_id) to the
+    -- single row it produced. The canonical dispatcher upserts here so a
+    -- Slack edit / reprocess UPDATES that row instead of spawning a new
+    -- one (resolves L-06). target_id is TEXT so it can point at any
+    -- table's PK without a type coupling.
+    CREATE TABLE IF NOT EXISTS dispatcher_index (
+      source_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      target_table TEXT NOT NULL,
+      target_id BIGINT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_dispatcher_index_target
+      ON dispatcher_index(target_table, target_id);
+    CREATE INDEX IF NOT EXISTS idx_dispatcher_index_source_type
+      ON dispatcher_index(source_type);
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_slack_ts ON messages(slack_ts);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
