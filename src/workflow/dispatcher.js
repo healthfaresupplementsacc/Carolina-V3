@@ -95,11 +95,23 @@ async function resolveTemplate(parsed, ctx) {
     };
   }
   const taskType = parsed.taskType || 'producao';
-  const phase = TASK_TYPE_TO_PHASE[taskType] || 'Linha de Produção';
+  // 'producao' / 'linha_producao' is the GENERIC default the parser
+  // assigns when it couldn't tell — it is NOT a real signal. Only a
+  // non-generic taskType (revisao/encapsulacao/formulacao) is specific.
+  const GENERIC_TASK_TYPES = new Set(['producao', 'linha_producao']);
+  const specificMapped = !GENERIC_TASK_TYPES.has(taskType)
+    ? TASK_TYPE_TO_PHASE[taskType] : null;
+  const phase = specificMapped || 'Linha de Produção';
   return {
     workflowName: 'Produção de Suplemento',
     phaseName: phase,
     phaseTemplateId: ctx.phaseByKey[`Produção de Suplemento::${phase}`] || null,
+    // EMERGÊNCIA L-01/L-02/L-05 — true quando NÃO houve sinal real de
+    // fase: sem phase-hint (já tratado acima), taskType genérico e sem
+    // suplemento. Antes isso virava silenciosamente uma phase fantasma
+    // "Linha de Produção" (produto/batch NULL) atribuída a quem o parser
+    // chutou. Agora o dispatch trata esse caso sem poluir.
+    fallbackNoContext: !specificMapped && !parsed.supplement,
   };
 }
 
@@ -152,6 +164,28 @@ async function dispatch(parsed, rawMsg) {
     case 'orders_start':
     case 'formulation_start': {
       const tpl = await resolveTemplate(parsed, ctx);
+      // EMERGÊNCIA L-01/L-02/L-04/L-05 — generic 'start' with NO real
+      // phase signal must NOT mint a phantom "Linha de Produção".
+      // (orders_start/formulation_start are explicit → never fall here.)
+      if (parsed.type === 'start' && tpl.fallbackNoContext) {
+        const cur = await engine.getCurrentActivity(operatorId);
+        if (cur) {
+          // Operator is already on something (e.g. Simone on P&P). A
+          // contextless start is noise / a cowork blip — do NOT open a
+          // new phase. Leave their real activity untouched.
+          return { dispatched: false, reason: 'start sem contexto; operador já ativo — fase fantasma evitada' };
+        }
+        // No context AND not currently active → record as ad-hoc
+        // "Outro" with the original message as the note, never a
+        // fake production phase.
+        const r = await engine.startAdHocTask({
+          taskName: 'Outro', operatorId,
+          text: rawMsg?.text || null, when,
+          notes: parsed.description || rawMsg?.text || null,
+        });
+        return { dispatched: true, kind: 'adhoc_outro_no_context',
+                 result: r };
+      }
       if (!tpl.phaseTemplateId) return { dispatched: false, reason: 'unknown phase template' };
       const wf = await engine.findOrCreateWorkflowInstance({
         workflowTemplateId: ctx.wfByName[tpl.workflowName],
