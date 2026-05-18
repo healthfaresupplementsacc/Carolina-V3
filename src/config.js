@@ -42,11 +42,26 @@ module.exports = {
   },
   // Shared accounts that need "Name -" or "Name:" prefix
   sharedAccounts: [
-    'U0AU8N8FA00', // Production Line floor computer (Ana/Bruno)
+    'U0AU8N8FA00', // Production Line floor computer (Ana/Bruno Sarmento)
   ],
-  // Known operators
-  operators: ['Ana', 'Bruno', 'Vitor', 'Simone'],
-  // Operator display names -> slack IDs (where known)
+  // Known operator name tokens accepted as an inline prefix. Kept for the
+  // legacy parser regex; FASE 1 resolve-operator derives the real matcher
+  // from the operators table (name + aliases) — this is only the fallback
+  // token list. Bruno→Bruno Sarmento, Vitor→Vitor Leite (the floor people).
+  operators: ['Ana', 'Bruno Sarmento', 'Bruno', 'Vitor Leite', 'Vitor', 'Simone', 'Henrique'],
+  // FASE 1 Passo 3 — account → default owner (Bruno's documented rule,
+  // doc 10.3 / spec 2.2). The account→operator NAME mapping is the rule;
+  // the name→operator_id resolution is data-driven via the operators
+  // table (so no operator_id is ever hardcoded — honours spec 2.3).
+  accountOwners: {
+    U07FG34TMPF: 'Simone',
+    U08JC85HMNE: 'Vitor Leite',
+  },
+  // Accounts that NEVER auto-attribute (shared, no default owner). The
+  // floor PC is shared by Ana/Bruno Sarmento — a message with no prefix
+  // and no recent context from here is AMBIGUOUS (Carolina asks admin).
+  noOwnerAccounts: ['U0AU8N8FA00'],
+  // (legacy) operator display names -> slack IDs (where known)
   operatorSlackIds: {
     Vitor: 'U08JC85HMNE',
     Simone: 'U07FG34TMPF',
