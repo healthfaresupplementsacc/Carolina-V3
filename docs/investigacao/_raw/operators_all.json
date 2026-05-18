@@ -1,0 +1,326 @@
+[
+ {
+  "id": 1,
+  "name": "Ana",
+  "slack_user_id": null,
+  "role": "operator",
+  "active": true,
+  "is_active": true,
+  "is_temporary": false
+ },
+ {
+  "id": 2,
+  "name": "Bruno",
+  "slack_user_id": null,
+  "role": "operator",
+  "active": true,
+  "is_active": true,
+  "is_temporary": false
+ },
+ {
+  "id": 3,
+  "name": "Vitor",
+  "slack_user_id": "U08JC85HMNE",
+  "role": "operator",
+  "active": true,
+  "is_active": true,
+  "is_temporary": false
+ },
+ {
+  "id": 4,
+  "name": "Simone",
+  "slack_user_id": "U07FG34TMPF",
+  "role": "operator",
+  "active": true,
+  "is_active": true,
+  "is_temporary": false
+ },
+ {
+  "id": 193,
+  "name": "AdminValidateTest_1778824394110",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 194,
+  "name": "AdminValidateTest_1778824440924",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 199,
+  "name": "AdminValidateTest_1778849350800",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 204,
+  "name": "AdminValidateTest_1778850819828",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 217,
+  "name": "AdminValidateTest_1778858750152",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 222,
+  "name": "AdminValidateTest_1778880519544",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 231,
+  "name": "AdminValidateTest_1778881128601",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 232,
+  "name": "AdminValidateTest_1778881141987",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 237,
+  "name": "AdminValidateTest_1778889540115",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 238,
+  "name": "AdminValidateTest_1778892402758",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 243,
+  "name": "AdminValidateTest_1778892425514",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 244,
+  "name": "AdminValidateTest_1778894576954",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 253,
+  "name": "AdminValidateTest_1778897508124",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 254,
+  "name": "AdminValidateTest_1778900403928",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 263,
+  "name": "AdminValidateTest_1778900446179",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 264,
+  "name": "AdminValidateTest_1778906759919",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 273,
+  "name": "AdminValidateTest_1778943347957",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 278,
+  "name": "AdminValidateTest_1778945737491",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 283,
+  "name": "AdminValidateTest_1778949282941",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 288,
+  "name": "AdminValidateTest_1778953024774",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 293,
+  "name": "AdminValidateTest_1778953796225",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 298,
+  "name": "AdminValidateTest_1778958189383",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 303,
+  "name": "AdminValidateTest_1778958995596",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 308,
+  "name": "AdminValidateTest_1778960314249",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 313,
+  "name": "AdminValidateTest_1778964447459",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 318,
+  "name": "AdminValidateTest_1778968804078",
+  "slack_user_id": "UTEST",
+  "role": "producao",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 323,
+  "name": "Thassio",
+  "slack_user_id": "U03S46L2EUA",
+  "role": "owner",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 324,
+  "name": "Henrique Monteiro",
+  "slack_user_id": "U085SDY3F4Z",
+  "role": "manager",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 325,
+  "name": "AdminValidateTest_1778972681394",
+  "slack_user_id": "UTEST",
+  "role": "manager",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 332,
+  "name": "AdminValidateTest_1778975704146",
+  "slack_user_id": "UTEST",
+  "role": "manager",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 333,
+  "name": "Bruno Camp",
+  "slack_user_id": "D03UL80GDRB",
+  "role": "owner",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ },
+ {
+  "id": 340,
+  "name": "AdminValidateTest_1778981956437",
+  "slack_user_id": "UTEST",
+  "role": "manager",
+  "active": false,
+  "is_active": false,
+  "is_temporary": false
+ }
+]

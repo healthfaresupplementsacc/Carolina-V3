@@ -1,0 +1,1141 @@
+[
+ {
+  "id": 1173,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:524"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T04:00:00.736Z"
+ },
+ {
+  "id": 1174,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:524"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T05:00:01.479Z"
+ },
+ {
+  "id": 1175,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:524"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T06:00:00.879Z"
+ },
+ {
+  "id": 1176,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:524"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T07:00:01.364Z"
+ },
+ {
+  "id": 1177,
+  "admin_user": null,
+  "action": "legacy_cleanup",
+  "entity_type": "phase_instance",
+  "entity_id": "524",
+  "before_data": {
+   "status": "open",
+   "started_at": "2026-05-16T23:39:44.229Z"
+  },
+  "after_data": {
+   "reason": "auto_cleanup_legacy",
+   "status": "closed"
+  },
+  "source": "system",
+  "request_meta": null,
+  "created_at": "2026-05-18T07:30:00.652Z"
+ },
+ {
+  "id": 1178,
+  "admin_user": null,
+  "action": "broadcast",
+  "entity_type": "broadcast",
+  "entity_id": "1779106175.671959",
+  "before_data": null,
+  "after_data": {
+   "ts": "1779106175.671959",
+   "message": "S de Start: quando começar a tarefa\nF de Finalizando: quando terminar\nP de Produção: quantidade de potes produzidos\nN de Nota: observação, caso aconteça algo ou tenha atraso\n\nExemplo:\n\nAna: S: Graviola 0124\nAna: F: Graviola 0124\n\nQualquer dúvida, me chama"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.14",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/broadcast",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T12:09:35.717Z"
+ },
+ {
+  "id": 1179,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.3",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T12:17:59.615Z"
+ },
+ {
+  "id": 1180,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T13:52:35.633Z"
+ },
+ {
+  "id": 1181,
+  "admin_user": null,
+  "action": "broadcast",
+  "entity_type": "broadcast",
+  "entity_id": "1779112381.269089",
+  "before_data": null,
+  "after_data": {
+   "ts": "1779112381.269089",
+   "message": "Oi, tudo bem Ana, Ele não deu entrada ainda. Na verdade, hoje eu ainda não tenho atualização de ninguém aqui, só da Simone.\n\nVocês podem avisar, por favor, o que está sendo feito?"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/broadcast",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T13:53:01.313Z"
+ },
+ {
+  "id": 1182,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T13:53:07.729Z"
+ },
+ {
+  "id": 1183,
+  "admin_user": null,
+  "action": "task.edit",
+  "entity_type": "task",
+  "entity_id": "487",
+  "before_data": {
+   "id": 487,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Vitor",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:58:09.062Z",
+   "started_at": "2026-05-18T13:58:07.342Z",
+   "updated_at": "2026-05-18T13:58:09.062Z",
+   "description": "Potassium 0134 - ( para ca[psulas)- Bruno",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Potassium Iodide",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "after_data": {
+   "id": 487,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Bruno",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:58:09.062Z",
+   "started_at": "2026-05-18T13:58:00.000Z",
+   "updated_at": "2026-05-18T13:58:45.821Z",
+   "description": "",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Potassium Iodide",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/task/487",
+   "method": "PUT"
+  },
+  "created_at": "2026-05-18T13:58:45.829Z"
+ },
+ {
+  "id": 1184,
+  "admin_user": null,
+  "action": "orders_session.edit",
+  "entity_type": "orders_session",
+  "entity_id": "44",
+  "before_data": {
+   "id": 44,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Simone",
+   "created_at": "2026-05-18T13:35:39.045Z",
+   "deleted_at": null,
+   "started_at": "2026-05-18T13:35:16.451Z",
+   "updated_at": "2026-05-18T13:35:39.045Z",
+   "batch_label": "morning",
+   "order_count": 502,
+   "slack_end_ts": null,
+   "slack_start_ts": "1779111316.451299",
+   "duration_seconds": null
+  },
+  "after_data": {
+   "id": 44,
+   "status": "open",
+   "helpers": "Vitor",
+   "ended_at": null,
+   "operator": "Simone",
+   "created_at": "2026-05-18T13:35:39.045Z",
+   "deleted_at": null,
+   "started_at": "2026-05-18T13:35:00.000Z",
+   "updated_at": "2026-05-18T13:59:55.189Z",
+   "batch_label": "morning",
+   "order_count": 502,
+   "slack_end_ts": null,
+   "slack_start_ts": "1779111316.451299",
+   "duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/order/44",
+   "method": "PUT"
+  },
+  "created_at": "2026-05-18T13:59:55.196Z"
+ },
+ {
+  "id": 1185,
+  "admin_user": null,
+  "action": "orders_session.edit",
+  "entity_type": "orders_session",
+  "entity_id": "44",
+  "before_data": {
+   "id": 44,
+   "status": "open",
+   "helpers": "Vitor",
+   "ended_at": null,
+   "operator": "Simone",
+   "created_at": "2026-05-18T13:35:39.045Z",
+   "deleted_at": null,
+   "started_at": "2026-05-18T13:35:00.000Z",
+   "updated_at": "2026-05-18T13:59:55.189Z",
+   "batch_label": "morning",
+   "order_count": 502,
+   "slack_end_ts": null,
+   "slack_start_ts": "1779111316.451299",
+   "duration_seconds": null
+  },
+  "after_data": {
+   "id": 44,
+   "status": "open",
+   "helpers": "Vitor",
+   "ended_at": null,
+   "operator": "Simone",
+   "created_at": "2026-05-18T13:35:39.045Z",
+   "deleted_at": null,
+   "started_at": "2026-05-18T13:35:00.000Z",
+   "updated_at": "2026-05-18T14:00:08.251Z",
+   "batch_label": "morning",
+   "order_count": 502,
+   "slack_end_ts": null,
+   "slack_start_ts": "1779111316.451299",
+   "duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/order/44",
+   "method": "PUT"
+  },
+  "created_at": "2026-05-18T14:00:08.258Z"
+ },
+ {
+  "id": 1186,
+  "admin_user": null,
+  "action": "orders_session.edit",
+  "entity_type": "orders_session",
+  "entity_id": "44",
+  "before_data": {
+   "id": 44,
+   "status": "open",
+   "helpers": "Vitor",
+   "ended_at": null,
+   "operator": "Simone",
+   "created_at": "2026-05-18T13:35:39.045Z",
+   "deleted_at": null,
+   "started_at": "2026-05-18T13:35:00.000Z",
+   "updated_at": "2026-05-18T14:00:08.251Z",
+   "batch_label": "morning",
+   "order_count": 502,
+   "slack_end_ts": null,
+   "slack_start_ts": "1779111316.451299",
+   "duration_seconds": null
+  },
+  "after_data": {
+   "id": 44,
+   "status": "open",
+   "helpers": "Vitor,",
+   "ended_at": null,
+   "operator": "Simone",
+   "created_at": "2026-05-18T13:35:39.045Z",
+   "deleted_at": null,
+   "started_at": "2026-05-18T13:35:00.000Z",
+   "updated_at": "2026-05-18T14:00:24.274Z",
+   "batch_label": "morning",
+   "order_count": 502,
+   "slack_end_ts": null,
+   "slack_start_ts": "1779111316.451299",
+   "duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.9",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/order/44",
+   "method": "PUT"
+  },
+  "created_at": "2026-05-18T14:00:24.282Z"
+ },
+ {
+  "id": 1187,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.22",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T14:03:43.908Z"
+ },
+ {
+  "id": 1188,
+  "admin_user": null,
+  "action": "broadcast",
+  "entity_type": "broadcast",
+  "entity_id": "1779113089.951109",
+  "before_data": null,
+  "after_data": {
+   "ts": "1779113089.951109",
+   "message": "Linha de produção rodando o que, Bruno?\n\nE o Plant Sterols, o que está acontecendo com ele? Está encapsulando, formulando, ou em outra etapa?"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.18",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/broadcast",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T14:04:49.999Z"
+ },
+ {
+  "id": 1189,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.18",
+   "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Mobile/15E148 Safari/604.1",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T14:05:10.856Z"
+ },
+ {
+  "id": 1190,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:538",
+    "phase:533",
+    "phase:534",
+    "phase:535",
+    "phase:536",
+    "phase:537"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T16:00:01.053Z"
+ },
+ {
+  "id": 1191,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:537"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T17:00:00.530Z"
+ },
+ {
+  "id": 1192,
+  "admin_user": null,
+  "action": "task.edit",
+  "entity_type": "task",
+  "entity_id": "487",
+  "before_data": {
+   "id": 487,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Bruno",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:58:09.062Z",
+   "started_at": "2026-05-18T13:58:00.000Z",
+   "updated_at": "2026-05-18T13:58:45.821Z",
+   "description": "",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Potassium Iodide",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "after_data": {
+   "id": 487,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Bruno",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:58:09.062Z",
+   "started_at": "2026-05-18T13:58:00.000Z",
+   "updated_at": "2026-05-18T17:07:17.156Z",
+   "description": "",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Plant Sterols",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/task/487",
+   "method": "PUT"
+  },
+  "created_at": "2026-05-18T17:07:17.164Z"
+ },
+ {
+  "id": 1193,
+  "admin_user": null,
+  "action": "task.delete",
+  "entity_type": "task",
+  "entity_id": "488",
+  "before_data": {
+   "id": 488,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Vitor",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:59:10.140Z",
+   "started_at": "2026-05-18T13:58:07.342Z",
+   "updated_at": "2026-05-18T13:59:10.140Z",
+   "description": "Plant  0134 - ( para ca[psulas)- Bruno",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Plant Sterols",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "after_data": {
+   "id": 488,
+   "status": "deleted",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Vitor",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:59:10.140Z",
+   "started_at": "2026-05-18T13:58:07.342Z",
+   "updated_at": "2026-05-18T17:07:24.047Z",
+   "description": "Plant  0134 - ( para ca[psulas)- Bruno",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Plant Sterols",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/task/488?pin=510510",
+   "method": "DELETE"
+  },
+  "created_at": "2026-05-18T17:07:24.056Z"
+ },
+ {
+  "id": 1194,
+  "admin_user": null,
+  "action": "phase_instance.delete",
+  "entity_type": "phase_instance",
+  "entity_id": "533",
+  "before_data": {
+   "id": 533,
+   "meta": {},
+   "notes": "Potassium 0134 - ( para ca[psulas)- Bruno",
+   "status": "open",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T13:58:09.095Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T13:58:07.342Z",
+   "updated_at": "2026-05-18T13:58:09.095Z",
+   "admin_notes": null,
+   "batch_number": "0134",
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 453,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 3
+  },
+  "after_data": {
+   "id": 533,
+   "meta": {},
+   "notes": "Potassium 0134 - ( para ca[psulas)- Bruno",
+   "status": "deleted",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T13:58:09.095Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T13:58:07.342Z",
+   "updated_at": "2026-05-18T17:07:43.229Z",
+   "admin_notes": null,
+   "batch_number": "0134",
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 453,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 3
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/phase-instances/533?pin=510510",
+   "method": "DELETE"
+  },
+  "created_at": "2026-05-18T17:07:43.237Z"
+ },
+ {
+  "id": 1195,
+  "admin_user": null,
+  "action": "task.edit",
+  "entity_type": "task",
+  "entity_id": "490",
+  "before_data": {
+   "id": 490,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Ana",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T16:57:09.245Z",
+   "started_at": "2026-05-18T16:57:00.730Z",
+   "updated_at": "2026-05-18T16:57:09.245Z",
+   "description": "linha de producao Acido Hyaluronic 0139",
+   "batch_number": "0139",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779123420.730959",
+   "supplement_name": "Hyaluronic Acid",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "after_data": {
+   "id": 490,
+   "status": "open",
+   "helpers": null,
+   "ended_at": null,
+   "operator": "Ana",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T16:57:09.245Z",
+   "started_at": "2026-05-18T16:57:00.000Z",
+   "updated_at": "2026-05-18T17:09:02.621Z",
+   "description": "Parada 1:01pm voltou 1:06pm",
+   "batch_number": "0139",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779123420.730959",
+   "supplement_name": "Hyaluronic Acid",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/task/490",
+   "method": "PUT"
+  },
+  "created_at": "2026-05-18T17:09:02.628Z"
+ },
+ {
+  "id": 1196,
+  "admin_user": null,
+  "action": "phase_instance.delete",
+  "entity_type": "phase_instance",
+  "entity_id": "538",
+  "before_data": {
+   "id": 538,
+   "meta": {},
+   "notes": "linha de producao Rutin",
+   "status": "open",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T14:21:39.120Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T14:21:17.427Z",
+   "updated_at": "2026-05-18T14:21:39.120Z",
+   "admin_notes": null,
+   "batch_number": null,
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 458,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 1
+  },
+  "after_data": {
+   "id": 538,
+   "meta": {},
+   "notes": "linha de producao Rutin",
+   "status": "deleted",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T14:21:39.120Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T14:21:17.427Z",
+   "updated_at": "2026-05-18T17:10:53.781Z",
+   "admin_notes": null,
+   "batch_number": null,
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 458,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 1
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/phase-instances/538?pin=510510",
+   "method": "DELETE"
+  },
+  "created_at": "2026-05-18T17:10:53.787Z"
+ },
+ {
+  "id": 1197,
+  "admin_user": null,
+  "action": "phase_instance.delete",
+  "entity_type": "phase_instance",
+  "entity_id": "536",
+  "before_data": {
+   "id": 536,
+   "meta": {},
+   "notes": ", Bruno, Ana na linha de producao",
+   "status": "open",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T14:02:11.324Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T14:01:46.314Z",
+   "updated_at": "2026-05-18T14:02:11.324Z",
+   "admin_notes": null,
+   "batch_number": null,
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 456,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 3
+  },
+  "after_data": {
+   "id": 536,
+   "meta": {},
+   "notes": ", Bruno, Ana na linha de producao",
+   "status": "deleted",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T14:02:11.324Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T14:01:46.314Z",
+   "updated_at": "2026-05-18T17:11:18.281Z",
+   "admin_notes": null,
+   "batch_number": null,
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 456,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 3
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/phase-instances/536?pin=510510",
+   "method": "DELETE"
+  },
+  "created_at": "2026-05-18T17:11:18.287Z"
+ },
+ {
+  "id": 1198,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T17:14:37.402Z"
+ },
+ {
+  "id": 1199,
+  "admin_user": null,
+  "action": "broadcast",
+  "entity_type": "broadcast",
+  "entity_id": "1779124484.977659",
+  "before_data": null,
+  "after_data": {
+   "ts": "1779124484.977659",
+   "message": "Bruno, continuo sem informações sobre o Plant Sterols. Aqui aparece como ativado há 3h15, mas não sei se está rodando na encapsuladora ou se houve algum problema. Pode me atualizar, por favor?"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/broadcast",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T17:14:45.023Z"
+ },
+ {
+  "id": 1200,
+  "admin_user": null,
+  "action": "silent_mode.toggle",
+  "entity_type": "app_state",
+  "entity_id": "text",
+  "before_data": {
+   "silent_mode": "false",
+   "silent_text": "false",
+   "silent_reactions": "false"
+  },
+  "after_data": {
+   "silent_mode": "false",
+   "silent_text": "true",
+   "silent_reactions": "false"
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.12",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/silent-toggle",
+   "method": "POST"
+  },
+  "created_at": "2026-05-18T17:14:53.739Z"
+ },
+ {
+  "id": 1201,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:544",
+    "phase:537"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T18:00:00.648Z"
+ },
+ {
+  "id": 1202,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:544"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T19:00:00.719Z"
+ },
+ {
+  "id": 1203,
+  "admin_user": null,
+  "action": "operator.cleanup_fantasma_atividade",
+  "entity_type": "phase_instance",
+  "entity_id": "537",
+  "before_data": {
+   "reason": "phantom Linha de Produção (RC-A)",
+   "started": "10:14",
+   "starter": "Simone"
+  },
+  "after_data": {
+   "status": "deleted"
+  },
+  "source": "script",
+  "request_meta": null,
+  "created_at": "2026-05-18T19:56:20.366Z"
+ },
+ {
+  "id": 1204,
+  "admin_user": null,
+  "action": "operator.cleanup_fantasma_atividade",
+  "entity_type": "phase_instance",
+  "entity_id": "539",
+  "before_data": {
+   "reason": "phantom Linha de Produção (RC-A)",
+   "started": "12:22",
+   "starter": "Ana"
+  },
+  "after_data": {
+   "status": "deleted"
+  },
+  "source": "script",
+  "request_meta": null,
+  "created_at": "2026-05-18T19:56:20.513Z"
+ },
+ {
+  "id": 1205,
+  "admin_user": null,
+  "action": "operator.cleanup_fantasma_atividade",
+  "entity_type": "phase_instance",
+  "entity_id": "554",
+  "before_data": {
+   "reason": "phantom Linha de Produção (RC-A)",
+   "started": "14:48",
+   "starter": "Simone"
+  },
+  "after_data": {
+   "status": "deleted"
+  },
+  "source": "script",
+  "request_meta": null,
+  "created_at": "2026-05-18T19:56:20.653Z"
+ },
+ {
+  "id": 1206,
+  "admin_user": null,
+  "action": "operator.cleanup_fantasma_atividade",
+  "entity_type": "phase_instance",
+  "entity_id": "556",
+  "before_data": {
+   "reason": "phantom Linha de Produção (RC-A)",
+   "started": "15:09",
+   "starter": "Ana"
+  },
+  "after_data": {
+   "status": "deleted"
+  },
+  "source": "script",
+  "request_meta": null,
+  "created_at": "2026-05-18T19:56:20.801Z"
+ },
+ {
+  "id": 1207,
+  "admin_user": null,
+  "action": "activity_check.asked",
+  "entity_type": "activity_freshness",
+  "entity_id": "cron",
+  "before_data": null,
+  "after_data": {
+   "items": [
+    "phase:544"
+   ]
+  },
+  "source": "cron",
+  "request_meta": null,
+  "created_at": "2026-05-18T20:00:00.811Z"
+ },
+ {
+  "id": 1208,
+  "admin_user": null,
+  "action": "task.delete",
+  "entity_type": "task",
+  "entity_id": "487",
+  "before_data": {
+   "id": 487,
+   "status": "open",
+   "helpers": "Simone",
+   "ended_at": null,
+   "operator": "Bruno",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:58:09.062Z",
+   "started_at": "2026-05-18T13:58:00.000Z",
+   "updated_at": "2026-05-18T19:26:45.541Z",
+   "description": "",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Plant Sterols",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "after_data": {
+   "id": 487,
+   "status": "deleted",
+   "helpers": "Simone",
+   "ended_at": null,
+   "operator": "Bruno",
+   "closed_by": null,
+   "task_type": "producao",
+   "created_at": "2026-05-18T13:58:09.062Z",
+   "started_at": "2026-05-18T13:58:00.000Z",
+   "updated_at": "2026-05-18T20:31:14.614Z",
+   "description": "",
+   "batch_number": "0134",
+   "slack_end_ts": null,
+   "urgency_tier": 0,
+   "slack_start_ts": "1779112687.342239",
+   "supplement_name": "Plant Sterols",
+   "duration_seconds": null,
+   "active_duration_seconds": null
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.14",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/task/487?pin=510510",
+   "method": "DELETE"
+  },
+  "created_at": "2026-05-18T20:31:14.624Z"
+ },
+ {
+  "id": 1209,
+  "admin_user": null,
+  "action": "phase_instance.delete",
+  "entity_type": "phase_instance",
+  "entity_id": "555",
+  "before_data": {
+   "id": 555,
+   "meta": {},
+   "notes": "Manutencao do Potassium",
+   "status": "open",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T19:09:15.727Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T19:09:10.710Z",
+   "updated_at": "2026-05-18T19:09:15.727Z",
+   "admin_notes": null,
+   "batch_number": null,
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 453,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 3
+  },
+  "after_data": {
+   "id": 555,
+   "meta": {},
+   "notes": "Manutencao do Potassium",
+   "status": "deleted",
+   "ended_at": null,
+   "legacy_id": null,
+   "created_at": "2026-05-18T19:09:15.727Z",
+   "phase_name": "Linha de Produção",
+   "started_at": "2026-05-18T19:09:10.710Z",
+   "updated_at": "2026-05-18T20:31:21.579Z",
+   "admin_notes": null,
+   "batch_number": null,
+   "legacy_table": null,
+   "phase_template_id": 6,
+   "final_bottle_count": null,
+   "workflow_instance_id": 453,
+   "batch_change_approved": true,
+   "closed_by_operator_id": null,
+   "started_by_operator_id": 3
+  },
+  "source": "api",
+  "request_meta": {
+   "ip": "::ffff:100.64.0.14",
+   "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+   "path": "/api/admin/phase-instances/555?pin=510510",
+   "method": "DELETE"
+  },
+  "created_at": "2026-05-18T20:31:21.592Z"
+ }
+]

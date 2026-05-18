@@ -1,0 +1,62 @@
+[
+ {
+  "id": 63,
+  "task_id": null,
+  "reason": null,
+  "started_at": "2026-05-18T17:41:43.030Z",
+  "ended_at": "2026-05-18T18:23:33.738Z",
+  "slack_ts": "1779126103.030609",
+  "created_at": "2026-05-18T17:41:45.519Z",
+  "operator": "Simone",
+  "ended_reason": "auto_new_task",
+  "deleted_at": null
+ },
+ {
+  "id": 66,
+  "task_id": null,
+  "reason": null,
+  "started_at": "2026-05-18T18:28:07.854Z",
+  "ended_at": "2026-05-18T19:09:29.361Z",
+  "slack_ts": "1779128887.854909",
+  "created_at": "2026-05-18T18:28:15.568Z",
+  "operator": "Ana",
+  "ended_reason": "manual_return",
+  "deleted_at": null
+ },
+ {
+  "id": 68,
+  "task_id": null,
+  "reason": "[break não-rastreado]",
+  "started_at": "2026-05-18T19:09:29.361Z",
+  "ended_at": "2026-05-18T19:09:29.361Z",
+  "slack_ts": null,
+  "created_at": "2026-05-18T19:09:45.622Z",
+  "operator": "Ana",
+  "ended_reason": "untracked_return",
+  "deleted_at": null
+ },
+ {
+  "id": 69,
+  "task_id": 494,
+  "reason": null,
+  "started_at": "2026-05-18T19:11:32.092Z",
+  "ended_at": "2026-05-18T19:56:34.276Z",
+  "slack_ts": "1779131492.092829",
+  "created_at": "2026-05-18T19:11:45.632Z",
+  "operator": "Vitor",
+  "ended_reason": null,
+  "deleted_at": null
+ },
+ {
+  "id": 71,
+  "task_id": 494,
+  "reason": null,
+  "started_at": "2026-05-18T19:56:34.276Z",
+  "ended_at": "2026-05-18T20:41:40.619Z",
+  "slack_ts": "1779134194.276029",
+  "created_at": "2026-05-18T19:56:45.633Z",
+  "operator": "Vitor",
+  "ended_reason": "auto_new_task",
+  "deleted_at": null
+ }
+]

@@ -1,0 +1,17 @@
+{
+ "messages": 57,
+ "workflow_instances": 14,
+ "phase_instances": 20,
+ "ad_hoc_task_instances": 1,
+ "tasks": 8,
+ "pauses": 5,
+ "production_counts": 0,
+ "operator_activity_log": 20,
+ "operator_notes": 1,
+ "admin_audit_log": 37,
+ "carolina_proposals": 10,
+ "silent_log": 19,
+ "urgency_notifications": "ERR:column \"created_at\" does not exist",
+ "orders_sessions": 2,
+ "operators": 36
+}
