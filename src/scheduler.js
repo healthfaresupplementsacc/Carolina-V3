@@ -76,6 +76,22 @@ async function startEodJob() {
     timezone: config.eod.timezone,
   });
   console.log('[Scheduler] Daily cleanup scheduled at 03:30 ' + config.eod.timezone);
+
+  // FASE 1 P8 — legacy×ISA-88 divergence telemetry at 04:00 ET. Alerts
+  // the admin chat only when a metric diverges > 5% (early warning
+  // before Fase 2 makes ISA-88 the single read model).
+  cron.schedule('0 4 * * *', () => runDivergenceTelemetry(), {
+    timezone: config.eod.timezone,
+  });
+  console.log('[Scheduler] Divergence telemetry scheduled at 04:00 ' + config.eod.timezone);
+}
+
+async function runDivergenceTelemetry() {
+  try {
+    await require('./workflow/divergence-telemetry').runDivergenceTelemetry();
+  } catch (err) {
+    console.error('[Divergence] run error:', err.message);
+  }
 }
 
 // ===== BLOCO B / C3 — morning greeting =====
@@ -349,4 +365,5 @@ module.exports = {
   startGreetingJob, runGreeting, rescheduleJobs,
   startDetectJob, runDetect,
   startActivityCheckJob, runActivityCheck,
+  runDivergenceTelemetry,
 };
