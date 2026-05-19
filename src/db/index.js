@@ -629,6 +629,27 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_dispatcher_index_source_type
       ON dispatcher_index(source_type);
 
+    -- ─── FASE 1 P6: pending operator disambiguation ────────────────────
+    -- An operator-required event whose operator_id resolved to NULL is
+    -- AMBIGUOUS. It is NOT silently dropped: the full EventoCanônico is
+    -- parked here (operator unknown) so (a) the dashboard can show a
+    -- "🔶 SEM DONO" card and (b) when the admin answers in the admin
+    -- chat, the stored event is re-dispatched WITH the operator and the
+    -- real ISA-88 row is finally created. Idempotent by source_id.
+    CREATE TABLE IF NOT EXISTS pending_disambiguation (
+      source_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      event JSONB NOT NULL,
+      question_text TEXT,
+      account_user_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'resolved' | 'dismissed'
+      resolved_operator_id INTEGER REFERENCES operators(id),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      resolved_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_pending_disambig_status
+      ON pending_disambiguation(status) WHERE status = 'pending';
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_messages_slack_ts ON messages(slack_ts);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);

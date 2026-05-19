@@ -84,6 +84,33 @@ describe('canonical dispatcher — guards', () => {
     expect(r.needsDisambiguation).toBe(true);
     expect(engine.startPhase).not.toHaveBeenCalled();
   });
+
+  test('ambiguous event is PARKED in pending_disambiguation (never dropped)', async () => {
+    const ev = makeEvent({
+      source_id: '1779000000.0009', source_type: 'parser', type: 'start',
+      operator_id: null, supplement: 'Rutin',
+    });
+    await dispatcher.dispatch(ev);
+    const park = db.query.mock.calls.find((c) =>
+      /INSERT INTO pending_disambiguation/.test(c[0])
+    );
+    expect(park).toBeTruthy();
+    expect(park[1][0]).toBe('1779000000.0009');
+  });
+
+  test('carolina_tool finish with null operator is NOT ambiguous (admin action)', async () => {
+    engine.closePhase.mockResolvedValue({ alreadyClosed: false, participants: [] });
+    const ev = makeEvent({
+      source_id: 'carolina_tool:t1', source_type: 'carolina_tool',
+      type: 'finish', operator_id: null, target_phase_id: 42,
+    });
+    const r = await dispatcher.dispatch(ev);
+    expect(r.dispatched).toBe(true);
+    expect(r.needsDisambiguation).toBeUndefined();
+    expect(engine.closePhase).toHaveBeenCalledWith(
+      expect.objectContaining({ phaseInstanceId: 42, closedByOperatorId: null })
+    );
+  });
 });
 
 describe('canonical dispatcher — note never discarded', () => {

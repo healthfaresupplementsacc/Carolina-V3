@@ -476,6 +476,25 @@ async function dispatch(ev) {
     OPERATOR_REQUIRED.has(ev.type) &&
     ev.source_type !== 'carolina_tool'
   ) {
+    // NOT dropped: park the full event so the dashboard shows a
+    // "🔶 SEM DONO" card and the admin's later answer re-dispatches it
+    // with the operator. Idempotent by source_id (a Slack edit of the
+    // same still-ambiguous message just refreshes the parked event).
+    try {
+      await db.query(
+        `INSERT INTO pending_disambiguation
+           (source_id, source_type, event, account_user_id, status)
+         VALUES ($1, $2, $3, $4, 'pending')
+         ON CONFLICT (source_id) DO UPDATE
+           SET event = EXCLUDED.event, status = 'pending'
+         WHERE pending_disambiguation.status = 'pending'`,
+        [ev.source_id, ev.source_type, JSON.stringify(ev),
+         ev.metadata?.accountUserId || null]
+      );
+      await audit(ev, 'pending_disambiguation', { table: 'pending_disambiguation', id: ev.source_id });
+    } catch (e) {
+      console.error('[CanonicalDispatcher] pending park failed:', e.message);
+    }
     return {
       dispatched: false,
       reason: 'ambiguous operator (operator_id null)',
