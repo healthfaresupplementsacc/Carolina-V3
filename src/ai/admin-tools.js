@@ -693,8 +693,52 @@ async function runTool(name, input = {}, deps = {}) {
       throw new Error('mutação requer confirmação explícita do admin (use propose → sim)');
     }
     const triggered_by = deps.triggeredBy || 'slack_admin_order';
-    const result = await EXEC[name](input);
     const audit = deps.auditAction || require('../admin/audit').auditAction;
+
+    // FASE 1 P5 — close_phase is an ISA-88 INSTANCE lifecycle mutation, so
+    // it goes through the SINGLE canonical writer (idempotent by
+    // source_id = tool_call_id; the admin order IS the confirmation). The
+    // dispatcher emits its own dispatcher.upsert audit; we add the
+    // ai_admin_executed pairing here (spec 5.1). The other mutation tools
+    // (create_workflow/rename/approve_*/merge_tasks) are catalog/admin
+    // metadata ops — NOT EventoCanônico lifecycle events — so they keep
+    // the existing audited EXEC path (no scope invention).
+    if (name === 'close_phase') {
+      const canonical = deps.canonicalDispatcher
+        || require('../dispatcher/canonical-dispatcher');
+      const { makeEvent } = require('../dispatcher/event-schema');
+      const toolCallId = deps.toolCallId
+        || `${name}:${Buffer.from(JSON.stringify(input)).toString('base64').slice(0, 24)}`;
+      let operatorId = null;
+      if (input.operator != null && input.operator !== '') {
+        operatorId = await resolveOperatorId(input.operator);
+      } else if (Number.isFinite(input.operator_id)) {
+        operatorId = input.operator_id;
+      }
+      const ev = makeEvent({
+        source_id: `carolina_tool:${toolCallId}`,
+        source_type: 'carolina_tool',
+        type: 'finish',
+        operator_id: operatorId,
+        target_phase_id: input.phase_instance_id,
+        timestamp: new Date().toISOString(),
+        raw_text: `admin close_phase #${input.phase_instance_id}`,
+        metadata: {
+          finalBottleCount: Number.isFinite(input.bottle_count) ? input.bottle_count : null,
+          tool: 'close_phase', triggered_by,
+        },
+      });
+      const result = await canonical.safeDispatch(ev);
+      await audit({
+        action: 'ai_admin_executed', entityType: 'ai_admin',
+        entityId: name, source: deps.source || 'slack_admin',
+        before: { tool: name, input, triggered_by, source_id: ev.source_id },
+        after: { result },
+      });
+      return result;
+    }
+
+    const result = await EXEC[name](input);
     await audit({
       action: 'ai_admin_executed', entityType: 'ai_admin',
       entityId: name, source: deps.source || 'slack_admin',

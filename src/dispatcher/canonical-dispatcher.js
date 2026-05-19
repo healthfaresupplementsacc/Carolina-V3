@@ -466,7 +466,16 @@ async function dispatch(ev) {
   // not fabricate ISA-88 rows (oal.operator_id is NOT NULL). Flag for
   // admin-chat disambiguation; the message itself is already persisted
   // by the caller.
-  if (ev.operator_id == null && OPERATOR_REQUIRED.has(ev.type)) {
+  //
+  // Exception: a 'carolina_tool' event is an explicit, audited ADMIN
+  // action (e.g. admin tells Carolina "fecha a fase #5"). The admin is
+  // the authorized actor — closePhase/closeAdHoc accept a null closer —
+  // so a null operator_id here is NOT ambiguous, it's "admin did it".
+  if (
+    ev.operator_id == null &&
+    OPERATOR_REQUIRED.has(ev.type) &&
+    ev.source_type !== 'carolina_tool'
+  ) {
     return {
       dispatched: false,
       reason: 'ambiguous operator (operator_id null)',
