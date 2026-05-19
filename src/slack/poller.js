@@ -282,29 +282,75 @@ async function processMessage(msg) {
   // dispatcher. The legacy taskEngine.handleParsed above stays as the
   // shadow writer (doc 8.1) until Fase 2. Failures here never block
   // production — they're logged and swallowed.
-  if (!isBackfilling) {
-    try {
-      const { classify } = require('../parser');
-      const canonical = require('../dispatcher/canonical-dispatcher');
-      const events = await classify(msg);
-      for (const ev of events) {
-        const r = await canonical.safeDispatch(ev);
-        if (r && r.needsDisambiguation) {
-          // operator_id null on an operator-required type → Carolina
-          // asks in the admin chat (never the prod channel, never
-          // gated by silent_text). Implemented in Part 6.
-          try {
-            const adminChat = require('./admin-chat');
-            if (adminChat && typeof adminChat.askDisambiguation === 'function') {
-              await adminChat.askDisambiguation(ev, msg);
-            }
-          } catch (_) { /* admin-chat module lands in Part 6 */ }
-        }
-      }
-    } catch (err) {
-      console.error('[Poller] canonical dispatch error:', err.message);
-    }
+  if (!isBackfilling) await canonicalProbe(msg);
+}
+
+/**
+ * TAREFA 1 — canonical write path + observability probe (extracted from
+ * processMessage so it is unit-testable with injected deps; behaviour is
+ * byte-identical to the inline block it replaced).
+ *
+ * Logs, all prefixed [ProbeFASE1] so prod logs are greppable:
+ *  - how many events classify() produced (or an explicit ZERO line with
+ *    the raw text + reason);
+ *  - the dispatch outcome per event (dispatched/upsert/target/reason/error);
+ *  - a require/classify throw BEFORE safeDispatch (item 3).
+ * Failures NEVER propagate (production must not break).
+ *
+ * @param {object} msg   the Slack message
+ * @param {object} [deps] { classify, canonical, adminChat, log, errLog }
+ */
+async function canonicalProbe(msg, deps = {}) {
+  const log = deps.log || console.log;
+  const errLog = deps.errLog || console.error;
+  const ts = msg && msg.ts;
+
+  let classify = deps.classify;
+  let events;
+  try {
+    if (!classify) ({ classify } = require('../parser'));
+    events = await classify(msg);
+  } catch (err) {
+    errLog(`[ProbeFASE1] classify THREW ts=${ts}: ${err.message}`);
+    return { ok: false, stage: 'classify', error: err.message };
   }
+
+  if (!Array.isArray(events) || events.length === 0) {
+    const raw = String((msg && msg.text) || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    log(`[ProbeFASE1] ts=${ts} classify->0 events (trivial_noise_or_empty) text="${raw}"`);
+    return { ok: true, events: 0, dispatched: 0 };
+  }
+  log(`[ProbeFASE1] ts=${ts} classify->${events.length} event(s) types=[${events.map((e) => e.type).join(',')}]`);
+
+  let canonical = deps.canonical;
+  let dispatched = 0;
+  try {
+    if (!canonical) canonical = require('../dispatcher/canonical-dispatcher');
+    for (const ev of events) {
+      const r = await canonical.safeDispatch(ev);
+      if (r && r.dispatched) dispatched += 1;
+      log(
+        `[ProbeFASE1] dispatch src=${ev.source_id} type=${ev.type} op=${ev.operator_id == null ? 'NULL' : ev.operator_id}`
+        + ` -> dispatched=${!!(r && r.dispatched)} upsert=${(r && r.upsert) || '-'}`
+        + ` target=${(r && r.target_table) || '-'}:${(r && r.target_id) || '-'}`
+        + `${r && r.needsDisambiguation ? ' needsDisambiguation' : ''}`
+        + `${r && r.reason ? ` reason="${r.reason}"` : ''}`
+        + `${r && r.error ? ` ERROR="${r.error}"` : ''}`
+      );
+      if (r && r.needsDisambiguation) {
+        try {
+          const adminChat = deps.adminChat || require('./admin-chat');
+          if (adminChat && typeof adminChat.askDisambiguation === 'function') {
+            await adminChat.askDisambiguation(ev, msg);
+          }
+        } catch (_) { /* admin-chat best-effort */ }
+      }
+    }
+  } catch (err) {
+    errLog(`[ProbeFASE1] canonical dispatch error ts=${ts}: ${err.message}`);
+    return { ok: false, stage: 'dispatch', error: err.message, events: events.length, dispatched };
+  }
+  return { ok: true, events: events.length, dispatched };
 }
 
 async function poll() {
@@ -553,4 +599,4 @@ async function isBackfillDone() {
   return res.rows[0]?.value === 'true';
 }
 
-module.exports = { poll, backfill, isBackfillDone };
+module.exports = { poll, backfill, isBackfillDone, canonicalProbe };
