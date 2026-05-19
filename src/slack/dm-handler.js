@@ -474,6 +474,57 @@ async function resolveSlackName(slack, userId) {
   }
 }
 
+// FASE 1 P7 — persist an admin-chat message into `messages` (same
+// schema as the production channel). parsed_type='admin_chat' marks it
+// as NON-production: the production poller never reads this channel, so
+// these rows can never trigger the canonical/legacy production
+// dispatcher. They exist for the audit trail + user-id discovery.
+async function persistAdminMessage(msg, senderName) {
+  await db.query(
+    `INSERT INTO messages (slack_ts, channel_id, user_id, user_name, text, raw_json, parsed_type)
+     VALUES ($1, $2, $3, $4, $5, $6, 'admin_chat')
+     ON CONFLICT (slack_ts) DO NOTHING`,
+    [String(msg.ts), config.slack.managerChannelId, msg.user || null,
+     senderName || msg.user || null, msg.text || null, JSON.stringify(msg)]
+  );
+}
+
+// FASE 1 P7.3 — when an admin posts in the admin chat and their Slack
+// user id isn't registered against ANY operator, but exactly one active
+// operator with a NULL slack_user_id matches their name, adopt it.
+// Conservative (single unambiguous match), audited.
+async function autodiscoverSlackId(slack, msg, senderName) {
+  if (!msg.user || msg.bot_id) return;
+  const taken = await db.query(
+    `SELECT 1 FROM operators WHERE slack_user_id = $1 LIMIT 1`, [msg.user]);
+  if (taken.rows.length) return; // id already mapped — nothing to do
+  const name = senderName || (await resolveSlackName(slack, msg.user));
+  const first = String(name || '').trim().split(/\s+/)[0];
+  if (!first) return;
+  const cand = await db.query(
+    `SELECT id, name FROM operators
+      WHERE slack_user_id IS NULL AND (active = TRUE OR is_active = TRUE)
+        AND ( LOWER(name) = LOWER($1)
+           OR LOWER(name) LIKE LOWER($2) || ' %'
+           OR LOWER(name) = LOWER($2) )`,
+    [name, first]);
+  if (cand.rows.length !== 1) return; // ambiguous or none → never guess
+  const op = cand.rows[0];
+  await db.query(
+    `UPDATE operators SET slack_user_id = $1, updated_at = NOW() WHERE id = $2`,
+    [msg.user, op.id]);
+  try {
+    const { auditAction } = require('../admin/audit');
+    await auditAction({
+      action: 'operator.update_slack_user_id', entityType: 'operator',
+      entityId: op.id, source: 'admin_chat_autodiscover',
+      before: { name: op.name, slack_user_id: null },
+      after: { slack_user_id: msg.user, via: 'admin_chat_post', resolved_name: name },
+    });
+  } catch (_) { /* audit best-effort */ }
+  console.log(`[Manager] auto-discovered slack_user_id ${msg.user} → operator "${op.name}" (#${op.id})`);
+}
+
 /**
  * Poll the private manager channel (#bryce-managers) and reply to every new message.
  * Bruno, Thassio, and Henrique can ask anything — Carolina responds with live production data.
@@ -508,6 +559,20 @@ async function pollManagerChannel() {
   for (const msg of messages) {
     const senderName = await resolveSlackName(slack, msg.user);
     console.log(`[Manager] ${senderName}: ${msg.text.substring(0, 80)}`);
+
+    // FASE 1 P7 — persist the admin-chat message to `messages` (audit +
+    // future user-id discovery). These rows NEVER trigger the production
+    // dispatcher (only the production-channel poller does), they're for
+    // Carolina to interpret + the audit trail.
+    try { await persistAdminMessage(msg, senderName); } catch (e) {
+      console.error('[Manager] persist error:', e.message);
+    }
+    // P7.3 — auto-discover slack_user_id of any admin who posts here when
+    // their operator row still has NULL (resolves the Bruno-Camp-style
+    // pending generically).
+    try { await autodiscoverSlackId(slack, msg, senderName); } catch (e) {
+      console.error('[Manager] autodiscover error:', e.message);
+    }
 
     try {
       let reply;
@@ -564,6 +629,17 @@ async function pollManagerChannel() {
             senderName, productionContext, chatDeps);
         }
       }
+      // FASE 1 P7/P6 — the admin's reply may be the answer to a
+      // pending disambiguation ("foi a Ana"). Resolve it: re-dispatch
+      // the parked event WITH the operator (creates the real ISA-88 row
+      // + updates dispatcher_index) before falling to the normal loop.
+      if (reply === undefined) {
+        try {
+          const adminChat = require('./admin-chat');
+          const dis = await adminChat.resolveDisambiguationReply(msg.text);
+          if (dis.handled) reply = dis.reply;
+        } catch (e) { console.error('[Manager] disambig resolve error:', e.message); }
+      }
       // P2 — deterministic direct-order pre-parse: "ignora / esquece /
       // deixa pra lá" with something pending → dismiss, no LLM round-trip.
       if (reply === undefined) {
@@ -600,4 +676,5 @@ async function pollManagerChannel() {
 module.exports = {
   pollBossDMs, pollManagerChannel, askClaude, getProductionContext,
   trimHistory, loadManagerHistory, saveManagerHistory,
+  persistAdminMessage, autodiscoverSlackId, resolveSlackName,
 };
