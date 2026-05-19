@@ -14,8 +14,13 @@
  * 'activity_freshness_pending'). Every action is audited.
  */
 
-const STALE_HOURS = 1;
+// TAREFA 3 — regra permanente do Bruno: fase/ad-hoc aberta > 8h SEM
+// atividade no oal → Carolina pergunta no admin chat. Se o admin não
+// responder em +4h (total 12h desde a 1ª pergunta) → auto-close com
+// nota '[auto_close_12h]' + audit.
+const STALE_HOURS = 8;
 const VERIFY_HOURS = 2;
+const AUTO_CLOSE_HOURS = 12;
 const PENDING_KEY = 'activity_freshness_pending';
 
 const _STALE_SQL = (tbl, idCol, nameCol, joinExtra, prodCol) => `
@@ -54,8 +59,8 @@ async function _getPending(appState) {
     const raw = await appState.get(PENDING_KEY, null);
     if (!raw) return { items: [], verified: {} };
     const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    return { items: p.items || [], verified: p.verified || {} };
-  } catch (_) { return { items: [], verified: {} }; }
+    return { items: p.items || [], verified: p.verified || {}, firstAsked: p.firstAsked || {} };
+  } catch (_) { return { items: [], verified: {}, firstAsked: {} }; }
 }
 async function _setPending(appState, p) {
   await appState.set(PENDING_KEY, JSON.stringify(p));
@@ -72,6 +77,7 @@ async function checkActivityFreshness(deps = {}) {
   const audit = deps.auditAction || require('../admin/audit').auditAction;
   const config = deps.config || require('../config');
 
+  const engine = deps.engine || require('./engine');
   const stale = await findStale(db);
   const pending = await _getPending(appState);
   const now = Date.now();
@@ -79,11 +85,46 @@ async function checkActivityFreshness(deps = {}) {
   for (const k of Object.keys(pending.verified)) {
     if (new Date(pending.verified[k]).getTime() <= now) delete pending.verified[k];
   }
-  const toAsk = stale.filter((it) => !pending.verified[_key(it)]);
+  const firstAsked = pending.firstAsked || {};
+  const candidates = stale.filter((it) => !pending.verified[_key(it)]);
+
+  // ── Auto-close: asked first time ≥ AUTO_CLOSE_HOURS ago, still
+  //    unanswered (admin didn't say sim/fechar/pausa) → close it. ──
+  const autoClosed = [];
+  const cutoff = now - AUTO_CLOSE_HOURS * 3600 * 1000;
+  for (const it of candidates) {
+    const fa = firstAsked[_key(it)];
+    if (fa && new Date(fa).getTime() <= cutoff) {
+      try {
+        const when = it.last_oal || new Date().toISOString();
+        if (it.kind === 'phase') {
+          await engine.closePhase({ phaseInstanceId: it.id, when });
+          await db.query(
+            `UPDATE phase_instances SET notes = COALESCE(notes,'') || ' [auto_close_12h]', updated_at = NOW() WHERE id = $1`,
+            [it.id]);
+        } else {
+          await engine.closeAdHocTask({ adHocTaskInstanceId: it.id, when });
+          await db.query(
+            `UPDATE ad_hoc_task_instances SET notes = COALESCE(notes,'') || ' [auto_close_12h]', updated_at = NOW() WHERE id = $1`,
+            [it.id]);
+        }
+        delete firstAsked[_key(it)];
+        autoClosed.push({ ...it, ended_at: when });
+        await audit({
+          action: 'activity_check.auto_close_12h', entityType: 'activity_freshness',
+          entityId: _key(it), source: 'cron',
+          before: { first_asked: fa, last_oal: it.last_oal },
+          after: { closed: true, ended_at: when, note: '[auto_close_12h]' },
+        });
+      } catch (e) { /* never block the cron; retried next hour */ }
+    }
+  }
+  const autoClosedKeys = new Set(autoClosed.map(_key));
+  const toAsk = candidates.filter((it) => !autoClosedKeys.has(_key(it)));
 
   if (toAsk.length === 0) {
-    await _setPending(appState, { items: [], verified: pending.verified });
-    return { asked: 0, items: [] };
+    await _setPending(appState, { items: [], verified: pending.verified, firstAsked });
+    return { asked: 0, items: [], autoClosed };
   }
 
   let formatTime;
@@ -95,26 +136,33 @@ async function checkActivityFreshness(deps = {}) {
       ? `'${it.name}${it.product ? ' · ' + it.product : ''}'`
       : `'${it.name}'`;
     const last = it.last_oal ? formatTime(it.last_oal, { format: tf }) : 'nenhum registro';
-    return `🤔 ${it.operator || 'Operador'} tá em ${where} há +1h sem nenhuma atividade detectada (último oal: ${last}). Tá certo?`;
+    return `🤔 ${it.operator || 'Operador'} tá em ${where} há +${STALE_HOURS}h sem nenhuma atividade detectada (último oal: ${last}). Tá certo?`;
   });
   const msg = lines.join('\n') +
-    `\nResponde: "sim" (continua), "fechar" (encerra agora), "pausa" (registra break retroativo desde o último oal).`;
+    `\nResponde: "sim" (continua), "fechar" (encerra agora), "pausa" (registra break retroativo desde o último oal).`
+    + `\n(sem resposta em ${AUTO_CLOSE_HOURS - STALE_HOURS}h eu fecho sozinha — nota [auto_close_12h])`;
 
   try {
     await slack.postToChannel(config.slack.managerChannelId, msg);
   } catch (e) { /* never block the cron on a Slack hiccup */ }
 
+  // stamp first_asked once per item (carry it across hourly re-asks so
+  // the 12h auto-close clock starts at the FIRST question, not the last).
+  const nowIso = new Date().toISOString();
+  for (const it of toAsk) {
+    if (!firstAsked[_key(it)]) firstAsked[_key(it)] = nowIso;
+  }
   await _setPending(appState, {
-    items: toAsk, verified: pending.verified, asked_at: new Date().toISOString(),
+    items: toAsk, verified: pending.verified, firstAsked, asked_at: nowIso,
   });
   try {
     await audit({
       action: 'activity_check.asked', entityType: 'activity_freshness',
       entityId: 'cron', source: 'cron',
-      before: null, after: { items: toAsk.map((i) => _key(i)) },
+      before: null, after: { items: toAsk.map((i) => _key(i)), auto_close_in_h: AUTO_CLOSE_HOURS },
     });
   } catch (_) {}
-  return { asked: toAsk.length, items: toAsk };
+  return { asked: toAsk.length, items: toAsk, autoClosed };
 }
 
 /**
@@ -130,11 +178,15 @@ async function resolveActivityCheck(action, deps = {}) {
   const pending = await _getPending(appState);
   if (!pending.items.length) return { handled: false, reason: 'sem verificação pendente' };
 
+  // an answered item must NOT keep its 12h auto-close clock running.
+  const fa = pending.firstAsked || {};
+  for (const it of pending.items) delete fa[_key(it)];
+
   const done = [];
   if (action === 'keep') {
     const until = new Date(Date.now() + VERIFY_HOURS * 3600 * 1000).toISOString();
     for (const it of pending.items) pending.verified[_key(it)] = until;
-    await _setPending(appState, { items: [], verified: pending.verified });
+    await _setPending(appState, { items: [], verified: pending.verified, firstAsked: fa });
     for (const it of pending.items) done.push({ ...it, action: 'kept', verified_until: until });
   } else if (action === 'close') {
     for (const it of pending.items) {
@@ -146,7 +198,7 @@ async function resolveActivityCheck(action, deps = {}) {
       }
       done.push({ ...it, action: 'closed', ended_at: when });
     }
-    await _setPending(appState, { items: [], verified: pending.verified });
+    await _setPending(appState, { items: [], verified: pending.verified, firstAsked: fa });
   } else if (action === 'break') {
     for (const it of pending.items) {
       if (!it.operator_id) { done.push({ ...it, action: 'skipped_no_operator' }); continue; }
@@ -164,7 +216,7 @@ async function resolveActivityCheck(action, deps = {}) {
         [it.operator_id, pauseId, startedAt]);
       done.push({ ...it, action: 'retro_break', started_at: startedAt });
     }
-    await _setPending(appState, { items: [], verified: pending.verified });
+    await _setPending(appState, { items: [], verified: pending.verified, firstAsked: fa });
   } else {
     return { handled: false, reason: 'ação inválida' };
   }
@@ -186,6 +238,6 @@ async function pendingFreshness(appState) {
 }
 
 module.exports = {
-  STALE_HOURS, VERIFY_HOURS, PENDING_KEY,
+  STALE_HOURS, VERIFY_HOURS, AUTO_CLOSE_HOURS, PENDING_KEY,
   findStale, checkActivityFreshness, resolveActivityCheck, pendingFreshness,
 };
