@@ -24,6 +24,11 @@ const ALLOW = [
   // auditAction({action:'task.merge'}) — verified + covered by
   // admin-validate + admin.smoke tests.
   "post('/admin/task/merge'",
+  // FASE 1 P10 — delegates to adminChat.resolveBySourceId() which calls
+  // auditAction({action:'operator.reassign_retroactive'}). Same
+  // delegated-audit pattern as task/merge; covered by
+  // dispatcher.reassign-endpoint + admin-chat behavioral tests.
+  "post('/admin/dispatcher/reassign-operator'",
 ];
 
 function endpoints(src) {

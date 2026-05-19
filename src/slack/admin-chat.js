@@ -94,20 +94,46 @@ async function listPending(deps = {}) {
 async function resolveDisambiguationReply(text, deps = {}) {
   const db = deps.db || require('../db');
   const pend = await db.query(
-    `SELECT source_id, source_type, event FROM pending_disambiguation
+    `SELECT source_id FROM pending_disambiguation
       WHERE status = 'pending' ORDER BY created_at DESC LIMIT 1`
   );
   if (!pend.rows[0]) return { handled: false, reason: 'no pending' };
 
-  const adminTools = deps.adminTools || require('../ai/admin-tools');
   // Pull a name out of the reply ("foi a Ana", "Bruno Sarmento", "ana").
   const cleaned = String(text || '')
     .replace(/^(foi\s+(a|o)?\s*|quem\s+foi.*?:?\s*|era\s+(a|o)?\s*)/i, '')
     .trim();
-  const op = await adminTools.resolveOperator(cleaned || text);
+  return resolveBySourceId(pend.rows[0].source_id, cleaned || text, {
+    ...deps, _source: 'slack_admin',
+  });
+}
+
+/**
+ * Assign an operator to ONE parked event (by source_id) and re-dispatch
+ * it. Shared by the admin-chat reply path and the dashboard "atribuir"
+ * button / endpoint (Part 10). Idempotent: a re-dispatched event upserts
+ * the same row.
+ */
+async function resolveBySourceId(sourceId, operatorRef, deps = {}) {
+  const db = deps.db || require('../db');
+  const row0 = await db.query(
+    `SELECT source_id, source_type, event, status FROM pending_disambiguation
+      WHERE source_id = $1`, [sourceId]);
+  const row = row0.rows[0];
+  if (!row) return { handled: false, reason: 'pending not found' };
+  if (row.status !== 'pending') {
+    return { handled: false, reason: 'already ' + row.status };
+  }
+
+  const adminTools = deps.adminTools || require('../ai/admin-tools');
+  let op = null;
+  if (typeof operatorRef === 'number' || /^\d+$/.test(String(operatorRef || ''))) {
+    op = await adminTools.resolveOperator(parseInt(operatorRef, 10));
+  } else {
+    op = await adminTools.resolveOperator(operatorRef);
+  }
   if (!op || !op.id) return { handled: false, reason: 'name not resolved' };
 
-  const row = pend.rows[0];
   const ev = typeof row.event === 'string' ? JSON.parse(row.event) : row.event;
   ev.operator_id = op.id;
 
@@ -124,12 +150,13 @@ async function resolveDisambiguationReply(text, deps = {}) {
   const auditAction = deps.auditAction || require('../admin/audit').auditAction;
   try {
     await auditAction({
+      req: deps.req,
       action: 'operator.reassign_retroactive',
       entityType: 'pending_disambiguation',
       entityId: row.source_id,
       before: { operator_id: null, source_id: row.source_id },
       after: { operator_id: op.id, operator: op.name, dispatch: result },
-      source: 'slack_admin',
+      source: deps._source || 'api',
     });
   } catch (_) { /* best-effort */ }
 
@@ -147,5 +174,6 @@ module.exports = {
   sendToAdminChat,
   askDisambiguation,
   resolveDisambiguationReply,
+  resolveBySourceId,
   listPending,
 };

@@ -26,6 +26,9 @@ const ALLOW = [
   "post('/admin/rescan-summary'", // re-parse only
   "post('/admin/migrate-legacy'", // audited inside the migrator
   "post('/admin/task/merge'",     // audited inside mergeTasks()
+  // FASE 1 P10 — audited inside adminChat.resolveBySourceId()
+  // (action 'operator.reassign_retroactive'), same delegate pattern.
+  "post('/admin/dispatcher/reassign-operator'",
 ];
 
 function endpoints(src) {

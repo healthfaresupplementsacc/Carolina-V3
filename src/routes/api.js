@@ -2063,5 +2063,53 @@ function buildComparison(currentTask, history) {
   };
 }
 
+// ─── FASE 1 P10: dispatcher disambiguation (SEM DONO) ───────────────────────
+// Cards the dashboard renders with a "🔶 SEM DONO" badge + "atribuir"
+// button. GET lists the parked ambiguous events; POST assigns an
+// operator and re-dispatches (creating the real ISA-88 row).
+router.get('/admin/dispatcher/pending', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  try {
+    const adminChat = require('../slack/admin-chat');
+    const pending = await adminChat.listPending();
+    res.json({
+      pending: pending.map((p) => ({
+        source_id: p.source_id,
+        source_type: p.source_type,
+        account_user_id: p.account_user_id,
+        created_at: p.created_at,
+        type: p.event && p.event.type || null,
+        supplement: p.event && p.event.supplement || null,
+        batch: p.event && p.event.batch || null,
+        raw_text: p.event && p.event.raw_text || null,
+      })),
+    });
+  } catch (err) {
+    console.error('[API] dispatcher/pending error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/dispatcher/reassign-operator  { pin, source_id, operator }
+// PIN-gated + audited (operator.reassign_retroactive, a permanent audit
+// action). Re-dispatches the parked event WITH the operator.
+router.post('/admin/dispatcher/reassign-operator', async (req, res) => {
+  if (!checkPin(req)) return res.status(403).json({ error: 'PIN incorreto' });
+  const sourceId = req.body && req.body.source_id;
+  const operator = req.body && (req.body.operator != null ? req.body.operator : req.body.operator_id);
+  if (!sourceId || operator == null || operator === '') {
+    return res.status(400).json({ error: 'source_id e operator são obrigatórios' });
+  }
+  try {
+    const adminChat = require('../slack/admin-chat');
+    const r = await adminChat.resolveBySourceId(sourceId, operator, { req, _source: 'api' });
+    if (!r.handled) return res.status(409).json({ error: r.reason || 'não resolvido' });
+    res.json({ ok: true, operator: r.operator, operator_id: r.operator_id, source_id: r.source_id });
+  } catch (err) {
+    console.error('[API] reassign-operator error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.loadCustomSupplements = loadCustomSupplements;
 module.exports = router;

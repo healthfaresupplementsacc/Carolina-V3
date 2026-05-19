@@ -73,8 +73,11 @@ describe('resolveDisambiguationReply', () => {
     const parked = { source_id: '1779.1', source_type: 'parser', type: 'start',
       operator_id: null, supplement: 'Rutin', raw_text: 'label das ordens' };
     db.query = jest.fn((sql) => {
-      if (/SELECT source_id, source_type, event FROM pending_disambiguation/.test(sql)) {
-        return Promise.resolve({ rows: [{ source_id: '1779.1', source_type: 'parser', event: parked }] });
+      if (/SELECT source_id FROM pending_disambiguation\s+WHERE status = 'pending'/.test(sql)) {
+        return Promise.resolve({ rows: [{ source_id: '1779.1' }] });
+      }
+      if (/SELECT source_id, source_type, event, status FROM pending_disambiguation/.test(sql)) {
+        return Promise.resolve({ rows: [{ source_id: '1779.1', source_type: 'parser', event: parked, status: 'pending' }] });
       }
       return Promise.resolve({ rows: [] });
     });
@@ -105,7 +108,7 @@ describe('resolveDisambiguationReply', () => {
   test('name does not resolve → handled:false (admin meant something else)', async () => {
     db.query = jest.fn((sql) =>
       /FROM pending_disambiguation/.test(sql)
-        ? Promise.resolve({ rows: [{ source_id: 's', source_type: 'parser', event: { type: 'start' } }] })
+        ? Promise.resolve({ rows: [{ source_id: 's', source_type: 'parser', event: { type: 'start' }, status: 'pending' }] })
         : Promise.resolve({ rows: [] }));
     adminTools.resolveOperator.mockResolvedValue(null);
     const r = await adminChat.resolveDisambiguationReply('fecha a fase 5');
