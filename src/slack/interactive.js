@@ -18,7 +18,9 @@
 
 const config = require('../config');
 const db = require('../db');
-const engine = require('../workflow/engine');
+// FASE 1 P4: wizards no longer write ISA-88 directly (no `engine` import).
+// Every submit becomes an EventoCanônico routed through the single
+// canonical dispatcher (see dispatchEvent below).
 const home = require('./home');
 
 let _client = null;
@@ -140,6 +142,30 @@ async function openModal(triggerId, view) {
 function readOperatorId(view) {
   const v = view.state.values?.who?.operator?.selected_option?.value;
   return v ? parseInt(v) : null;
+}
+
+// ─── FASE 1 P4: wizards build EventoCanônico → canonical dispatcher ──────────
+// App Home no longer writes ISA-88 directly. Every submit becomes an
+// EventoCanônico (operator_id is authoritative — the picker, never
+// ambiguous) dispatched through the single writer, idempotent by
+// source_id = app_home:<view.id> (a double-delivered submit upserts the
+// same row, never duplicates — same L-06 guarantee as the channel).
+function wizardSourceId(payload, cb, suffix = '') {
+  const v = payload.view || {};
+  const base = v.id || `${cb}:${v.hash || Date.now()}`;
+  return `app_home:${base}${suffix}`;
+}
+
+async function dispatchEvent(partial) {
+  const { makeEvent } = require('../dispatcher/event-schema');
+  const canonical = require('../dispatcher/canonical-dispatcher');
+  return canonical.safeDispatch(
+    makeEvent({
+      source_type: 'app_home',
+      timestamp: new Date().toISOString(),
+      ...partial,
+    })
+  );
 }
 
 // ─── block_actions: open the right modal ────────────────────────────────
@@ -314,30 +340,39 @@ async function handleViewSubmission(payload) {
   }
 
   try {
+    const sid = wizardSourceId(payload, cb);
     switch (cb) {
       case 'submit_break':
-        await engine.startBreak({
-          operatorId,
-          reason: view.state.values?.reason?.v?.value || null,
+        await dispatchEvent({
+          source_id: sid, type: 'break_start', operator_id: operatorId,
+          raw_text: view.state.values?.reason?.v?.value || '',
+          metadata: { reason: view.state.values?.reason?.v?.value || null },
         });
         break;
       case 'submit_end_break':
-        await engine.endBreak({ operatorId });
+        await dispatchEvent({ source_id: sid, type: 'break_end', operator_id: operatorId });
         break;
       case 'submit_join_phase':
-        await engine.joinPhase({ phaseInstanceId: meta.phaseId, operatorId });
+        await dispatchEvent({
+          source_id: sid, type: 'helping_start', operator_id: operatorId,
+          target_phase_id: meta.phaseId,
+        });
         break;
       case 'submit_close_phase': {
         const raw = view.state.values?.bottles?.v?.value;
         const n = raw ? parseInt(raw) : null;
-        await engine.closePhase({
-          phaseInstanceId: meta.phaseId, closedByOperatorId: operatorId,
-          finalBottleCount: Number.isFinite(n) ? n : null,
+        await dispatchEvent({
+          source_id: sid, type: 'finish', operator_id: operatorId,
+          target_phase_id: meta.phaseId,
+          metadata: { finalBottleCount: Number.isFinite(n) ? n : null },
         });
         break;
       }
       case 'submit_close_adhoc':
-        await engine.closeAdHocTask({ adHocTaskInstanceId: meta.adhocId, closedByOperatorId: operatorId });
+        await dispatchEvent({
+          source_id: sid, type: 'ad_hoc_finish', operator_id: operatorId,
+          target_phase_id: meta.adhocId,
+        });
         break;
       case 'submit_adhoc': {
         const taskId = view.state.values?.task?.v?.selected_option?.value;
@@ -345,20 +380,20 @@ async function handleViewSubmission(payload) {
         const picked = tr.rows[0]?.name || 'Outro';
         const desc = (view.state.values?.desc_outro?.v?.value || '').trim();
         // F5 — "Outro" + description → the description IS the task name.
-        // findOrCreateAdHocTask creates it admin_approved=FALSE (pending);
-        // alert admin so they can approve / merge / rename.
+        // The dispatcher's startAdHocTask creates it admin_approved=FALSE
+        // (pending); we still alert admin so they can approve/merge/rename.
+        const taskName = /^outro$/i.test(picked) && desc ? desc : picked;
+        await dispatchEvent({
+          source_id: sid, type: 'ad_hoc_start', operator_id: operatorId,
+          ad_hoc_task: taskName, raw_text: desc || '',
+        });
         if (/^outro$/i.test(picked) && desc) {
-          await engine.startAdHocTask({
-            taskName: desc, operatorId, createdByOperatorId: operatorId,
-          });
           const opn = await db.query(`SELECT name FROM operators WHERE id = $1`, [operatorId]);
           try {
             await require('../workflow/announce').adHocPending({
               operatorName: opn.rows[0]?.name, taskName: desc,
             });
           } catch (e) { /* best-effort */ }
-        } else {
-          await engine.startAdHocTask({ taskName: picked, operatorId });
         }
         break;
       }
@@ -372,6 +407,7 @@ async function handleViewSubmission(payload) {
 
         const { auditAction } = require('../admin/audit');
         // W4 — "Outro" workflow: create pending workflow_template + alert.
+        // (Catalog management — NOT an instance write; stays here.)
         if (wtRaw === '__outro__') {
           const ins = await db.query(
             `INSERT INTO workflow_templates (name, description, allows_product, is_active, pending_review)
@@ -408,11 +444,11 @@ async function handleViewSubmission(payload) {
         const productSel = view.state.values?.product?.supplement_select?.selected_option?.value || null;
         const { name: product } = await resolveSupplementValue(productSel);
         const batch = view.state.values?.batch?.v?.value || null;
-        const wf = await engine.findOrCreateWorkflowInstance({
-          workflowTemplateId: wt, productName: product, batchNumber: batch,
-          startedByOperatorId: operatorId,
-        });
-        // Open the chosen phase, or fall back to the first phase of the wf
+
+        // Resolve workflow + phase NAMES so the EventoCanônico is
+        // self-describing (the dispatcher maps name → template id).
+        const wtNameRow = await db.query(`SELECT name FROM workflow_templates WHERE id = $1`, [wt]);
+        const wfName = wtNameRow.rows[0]?.name || null;
         let phaseTemplateId = chosenPhaseTemplateId;
         if (!phaseTemplateId) {
           const ph = await db.query(
@@ -420,48 +456,58 @@ async function handleViewSubmission(payload) {
              ORDER BY sequence_order ASC, id ASC LIMIT 1`, [wt]);
           phaseTemplateId = ph.rows[0]?.id || null;
         }
+        let phaseName = null;
         if (phaseTemplateId) {
-          await engine.startPhase({
-            workflowInstanceId: wf.workflowInstanceId,
-            phaseTemplateId, operatorId, batchNumber: batch,
-          });
+          const pn = await db.query(`SELECT name FROM phase_templates WHERE id = $1`, [phaseTemplateId]);
+          phaseName = pn.rows[0]?.name || null;
         }
+        await dispatchEvent({
+          source_id: sid, type: 'start', operator_id: operatorId,
+          workflow_template: wfName, phase_template: phaseName,
+          supplement: product, batch,
+        });
         break;
       }
       case 'submit_count': {
         const suppSel = view.state.values?.supp?.supplement_select?.selected_option?.value || null;
         const { name: suppName } = await resolveSupplementValue(suppSel);
-        await engine.startAdHocTask({
-          taskName: 'Reporte no sistema', operatorId,
-          text: `${suppName || ''} ${view.state.values?.qty?.v?.value || ''}`,
+        const qty = view.state.values?.qty?.v?.value || '';
+        await dispatchEvent({
+          source_id: sid, type: 'count', operator_id: operatorId,
+          supplement: suppName || null,
+          raw_text: `${suppName || ''} ${qty}`.trim(),
+          metadata: { qty },
         });
         break;
       }
       case 'submit_note': {
-        // F2/F3 — persist to operator_notes (auto-linked to the author's
-        // active phase) + announce. The old UPDATE-oal approach silently
-        // lost the note when the operator had no open activity.
         const noteText = view.state.values?.text?.v?.value || '';
         if (noteText.trim()) {
-          await engine.addNote({ operatorId, text: noteText });
+          await dispatchEvent({
+            source_id: sid, type: 'note', operator_id: operatorId,
+            raw_text: noteText.trim(),
+          });
         }
         break;
       }
     }
 
-    // F4 — every other wizard carries an optional 'note' block. Persist
-    // it via engine.addNote, which auto-links to whatever activity is
-    // now active for this operator (the just-started phase/adhoc, or
-    // the break for pausa/voltei). submit_note handles its own text.
+    // F4 — every other wizard carries an optional 'note' block. It becomes
+    // its OWN note event (distinct source_id suffix so it never collides
+    // with the primary event's upsert). submit_note handled its own text.
     if (cb !== 'submit_note') {
       const f4 = (view.state.values?.note?.v?.value || '').trim();
       if (f4) {
-        try { await engine.addNote({ operatorId, text: f4 }); }
-        catch (e) { console.error('[Interactive] F4 note persist error:', e.message); }
+        try {
+          await dispatchEvent({
+            source_id: wizardSourceId(payload, cb, ':note'),
+            type: 'note', operator_id: operatorId, raw_text: f4,
+          });
+        } catch (e) { console.error('[Interactive] F4 note persist error:', e.message); }
       }
     }
   } catch (err) {
-    console.error('[Interactive] engine error:', cb, err.message);
+    console.error('[Interactive] dispatch error:', cb, err.message);
   }
 
   // Refresh the Home for the user who acted

@@ -58,7 +58,7 @@ async function fetchHomeState() {
       WHERE pi.status = 'open' AND pi.ended_at IS NULL
       ORDER BY pi.started_at DESC`),
     db.query(`
-      SELECT ati.id, ati.task_name, ati.started_at, aht.admin_approved,
+      SELECT ati.id, ati.task_name, ati.started_at, ati.notes, aht.admin_approved,
              o.name AS starter_name,
              (SELECT string_agg(DISTINCT op2.name, ' + ' ORDER BY op2.name)
                 FROM operator_activity_log oal2
@@ -112,11 +112,13 @@ function buildHomeView(state) {
     blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '_Nenhum batch ativo agora._' }] });
   } else {
     for (const wf of state.workflows) {
-      const title = `${wf.product_name || wf.workflow_name}${wf.batch_number ? ' #' + wf.batch_number : ''}`;
+      // 4.4 — real name: workflow + suplemento + batch (never just one).
+      const sup = wf.product_name || '[sem suplemento]';
+      const batch = wf.batch_number ? ` #${wf.batch_number}` : '';
       const batchFlag = wf.batch_change_approved === false ? ' ⏳ _batch alterado_' : '';
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `🧪 *${title}*${batchFlag}\n_iniciado ${fmtElapsed(wf.started_at)} atrás_` },
+        text: { type: 'mrkdwn', text: `🧪 *${wf.workflow_name}* — ${sup}${batch}${batchFlag}\n_iniciado ${fmtElapsed(wf.started_at)} atrás_` },
       });
       const phs = state.phases.filter((p) => p.workflow_instance_id === wf.id);
       for (const p of phs) {
@@ -144,9 +146,14 @@ function buildHomeView(state) {
   } else {
     for (const a of state.adhoc) {
       const pend = a.admin_approved === false ? ' ⏳ _pendente de revisão_' : '';
+      // 4.4 — ad-hoc shows the real task name; "Outro" shows its note,
+      // never the bare word "Outro".
+      const nm = /^outro$/i.test(String(a.task_name || '').trim())
+        ? (a.notes && a.notes.trim() ? a.notes.trim() : 'Outro (sem descrição)')
+        : a.task_name;
       blocks.push({
         type: 'section',
-        text: { type: 'mrkdwn', text: `🧹 *${a.task_name}*${pend} · ${a.participants || a.starter_name || '?'} · ${fmtElapsed(a.started_at)}` },
+        text: { type: 'mrkdwn', text: `🧹 *${nm}*${pend} · ${a.participants || a.starter_name || '?'} · ${fmtElapsed(a.started_at)}` },
         accessory: {
           type: 'button', text: { type: 'plain_text', text: 'Concluir' },
           action_id: `close_adhoc_${a.id}`, value: `${a.id}`,

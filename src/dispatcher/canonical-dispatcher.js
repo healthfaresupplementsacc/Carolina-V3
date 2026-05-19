@@ -324,9 +324,11 @@ async function createForEvent(ev, ctx) {
     case 'finish': {
       const target = await locateTargetPhase(ev, ctx);
       if (!target) return { skip: true, reason: 'no open phase to close' };
+      const fbc = ev.metadata?.finalBottleCount;
       const r = await engine.closePhase({
         phaseInstanceId: target.id,
         closedByOperatorId: opId,
+        finalBottleCount: Number.isFinite(Number(fbc)) ? Number(fbc) : null,
         when,
       });
       return {

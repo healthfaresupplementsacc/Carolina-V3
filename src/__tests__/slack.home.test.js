@@ -102,6 +102,50 @@ describe('buildHomeView', () => {
   });
 });
 
+describe('4.4 — cards show real name: workflow + suplemento + batch', () => {
+  test('workflow header shows workflow_name + supplement + batch', () => {
+    const v = home.buildHomeView({
+      operators: [], phases: [], adhoc: [], breaks: [],
+      workflows: [{ id: 1, product_name: 'Green Tea', batch_number: '0098',
+        started_at: new Date().toISOString(), batch_change_approved: true,
+        workflow_name: 'Produção de Suplemento' }],
+    });
+    const txt = JSON.stringify(v);
+    expect(txt).toMatch(/Produção de Suplemento/);
+    expect(txt).toMatch(/Green Tea #0098/);
+  });
+
+  test('no supplement → "[sem suplemento]" instead of a blank/phantom', () => {
+    const v = home.buildHomeView({
+      operators: [], phases: [], adhoc: [], breaks: [],
+      workflows: [{ id: 1, product_name: null, batch_number: null,
+        started_at: new Date().toISOString(), batch_change_approved: true,
+        workflow_name: 'Picking & Packing' }],
+    });
+    expect(JSON.stringify(v)).toMatch(/\[sem suplemento\]/);
+  });
+
+  test('ad-hoc "Outro" shows its note, never the bare word "Outro"', () => {
+    const v = home.buildHomeView({
+      operators: [], phases: [], workflows: [], breaks: [],
+      adhoc: [{ id: 9, task_name: 'Outro', notes: 'troca de filtro da máquina 3',
+        started_at: new Date().toISOString(), admin_approved: true, starter_name: 'Ana' }],
+    });
+    const txt = JSON.stringify(v);
+    expect(txt).toMatch(/troca de filtro da máquina 3/);
+    expect(txt).not.toMatch(/🧹 \*Outro\*/);
+  });
+
+  test('ad-hoc with a real name still shows the name', () => {
+    const v = home.buildHomeView({
+      operators: [], phases: [], workflows: [], breaks: [],
+      adhoc: [{ id: 9, task_name: 'Limpeza', notes: null,
+        started_at: new Date().toISOString(), admin_approved: true, starter_name: 'Ana' }],
+    });
+    expect(JSON.stringify(v)).toMatch(/Limpeza/);
+  });
+});
+
 describe('fetchHomeState', () => {
   test('queries operators, workflows, phases, adhoc, breaks', async () => {
     db.query = jest.fn().mockResolvedValue({ rows: [] });
