@@ -275,14 +275,35 @@ async function processMessage(msg) {
   // Route production tasks to task engine
   await taskEngine.handleParsed(parsed, msg);
 
-  // Entrega 3 Fase 5.1 — also dispatch to the new workflow engine.
-  // Runs in parallel with the legacy path; failures are swallowed so a
-  // bug in the new code can never break production.
+  // FASE 1 — canonical write path. parser→classify→EventoCanônico→
+  // canonical dispatcher (idempotent by source_id = slack_ts, so a Slack
+  // EDIT reprocessed here UPDATES the same row instead of spawning a new
+  // one — resolves L-06). This REPLACES the old parallel workflow
+  // dispatcher. The legacy taskEngine.handleParsed above stays as the
+  // shadow writer (doc 8.1) until Fase 2. Failures here never block
+  // production — they're logged and swallowed.
   if (!isBackfilling) {
     try {
-      const workflowDispatcher = require('../workflow/dispatcher');
-      await workflowDispatcher.safeDispatch(parsed, msg);
-    } catch (_) { /* extremely defensive */ }
+      const { classify } = require('../parser');
+      const canonical = require('../dispatcher/canonical-dispatcher');
+      const events = await classify(msg);
+      for (const ev of events) {
+        const r = await canonical.safeDispatch(ev);
+        if (r && r.needsDisambiguation) {
+          // operator_id null on an operator-required type → Carolina
+          // asks in the admin chat (never the prod channel, never
+          // gated by silent_text). Implemented in Part 6.
+          try {
+            const adminChat = require('./admin-chat');
+            if (adminChat && typeof adminChat.askDisambiguation === 'function') {
+              await adminChat.askDisambiguation(ev, msg);
+            }
+          } catch (_) { /* admin-chat module lands in Part 6 */ }
+        }
+      }
+    } catch (err) {
+      console.error('[Poller] canonical dispatch error:', err.message);
+    }
   }
 }
 

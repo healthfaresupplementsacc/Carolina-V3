@@ -5,6 +5,8 @@
  */
 
 const config = require('../config');
+const { resolveOperator: resolveOperatorUnified } = require('../dispatcher/resolve-operator');
+const { makeEvent } = require('../dispatcher/event-schema');
 
 const BRUNO_ALLOWED_ACCOUNTS = [
   'U08JC85HMNE',
@@ -703,4 +705,251 @@ function parseMessage(msg) {
   return { type: 'unknown', operator: fallbackOperator, raw: text, ts };
 }
 
-module.exports = { parseMessage, extractSupplement, extractBatch, extractTaskType, resolveOperator, addCustomSupplement, listSupplements, detectPhaseHint };
+// ─── FASE 1: classify() — parser as a CLASSIFIER producing EventoCanônico ────
+//
+// Bruno's decision: parseMessage stays byte-for-byte for the legacy
+// shadow path (doc 8.1). classify() is the NEW canonical path: it never
+// writes, never guesses the operator (delegates to the single
+// resolveOperator from Part 2), never discards a message (→ 'note'),
+// trusts an explicit S/F tag over keyword heuristics ("F:" is ALWAYS a
+// finish, even before "formulacao" — fixes L-10), recognizes "retorno
+// almoço" as a return (fixes the 14:22 bug), accepts the "_" separator,
+// and splits multi-action messages into several events.
+
+// "retorno", "retornei do almoço", "voltei", "back", "de volta" → break_end.
+const RETURN_RE =
+  /\b(?:retorno|retornei|retornando|voltei|voltando|de\s+volta|back|j[aá]\s+voltei|estou\s+de\s+volta|to\s+de\s+volta)\b/i;
+
+// Leading finish / start tag, ANY separator incl. "_" and whitespace.
+const FINISH_TAG_RE = /^\s*F\s*(?:[-_:;,/]+|\s)/i;
+const START_TAG_RE = /^\s*S\s*(?:[-_:;,/]+|\s)/i;
+
+// Connector that introduces a SECOND independent action ("S: X e fechando
+// caixas"). Only meaningful when the second clause carries an action verb.
+const SECOND_ACTION_RE =
+  /\b[eE]\b\s+(fechando|fechar|empacotando|empacotar|encaixotando|encaixotar|separando|separar|colando|colar|imprimindo|imprimir|revisando|revisar|contando|contar)\b/;
+
+function isTrivialNoise(text) {
+  const t = String(text || '').trim();
+  if (!t) return true;
+  if (/estoque real/i.test(t) || /sequ[eê]ncia/i.test(t)) return true;
+  return t.length < 10;
+}
+
+function templateFor(parsedType, phaseHint) {
+  if (parsedType === 'orders_start' || parsedType === 'orders_finish') {
+    return { workflow_template: 'Picking & Packing', phase_template: 'Imprimir ordens' };
+  }
+  if (parsedType === 'formulation_start' || parsedType === 'formulation_finish') {
+    return { workflow_template: 'Produção de Suplemento', phase_template: 'Formulação' };
+  }
+  if (phaseHint) {
+    return { workflow_template: 'Produção de Suplemento', phase_template: phaseHint };
+  }
+  return { workflow_template: null, phase_template: null };
+}
+
+// legacy parsed.type → canonical EventoCanônico type
+const TYPE_MAP = {
+  start: 'start',
+  orders_start: 'start',
+  formulation_start: 'start',
+  finish: 'finish',
+  orders_finish: 'finish',
+  formulation_finish: 'finish',
+  count: 'count',
+  pause_start: 'break_start',
+  pause_end: 'break_end',
+  join_producao: 'helping_start',
+  note: 'note',
+};
+
+/**
+ * Classify a Slack message into one or more EventoCanônico.
+ * Always returns an array (possibly empty for pure noise).
+ *
+ * @param {object} msg   { ts, user, text, username }
+ * @param {object} [deps] { resolveOperator, resolveDeps } — injectable for tests
+ */
+async function classify(msg, deps = {}) {
+  const { ts, user, text, username } = msg || {};
+  if (!text || !String(text).trim()) return [];
+
+  const sourceId = String(ts);
+  const tsNum = parseFloat(ts);
+  const timestamp = Number.isFinite(tsNum)
+    ? new Date(tsNum * 1000).toISOString()
+    : new Date().toISOString();
+
+  const cleanText = String(text)
+    .replace(/<@[A-Z0-9]+(?:\|[^>]+)?>/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .trim();
+
+  const resolveFn = deps.resolveOperator || resolveOperatorUnified;
+  let resolved;
+  try {
+    resolved = await resolveFn(
+      {
+        text: cleanText,
+        accountUserId: user || null,
+        accountUserName: username || null,
+        timestamp,
+        sourceId,
+      },
+      deps.resolveDeps || {}
+    );
+  } catch (err) {
+    // A DB hiccup during operator resolution must NOT drop the event —
+    // fall back to ambiguous (Carolina asks). Never discard.
+    resolved = { operatorId: null, via: 'ambiguous', remainingText: cleanText };
+  }
+  const operatorId = resolved.operatorId;
+  const body = (resolved.remainingText || cleanText).trim();
+
+  const base = {
+    source_id: sourceId,
+    source_type: 'parser',
+    operator_id: operatorId,
+    timestamp,
+    raw_text: text,
+  };
+  const meta = (extra) => ({ via: resolved.via, ...(extra || {}) });
+
+  // Base extraction reuses the legacy classifier (supplement/batch/orders/
+  // formulation/compound), but the canonical TYPE is decided tag-first.
+  const parsed = parseMessage(msg) || { type: 'unknown' };
+  const supplement = parsed.supplement || extractSupplement(body) || null;
+  const batch = parsed.batch || extractBatch(body) || null;
+  const phaseHint = detectPhaseHint(body);
+  const taskType = parsed.taskType || extractTaskType(body) || null;
+
+  const events = [];
+
+  // ── return from break (fixes "retorno almoço" → break_end, doc 03) ──
+  if (RETURN_RE.test(body) && !FINISH_TAG_RE.test(body) && !START_TAG_RE.test(body)) {
+    events.push({ ...base, type: 'break_end', metadata: meta() });
+    return events.map(makeEvent);
+  }
+
+  // ── explicit tag wins over keyword heuristics ──
+  const hasFinishTag = FINISH_TAG_RE.test(body);
+  const hasStartTag = START_TAG_RE.test(body);
+
+  let canonicalType = TYPE_MAP[parsed.type] || null;
+  if (hasFinishTag) canonicalType = 'finish'; // L-10: "F: Formulacao" = finish
+  else if (hasStartTag && (parsed.type === 'unknown' || !canonicalType)) {
+    canonicalType = 'start';
+  }
+
+  // pause/break & helping pass straight through the map
+  if (parsed.type === 'pause_start') {
+    events.push({ ...base, type: 'break_start', metadata: meta() });
+    return events.map(makeEvent);
+  }
+  if (parsed.type === 'pause_end') {
+    events.push({ ...base, type: 'break_end', metadata: meta() });
+    return events.map(makeEvent);
+  }
+  if (parsed.type === 'join_producao') {
+    events.push({
+      ...base,
+      type: 'helping_start',
+      workflow_template: 'Produção de Suplemento',
+      phase_template: 'Linha de Produção',
+      metadata: meta(),
+    });
+    return events.map(makeEvent);
+  }
+  if (parsed.type === 'count') {
+    events.push({
+      ...base, type: 'count', supplement, batch,
+      metadata: meta({ count: parsed.count ?? null }),
+    });
+    return events.map(makeEvent);
+  }
+  if (parsed.type === 'note') {
+    events.push({ ...base, type: 'note', metadata: meta() });
+    return events.map(makeEvent);
+  }
+
+  if (canonicalType === 'start' || canonicalType === 'finish') {
+    const tpl = templateFor(parsed.type, phaseHint);
+
+    // ad-hoc (e.g. "F: LIMPEZA") — a finish/start of a named non-production
+    // task with no supplement is an ad-hoc, NOT a production phase. This is
+    // the "F: LIMPEZA fechou Rutin" fix: it must never close a real phase.
+    const isAdHoc = !supplement && taskType === 'limpeza';
+    if (isAdHoc) {
+      events.push({
+        ...base,
+        type: canonicalType === 'finish' ? 'ad_hoc_finish' : 'ad_hoc_start',
+        ad_hoc_task: 'Limpeza',
+        metadata: meta(),
+      });
+      return events.map(makeEvent);
+    }
+
+    const primary = {
+      ...base,
+      type: canonicalType,
+      workflow_template: tpl.workflow_template,
+      phase_template: tpl.phase_template,
+      supplement,
+      batch,
+      metadata: meta({ taskType, phaseHint }),
+    };
+    events.push(primary);
+
+    // ── multi-action: "S: Double Check Rutin E fechando caixas" ──
+    const secMatch = body.match(SECOND_ACTION_RE);
+    if (canonicalType === 'start' && secMatch) {
+      const idx = body.search(SECOND_ACTION_RE);
+      const secondClause = body.slice(idx).replace(/^\b[eE]\b\s+/, '').trim();
+      const secHint = detectPhaseHint(secondClause);
+      const secSup = extractSupplement(secondClause);
+      if (secHint && secSup) {
+        events.push({
+          ...base,
+          type: 'start',
+          workflow_template: 'Produção de Suplemento',
+          phase_template: secHint,
+          supplement: secSup,
+          batch: extractBatch(secondClause),
+          metadata: meta({ multiAction: true }),
+        });
+      } else {
+        events.push({
+          ...base,
+          type: 'ad_hoc_start',
+          ad_hoc_task: secHint || 'Outro',
+          metadata: meta({ multiAction: true, clause: secondClause }),
+        });
+      }
+    }
+
+    // ── compound finish + new task (parseMessage already split it) ──
+    if (parsed.nextSupplement || parsed.nextBatch || parsed.nextTaskType) {
+      events.push({
+        ...base,
+        type: 'start',
+        workflow_template: 'Produção de Suplemento',
+        phase_template: parsed.nextTaskType
+          ? null
+          : detectPhaseHint(parsed.description || '') || null,
+        supplement: parsed.nextSupplement || null,
+        batch: parsed.nextBatch || null,
+        metadata: meta({ compoundNext: true, taskType: parsed.nextTaskType || null }),
+      });
+    }
+
+    return events.map(makeEvent);
+  }
+
+  // ── never discard ──
+  if (isTrivialNoise(body)) return [];
+  return [makeEvent({ ...base, type: 'note', metadata: meta({ unclassified: true }) })];
+}
+
+module.exports = { parseMessage, classify, extractSupplement, extractBatch, extractTaskType, resolveOperator, addCustomSupplement, listSupplements, detectPhaseHint };
