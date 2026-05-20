@@ -36,6 +36,10 @@ const slackEvents = require('./slack/events');
 app.use('/', slackEvents.router); // Entrega 3 — /slack/events (Events API + Interactivity)
 app.use('/api', apiRouter);
 app.use('/api', workflowRouter); // Entrega 3 — workflow_templates et al
+
+// V3 (shadow) — rotas ADITIVAS, montadas antes do dashboardRouter.
+require('./v3/wire').mount(app);
+
 app.use('/', dashboardRouter);
 
 // ===== STARTUP =====
@@ -122,6 +126,14 @@ async function start() {
     //     persona are built synchronously on hot paths).
     require('./app-state').getAppName().catch(() => {});
     require('./app-state').getPersonaOverrides().catch(() => {});
+
+    // 5c. V3 (shadow) — starta o Observer worker. try/catch pra um
+    //     erro no V3 nunca derrubar o boot do legado.
+    try {
+      await require('./v3/wire').startWorker();
+    } catch (err) {
+      console.error('[Boot] V3 worker start error:', err.message);
+    }
 
     // 6. Start HTTP server
     const port = config.app.port;
