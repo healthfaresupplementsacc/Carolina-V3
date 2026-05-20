@@ -11,6 +11,7 @@
  * classify() é uma fina camada sobre classifyRaw() + mapeamento.
  */
 const { LLMProvider } = require('../LLMProvider');
+const { getSharedLimiter } = require('../RateLimiter');
 
 let Anthropic = null;
 try { Anthropic = require('@anthropic-ai/sdk'); } catch (_) { /* SDK ausente — métodos lançam erro claro */ }
@@ -27,14 +28,27 @@ class AnthropicProvider extends LLMProvider {
     // client injetável (testes passam um fake)
     this._client = opts.client
       || (Anthropic ? new Anthropic({ apiKey: opts.apiKey || process.env.ANTHROPIC_API_KEY }) : null);
+    // FIX C — rate limiter: gate antes de cada chamada à Messages API.
+    // `null` explícito desliga (testes); undefined → singleton da org.
+    this._rateLimiter = opts.rateLimiter !== undefined ? opts.rateLimiter : getSharedLimiter();
   }
 
   get name() { return 'anthropic'; }
+
+  /** Estima tokens da chamada (input ≈ chars/4 + saída pedida). */
+  _estimateTokens(system, userContent, maxTokens) {
+    const inChars = (String(system || '').length + String(userContent || '').length);
+    return Math.ceil(inChars / 4) + (maxTokens || this.maxTokens);
+  }
 
   /** Chamada crua à Messages API. @returns {{text,tin,tout,ms}} */
   async _call(system, userContent, maxTokens) {
     if (!this._client) {
       throw new Error('AnthropicProvider: @anthropic-ai/sdk indisponível ou sem client');
+    }
+    // FIX C — espera o rate limiter liberar (429-proofing).
+    if (this._rateLimiter) {
+      await this._rateLimiter.acquire(this._estimateTokens(system, userContent, maxTokens));
     }
     const t0 = Date.now();
     const resp = await this._client.messages.create({
