@@ -222,7 +222,7 @@ CREATE TABLE v3.proposals (
 CREATE TABLE v3.audit_log (
   id              SERIAL PRIMARY KEY,
   actor_type      TEXT NOT NULL
-                    CHECK (actor_type IN ('admin','llm_observer','llm_assistant','system')),
+                    CHECK (actor_type IN ('admin','llm_observer','llm_assistant','system','app_home')),
   actor_person_id INTEGER REFERENCES v3.persons(id),
   action          TEXT NOT NULL,
   target_type     TEXT,

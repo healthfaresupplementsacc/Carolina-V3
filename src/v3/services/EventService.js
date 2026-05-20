@@ -16,7 +16,7 @@
  * Princípio #24: toda query é schema-qualificada v3.*.
  */
 
-const VALID_ACTOR_TYPES = ['admin', 'llm_observer', 'llm_assistant', 'system'];
+const VALID_ACTOR_TYPES = ['admin', 'llm_observer', 'llm_assistant', 'system', 'app_home'];
 
 // colunas que correct() aceita alterar
 const CORRECTABLE = new Set([
