@@ -137,24 +137,27 @@ describe('V3 §2.3 — conta compartilhada (LLM)', () => {
   });
 });
 
-describe('V3 §2.3 — GUARD admin', () => {
-  test('LLM aponta owner/manager no canal de produção → descartado + proposal', async () => {
+describe('V3 §2.3 — admin no canal de produção (ajuste 1)', () => {
+  test('LLM identifica admin → admin_intervention, high, is_admin_context, SEM proposal', async () => {
     const { resolver, db } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 1, confidence: 'high', reasoning: 'disse Bruno' },
+      db: makeDb(), llmJson: { person_id: 1, confidence: 'high', reasoning: 'Bruno Camp supervisionando' },
     });
-    const r = await resolver.resolve('U_VITOR', 'Bruno aqui, fechou tudo', '777.1', { message_id: 107 });
-    expect(r.resolution_method).toBe('ambiguous_admin_in_production_channel');
-    expect(r.confidence).toBe('low');
-    expect(r.person_id).toBeNull();
-    expect(db.inserts.proposals).toHaveLength(1);
+    const r = await resolver.resolve('U_VITOR', 'Bruno Camp aqui, parem a linha', '777.1', { message_id: 107 });
+    expect(r.resolution_method).toBe('admin_intervention');
+    expect(r.confidence).toBe('high');
+    expect(r.person_id).toBe(1);           // resolve pro admin (audit/contexto)
+    expect(r.is_admin_context).toBe(true);
+    expect(db.inserts.proposals).toHaveLength(0); // NÃO spamma proposta
   });
 
-  test('mesma resolução é OK quando isAdminDM=true', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 1, confidence: 'high', reasoning: 'admin DM' },
+  test('admin_intervention é registrado em prefix_resolution_log', async () => {
+    const { resolver, db } = makeResolver({
+      db: makeDb(), llmJson: { person_id: 3, confidence: 'high', reasoning: 'Henrique' },
     });
-    const r = await resolver.resolve('U_VITOR', 'x', '777.2', { message_id: 108, isAdminDM: true });
-    expect(r.resolution_method).not.toBe('ambiguous_admin_in_production_channel');
+    await resolver.resolve('U_PL', 'Henrique: parem tudo agora', '777.2', { message_id: 108 });
+    expect(db.inserts.prefix_log).toHaveLength(1);
+    expect(db.inserts.prefix_log[0][3]).toBe(3);                    // resolved_person_id
+    expect(db.inserts.prefix_log[0][4]).toBe('admin_intervention'); // resolution_method
   });
 });
 

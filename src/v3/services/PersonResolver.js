@@ -14,9 +14,11 @@
  *   { person_id, resolution_method, detected_identification,
  *     confidence, llm_reasoning, cost_estimate_usd, retryable }
  *
- * GUARD admin: mensagem do canal de produção JAMAIS resolve pra
- * owner/manager. Se o LLM tentar (ex.: "Bruno" → Bruno Camp),
- * descarta → ambiguous_admin_in_production_channel + proposal.
+ * Admins no canal: um admin (owner/manager) pode postar no canal
+ * de produção em supervisão/emergência. Quando o LLM identifica
+ * que o autor é um admin → resolution_method='admin_intervention',
+ * confidence='high', is_admin_context=true (o Observer NÃO cria
+ * event), SEM proposal. A mensagem persiste só como contexto.
  *
  * Princípio #24: todo acesso a DB é schema-qualificado v3.*.
  */
@@ -87,33 +89,39 @@ class PersonResolver {
   }
 
   /** Monta o prompt focado de resolução de autor. */
-  _buildPrompt(account, candidates, recentMsgs, messageText) {
+  _buildPrompt(account, candidates, admins, recentMsgs, messageText) {
     const system = 'Você decide QUEM escreveu uma mensagem que chegou por uma conta '
       + 'Slack COMPARTILHADA da HealthFare. Várias pessoas usam a mesma conta.\n'
       + 'Leia a mensagem inteira (o nome pode estar no começo, meio, fim, ou ser '
       + 'inferido do contexto recente). identifies_as é só uma DICA, não uma regra.\n'
+      + 'Quase sempre o autor é um dos OPERADORES. Mas um ADMIN pode postar em '
+      + 'supervisão/emergência — se a mensagem for claramente de um admin, retorne '
+      + 'o person_id do admin.\n'
       + 'Responda SOMENTE com JSON: {"person_id":int|null,'
       + '"identification_evidence":string|null,"confidence":"high|medium|low|unconfirmed",'
       + '"reasoning":string}.\n'
-      + 'person_id DEVE ser um dos candidatos listados. Sem nenhuma evidência → '
-      + 'person_id null + confidence unconfirmed. Nunca invente person_id.';
+      + 'person_id DEVE ser um dos operadores OU admins listados. Sem nenhuma '
+      + 'evidência → person_id null + confidence unconfirmed. Nunca invente person_id.';
     const cand = candidates.map((c) =>
       `  - person_id=${c.person_id} "${c.display_name}" identifies_as=[${(c.identifies_as || []).join(', ')}]`).join('\n');
+    const adm = (admins || []).map((a) =>
+      `  - person_id=${a.id} "${a.display_name}" (${a.role})`).join('\n') || '  (nenhum)';
     const recent = recentMsgs.length
       ? recentMsgs.slice().reverse().map((m) =>
         `  [${new Date(m.created_at).toISOString()}] ${m.person_name || '(não resolvido)'}: ${m.raw_text}`).join('\n')
       : '  (nenhuma mensagem recente)';
     const userContent =
       `Conta compartilhada: ${account.description || account.slack_user_id}\n`
-      + `Candidatos (quem pode postar dessa conta):\n${cand}\n\n`
+      + `Operadores (quem normalmente posta dessa conta):\n${cand}\n\n`
+      + `Admins (podem intervir em supervisão/emergência):\n${adm}\n\n`
       + `Mensagens recentes dessa conta (30 min):\n${recent}\n\n`
       + `Mensagem a resolver:\n"${messageText}"`;
     return { systemPrompt: system, userContent };
   }
 
   /** Chama o LLM e devolve o objeto de resolução parseado. */
-  async _callLLM(account, candidates, recentMsgs, messageText, messageTs, slackUserId) {
-    const prompt = this._buildPrompt(account, candidates, recentMsgs, messageText);
+  async _callLLM(account, candidates, admins, recentMsgs, messageText, messageTs, slackUserId) {
+    const prompt = this._buildPrompt(account, candidates, admins, recentMsgs, messageText);
     let res;
     try {
       res = await this.provider.classify(
@@ -207,7 +215,6 @@ class PersonResolver {
     await this._logResolution(context, slackUserId, result);
     const needsProposal = result.confidence === 'unconfirmed'
       || result.resolution_method === 'ambiguous'
-      || result.resolution_method === 'ambiguous_admin_in_production_channel'
       || result.resolution_method === 'llm_invalid_person';
     if (needsProposal) {
       const cands = account ? (dir.usersByAccount.get(slackUserId) || []) : [];
@@ -224,7 +231,8 @@ class PersonResolver {
       throw new Error(`shared_account ${slackUserId} sem usuários em shared_account_users — integridade violada`);
     }
     const recent = await this._recentAccountMessages(slackUserId);
-    const llm = await this._callLLM(account, candidates, recent, messageText, messageTs, slackUserId);
+    const admins = [...dir.personsById.values()].filter((x) => ADMIN_ROLES.includes(x.role));
+    const llm = await this._callLLM(account, candidates, admins, recent, messageText, messageTs, slackUserId);
 
     // erro de LLM / JSON inválido → unconfirmed (Observer reprocessa)
     if (llm.error) {
@@ -268,12 +276,14 @@ class PersonResolver {
         llm_reasoning: `LLM retornou person_id=${p.person_id} inexistente — descartado`,
       });
     }
-    // GUARD admin — canal de produção nunca resolve pra owner/manager
-    if (ADMIN_ROLES.includes(person.role) && !context.isAdminDM) {
+    // Admin postou no canal — intervenção de supervisão. Resolve pro
+    // admin (audit/contexto) + is_admin_context=true; o Observer NÃO
+    // cria event. confidence=high (não é ambiguidade), SEM proposal.
+    if (ADMIN_ROLES.includes(person.role)) {
       return Object.assign({}, base, {
-        person_id: null, resolution_method: 'ambiguous_admin_in_production_channel',
-        confidence: 'low',
-        llm_reasoning: `LLM apontou ${person.display_name} (${person.role}); canal de produção não resolve pra admin — descartado`,
+        person_id: person.id, resolution_method: 'admin_intervention',
+        confidence: 'high', is_admin_context: true,
+        llm_reasoning: `${person.display_name} (${person.role}) postou no canal de produção — intervenção de admin; não vira event`,
       });
     }
     // LLM apontou alguém fora dos candidatos da conta

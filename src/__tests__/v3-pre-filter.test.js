@@ -1,7 +1,7 @@
 'use strict';
 // HEALTHFARE V3 — PARTE 2.2 — testes comportamentais do pré-filtro.
 const {
-  classifyForFilter, smallTalkKind, isEmojiOnly, detectBurst, skippedResult,
+  classifyForFilter, smallTalkKind, isEmojiOnly, detectBurst, skippedResult, contextResult,
   BURST_COUNT,
 } = require('../v3/llm/pre-filter');
 
@@ -14,6 +14,20 @@ describe('V3 §2.2 — bot_self', () => {
   });
   test('mensagem de operador NÃO é bot_self', () => {
     expect(classifyForFilter(msg('linha de producao'), { botUserId: 'U_BOT' }).category).toBe('pass_to_llm');
+  });
+});
+
+describe('V3 §2.2 — admin_broadcast (ajuste 2)', () => {
+  test('msg do bot SEM flag → bot_self (notificação automática, descarta)', () => {
+    const r = classifyForFilter(msg('Vitor +8h sem atividade', 'U_BOT'), { botUserId: 'U_BOT' });
+    expect(r.category).toBe('bot_self');
+  });
+  test('msg do bot COM isAdminBroadcast → admin_broadcast (NÃO descarta)', () => {
+    const r = classifyForFilter(msg('Pessoal, parem a linha 2', 'U_BOT'), { botUserId: 'U_BOT', isAdminBroadcast: true });
+    expect(r.category).toBe('admin_broadcast');
+  });
+  test('contextResult monta o llm_result de contexto', () => {
+    expect(contextResult('admin_broadcast')).toEqual({ category: 'admin_broadcast', context_only: true, pre_filter: true });
   });
 });
 

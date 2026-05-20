@@ -8,9 +8,13 @@
  *
  * classifyForFilter(message, opts) → { category, ... }
  *
- *   bot_self      mensagem do próprio bot (opts.botUserId).
+ *   bot_self      notificação automática do próprio bot.
  *                 → Observer persiste em v3.messages com
  *                   llm_processed_at=NOW, llm_result=skippedResult.
+ *   admin_broadcast  bot carregando um broadcast de admin (botão 📢).
+ *                 → NÃO descarta — persiste como CONTEXTO pro Observer
+ *                   (llm_result=contextResult). Sem event. O Observer
+ *                   (§2.8) decide quando marcar opts.isAdminBroadcast.
  *   small_talk    'ok'/'obrigada'/risada/emoji único/<3 chars.
  *                 → idem bot_self. Sem event.
  *   burst_member  5+ msgs do MESMO user em 10s. NÃO descarta —
@@ -106,9 +110,14 @@ function detectBurst(message, recentMessages = []) {
  * @param {{botUserId?:string, recentUserMessages?:Array}} opts
  */
 function classifyForFilter(message, opts = {}) {
-  // 1 — bot self
+  // 1 — bot self / admin broadcast
+  // Toda msg do bot cai aqui. Investigação confirmou: broadcast de
+  // admin (botão 📢 → /api/admin/broadcast → postMessage) e
+  // notificação automática da Carolina saem IDÊNTICAS no Slack
+  // (mesmo bot, username 'Carolina', sem metadata distintiva).
+  // A distinção vem do Observer (§2.8) via opts.isAdminBroadcast.
   if (opts.botUserId && message && message.slack_user_id === opts.botUserId) {
-    return { category: 'bot_self' };
+    return opts.isAdminBroadcast ? { category: 'admin_broadcast' } : { category: 'bot_self' };
   }
   // 2 — small talk
   const st = smallTalkKind(message && message.text);
@@ -125,7 +134,13 @@ function skippedResult(category, detail) {
   return { skipped: category, detail: detail || null, pre_filter: true };
 }
 
+/** llm_result p/ msgs persistidas só como CONTEXTO (admin_broadcast). */
+function contextResult(category) {
+  return { category, context_only: true, pre_filter: true };
+}
+
 module.exports = {
-  classifyForFilter, smallTalkKind, isEmojiOnly, detectBurst, skippedResult,
+  classifyForFilter, smallTalkKind, isEmojiOnly, detectBurst,
+  skippedResult, contextResult,
   BURST_COUNT, BURST_WINDOW_MS, SHORT_MAX,
 };
