@@ -206,6 +206,51 @@ describe('V3 §2.3 — defesa contra resposta inválida do LLM', () => {
   });
 });
 
+describe('V3 FIX E — cross-account "Bruno" (nome no texto vence dono da conta)', () => {
+  test('prompt de resolução reforça as duas regras de FIX E', async () => {
+    const { resolver, provider } = makeResolver({
+      db: makeDb(), llmJson: { person_id: 7, confidence: 'high', identification_evidence: '-Bruno' },
+    });
+    await resolver.resolve('U_VITOR', 'S-Vitamin B2 -0142 para capsulas-Bruno', 'fe.0', { message_id: 200 });
+    const sys = provider.rawCalls[0].systemPrompt;
+    expect(sys).toMatch(/NOME NO TEXTO VENCE O DONO DA CONTA/);
+    expect(sys).toMatch(/DESAMBIGUAÇÃO DE NOME/);
+  });
+
+  // Caso real do backfill §2.13 — mensagem da conta do Vitor assinada -Bruno.
+  test('caso real 1: "S-Linha de producao ( PLANT 0136)-Bruno" da conta do Vitor → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({
+      db: makeDb(),
+      llmJson: {
+        person_id: 7, confidence: 'high', identification_evidence: 'assinado "-Bruno"',
+        reasoning: 'nome no fim da mensagem vence o dono da conta',
+      },
+    });
+    const r = await resolver.resolve(
+      'U_VITOR', 'S-Linha de producao ( PLANT 0136)-Bruno', 'fe.1', { message_id: 201 });
+    expect(r.person_id).toBe(7);            // Bruno Sarmento (operador)
+    expect(r.person_id).not.toBe(4);        // NÃO Vitor (dono da conta)
+    expect(r.resolution_method).toBe('llm_identified');
+    expect(r.confidence).toBe('high');
+  });
+
+  // Caso real do backfill §2.13 — conta Production Line, "Bruno" no início.
+  test('caso real 2: "Bruno voltei do almoco, estou na linha" (Production Line) → Bruno Sarmento, nunca Bruno Camp', async () => {
+    const { resolver } = makeResolver({
+      db: makeDb(),
+      llmJson: {
+        person_id: 7, confidence: 'high', identification_evidence: 'Bruno',
+        reasoning: 'mensagem operacional → operador Bruno Sarmento, não o owner Bruno Camp',
+      },
+    });
+    const r = await resolver.resolve(
+      'U_PL', 'Bruno voltei do almoco, estou na linha de producao', 'fe.2', { message_id: 202 });
+    expect(r.person_id).toBe(7);            // Bruno Sarmento (operador, id 7)
+    expect(r.person_id).not.toBe(1);        // NUNCA Bruno Camp (owner, id 1)
+    expect(r.resolution_method).toBe('llm_identified');
+  });
+});
+
 describe('V3 §2.3 — audit + cache', () => {
   test('toda resolução grava em prefix_resolution_log', async () => {
     const { resolver, db } = makeResolver({

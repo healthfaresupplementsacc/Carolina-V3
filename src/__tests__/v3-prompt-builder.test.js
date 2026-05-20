@@ -45,6 +45,11 @@ describe('V3 §2.7 — buildContext estrutura', () => {
     expect(SYSTEM_PROMPT).toMatch(/NUNCA invente person_id/);
   });
 
+  test('FIX E — systemPrompt reforça desambiguação de nome (operador vence owner)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/DESAMBIGUAÇÃO DE NOME/);
+    expect(SYSTEM_PROMPT).toMatch(/nome ESCRITO no texto vence o dono da/);
+  });
+
   test('mensagem a interpretar incluída no userContent', async () => {
     const pb = new PromptBuilder({ db: makeFakeDb() });
     const r = await pb.buildContext(MSG, { author: AUTHOR });
