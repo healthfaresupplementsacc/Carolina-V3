@@ -60,6 +60,10 @@ describe('V3 §2.11 — migration 002 (app_home)', () => {
 
   test('DOWN reverte aos 4 valores (sem app_home)', () => {
     expect(down2).toMatch(/DROP CONSTRAINT audit_log_actor_type_check/);
-    expect(down2).not.toMatch(/'app_home'/);
+    // o CHECK recriado tem só os 4 valores originais
+    expect(down2).toMatch(
+      /CHECK \(actor_type IN \('admin', 'llm_observer', 'llm_assistant', 'system'\)\)/);
+    // 'app_home' nunca dentro de um IN (...) — só pode estar em comentário
+    expect(down2).not.toMatch(/IN \([^)]*app_home[^)]*\)/);
   });
 });
