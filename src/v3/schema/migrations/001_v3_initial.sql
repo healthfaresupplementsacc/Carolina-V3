@@ -180,6 +180,7 @@ CREATE TABLE v3.messages (
   events_created    INTEGER[] NOT NULL DEFAULT '{}',
   events_updated    INTEGER[] NOT NULL DEFAULT '{}',
   processing_error  TEXT,
+  claimed_at        TIMESTAMPTZ,            -- FIX A: claim do worker (ver migration 003)
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

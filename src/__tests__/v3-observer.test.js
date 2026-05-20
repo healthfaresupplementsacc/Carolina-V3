@@ -46,8 +46,19 @@ function makeFakeDb(o = {}) {
       if (/FROM public\.admin_audit_log/.test(s)) return Promise.resolve({ rows: broadcastTs.has(params[0]) ? [{ x: 1 }] : [] });
       if (/SELECT id, slack_ts AS ts, slack_user_id, raw_text AS text FROM v3\.messages/.test(s)) return Promise.resolve({ rows: recentUser });
       if (/FROM v3\.settings WHERE key = 'operational_window'/.test(s)) return Promise.resolve({ rows: window ? [{ value: window }] : [] });
-      if (/SELECT \* FROM v3\.messages WHERE llm_processed_at IS NULL/.test(s)) {
-        return Promise.resolve({ rows: messages.filter((m) => !m.llm_processed_at).slice(0, 10) });
+      // FIX A — claim no DB: UPDATE...RETURNING marca claimed_at e devolve só
+      // o que reivindicou. Elegível: não-processada E (nunca reivindicada OU
+      // claim expirado há >2min). Mutação síncrona = ticks sobrepostos não
+      // pegam a mesma row.
+      if (/^UPDATE v3\.messages SET claimed_at = NOW\(\)/.test(s)) {
+        const nowMs = Date.now();
+        const TWO_MIN = 2 * 60 * 1000;
+        const elig = messages.filter((m) => !m.llm_processed_at
+          && (!m.claimed_at || (nowMs - new Date(m.claimed_at).getTime()) > TWO_MIN));
+        elig.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+        const claimed = elig.slice(0, 10);
+        for (const m of claimed) m.claimed_at = new Date();
+        return Promise.resolve({ rows: claimed });
       }
       return Promise.resolve({ rows: [] });
     }),
@@ -59,6 +70,7 @@ function mkServices(o = {}) {
   const provider = new MockProvider();
   if (o.llmResult) provider.setResult(o.llmResult);
   if (o.llmError) provider.setError(o.llmError);
+  if (o.llmDelayMs) provider.setDelay(o.llmDelayMs);
   return {
     provider,
     personResolver: { resolve: jest.fn().mockResolvedValue(o.author || { person_id: 6, resolution_method: 'direct', confidence: 'high' }) },
@@ -79,6 +91,7 @@ function makeObserver(o = {}) {
   const svc = mkServices(o);
   const observer = new Observer(Object.assign({
     db, botUserId: 'U_BOT', mode: o.mode || 'shadow', now: o.now,
+    concurrency: o.concurrency,
   }, svc));
   return Object.assign({ observer, db }, svc);
 }
@@ -223,7 +236,7 @@ describe('V3 §2.8 — validação da resposta do LLM', () => {
     expect(m.processing_error).toMatch(/invalid_llm_response/);
   });
 
-  test('LLM lança (rate limit) → markError + retryable; worker faz backoff', async () => {
+  test('LLM lança (rate limit) → markError + retryable; llm_processed_at NULL → re-claim', async () => {
     const m = msg();
     const { observer } = makeObserver({ llmError: new Error('anthropic 529 overloaded'), message: m });
     const r = await observer.processMessage(m);
@@ -231,9 +244,44 @@ describe('V3 §2.8 — validação da resposta do LLM', () => {
     expect(r.stage).toBe('llm');
     expect(r.retryable).toBe(true);
     expect(m.processing_error).toMatch(/overloaded/);
+    // llm_processed_at NULL → o claim expira em 2min e o worker re-tenta
+    // (FIX A substituiu o backoff in-memory pela expiração do claim).
     expect(m.llm_processed_at).toBeFalsy();
-    await observer._processWithBackoff(m);
-    expect(observer._backoff.has(m.id)).toBe(true);
+  });
+});
+
+describe('V3 FIX A — claim no DB contra dupla-processamento', () => {
+  test('2 ticks concorrentes com LLM lento → cada mensagem classifica 1x só', async () => {
+    const messages = [1, 2, 3, 4, 5].map((id) => msg({ id, slack_ts: 't.' + id }));
+    // delay no classify simula LLM lento (>tick em prod): sem o claim, o
+    // 2º tick re-pegaria as mesmas mensagens enquanto o 1º ainda processa.
+    const { observer, provider, db } = makeObserver({ llmResult: OPEN, messages, llmDelayMs: 20 });
+    await Promise.all([observer.tick(), observer.tick()]);
+    expect(provider.calls).toHaveLength(5); // 5 msgs, 1 classify cada — zero duplicata
+    expect(db.messages.every((m) => m.llm_processed_at)).toBe(true);
+    expect(db.messages.every((m) => m.claimed_at)).toBe(true);
+  });
+
+  test('tick só processa o que reivindicou (claim marca claimed_at)', async () => {
+    const messages = [1, 2].map((id) => msg({ id, slack_ts: 'c.' + id }));
+    const { observer, db } = makeObserver({ llmResult: OPEN, messages });
+    await observer.tick();
+    expect(db.messages.every((m) => m.claimed_at)).toBe(true);
+  });
+
+  test('mensagem com claim recente NÃO é re-reivindicada por outro tick', async () => {
+    const m = msg({ id: 1, slack_ts: 'r.1', claimed_at: new Date() });
+    const { observer, provider } = makeObserver({ llmResult: OPEN, messages: [m] });
+    await observer.tick();
+    expect(provider.calls).toHaveLength(0); // claim fresco → fora do lote
+  });
+
+  test('claim expirado (>2min) é re-reivindicado', async () => {
+    const old = new Date(Date.now() - 3 * 60 * 1000); // 3min atrás
+    const m = msg({ id: 1, slack_ts: 'e.1', claimed_at: old });
+    const { observer, provider } = makeObserver({ llmResult: OPEN, messages: [m] });
+    await observer.tick();
+    expect(provider.calls).toHaveLength(1); // claim expirou → re-processa
   });
 });
 

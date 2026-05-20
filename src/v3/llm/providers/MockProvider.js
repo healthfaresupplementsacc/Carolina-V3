@@ -20,6 +20,7 @@ class MockProvider extends LLMProvider {
     this._result = opts.result || null;
     this._rawResult = opts.rawResult || null;
     this._error = opts.error || null;
+    this._delayMs = opts.delayMs || 0; // simula LLM lento (testa claim)
     this.calls = [];
     this.rawCalls = [];
   }
@@ -28,6 +29,7 @@ class MockProvider extends LLMProvider {
 
   async classify(message, context) {
     this.calls.push({ message, context });
+    if (this._delayMs) await new Promise((r) => setTimeout(r, this._delayMs));
     this._throwIfError();
     return normalizeResult(Object.assign({ provider_used: 'mock', model_used: 'mock' }, this._result || {}), 'mock');
   }
@@ -52,6 +54,9 @@ class MockProvider extends LLMProvider {
 
   /** Faz classify()/classifyRaw() lançarem. */
   setError(error) { this._error = error; }
+
+  /** Atraso artificial no classify() — simula LLM lento (testa o claim). */
+  setDelay(ms) { this._delayMs = ms; }
 }
 
 module.exports = MockProvider;

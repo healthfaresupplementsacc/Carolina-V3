@@ -24,8 +24,6 @@
  */
 const { classifyForFilter, skippedResult, contextResult } = require('./pre-filter');
 
-const BACKOFF_MS = [30000, 60000, 300000, 900000]; // 30s, 1min, 5min, 15min
-
 /** Data ET (YYYY-MM-DD) de um Date. */
 function etDate(date) {
   const f = new Intl.DateTimeFormat('en-CA', {
@@ -59,8 +57,11 @@ class Observer {
     this.botUserId = deps.botUserId || null;
     this.mode = deps.mode || 'shadow';
     this.now = deps.now || (() => new Date());
+    // FIX C: concorrência reduzida p/ 2 durante backfill (env), 3 em
+    // tempo-real — deixa headroom de rate-limit pra Carolina legada.
+    this.concurrency = deps.concurrency
+      || (process.env.V3_OBSERVER_CONCURRENCY ? parseInt(process.env.V3_OBSERVER_CONCURRENCY, 10) : 3);
     this._timer = null;
-    this._backoff = new Map(); // message_id → { attempts, nextAt }
   }
 
   // ── pipeline ───────────────────────────────────────────────
@@ -377,36 +378,35 @@ class Observer {
     } catch (_) { /* heartbeat nunca derruba o tick */ }
   }
 
-  /** Uma passada: pega até 10 não-processadas, processa máx 3 em paralelo. */
+  /**
+   * Uma passada. FIX A — claim no DB contra dupla-processamento:
+   * o UPDATE...RETURNING marca claimed_at=NOW() atomicamente, então
+   * só processamos as rows que ESTE tick reivindicou. Ticks
+   * sobrepostos (LLM lento >5s) nunca pegam a mesma mensagem.
+   *
+   * Elegível pro claim: llm_processed_at IS NULL E (nunca reivindicada
+   * OU claim expirado há >2min — re-claim após crash do worker).
+   * FOR UPDATE SKIP LOCKED no sub-select evita corrida entre ticks.
+   */
   async tick() {
     await this._heartbeat();
-    const rows = (await this.db.query(
-      `SELECT * FROM v3.messages WHERE llm_processed_at IS NULL
-       ORDER BY created_at LIMIT 10`)).rows;
-    const nowMs = this.now().getTime();
-    const due = rows.filter((m) => {
-      const b = this._backoff.get(m.id);
-      return !b || b.nextAt <= nowMs;
-    });
+    const claimed = (await this.db.query(
+      `UPDATE v3.messages SET claimed_at = NOW()
+       WHERE id IN (
+         SELECT id FROM v3.messages
+         WHERE llm_processed_at IS NULL
+           AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL '2 minutes')
+         ORDER BY created_at
+         LIMIT 10
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING *`)).rows;
     const results = [];
-    for (let i = 0; i < due.length; i += 3) {
-      const chunk = due.slice(i, i + 3);
-      results.push(...await Promise.all(chunk.map((m) => this._processWithBackoff(m))));
+    for (let i = 0; i < claimed.length; i += this.concurrency) {
+      const chunk = claimed.slice(i, i + this.concurrency);
+      results.push(...await Promise.all(chunk.map((m) => this.processMessage(m))));
     }
     return results;
-  }
-
-  async _processWithBackoff(message) {
-    const r = await this.processMessage(message);
-    if (r.ok) {
-      this._backoff.delete(message.id);
-    } else if (r.retryable) {
-      const b = this._backoff.get(message.id) || { attempts: 0 };
-      b.attempts += 1;
-      b.nextAt = this.now().getTime() + BACKOFF_MS[Math.min(b.attempts - 1, BACKOFF_MS.length - 1)];
-      this._backoff.set(message.id, b);
-    }
-    return r;
   }
 
   start(intervalMs = 5000) {
@@ -420,4 +420,4 @@ class Observer {
   }
 }
 
-module.exports = { Observer, etDate, etHourWeekday, BACKOFF_MS };
+module.exports = { Observer, etDate, etHourWeekday };
