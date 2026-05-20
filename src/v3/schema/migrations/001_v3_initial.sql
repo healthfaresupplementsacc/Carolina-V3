@@ -47,6 +47,7 @@ CREATE UNIQUE INDEX persons_slack_user_id_unique
 CREATE TABLE shared_accounts (
   slack_user_id    TEXT PRIMARY KEY,
   primary_owner_id INTEGER REFERENCES persons(id),   -- NULL p/ conta neutra (ex.: Production Line)
+  slack_dm_id      TEXT,                              -- DM channel da conta (preserva ex.: D0B5YDY3S8G da Production Line)
   description      TEXT
 );
 
