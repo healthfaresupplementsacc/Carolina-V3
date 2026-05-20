@@ -7,13 +7,14 @@
  * cowork (§6.11) — 3 pessoas juntas 10:00-11:30 contam 1h30, não
  * 4h30, via UNIÃO temporal dos intervalos.
  *
- * NOTA — porta única do EventService: reassignEvents e mergeBatches
- * fazem UPDATE direto em v3.events.product_batch_id (bulk). Exceção
- * DELIBERADA à porta-única do EventService, porque: (1) é só um
- * move de FK — não toca lifecycle/timeline/cowork/idempotência;
- * (2) o merge precisa ser ATÔMICO, e rotear por EventService.correct
- * (N transações separadas) quebraria a atomicidade. Auditado via
- * 'batch.events_reassigned' / 'batch.merged'.
+ * EXCEÇÃO AUTORIZADA à porta-única do EventService (§6.4):
+ * reassignEvents e mergeBatches fazem UPDATE direto (bulk) em
+ * v3.events.product_batch_id. É move estrutural de FK — não toca
+ * lifecycle/timeline/cowork/idempotência (o que a porta-única
+ * protege). A atomicidade do merge exige. Auditado via
+ * 'batch.events_reassigned' / 'batch.merged'. Aprovado por Bruno
+ * Camp. É a ÚNICA exceção autorizada — NÃO usar como precedente
+ * pra outras escritas diretas em v3.events.
  *
  * Princípio #24: toda query é schema-qualificada v3.*.
  */
@@ -152,6 +153,8 @@ class BatchService {
   async reassignEvents(fromBatchId, toBatchId, opts = {}) {
     const actorType = this._actor(opts.actorType || 'admin');
     return this._withTx(async (c) => {
+      // EXCEÇÃO AUTORIZADA à porta-única do EventService (ver NOTA no
+      // topo): bulk UPDATE de FK. NÃO usar como precedente.
       const r = await c.query(
         `UPDATE v3.events SET product_batch_id = $2, updated_at = NOW()
          WHERE product_batch_id = $1 AND deleted_at IS NULL RETURNING id`,
@@ -186,6 +189,8 @@ class BatchService {
       const survivor = batches[0];
       const losers = batches.slice(1);
       for (const lo of losers) {
+        // EXCEÇÃO AUTORIZADA à porta-única do EventService (ver NOTA no
+        // topo): bulk UPDATE de FK. NÃO usar como precedente.
         await c.query(
           `UPDATE v3.events SET product_batch_id = $2, updated_at = NOW()
            WHERE product_batch_id = $1 AND deleted_at IS NULL`, [lo.id, survivor.id]);

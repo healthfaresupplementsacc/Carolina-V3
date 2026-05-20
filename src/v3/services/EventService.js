@@ -14,6 +14,11 @@
  * pessoa, no máx 1 event de trabalho (category != meta) ativo.
  *
  * Princípio #24: toda query é schema-qualificada v3.*.
+ *
+ * ÚNICA exceção autorizada à porta-única: o BatchService faz bulk
+ * UPDATE de v3.events.product_batch_id em reassignEvents/mergeBatches
+ * (move estrutural de FK; atomicidade do merge exige). Aprovado por
+ * Bruno Camp. Nenhuma outra escrita direta em v3.events é permitida.
  */
 
 const VALID_ACTOR_TYPES = ['admin', 'llm_observer', 'llm_assistant', 'system', 'app_home'];
