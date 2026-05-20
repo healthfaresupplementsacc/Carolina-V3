@@ -320,6 +320,8 @@ class Observer {
       categorization: decision.categorization,
       confidence_overall: decision.confidence,
       actions: decision.actions,
+      cost_estimate_usd: decision.cost_estimate_usd || 0,
+      model_used: decision.model_used || null,
       is_off_hours: flags.isOffHours,
       admin_context: flags.adminCtx,
       coalesced_messages: flags.coalesced,
