@@ -364,8 +364,22 @@ class Observer {
 
   // ── worker loop ────────────────────────────────────────────
 
+  /** Heartbeat — grava observer_last_tick_at a cada tick. Assim o
+   * /health sabe que o worker está vivo MESMO sem mensagens novas
+   * (madrugada / fim de semana não parecem "worker morto"). */
+  async _heartbeat() {
+    try {
+      await this.db.query(
+        `INSERT INTO v3.settings (key, value)
+         VALUES ('observer_last_tick_at', $1::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+        [JSON.stringify(this.now().toISOString())]);
+    } catch (_) { /* heartbeat nunca derruba o tick */ }
+  }
+
   /** Uma passada: pega até 10 não-processadas, processa máx 3 em paralelo. */
   async tick() {
+    await this._heartbeat();
     const rows = (await this.db.query(
       `SELECT * FROM v3.messages WHERE llm_processed_at IS NULL
        ORDER BY created_at LIMIT 10`)).rows;

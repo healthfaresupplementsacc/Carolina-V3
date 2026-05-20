@@ -248,20 +248,28 @@ async function handleHealth(req, deps) {
   const errs = await deps.db.query('SELECT COUNT(*) c FROM v3.messages WHERE processing_error IS NOT NULL');
   let provider = '?';
   let mode = '?';
+  let lastTick = null;
   try {
     const ps = await deps.db.query(
-      "SELECT key, value FROM v3.settings WHERE key IN ('llm_provider','llm_observer_mode')");
+      "SELECT key, value FROM v3.settings WHERE key IN ('llm_provider','llm_observer_mode','observer_last_tick_at')");
     for (const row of ps.rows) {
       const val = typeof row.value === 'string' ? row.value.replace(/"/g, '') : row.value;
       if (row.key === 'llm_provider') provider = val;
       if (row.key === 'llm_observer_mode') mode = val;
+      if (row.key === 'observer_last_tick_at') lastTick = val;
     }
   } catch (_) { /* settings ausente */ }
   const lastTs = last.rows[0].mx;
-  const ageMin = lastTs ? Math.round((Date.now() - new Date(lastTs).getTime()) / 60000) : null;
-  const alive = ageMin != null && ageMin < 15;
-  const body = `<p>Worker: <b>${alive ? '🟢 ativo' : '🔴 sem processar há ' + (ageMin == null ? '∞' : ageMin + ' min')}</b> `
-    + '<span class="muted">(inferido pela última msg processada)</span></p>'
+  // worker vivo = heartbeat (observer_last_tick_at) recente. Fallback:
+  // recência da última msg processada (caso o heartbeat não exista).
+  const tickAgeSec = lastTick ? Math.round((Date.now() - new Date(lastTick).getTime()) / 1000) : null;
+  const alive = tickAgeSec != null
+    ? tickAgeSec < 120
+    : (lastTs != null && (Date.now() - new Date(lastTs).getTime()) < 15 * 60000);
+  const aliveLabel = alive ? '🟢 ativo'
+    : (tickAgeSec != null ? '🔴 sem tick há ' + tickAgeSec + 's' : '🔴 sem heartbeat');
+  const body = `<p>Worker: <b>${aliveLabel}</b> `
+    + `<span class="muted">(heartbeat: ${esc((lastTick || 'nunca').toString().slice(0, 19))})</span></p>`
     + `<p>Fila (não-processadas): <span class="big">${queue.rows[0].c}</span></p>`
     + `<p>Última msg processada: ${esc((lastTs || 'nunca').toString().slice(0, 19))}</p>`
     + `<p>Mensagens com erro: <b>${errs.rows[0].c}</b></p>`
