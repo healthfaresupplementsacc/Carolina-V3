@@ -37,18 +37,32 @@ const ACTION_TYPES = [
 ];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low', 'unconfirmed'];
 
-/** Classe base — toda implementação concreta estende e sobrescreve classify(). */
+/** Classe base — toda implementação concreta estende e sobrescreve. */
 class LLMProvider {
   /** @returns {string} nome curto do provider */
   get name() { return 'base'; }
 
   /**
+   * Classificação do Observer (mensagem → eventos).
    * @param {{text:string, ts?:string, slack_user_id?:string}} message
-   * @param {object} context  contexto montado (persons, products, prompt, …)
+   * @param {object} context  contexto montado (prompt, persons, …)
    * @returns {Promise<object>} ClassificationResult
    */
   async classify(message, context) { // eslint-disable-line no-unused-vars
     throw new Error('LLMProvider.classify() não implementado — use uma subclasse');
+  }
+
+  /**
+   * Pergunta focada genérica (NÃO-classificação): manda system+user,
+   * devolve o JSON parseado cru. Usado por PersonResolver, stale
+   * check (Sprint 2), Admin Assistant — qualquer caso que não é o
+   * ClassificationResult do Observer.
+   * @returns {Promise<object>} RawResult: { json_parsed, raw_text,
+   *   provider_used, model_used, tokens_in, tokens_out,
+   *   cost_estimate_usd, processing_ms }
+   */
+  async classifyRaw(systemPrompt, userContent, opts) { // eslint-disable-line no-unused-vars
+    throw new Error('LLMProvider.classifyRaw() não implementado — use uma subclasse');
   }
 }
 
@@ -74,6 +88,20 @@ function normalizeResult(partial = {}, providerName = 'unknown') {
   };
 }
 
+/** Garante o shape mínimo de um RawResult (classifyRaw). */
+function normalizeRaw(partial = {}, providerName = 'unknown') {
+  return {
+    json_parsed: partial.json_parsed !== undefined ? partial.json_parsed : null,
+    raw_text: partial.raw_text !== undefined ? partial.raw_text : null,
+    provider_used: partial.provider_used || providerName,
+    model_used: partial.model_used || null,
+    tokens_in: partial.tokens_in || 0,
+    tokens_out: partial.tokens_out || 0,
+    cost_estimate_usd: partial.cost_estimate_usd || 0,
+    processing_ms: partial.processing_ms || 0,
+  };
+}
+
 /**
  * Fábrica de providers. Default 'anthropic'. require() lazy evita
  * ciclo (os providers estendem esta mesma classe).
@@ -89,4 +117,6 @@ function getProvider(name, opts = {}) {
   }
 }
 
-module.exports = { LLMProvider, getProvider, normalizeResult, ACTION_TYPES, CONFIDENCE_LEVELS };
+module.exports = {
+  LLMProvider, getProvider, normalizeResult, normalizeRaw, ACTION_TYPES, CONFIDENCE_LEVELS,
+};

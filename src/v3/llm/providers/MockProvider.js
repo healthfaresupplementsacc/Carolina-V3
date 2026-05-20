@@ -4,36 +4,53 @@
  *
  * Provider falso pros testes. Decisão configurável; registra as
  * chamadas; pode simular erro de API (testar retry do Observer).
+ * Implementa classify() E classifyRaw().
  */
-const { LLMProvider, normalizeResult } = require('../LLMProvider');
+const { LLMProvider, normalizeResult, normalizeRaw } = require('../LLMProvider');
 
 class MockProvider extends LLMProvider {
   /**
    * @param {object} opts
-   * @param {object} [opts.result]  ClassificationResult parcial a retornar
-   * @param {Error|string} [opts.error]  se setado, classify() lança
+   * @param {object} [opts.result]     ClassificationResult parcial (classify)
+   * @param {object} [opts.rawResult]  RawResult parcial (classifyRaw)
+   * @param {Error|string} [opts.error]  se setado, ambos lançam
    */
   constructor(opts = {}) {
     super();
     this._result = opts.result || null;
+    this._rawResult = opts.rawResult || null;
     this._error = opts.error || null;
     this.calls = [];
+    this.rawCalls = [];
   }
 
   get name() { return 'mock'; }
 
   async classify(message, context) {
     this.calls.push({ message, context });
+    this._throwIfError();
+    return normalizeResult(Object.assign({ provider_used: 'mock', model_used: 'mock' }, this._result || {}), 'mock');
+  }
+
+  async classifyRaw(systemPrompt, userContent, opts) {
+    this.rawCalls.push({ systemPrompt, userContent, opts });
+    this._throwIfError();
+    return normalizeRaw(Object.assign({ provider_used: 'mock', model_used: 'mock' }, this._rawResult || {}), 'mock');
+  }
+
+  _throwIfError() {
     if (this._error) {
       throw (this._error instanceof Error ? this._error : new Error(String(this._error)));
     }
-    return normalizeResult(Object.assign({ provider_used: 'mock', model_used: 'mock' }, this._result || {}), 'mock');
   }
 
   /** Configura a decisão que o próximo classify() retorna. */
   setResult(result) { this._result = result; this._error = null; }
 
-  /** Faz o próximo classify() lançar. */
+  /** Configura o RawResult que o próximo classifyRaw() retorna. */
+  setRawResult(rawResult) { this._rawResult = rawResult; this._error = null; }
+
+  /** Faz classify()/classifyRaw() lançarem. */
   setError(error) { this._error = error; }
 }
 

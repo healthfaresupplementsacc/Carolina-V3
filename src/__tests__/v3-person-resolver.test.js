@@ -49,10 +49,10 @@ function makeResolver({ db, llmJson, llmError, now } = {}) {
   const provider = new MockProvider();
   if (llmError) provider.setError(llmError);
   else if (llmJson !== undefined) {
-    provider.setResult({
-      raw_response: typeof llmJson === 'string' ? llmJson : JSON.stringify(llmJson),
-      cost_estimate_usd: 0.001,
-    });
+    // string llmJson = resposta NÃO-JSON do LLM (json_parsed null)
+    provider.setRawResult(typeof llmJson === 'string'
+      ? { json_parsed: null, raw_text: llmJson, cost_estimate_usd: 0.001 }
+      : { json_parsed: llmJson, cost_estimate_usd: 0.001 });
   }
   return { resolver: new PersonResolver({ db, provider, now }), provider, db };
 }
@@ -69,7 +69,7 @@ describe('V3 §2.3 — lookup direto (conta própria, sem LLM)', () => {
     expect(r.person_id).toBe(8);
     expect(r.confidence).toBe('high');
     expect(r.cost_estimate_usd).toBe(0);
-    expect(provider.calls).toHaveLength(0);
+    expect(provider.rawCalls).toHaveLength(0);
   });
 
   test('slack_user_id desconhecido → unknown_account / unconfirmed', async () => {
@@ -92,7 +92,7 @@ describe('V3 §2.3 — conta compartilhada (LLM)', () => {
     expect(r.resolution_method).toBe('llm_identified');
     expect(r.confidence).toBe('high');
     expect(r.detected_identification).toBe('Bruno -');
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.rawCalls).toHaveLength(1);
   });
 
   test('LLM medium (contexto) → llm_context, medium', async () => {
@@ -223,7 +223,7 @@ describe('V3 §2.3 — audit + cache', () => {
     });
     await resolver.resolve('U_VITOR', 'Bruno', 'SAME_TS', { message_id: 115 });
     await resolver.resolve('U_VITOR', 'Bruno', 'SAME_TS', { message_id: 115 });
-    expect(provider.calls).toHaveLength(1);
+    expect(provider.rawCalls).toHaveLength(1);
     expect(db.inserts.prefix_log).toHaveLength(1);
   });
 

@@ -15,6 +15,10 @@ class OpenAIProvider extends LLMProvider {
   async classify(message, context) { // eslint-disable-line no-unused-vars
     throw new Error('not_implemented: OpenAIProvider é stub no Sprint 1');
   }
+
+  async classifyRaw(systemPrompt, userContent, opts) { // eslint-disable-line no-unused-vars
+    throw new Error('not_implemented: OpenAIProvider é stub no Sprint 1');
+  }
 }
 
 module.exports = OpenAIProvider;

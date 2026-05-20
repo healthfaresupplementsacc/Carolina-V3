@@ -5,18 +5,15 @@
  * Provider default de produção. Modelo Sonnet 4.6 (claude-sonnet-4-6),
  * editável via setting `llm_model`. NÃO usa Haiku (descartado).
  *
- * classify(message, context) monta o prompt, chama a Messages API,
- * extrai o JSON estruturado e devolve um ClassificationResult.
- *
- * O prompt rico (contexto dinâmico) é montado pelo prompt-builder
- * (PARTE 2.7) e chega via context.systemPrompt / context.userContent.
- * Se ausente, este provider monta um prompt mínimo de fallback —
- * funcional e testável de forma independente.
+ * Dois métodos:
+ *   classifyRaw(systemPrompt, userContent) → RawResult (JSON cru)
+ *   classify(message, context)            → ClassificationResult
+ * classify() é uma fina camada sobre classifyRaw() + mapeamento.
  */
 const { LLMProvider } = require('../LLMProvider');
 
 let Anthropic = null;
-try { Anthropic = require('@anthropic-ai/sdk'); } catch (_) { /* SDK ausente — classify lança erro claro */ }
+try { Anthropic = require('@anthropic-ai/sdk'); } catch (_) { /* SDK ausente — métodos lançam erro claro */ }
 
 // Sonnet 4.6 — preço USD por 1M tokens.
 const PRICING = { input: 3.0, output: 15.0 };
@@ -34,29 +31,58 @@ class AnthropicProvider extends LLMProvider {
 
   get name() { return 'anthropic'; }
 
-  async classify(message, context = {}) {
+  /** Chamada crua à Messages API. @returns {{text,tin,tout,ms}} */
+  async _call(system, userContent, maxTokens) {
     if (!this._client) {
       throw new Error('AnthropicProvider: @anthropic-ai/sdk indisponível ou sem client');
     }
     const t0 = Date.now();
-    const { system, userContent } = this._assemblePrompt(message, context);
-
     const resp = await this._client.messages.create({
       model: this.model,
-      max_tokens: this.maxTokens,
+      max_tokens: maxTokens || this.maxTokens,
       system,
       messages: [{ role: 'user', content: userContent }],
     });
-
     const ms = Date.now() - t0;
     const text = ((resp && resp.content) || [])
       .filter((b) => b && b.type === 'text')
       .map((b) => b.text)
       .join('');
-    const parsed = this._parseJson(text);
-    const tin = (resp && resp.usage && resp.usage.input_tokens) || 0;
-    const tout = (resp && resp.usage && resp.usage.output_tokens) || 0;
+    return {
+      text,
+      tin: (resp && resp.usage && resp.usage.input_tokens) || 0,
+      tout: (resp && resp.usage && resp.usage.output_tokens) || 0,
+      ms,
+    };
+  }
 
+  _cost(tin, tout) {
+    return +((tin / 1e6) * PRICING.input + (tout / 1e6) * PRICING.output).toFixed(6);
+  }
+
+  /** Pergunta focada — devolve o JSON parseado cru (RawResult). */
+  async classifyRaw(systemPrompt, userContent, opts = {}) {
+    const { text, tin, tout, ms } = await this._call(systemPrompt, userContent, opts.maxTokens);
+    return {
+      json_parsed: this._parseJsonOrNull(text),
+      raw_text: text,
+      provider_used: 'anthropic',
+      model_used: this.model,
+      tokens_in: tin,
+      tokens_out: tout,
+      cost_estimate_usd: this._cost(tin, tout),
+      processing_ms: ms,
+    };
+  }
+
+  /** Classificação do Observer — ClassificationResult. */
+  async classify(message, context = {}) {
+    const { system, userContent } = this._assemblePrompt(message, context);
+    const raw = await this.classifyRaw(system, userContent);
+    const parsed = raw.json_parsed || {
+      _parse_error: true, confidence_overall: 'unconfirmed', actions: [],
+      interpretation: '(resposta do LLM não-JSON)',
+    };
     return {
       interpretation: parsed.interpretation || '',
       actions: Array.isArray(parsed.actions) ? parsed.actions : [],
@@ -67,27 +93,21 @@ class AnthropicProvider extends LLMProvider {
       new_vocabulary_terms: Array.isArray(parsed.new_vocabulary_terms) ? parsed.new_vocabulary_terms : [],
       provider_used: 'anthropic',
       model_used: this.model,
-      tokens_in: tin,
-      tokens_out: tout,
-      cost_estimate_usd: +((tin / 1e6) * PRICING.input + (tout / 1e6) * PRICING.output).toFixed(6),
-      processing_ms: ms,
-      raw_response: text,
+      tokens_in: raw.tokens_in,
+      tokens_out: raw.tokens_out,
+      cost_estimate_usd: raw.cost_estimate_usd,
+      processing_ms: raw.processing_ms,
+      raw_response: raw.raw_text,
     };
   }
 
-  /** Extrai o primeiro objeto JSON do texto. Garbage → unconfirmed. */
-  _parseJson(text) {
-    if (text) {
-      try { return JSON.parse(text); } catch (_) { /* tenta extrair bloco */ }
-      const m = text.match(/\{[\s\S]*\}/);
-      if (m) { try { return JSON.parse(m[0]); } catch (_) { /* cai no fallback */ } }
-    }
-    return {
-      _parse_error: true,
-      interpretation: '(resposta do LLM não-JSON)',
-      actions: [],
-      confidence_overall: 'unconfirmed',
-    };
+  /** Extrai o 1º objeto JSON do texto. Garbage → null. */
+  _parseJsonOrNull(text) {
+    if (!text) return null;
+    try { return JSON.parse(text); } catch (_) { /* tenta extrair bloco */ }
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch (_) { /* sem JSON válido */ } }
+    return null;
   }
 
   /**

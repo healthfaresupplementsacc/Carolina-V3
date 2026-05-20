@@ -1,7 +1,7 @@
 'use strict';
 // HEALTHFARE V3 — PARTE 2.1 — testes comportamentais do Provider Abstraction.
 const {
-  LLMProvider, getProvider, normalizeResult, ACTION_TYPES, CONFIDENCE_LEVELS,
+  LLMProvider, getProvider, normalizeResult, normalizeRaw, ACTION_TYPES, CONFIDENCE_LEVELS,
 } = require('../v3/llm/LLMProvider');
 const AnthropicProvider = require('../v3/llm/providers/AnthropicProvider');
 const MockProvider = require('../v3/llm/providers/MockProvider');
@@ -158,5 +158,83 @@ describe('V3 §2.1 — stubs OpenAI / Deterministic', () => {
 
   test('DeterministicProvider.classify lança not_implemented', async () => {
     await expect(getProvider('deterministic').classify({}, {})).rejects.toThrow(/not_implemented/);
+  });
+});
+
+describe('V3 §2.1 — classifyRaw (refactor §2.3)', () => {
+  function fakeClient(text, usage) {
+    return {
+      messages: {
+        create: jest.fn().mockResolvedValue({
+          content: [{ type: 'text', text }],
+          usage: usage || { input_tokens: 100, output_tokens: 50 },
+        }),
+      },
+    };
+  }
+
+  test('classe base: classifyRaw() lança', async () => {
+    await expect(new LLMProvider().classifyRaw('s', 'u')).rejects.toThrow(/não implementado/);
+  });
+
+  test('normalizeRaw preenche o shape mínimo', () => {
+    const r = normalizeRaw({}, 'x');
+    expect(r.json_parsed).toBeNull();
+    expect(r.provider_used).toBe('x');
+    expect(r.tokens_in).toBe(0);
+  });
+
+  test('MockProvider.classifyRaw devolve o rawResult e registra rawCalls', async () => {
+    const mp = new MockProvider();
+    mp.setRawResult({ json_parsed: { person_id: 7 }, cost_estimate_usd: 0.001 });
+    const out = await mp.classifyRaw('SYS', 'USER');
+    expect(out.json_parsed).toEqual({ person_id: 7 });
+    expect(out.cost_estimate_usd).toBe(0.001);
+    expect(mp.rawCalls).toHaveLength(1);
+    expect(mp.rawCalls[0].systemPrompt).toBe('SYS');
+  });
+
+  test('MockProvider.classifyRaw respeita setError', async () => {
+    const mp = new MockProvider();
+    mp.setError(new Error('boom'));
+    await expect(mp.classifyRaw('s', 'u')).rejects.toThrow(/boom/);
+  });
+
+  test('AnthropicProvider.classifyRaw parseia JSON e devolve RawResult completo', async () => {
+    const ap = new AnthropicProvider({ client: fakeClient('{"person_id":7,"confidence":"high"}') });
+    const out = await ap.classifyRaw('SYS', 'USER');
+    expect(out.json_parsed).toEqual({ person_id: 7, confidence: 'high' });
+    expect(out.raw_text).toContain('person_id');
+    expect(out.provider_used).toBe('anthropic');
+    expect(out.model_used).toBe('claude-sonnet-4-6');
+    expect(out.tokens_in).toBe(100);
+    expect(out.cost_estimate_usd).toBeCloseTo(0.00105, 6);
+  });
+
+  test('AnthropicProvider.classifyRaw com resposta não-JSON → json_parsed null', async () => {
+    const ap = new AnthropicProvider({ client: fakeClient('desculpa, não entendi') });
+    const out = await ap.classifyRaw('s', 'u');
+    expect(out.json_parsed).toBeNull();
+    expect(out.raw_text).toBe('desculpa, não entendi');
+  });
+
+  test('AnthropicProvider.classifyRaw passa system+user pro client', async () => {
+    const client = fakeClient('{"x":1}');
+    await new AnthropicProvider({ client }).classifyRaw('SYS-P', 'USER-P');
+    expect(client.messages.create).toHaveBeenCalledWith(expect.objectContaining({
+      system: 'SYS-P', messages: [{ role: 'user', content: 'USER-P' }],
+    }));
+  });
+
+  test('classify() continua funcionando (refatorado sobre classifyRaw)', async () => {
+    const ap = new AnthropicProvider({ client: fakeClient('{"interpretation":"ok","confidence_overall":"high","actions":[]}') });
+    const out = await ap.classify({ text: 'x' }, {});
+    expect(out.interpretation).toBe('ok');
+    expect(out.confidence).toBe('high');
+  });
+
+  test('stubs OpenAI/Deterministic: classifyRaw lança not_implemented', async () => {
+    await expect(getProvider('openai').classifyRaw('s', 'u')).rejects.toThrow(/not_implemented/);
+    await expect(getProvider('deterministic').classifyRaw('s', 'u')).rejects.toThrow(/not_implemented/);
   });
 });

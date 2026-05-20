@@ -119,28 +119,19 @@ class PersonResolver {
     return { systemPrompt: system, userContent };
   }
 
-  /** Chama o LLM e devolve o objeto de resolução parseado. */
-  async _callLLM(account, candidates, admins, recentMsgs, messageText, messageTs, slackUserId) {
+  /** Chama o LLM (classifyRaw) e devolve o objeto de resolução parseado. */
+  async _callLLM(account, candidates, admins, recentMsgs, messageText) {
     const prompt = this._buildPrompt(account, candidates, admins, recentMsgs, messageText);
     let res;
     try {
-      res = await this.provider.classify(
-        { text: messageText, ts: messageTs, slack_user_id: slackUserId }, prompt);
+      res = await this.provider.classifyRaw(prompt.systemPrompt, prompt.userContent);
     } catch (e) {
       return { error: 'llm_error', message: e.message, cost: 0 };
     }
-    const raw = res && res.raw_response;
-    let parsed = null;
-    if (raw && typeof raw === 'object') {
-      parsed = raw;
-    } else if (typeof raw === 'string') {
-      try { parsed = JSON.parse(raw); }
-      catch (_) {
-        const m = raw.match(/\{[\s\S]*\}/);
-        if (m) { try { parsed = JSON.parse(m[0]); } catch (_) { /* inválido */ } }
-      }
+    const parsed = res && res.json_parsed;
+    if (!parsed || typeof parsed !== 'object') {
+      return { error: 'llm_invalid_json', cost: (res && res.cost_estimate_usd) || 0 };
     }
-    if (!parsed) return { error: 'llm_invalid_json', cost: (res && res.cost_estimate_usd) || 0 };
     return { parsed, cost: (res && res.cost_estimate_usd) || 0 };
   }
 
@@ -232,7 +223,7 @@ class PersonResolver {
     }
     const recent = await this._recentAccountMessages(slackUserId);
     const admins = [...dir.personsById.values()].filter((x) => ADMIN_ROLES.includes(x.role));
-    const llm = await this._callLLM(account, candidates, admins, recent, messageText, messageTs, slackUserId);
+    const llm = await this._callLLM(account, candidates, admins, recent, messageText);
 
     // erro de LLM / JSON inválido → unconfirmed (Observer reprocessa)
     if (llm.error) {
