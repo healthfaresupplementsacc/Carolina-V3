@@ -12,6 +12,7 @@ const { PromptBuilder } = require('../v3/llm/prompt-builder');
 const { EventService } = require('../v3/services/EventService');
 const eventsV2 = require('../v3/slack/events-v2');
 const adminRoutes = require('../v3/admin-v3/routes');
+const { buildRepos } = require('../v3/data/router');
 
 // ──────────────────────────────────────────────────────────────
 // Fake DB in-memory razoavelmente completo (schema v3).
@@ -130,14 +131,19 @@ function makeIntegrationDb() {
       return { rows: events.filter((e) => e.ended_at == null && e.deleted_at == null)
         .map((e) => ({ person_id: e.person_id, activity_type_id: e.activity_type_id, started_at: e.started_at, phase_label: e.phase_label })) };
     }
-    if (/FROM v3\.events e LEFT JOIN v3\.persons/.test(s)) { // events-shadow
-      return { rows: events.filter((e) => e.deleted_at == null).map((e) => ({
-        id: e.id, person_id: e.person_id, started_at: e.started_at, ended_at: e.ended_at,
-        confidence: e.confidence, cowork_with: e.cowork_with, source_message_ts: e.source_message_ts,
-        product_batch_id: e.product_batch_id,
-        person_name: (persons.find((p) => p.id === e.person_id) || {}).display_name,
-        activity: (activityTypes.find((a) => a.id === e.activity_type_id) || {}).display_name,
-      })) };
+    if (/FROM v3\.events e LEFT JOIN v3\.persons/.test(s)) { // TimelineRepo.eventsByDay
+      return { rows: events.filter((e) => e.deleted_at == null).map((e) => {
+        const at = activityTypes.find((a) => a.id === e.activity_type_id) || {};
+        const p = persons.find((pp) => pp.id === e.person_id) || {};
+        return {
+          id: e.id, person_id: e.person_id, activity_type_id: e.activity_type_id,
+          product_batch_id: e.product_batch_id, started_at: e.started_at, ended_at: e.ended_at,
+          confidence: e.confidence, cowork_with: e.cowork_with, phase_label: e.phase_label,
+          description: e.description, source_message_ts: e.source_message_ts,
+          person_name: p.display_name, person_role: p.role,
+          activity_slug: at.slug, activity_name: at.display_name, activity_category: at.category,
+        };
+      }) };
     }
 
     // ── outros ──
@@ -206,7 +212,8 @@ describe('V3 §2.11 — integração ponta-a-ponta (webhook → worker → event
     expect(db.messages[0].llm_processed_at).toBeTruthy();
 
     // 4) aparece no endpoint de inspeção
-    const shadow = await adminRoutes.handleEventsShadow({ query: { pin: '510510' }, headers: {} }, { db });
+    const shadow = await adminRoutes.handleEventsShadow(
+      { query: { pin: '510510' }, headers: {} }, { db, repos: buildRepos(db) });
     expect(shadow.status).toBe(200);
     expect(shadow.body).toContain('Solo');
     expect(shadow.body).toContain('Formulação');

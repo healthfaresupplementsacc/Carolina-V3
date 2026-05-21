@@ -1,304 +1,219 @@
 'use strict';
-// HEALTHFARE V3 — PARTE 2.10 — testes comportamentais dos endpoints admin v3.
+// HEALTHFARE V3 — Bloco 0 / Etapa 3 — testes dos handlers HTML.
+// Pós-desacoplamento: os handlers consomem os REPOS (não mais SQL inline).
+// Aqui testamos os handlers com repos MOCKADOS; os repos em si têm
+// teste próprio em v3-data-repos.test.js.
 const r = require('../v3/admin-v3/routes');
 
-function makeFakeDb(seed = {}) {
-  const calls = [];
+/** Repos fake — cada método é jest.fn devolvendo o seed (ou default vazio). */
+function makeRepos(seed = {}) {
   return {
-    calls,
-    query: jest.fn((sql, params = []) => {
-      const s = String(sql).replace(/\s+/g, ' ').trim();
-      calls.push({ sql: s, params });
-      if (/FROM v3\.messages m LEFT JOIN v3\.persons/.test(s)) return Promise.resolve({ rows: seed.messagesShadow || [] });
-      // overview: mensagens do dia (NY)
-      if (/FROM v3\.messages m WHERE \(m\.created_at AT TIME ZONE/.test(s)) return Promise.resolve({ rows: seed.dayMessages || [] });
-      // overview: produção do dia
-      if (/FROM v3\.production_counts pc JOIN/.test(s)) return Promise.resolve({ rows: seed.dayCounts || [] });
-      // overview: lotes ativos
-      if (/FROM v3\.product_batches pb JOIN/.test(s)) return Promise.resolve({ rows: seed.activeBatches || [] });
-      if (/COUNT\(\*\) c FROM v3\.events/.test(s)) return Promise.resolve({ rows: [{ c: (seed.events || []).length }] });
-      if (/FROM v3\.events e LEFT JOIN/.test(s)) return Promise.resolve({ rows: seed.events || [] });
-      if (/COUNT\(\*\) c FROM public\.tasks/.test(s)) return Promise.resolve({ rows: [{ c: seed.legacyTasks || 0 }] });
-      if (/COUNT\(\*\) c FROM public\.phase_instances/.test(s)) return Promise.resolve({ rows: [{ c: seed.legacyPhases || 0 }] });
-      if (/FROM v3\.vocabulary/.test(s)) {
-        return Promise.resolve({ rows: (seed.vocab || []).filter((x) => x.occurrence_count >= 3 && !x.admin_confirmed) });
-      }
-      if (/SELECT llm_result, processing_error FROM v3\.messages/.test(s)) return Promise.resolve({ rows: seed.metricsRows || [] });
-      if (/COUNT\(\*\) c FROM v3\.messages WHERE llm_processed_at IS NULL/.test(s)) return Promise.resolve({ rows: [{ c: seed.queueCount || 0 }] });
-      if (/MAX\(llm_processed_at\)/.test(s)) return Promise.resolve({ rows: [{ mx: seed.lastProcessed || null }] });
-      if (/COUNT\(\*\) c FROM v3\.messages WHERE processing_error/.test(s)) return Promise.resolve({ rows: [{ c: seed.errorCount || 0 }] });
-      if (/FROM v3\.settings/.test(s)) return Promise.resolve({ rows: seed.settings || [] });
-      return Promise.resolve({ rows: [] });
-    }),
+    messages: {
+      messagesByDay: jest.fn(async (date) => seed.messages
+        || { date: date || '2026-05-21', count: 0, messages: [] }),
+      messageById: jest.fn(async () => seed.messageById || null),
+    },
+    timeline: {
+      eventsByDay: jest.fn(async (date) => seed.timeline
+        || { date: date || '2026-05-21', people: [] }),
+      eventsByPersonDay: jest.fn(async () => seed.timelinePerson || { date: '2026-05-21', person: {}, events: [] }),
+    },
+    vocabulary: { pending: jest.fn(async () => seed.vocabulary || { terms: [] }) },
+    metrics: {
+      metricsRange: jest.fn(async (from, to) => seed.metrics
+        || { from, to, total_processed: 0, errors: 0, cost_estimate_usd: 0,
+          by_confidence: {}, by_categorization: {}, avg_cost_per_msg: 0 }),
+    },
+    health: {
+      workerHealth: jest.fn(async () => seed.health
+        || { worker: { alive: true, last_tick_at: null, tick_age_seconds: null },
+          queue: 0, errors: 0, last_processed_at: null, provider: 'anthropic', mode: 'shadow' }),
+    },
+    counts: {
+      countsByDay: jest.fn(async (date) => seed.counts
+        || { date: date || '2026-05-21', counts: [], totals_by_product: {} }),
+    },
+    batches: { activeBatches: jest.fn(async () => seed.batches || { active: [] }) },
   };
 }
 
+/** db fake — só pro cross-ref legado do /divergences. Conta as queries. */
+function makeDb(legacyCount = 0) {
+  const calls = [];
+  return {
+    calls,
+    query: jest.fn((sql) => { calls.push(String(sql)); return Promise.resolve({ rows: [{ c: legacyCount }] }); }),
+  };
+}
+
+const deps = (seed, db) => ({ repos: makeRepos(seed), db: db || makeDb() });
 const req = (query = {}) => ({ query: Object.assign({ pin: '510510' }, query), headers: {} });
 const noPin = (query = {}) => ({ query, headers: {} });
 
-describe('V3 §2.10 — auth PIN', () => {
-  test('todos os endpoints rejeitam sem PIN (403)', async () => {
-    const db = makeFakeDb();
+describe('V3 admin-v3 — auth PIN', () => {
+  test('todos os handlers rejeitam sem PIN (403)', async () => {
     for (const slug of Object.keys(r.HANDLERS)) {
-      const out = await r.HANDLERS[slug](noPin(), { db });
+      const out = await r.HANDLERS[slug](noPin(), deps());
       expect(out.status).toBe(403);
     }
   });
-  test('checkPin aceita o PIN certo, rejeita o errado', () => {
+  test('checkPin aceita o certo, rejeita o errado e lê o header', () => {
     expect(r.checkPin({ query: { pin: '510510' }, headers: {} })).toBe(true);
     expect(r.checkPin({ query: { pin: '000' }, headers: {} })).toBe(false);
     expect(r.checkPin({ query: {}, headers: { 'x-admin-pin': '510510' } })).toBe(true);
   });
 });
 
-describe('V3 §2.10 — messages-shadow', () => {
-  test('lista mensagens com destaque de confiança', async () => {
-    const db = makeFakeDb({
-      messagesShadow: [{
-        id: 1, slack_ts: '1.1', slack_user_id: 'U_PL', raw_text: 'comecei a linha',
-        created_at: '2026-05-20T14:00:00Z', person_name: 'Ana',
-        llm_result: { interpretation: 'Ana abriu linha', categorization: 'activity_start', confidence_overall: 'high', actions: [{ type: 'open_event' }] },
-      }],
-    });
-    const out = await r.handleMessagesShadow(req(), { db });
+describe('V3 admin-v3 — messages-shadow', () => {
+  test('renderiza as mensagens vindas do repo', async () => {
+    const seed = { messages: { date: '2026-05-21', count: 1, messages: [{
+      id: 1, slack_ts: '1.1', slack_user_id: 'U_PL', raw_text: 'comecei a linha',
+      created_at: '2026-05-21T12:00:00-04:00', person: { display_name: 'Ana' },
+      processed: true, interpretation: 'Ana abriu linha', categorization: 'activity_start',
+      confidence: 'high', action_count: 1, cost_estimate_usd: 0.002, processing_error: null, skipped: null,
+    }] } };
+    const d = deps(seed);
+    const out = await r.handleMessagesShadow(req({ date: '2026-05-21', limit: '5' }), d);
     expect(out.status).toBe(200);
     expect(out.body).toContain('comecei a linha');
     expect(out.body).toContain('Ana abriu linha');
-    expect(out.body).toContain('#16a34a'); // cor de confidence=high
-  });
-
-  test('limit e date são repassados pra query', async () => {
-    const db = makeFakeDb();
-    await r.handleMessagesShadow(req({ limit: '5', date: '2026-05-20' }), { db });
-    const call = db.calls.find((c) => /FROM v3\.messages m LEFT JOIN/.test(c.sql));
-    expect(call.params[0]).toBe(5);
-    expect(call.params[1]).toBe('2026-05-20');
-  });
-
-  test('limit fora do range cai no default', async () => {
-    const db = makeFakeDb();
-    await r.handleMessagesShadow(req({ limit: '99999' }), { db });
-    const call = db.calls.find((c) => /FROM v3\.messages m LEFT JOIN/.test(c.sql));
-    expect(call.params[0]).toBe(200); // clamp no máx
+    expect(out.body).toContain('#16a34a'); // cor confidence high
+    expect(d.repos.messages.messagesByDay).toHaveBeenCalledWith('2026-05-21', { limit: '5' });
   });
 });
 
-describe('V3 §2.10 — events-shadow / timeline', () => {
-  test('events-shadow agrupa por pessoa', async () => {
-    const db = makeFakeDb({
-      events: [
-        { id: 1, person_id: 6, person_name: 'Ana', activity: 'Formulação', started_at: '2026-05-20T10:00:00Z', ended_at: null, confidence: 'high', cowork_with: [] },
-        { id: 2, person_id: 4, person_name: 'Vitor', activity: 'Mix', started_at: '2026-05-20T11:00:00Z', ended_at: '2026-05-20T12:00:00Z', confidence: 'medium', cowork_with: [6] },
-      ],
-    });
-    const out = await r.handleEventsShadow(req(), { db });
-    expect(out.status).toBe(200);
+describe('V3 admin-v3 — events-shadow / timeline', () => {
+  const timeline = { date: '2026-05-21', people: [
+    { person_id: 6, display_name: 'Ana', role: 'operator', events: [
+      { event_id: 1, activity: { id: 5, slug: 'production_line', display_name: 'Linha de Produção', category: 'production_phase' },
+        started_at: '2026-05-21T09:30:00-04:00', ended_at: null, confidence: 'high',
+        cowork_with: [], product_batch_id: null, source_message_ts: 't.1' } ] },
+    { person_id: 4, display_name: 'Vitor', role: 'operator', events: [
+      { event_id: 2, activity: { id: 2, slug: 'mixing', display_name: 'Mix', category: 'production_phase' },
+        started_at: '2026-05-21T10:00:00-04:00', ended_at: '2026-05-21T11:00:00-04:00', confidence: 'medium',
+        cowork_with: [6], product_batch_id: 7, source_message_ts: 't.2' } ] },
+  ] };
+
+  test('events-shadow agrupa por pessoa (do repo) e marca ativo', async () => {
+    const out = await r.handleEventsShadow(req(), deps({ timeline }));
     expect(out.body).toContain('<h3>Ana</h3>');
     expect(out.body).toContain('<h3>Vitor</h3>');
     expect(out.body).toContain('ativo'); // event sem ended_at
   });
 
-  test('timeline monta blocos por pessoa', async () => {
-    const db = makeFakeDb({
-      events: [{ person_id: 6, person_name: 'Ana', activity: 'Limpeza', started_at: '2026-05-20T09:30:00Z', ended_at: null, cowork_with: [] }],
-    });
-    const out = await r.handleTimeline(req({ date: '2026-05-20' }), { db });
-    expect(out.status).toBe(200);
+  test('timeline monta blocos por pessoa com a hora NY', async () => {
+    const out = await r.handleTimeline(req({ date: '2026-05-21' }), deps({ timeline }));
     expect(out.body).toContain('<h3>Ana</h3>');
-    expect(out.body).toContain('09:30 Limpeza');
+    expect(out.body).toContain('09:30 Linha de Produção');
   });
 });
 
-describe('V3 §2.10 — divergences', () => {
-  test('marca V3-only e mostra contagens V3 vs legado', async () => {
-    const db = makeFakeDb({
-      events: [{ started_at: '2026-05-20T10:00:00Z', person_name: 'Ana', activity: 'Formulação' }],
-      legacyTasks: 0, legacyPhases: 0,
-    });
-    const out = await r.handleDivergences(req({ date: '2026-05-20' }), { db });
+describe('V3 admin-v3 — divergences', () => {
+  test('conta events do V3 (via repo) e cruza com o legado (via db)', async () => {
+    const seed = { timeline: { date: '2026-05-21', people: [
+      { person_id: 6, display_name: 'Ana', events: [
+        { event_id: 1, activity: { display_name: 'Formulação' }, started_at: '2026-05-21T10:00:00-04:00', cowork_with: [] }] }] } };
+    const db = makeDb(0);
+    const out = await r.handleDivergences(req({ date: '2026-05-21' }), deps(seed, db));
     expect(out.status).toBe(200);
     expect(out.body).toContain('V3-only');
-    expect(out.body).toMatch(/V3 criou/);
+    expect(out.body).toMatch(/V3 criou <span class="big">1</);
+    expect(db.calls.length).toBe(2); // cross-ref legado: public.tasks + phase_instances
   });
 });
 
-describe('V3 §2.10 — vocabulary-pending', () => {
-  test('filtra occurrence_count >= 3 e não-confirmados', async () => {
-    const db = makeFakeDb({
-      vocab: [
-        { term: 'fita', occurrence_count: 5, admin_confirmed: false, meaning: 'etiqueta' },
-        { term: 'raro', occurrence_count: 2, admin_confirmed: false }, // <3 → fora
-        { term: 'confirmado', occurrence_count: 9, admin_confirmed: true }, // confirmado → fora
-      ],
-    });
-    const out = await r.handleVocabularyPending(req(), { db });
-    expect(out.status).toBe(200);
+describe('V3 admin-v3 — vocabulary-pending', () => {
+  test('lista os termos vindos do repo', async () => {
+    const out = await r.handleVocabularyPending(req(),
+      deps({ vocabulary: { terms: [{ term: 'fita', occurrence_count: 5, meaning: 'etiqueta', first_seen_at: null }] } }));
     expect(out.body).toContain('fita');
-    expect(out.body).not.toContain('raro');
-    expect(out.body).not.toContain('confirmado');
+    expect(out.body).toContain('etiqueta');
   });
 });
 
-describe('V3 §2.10 — llm-metrics', () => {
-  test('agrega total, custo, confiança e erros', async () => {
-    const db = makeFakeDb({
-      metricsRows: [
-        { llm_result: { confidence_overall: 'high', categorization: 'activity_start', cost_estimate_usd: 0.002 }, processing_error: null },
-        { llm_result: { confidence_overall: 'medium', categorization: 'note', cost_estimate_usd: 0.001 }, processing_error: null },
-        { llm_result: null, processing_error: 'llm_error: x' },
-      ],
-    });
-    const out = await r.handleLlmMetrics(req(), { db });
-    expect(out.status).toBe(200);
+describe('V3 admin-v3 — llm-metrics', () => {
+  test('renderiza as métricas e repassa from/to ao repo', async () => {
+    const seed = { metrics: { from: '2026-05-01', to: '2026-05-21', total_processed: 2, errors: 1,
+      cost_estimate_usd: 0.003, by_confidence: { high: 1, medium: 1 }, by_categorization: { note: 2 }, avg_cost_per_msg: 0.0015 } };
+    const d = deps(seed);
+    const out = await r.handleLlmMetrics(req({ from: '2026-05-01', to: '2026-05-21' }), d);
     expect(out.body).toMatch(/Processadas:\s*<span class="big">2</);
     expect(out.body).toMatch(/Erros\/retry:\s*<b>1</);
-    expect(out.body).toContain('$0.0030'); // custo total
+    expect(out.body).toContain('$0.0030');
     expect(out.body).toContain('high: <b>1</b>');
+    expect(d.repos.metrics.metricsRange).toHaveBeenCalledWith('2026-05-01', '2026-05-21');
   });
 });
 
-describe('V3 §2.10 — health', () => {
-  test('reporta fila, última processada e worker status', async () => {
-    const db = makeFakeDb({
-      queueCount: 4, errorCount: 1,
-      lastProcessed: new Date(Date.now() - 2 * 60000).toISOString(), // 2 min atrás → ativo
-      settings: [{ key: 'llm_provider', value: 'anthropic' }, { key: 'llm_observer_mode', value: 'shadow' }],
-    });
-    const out = await r.handleHealth(req(), { db });
-    expect(out.status).toBe(200);
+describe('V3 admin-v3 — health', () => {
+  test('reporta worker/fila/erro do repo', async () => {
+    const out = await r.handleHealth(req(), deps({ health: {
+      worker: { alive: true, last_tick_at: '2026-05-21T12:00:00-04:00', tick_age_seconds: 5 },
+      queue: 4, errors: 1, last_processed_at: '2026-05-21T11:59:00-04:00', provider: 'anthropic', mode: 'shadow' } }));
     expect(out.body).toContain('ativo');
     expect(out.body).toMatch(/Fila.*<span class="big">4</);
     expect(out.body).toContain('anthropic');
     expect(out.body).toContain('shadow');
   });
-
-  test('worker sem processar há muito → marcado inativo', async () => {
-    const db = makeFakeDb({
-      lastProcessed: new Date(Date.now() - 60 * 60000).toISOString(), // 1h atrás
-    });
-    const out = await r.handleHealth(req(), { db });
+  test('worker inativo → 🔴', async () => {
+    const out = await r.handleHealth(req(), deps({ health: {
+      worker: { alive: false, last_tick_at: null, tick_age_seconds: 3600 },
+      queue: 0, errors: 0, last_processed_at: null, provider: 'anthropic', mode: 'shadow' } }));
     expect(out.body).toContain('🔴');
   });
 });
 
-describe('V3 — overview (dashboard temporário)', () => {
-  const fakeBatchSvc = {
-    getSummary: jest.fn(async () => ({
-      people: [{ person_id: 6, display_name: 'Ana' }, { person_id: 4, display_name: 'Vitor' }],
-      total_seconds: 3720, // 1h 2m
-    })),
-  };
-
-  test('responde 200 com auth e renderiza as 6 seções', async () => {
-    const db = makeFakeDb({
-      dayMessages: [{ created_at: '2026-05-21T14:00:00Z', slack_user_id: 'U_PL', raw_text: 'oi',
-        llm_result: { confidence_overall: 'high' }, llm_processed_at: '2026-05-21T14:00:05Z' }],
-      events: [{ person_id: 6, person_name: 'Ana', activity: 'Formulação', category: 'production_phase',
-        started_at: '2026-05-21T10:00:00Z', ended_at: null, cowork_with: [] }],
-    });
-    const out = await r.handleOverview(req({ date: '2026-05-21' }), { db });
+describe('V3 admin-v3 — overview', () => {
+  test('renderiza as 6 seções consumindo os 4 repos', async () => {
+    const seed = {
+      messages: { date: '2026-05-21', count: 3, messages: [
+        { id: 1, slack_user_id: 'A', raw_text: 'a', created_at: 'x', processed: true,
+          confidence: 'high', categorization: 'activity_start', cost_estimate_usd: 0.01, action_count: 1 },
+        { id: 2, slack_user_id: 'B', raw_text: 'MSG_BAIXA', created_at: 'x', processed: true,
+          confidence: 'low', categorization: 'note', cost_estimate_usd: 0.02, action_count: 0,
+          interpretation: 'incerto' },
+      ] },
+      timeline: { date: '2026-05-21', people: [
+        { person_id: 6, display_name: 'Ana', events: [
+          { event_id: 1, activity: { display_name: 'Mix', category: 'production_phase' },
+            started_at: '2026-05-21T10:00:00-04:00', ended_at: null, cowork_with: [] }] }] },
+      counts: { date: '2026-05-21', counts: [
+        { bottles: 684, reported_at: '2026-05-21T20:00:00-04:00', product: { canonical_name: 'Vitamin B2' },
+          batch: { batch_number: '0142' }, reporter: { display_name: 'Ana' } }],
+        totals_by_product: { 'Vitamin B2': 684 } },
+      batches: { active: [
+        { batch_id: 7, batch_number: '0142', product: { canonical_name: 'Vitamin B2' },
+          started_at: '2026-05-21T09:00:00-04:00', total_seconds: 3720,
+          people: [{ person_id: 4, display_name: 'Vitor' }], bottles: 684 }] },
+    };
+    const d = deps(seed);
+    const out = await r.handleOverview(req({ date: '2026-05-21' }), d);
     expect(out.status).toBe(200);
-    expect(out.body).toContain('Resumo do dia');
-    expect(out.body).toContain('Timeline por pessoa');
-    expect(out.body).toContain('Produção do dia');
-    expect(out.body).toContain('Lotes ativos');
-    expect(out.body).toContain('Distribuição de confiança');
-    expect(out.body).toContain('Atenção');
-    expect(out.body).toContain('http-equiv="refresh"'); // auto-refresh 60s
-  });
-
-  test('rejeita sem PIN (403)', async () => {
-    const out = await r.handleOverview(noPin({ date: '2026-05-21' }), { db: makeFakeDb() });
-    expect(out.status).toBe(403);
-  });
-
-  test('?date é repassado pra todas as queries do dia', async () => {
-    const db = makeFakeDb();
-    await r.handleOverview(req({ date: '2026-05-19' }), { db });
-    const msgCall = db.calls.find((c) => /FROM v3\.messages m WHERE \(m\.created_at AT TIME ZONE/.test(c.sql));
-    const evCall = db.calls.find((c) => /FROM v3\.events e LEFT JOIN/.test(c.sql));
-    const pcCall = db.calls.find((c) => /FROM v3\.production_counts pc JOIN/.test(c.sql));
-    expect(msgCall.params[0]).toBe('2026-05-19');
-    expect(evCall.params[0]).toBe('2026-05-19');
-    expect(pcCall.params[0]).toBe('2026-05-19');
-  });
-
-  test('cards calculam mensagens, events, %alta+média e custo', async () => {
-    const db = makeFakeDb({
-      dayMessages: [
-        { created_at: '2026-05-21T14:00:00Z', slack_user_id: 'A', raw_text: 'a',
-          llm_result: { confidence_overall: 'high', cost_estimate_usd: 0.01 }, llm_processed_at: 'x' },
-        { created_at: '2026-05-21T14:01:00Z', slack_user_id: 'B', raw_text: 'b',
-          llm_result: { confidence_overall: 'medium', cost_estimate_usd: 0.02 }, llm_processed_at: 'x' },
-        { created_at: '2026-05-21T14:02:00Z', slack_user_id: 'C', raw_text: 'c',
-          llm_result: { confidence_overall: 'low', cost_estimate_usd: 0.03 }, llm_processed_at: 'x' },
-      ],
-      events: [
-        { person_id: 6, person_name: 'Ana', activity: 'Mix', category: 'production_phase',
-          started_at: '2026-05-21T10:00:00Z', ended_at: null, cowork_with: [] },
-        { person_id: 4, person_name: 'Vitor', activity: 'Mix', category: 'production_phase',
-          started_at: '2026-05-21T11:00:00Z', ended_at: null, cowork_with: [] },
-      ],
-    });
-    const out = await r.handleOverview(req({ date: '2026-05-21' }), { db });
-    expect(out.body).toMatch(/Mensagens lidas<\/div><div class="big">3</);
-    expect(out.body).toMatch(/Events criados<\/div><div class="big">2</);
-    expect(out.body).toMatch(/<div class="big">67%/); // 2 de 3 = high+medium
-    expect(out.body).toContain('$0.0600'); // custo somado
-  });
-
-  test('seção Atenção filtra low/unconfirmed/unclear e exclui high', async () => {
-    const db = makeFakeDb({
-      dayMessages: [
-        { created_at: '2026-05-21T14:00:00Z', slack_user_id: 'A', raw_text: 'MSG_ALTA_OK',
-          llm_result: { confidence_overall: 'high', categorization: 'activity_start' }, llm_processed_at: 'x' },
-        { created_at: '2026-05-21T14:01:00Z', slack_user_id: 'B', raw_text: 'MSG_BAIXA_REVISAR',
-          llm_result: { confidence_overall: 'low', categorization: 'note' }, llm_processed_at: 'x' },
-        { created_at: '2026-05-21T14:02:00Z', slack_user_id: 'C', raw_text: 'MSG_UNCLEAR_REVISAR',
-          llm_result: { confidence_overall: 'medium', categorization: 'unclear' }, llm_processed_at: 'x' },
-      ],
-    });
-    const out = await r.handleOverview(req({ date: '2026-05-21' }), { db });
-    expect(out.body).toContain('MSG_BAIXA_REVISAR');     // low → entra
-    expect(out.body).toContain('MSG_UNCLEAR_REVISAR');   // unclear → entra
-    expect(out.body).not.toContain('MSG_ALTA_OK');       // high + não-unclear → fora
-  });
-
-  test('seção Produção e Lotes ativos renderizam (getSummary com dedup cowork)', async () => {
-    const db = makeFakeDb({
-      dayCounts: [
-        { bottles: 684, reported_at: '2026-05-21T20:00:00Z', confidence: 'high',
-          product: 'Vitamin B2', batch_number: '0142', reporter: 'Ana' },
-        { bottles: 300, reported_at: '2026-05-21T21:00:00Z', confidence: 'high',
-          product: 'Vitamin B2', batch_number: '0142', reporter: 'Ana' },
-      ],
-      activeBatches: [{ id: 7, batch_number: '0142', started_at: '2026-05-21T09:00:00Z', product: 'Vitamin B2' }],
-    });
-    const out = await r.handleOverview(req({ date: '2026-05-21' }), { db, batchService: fakeBatchSvc });
+    for (const h of ['Resumo do dia', 'Timeline por pessoa', 'Produção do dia',
+      'Lotes ativos', 'Distribuição de confiança', 'Atenção']) {
+      expect(out.body).toContain(h);
+    }
+    expect(out.body).toMatch(/Mensagens lidas<\/div><div class="big">2</); // count das mensagens
     expect(out.body).toContain('Vitamin B2');
-    expect(out.body).toContain('684');
-    expect(out.body).toMatch(/Total por produto.*Vitamin B2.*<b>984<\/b>/s); // 684+300
-    expect(fakeBatchSvc.getSummary).toHaveBeenCalledWith(7);
-    expect(out.body).toContain('1h 2m'); // total_seconds 3720 formatado
-    expect(out.body).toContain('Ana, Vitor'); // pessoas que tocaram
-  });
-
-  test('read-only — overview não emite INSERT/UPDATE/DELETE', async () => {
-    const db = makeFakeDb({
-      dayMessages: [{ created_at: 'x', slack_user_id: 'A', raw_text: 'a', llm_result: {}, llm_processed_at: 'x' }],
-      activeBatches: [{ id: 7, batch_number: '1', started_at: 'x', product: 'P' }],
-    });
-    await r.handleOverview(req({ date: '2026-05-21' }), { db, batchService: fakeBatchSvc });
-    expect(db.calls.every((c) => !/\b(INSERT|UPDATE|DELETE)\b/i.test(c.sql))).toBe(true);
+    expect(out.body).toContain('1h 2m'); // total_seconds 3720
+    expect(out.body).toContain('MSG_BAIXA'); // seção atenção (confidence low)
+    expect(out.body).toContain('http-equiv="refresh"');
+    // os 4 repos foram consultados
+    expect(d.repos.messages.messagesByDay).toHaveBeenCalled();
+    expect(d.repos.timeline.eventsByDay).toHaveBeenCalled();
+    expect(d.repos.counts.countsByDay).toHaveBeenCalled();
+    expect(d.repos.batches.activeBatches).toHaveBeenCalled();
   });
 });
 
-describe('V3 §2.10 — read-only', () => {
-  test('nenhum endpoint emite INSERT/UPDATE/DELETE', async () => {
-    const db = makeFakeDb({ events: [{ person_id: 6, person_name: 'Ana', started_at: '2026-05-20T10:00:00Z', activity: 'X', cowork_with: [] }] });
+describe('V3 admin-v3 — desacoplamento (sem SQL inline)', () => {
+  test('handlers não-divergences NÃO tocam deps.db (só consomem repos)', async () => {
+    const db = { query: jest.fn(() => { throw new Error('SQL inline proibido'); }) };
     for (const slug of Object.keys(r.HANDLERS)) {
-      await r.HANDLERS[slug](req({ date: '2026-05-20' }), { db });
+      if (slug === 'divergences') continue; // exceção: cross-ref legado
+      const out = await r.HANDLERS[slug](req({ date: '2026-05-21' }), { repos: makeRepos(), db });
+      expect(out.status).toBe(200);
     }
-    expect(db.calls.every((c) => !/\b(INSERT|UPDATE|DELETE)\b/i.test(c.sql))).toBe(true);
+    expect(db.query).not.toHaveBeenCalled();
   });
 });

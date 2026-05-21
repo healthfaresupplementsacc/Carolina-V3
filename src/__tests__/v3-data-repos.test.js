@@ -199,6 +199,24 @@ describe('V3 data — MetricsRepo', () => {
     expect(m.by_confidence).toEqual({ high: 1, medium: 1 });
     expect(m.avg_cost_per_msg).toBeCloseTo(0.015, 5);
   });
+
+  test('metricsRange: sem from/to = todas as mensagens (sem filtro de data)', async () => {
+    const db = makeDb([{ match: /SELECT llm_result, processing_error FROM v3\.messages/, rows: [
+      { llm_result: { confidence_overall: 'high', cost_estimate_usd: 0.01 }, processing_error: null },
+    ] }]);
+    const m = await new MetricsRepo({ db }).metricsRange(null, null);
+    expect(m.total_processed).toBe(1);
+    expect(m.from).toBeNull();
+    expect(db.calls[0].params).toEqual([]); // sem params → sem filtro
+  });
+
+  test('metricsRange: com from/to monta os filtros de created_at', async () => {
+    const db = makeDb([{ match: /SELECT llm_result, processing_error FROM v3\.messages/, rows: [] }]);
+    await new MetricsRepo({ db }).metricsRange('2026-05-01', '2026-05-21');
+    expect(db.calls[0].params).toEqual(['2026-05-01', '2026-05-21']);
+    expect(db.calls[0].sql).toMatch(/created_at >= \$1/);
+    expect(db.calls[0].sql).toMatch(/created_at <= \$2/);
+  });
 });
 
 describe('V3 data — TimelineRepo', () => {
