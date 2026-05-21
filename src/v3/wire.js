@@ -22,6 +22,7 @@ const { ProductionCountService } = require('./services/ProductionCountService');
 const { Observer } = require('./llm/Observer');
 const { eventsV2Handler } = require('./slack/events-v2');
 const adminV3 = require('./admin-v3/routes');
+const dataApi = require('./data/router');
 
 let _pool = null;
 let _svc = null;
@@ -65,7 +66,9 @@ function mount(app) {
 
   // endpoints de inspeção shadow
   app.use('/', adminV3.createRouter({ db: _pool }));
-  console.log('[V3] rotas montadas: POST /slack/events-v2 + GET /api/admin/v3/*');
+  // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
+  app.use('/', dataApi.createDataRouter({ db: _pool }));
+  console.log('[V3] rotas montadas: POST /slack/events-v2 + GET /api/admin/v3/* + GET /api/v3/data/*');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */
