@@ -45,6 +45,10 @@ function makeFakeDb() {
       const r = events.find((e) => e.id === params[0]);
       return { rows: r ? [{ ...r }] : [] };
     }
+    if (/^SELECT started_at FROM v3\.events WHERE id = \$1/.test(s)) {
+      const r = events.find((e) => e.id === params[0]);
+      return { rows: r ? [{ started_at: r.started_at }] : [] };
+    }
     if (/^SELECT \* FROM v3\.events WHERE person_id/.test(s)) {
       const r = events.filter((e) => e.person_id === params[0] && e.ended_at == null && e.deleted_at == null)
         .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
@@ -283,5 +287,39 @@ describe('V3 §2.4 — findBySource + audit', () => {
     expect(a).toEqual(expect.arrayContaining([
       'event.created', 'event.closed', 'event.corrected', 'event.deleted', 'event.restored',
     ]));
+  });
+});
+
+describe('V3 §2.4 — guard de duração negativa (achado pós-shadow)', () => {
+  test('close com ended_at < started_at → clampa pro started_at, nunca grava negativo', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(14), actor_type: 'llm_observer' });
+    // mensagem fora de ordem: fecha às 11h um event que abriu às 14h
+    const closed = await s.closeActivePersonEvent(1, T(11), 'manual');
+    const row = db.events.find((e) => e.id === ev.id);
+    expect(row.ended_at).toBe(T(14));               // clampado pro started_at, não T(11)
+    expect(new Date(row.ended_at) >= new Date(row.started_at)).toBe(true); // nunca negativo
+    expect(closed[0].ended_at).toBe(T(14));
+    expect(actions(db)).toContain('event.negative_duration_clamped');
+    expect(active(db, 1)).toHaveLength(0);          // invariante: event fechou (não ficou aberto)
+  });
+
+  test('close normal (ended_at > started_at) NÃO clampa nem audita anomalia', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
+    const closed = await s.closeActivePersonEvent(1, T(17), 'manual');
+    expect(closed[0].ended_at).toBe(T(17));         // valor normal preservado
+    expect(actions(db)).not.toContain('event.negative_duration_clamped');
+  });
+
+  test('isNegativeDuration: só true quando ended < started; nulo/inválido → false', () => {
+    const { isNegativeDuration } = require('../v3/services/EventService');
+    expect(isNegativeDuration(T(14), T(11))).toBe(true);
+    expect(isNegativeDuration(T(9), T(17))).toBe(false);
+    expect(isNegativeDuration(T(9), null)).toBe(false);
+    expect(isNegativeDuration(null, T(9))).toBe(false);
+    expect(isNegativeDuration('lixo', T(9))).toBe(false);
   });
 });

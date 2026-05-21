@@ -10,6 +10,7 @@
  */
 
 const { BatchService } = require('../services/BatchService');
+const { toNyIso } = require('./ny-date');
 
 class BatchesRepo {
   /**
@@ -35,8 +36,8 @@ class BatchesRepo {
       batch_number: summary.batch_number,
       status: summary.status,
       product: { id: summary.product_id, canonical_name: prodName || null },
-      started_at: summary.started_at || null,
-      finished_at: summary.finished_at || null,
+      started_at: toNyIso(summary.started_at),
+      finished_at: toNyIso(summary.finished_at),
       total_seconds: Number(summary.total_seconds || 0),
       event_count: Number(summary.event_count || 0),
       people: summary.people || [],

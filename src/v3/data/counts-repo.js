@@ -9,7 +9,7 @@
  * então o filtro é direto, sem AT TIME ZONE.
  */
 
-const { resolveDate } = require('./ny-date');
+const { resolveDate, toNyIso } = require('./ny-date');
 
 class CountsRepo {
   constructor(deps = {}) {
@@ -35,7 +35,7 @@ class CountsRepo {
     const counts = (r.rows || []).map((c) => ({
       id: c.id,
       bottles: Number(c.bottles || 0),
-      reported_at: c.reported_at || null,
+      reported_at: toNyIso(c.reported_at),
       confidence: c.confidence || null,
       notes: c.notes || null,
       product: { id: c.product_id, canonical_name: c.product || null },

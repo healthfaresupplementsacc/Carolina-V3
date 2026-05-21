@@ -45,6 +45,13 @@ describe('V3 data — ny-date', () => {
     expect(nyd.resolveDate('2026-05-19')).toBe('2026-05-19');
     expect(nyd.resolveDate('lixo')).toBe(nyd.nyDate());
   });
+  test('toNyIso converte UTC → ISO com offset de NY (mesmo instante)', () => {
+    // 16:18:10 UTC = 12:18:10 em NY (EDT, -04:00) — mesmo instante
+    expect(nyd.toNyIso('2026-05-21T16:18:10.000Z')).toBe('2026-05-21T12:18:10-04:00');
+    expect(nyd.toNyIso(new Date('2026-05-21T16:18:10Z'))).toBe('2026-05-21T12:18:10-04:00');
+    expect(nyd.toNyIso(null)).toBeNull();
+    expect(nyd.toNyIso('lixo')).toBeNull();
+  });
 });
 
 describe('V3 data — HealthRepo', () => {
@@ -214,6 +221,8 @@ describe('V3 data — TimelineRepo', () => {
     expect(vitor.events[0]).toMatchObject({
       event_id: 1, activity: { slug: 'production_line', category: 'production_phase' },
     });
+    // timestamps saem em ISO com offset de NY (-04:00 EDT / -05:00 EST), não UTC Z
+    expect(vitor.events[0].started_at).toMatch(/^2026-05-21T\d{2}:\d{2}:\d{2}-0[45]:00$/);
   });
 
   test('eventsByPersonDay filtra por pessoa (param) e devolve só ela', async () => {

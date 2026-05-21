@@ -6,7 +6,7 @@
  * do canal. Read-only. Datas em America/New_York.
  */
 
-const { resolveDate } = require('./ny-date');
+const { resolveDate, toNyIso } = require('./ny-date');
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -24,7 +24,7 @@ function shapeMessage(m) {
     slack_ts: m.slack_ts,
     slack_user_id: m.slack_user_id,
     raw_text: m.raw_text,
-    created_at: m.created_at || null,
+    created_at: toNyIso(m.created_at),
     person: m.person_id
       ? { person_id: m.person_id, display_name: m.person_name || null }
       : null,

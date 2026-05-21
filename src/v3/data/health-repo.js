@@ -6,6 +6,8 @@
  * Read-only. Não conhece HTML — devolve objeto JS puro.
  */
 
+const { toNyIso } = require('./ny-date');
+
 const TICK_ALIVE_SEC = 120;        // heartbeat recente → worker vivo
 const FALLBACK_ALIVE_MS = 15 * 60000; // sem heartbeat: última msg processada <15min
 
@@ -51,12 +53,12 @@ class HealthRepo {
     return {
       worker: {
         alive,
-        last_tick_at: lastTick || null,
+        last_tick_at: toNyIso(lastTick),       // idade calculada no valor cru acima
         tick_age_seconds: tickAge,
       },
       queue: queueN,
       errors: errN,
-      last_processed_at: lastProcessed,
+      last_processed_at: toNyIso(lastProcessed),
       provider: provider || null,
       mode: mode || null,
     };

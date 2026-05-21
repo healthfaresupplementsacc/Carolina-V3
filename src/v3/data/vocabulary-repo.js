@@ -6,6 +6,8 @@
  * admin (3+ ocorrências, ainda não confirmados). Read-only.
  */
 
+const { toNyIso } = require('./ny-date');
+
 const MIN_OCCURRENCES = 3;
 
 class VocabularyRepo {
@@ -26,7 +28,7 @@ class VocabularyRepo {
         occurrence_count: Number(v.occurrence_count || 0),
         meaning: v.meaning || null,
         context_examples: v.context_examples || null,
-        first_seen_at: v.first_seen_at || null,
+        first_seen_at: toNyIso(v.first_seen_at),
       })),
     };
   }

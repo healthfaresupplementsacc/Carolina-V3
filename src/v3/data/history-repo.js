@@ -9,7 +9,7 @@
  * Intervalo default: últimos 30 dias até hoje (NY).
  */
 
-const { resolveDate, nyDate } = require('./ny-date');
+const { resolveDate, nyDate, toNyIso } = require('./ny-date');
 
 const DEFAULT_RANGE_DAYS = 30;
 
@@ -56,8 +56,8 @@ class HistoryRepo {
         activity: e.activity_name
           ? { slug: e.activity_slug, display_name: e.activity_name, category: e.activity_category }
           : null,
-        started_at: e.started_at || null,
-        ended_at: e.ended_at || null,
+        started_at: toNyIso(e.started_at),
+        ended_at: toNyIso(e.ended_at),
         confidence: e.confidence || null,
         cowork_with: e.cowork_with || [],
         product_batch_id: e.product_batch_id || null,
@@ -104,7 +104,7 @@ class HistoryRepo {
         id: c.id,
         bottles: Number(c.bottles || 0),
         production_date: String(c.production_date).slice(0, 10),
-        reported_at: c.reported_at || null,
+        reported_at: toNyIso(c.reported_at),
         confidence: c.confidence || null,
         batch: c.product_batch_id
           ? { id: c.product_batch_id, batch_number: c.batch_number || null }
@@ -116,8 +116,8 @@ class HistoryRepo {
       batches: (batches.rows || []).map((b) => ({
         id: b.id,
         batch_number: b.batch_number,
-        started_at: b.started_at || null,
-        finished_at: b.finished_at || null,
+        started_at: toNyIso(b.started_at),
+        finished_at: toNyIso(b.finished_at),
         status: b.status,
       })),
     };

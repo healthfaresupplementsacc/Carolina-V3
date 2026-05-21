@@ -31,6 +31,21 @@ const CORRECTABLE = new Set([
 
 const uniq = (arr) => [...new Set(arr)];
 
+/**
+ * Guard de duração negativa (achado pós-shadow 21/mai): true se
+ * ended_at < started_at. Vem de mensagens processadas fora de ordem
+ * (re-processo em lote do FIX 4); em shadow ao vivo, mensagens em
+ * ordem nunca produzem isso. Datas inválidas/nulas → false (não clampa
+ * lixo, deixa passar).
+ */
+function isNegativeDuration(startedAt, endedAt) {
+  if (startedAt == null || endedAt == null) return false;
+  const s = new Date(startedAt).getTime();
+  const e = new Date(endedAt).getTime();
+  if (Number.isNaN(s) || Number.isNaN(e)) return false;
+  return e < s;
+}
+
 class EventService {
   /** @param {object} deps  deps.db = pool pg (search_path v3,public) */
   constructor(deps = {}) {
@@ -76,6 +91,27 @@ class EventService {
 
   /** UPDATE uniforme de 1 event por id. fields = {col:value}. */
   async _patch(c, id, fields) {
+    // GUARD duração negativa: se este patch grava ended_at < started_at,
+    // clampa pro started_at (duração zero) e audita a anomalia. Preserva
+    // a invariante "1 event de trabalho ativo" (≠ rejeitar o close, que
+    // deixaria 2 events abertos). Em shadow ao vivo nunca dispara.
+    if (Object.prototype.hasOwnProperty.call(fields, 'ended_at') && fields.ended_at != null) {
+      let startedAt = fields.started_at;
+      if (startedAt == null) {
+        const cur = await c.query('SELECT started_at FROM v3.events WHERE id = $1', [id]);
+        startedAt = cur.rows[0] ? cur.rows[0].started_at : null;
+      }
+      if (isNegativeDuration(startedAt, fields.ended_at)) {
+        const attempted = fields.ended_at;
+        fields = Object.assign({}, fields, { ended_at: startedAt });
+        await this._audit(c, {
+          actorType: 'system', action: 'event.negative_duration_clamped', targetId: id,
+          before: { attempted_ended_at: attempted },
+          after: { ended_at: startedAt },
+          metadata: { guard: 'ended_at >= started_at', clamped_to: 'started_at', started_at: startedAt },
+        });
+      }
+    }
     const keys = Object.keys(fields);
     const set = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
     const r = await c.query(
@@ -85,17 +121,30 @@ class EventService {
   }
 
   async _insert(c, p) {
+    // GUARD duração negativa no insert (mesmo motivo do _patch).
+    let endedAt = p.ended_at || null;
+    const clampedInsert = isNegativeDuration(p.started_at, endedAt);
+    if (clampedInsert) endedAt = p.started_at;
+
     const cols = ['person_id', 'activity_type_id', 'product_batch_id', 'started_at',
       'ended_at', 'phase_label', 'description', 'source_message_ts', 'confidence',
       'cowork_with', 'closed_reason'];
     const vals = [
       p.person_id, p.activity_type_id || null, p.product_batch_id || null, p.started_at,
-      p.ended_at || null, p.phase_label || null, p.description || null,
+      endedAt, p.phase_label || null, p.description || null,
       p.source_message_ts || null, p.confidence || 'high',
       p.cowork_with || [], p.closed_reason || null];
     const ph = cols.map((_, i) => `$${i + 1}`).join(', ');
     const r = await c.query(
       `INSERT INTO v3.events (${cols.join(', ')}) VALUES (${ph}) RETURNING *`, vals);
+    if (clampedInsert) {
+      await this._audit(c, {
+        actorType: 'system', action: 'event.negative_duration_clamped', targetId: r.rows[0].id,
+        before: { attempted_ended_at: p.ended_at },
+        after: { ended_at: endedAt },
+        metadata: { guard: 'ended_at >= started_at', clamped_to: 'started_at', on: 'insert' },
+      });
+    }
     return r.rows[0];
   }
 
@@ -383,4 +432,4 @@ class EventService {
   }
 }
 
-module.exports = { EventService, VALID_ACTOR_TYPES, CORRECTABLE };
+module.exports = { EventService, VALID_ACTOR_TYPES, CORRECTABLE, isNegativeDuration };

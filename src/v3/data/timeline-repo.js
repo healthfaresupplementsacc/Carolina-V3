@@ -8,9 +8,9 @@
  * 3 handlers. Read-only.
  */
 
-const { resolveDate } = require('./ny-date');
+const { resolveDate, toNyIso } = require('./ny-date');
 
-/** Shape estável de um event. */
+/** Shape estável de um event. Timestamps em ISO com offset de NY. */
 function shapeEvent(e) {
   return {
     event_id: e.id,
@@ -22,8 +22,8 @@ function shapeEvent(e) {
         category: e.activity_category || null,
       }
       : null,
-    started_at: e.started_at || null,
-    ended_at: e.ended_at || null,
+    started_at: toNyIso(e.started_at),
+    ended_at: toNyIso(e.ended_at),
     confidence: e.confidence || null,
     cowork_with: e.cowork_with || [],
     product_batch_id: e.product_batch_id || null,
