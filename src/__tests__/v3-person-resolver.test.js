@@ -272,6 +272,33 @@ describe('V3 §2.3 — audit + cache', () => {
     expect(db.inserts.prefix_log).toHaveLength(1);
   });
 
+  test('falha transitória (llm_error) NÃO é cacheada — re-resolve na próxima', async () => {
+    // erro de crédito/429 não pode envenenar o cache do processo.
+    const { resolver, provider } = makeResolver({
+      db: makeDb(), llmError: new Error('credit balance is too low'),
+    });
+    const r1 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_ERR', { message_id: 130 });
+    const r2 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_ERR', { message_id: 130 });
+    expect(r1.resolution_method).toBe('llm_error');
+    expect(r2.resolution_method).toBe('llm_error');
+    expect(provider.rawCalls).toHaveLength(2); // re-resolveu — não veio do cache
+  });
+
+  test('resolução bem-sucedida APÓS um llm_error transitório é cacheada', async () => {
+    const { resolver, provider } = makeResolver({
+      db: makeDb(), llmError: new Error('429 rate limit'),
+    });
+    const r1 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_RECOVER', { message_id: 131 });
+    expect(r1.resolution_method).toBe('llm_error');
+    // crédito volta — próxima resolução tem sucesso e ENTRA no cache
+    provider.setRawResult({ json_parsed: { person_id: 7, confidence: 'high' }, cost_estimate_usd: 0.001 });
+    const r2 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_RECOVER', { message_id: 131 });
+    const r3 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_RECOVER', { message_id: 131 });
+    expect(r2.person_id).toBe(7);
+    expect(r3.person_id).toBe(7);
+    expect(provider.rawCalls).toHaveLength(2); // r1 erro + r2 sucesso; r3 veio do cache
+  });
+
   test('cache de diretório expira após o TTL (30s)', async () => {
     let t = 1000;
     const db = makeDb();

@@ -220,7 +220,12 @@ class PersonResolver {
       await this._createProposal(context, slackUserId, messageText, cands, result);
     }
 
-    if (messageTs) this._llmCache.set(messageTs, result);
+    // O cache guarda só resoluções SETTLED. Falhas transitórias
+    // (llm_error/retryable — crédito esgotado, 429) NÃO entram: senão
+    // um erro passageiro envenena o cache do processo e toda re-tentativa
+    // da mesma mensagem devolve o erro sem nunca re-chamar o LLM.
+    const transient = !!result.retryable || result.resolution_method === 'llm_error';
+    if (messageTs && !transient) this._llmCache.set(messageTs, result);
     return result;
   }
 
