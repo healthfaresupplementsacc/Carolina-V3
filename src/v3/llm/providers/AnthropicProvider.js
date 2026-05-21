@@ -25,9 +25,14 @@ class AnthropicProvider extends LLMProvider {
     super();
     this.model = opts.model || DEFAULT_MODEL;
     this.maxTokens = opts.maxTokens || 1500;
-    // client injetável (testes passam um fake)
+    // client injetável (testes passam um fake). timeout 60s: uma
+    // classify deve levar <30s — sem isso o SDK espera 10min default
+    // e uma chamada lenta trava o worker (descoberto no FIX F).
     this._client = opts.client
-      || (Anthropic ? new Anthropic({ apiKey: opts.apiKey || process.env.ANTHROPIC_API_KEY }) : null);
+      || (Anthropic ? new Anthropic({
+        apiKey: opts.apiKey || process.env.ANTHROPIC_API_KEY,
+        timeout: opts.timeout || 60000,
+      }) : null);
     // FIX C — rate limiter: gate antes de cada chamada à Messages API.
     // `null` explícito desliga (testes); undefined → singleton da org.
     this._rateLimiter = opts.rateLimiter !== undefined ? opts.rateLimiter : getSharedLimiter();

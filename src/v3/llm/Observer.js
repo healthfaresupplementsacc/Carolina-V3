@@ -62,6 +62,7 @@ class Observer {
     this.concurrency = deps.concurrency
       || (process.env.V3_OBSERVER_CONCURRENCY ? parseInt(process.env.V3_OBSERVER_CONCURRENCY, 10) : 3);
     this._timer = null;
+    this._ticking = false; // guard — ticks não se sobrepõem
   }
 
   // ── pipeline ───────────────────────────────────────────────
@@ -381,32 +382,41 @@ class Observer {
   /**
    * Uma passada. FIX A — claim no DB contra dupla-processamento:
    * o UPDATE...RETURNING marca claimed_at=NOW() atomicamente, então
-   * só processamos as rows que ESTE tick reivindicou. Ticks
-   * sobrepostos (LLM lento >5s) nunca pegam a mesma mensagem.
+   * só processamos as rows que ESTE tick reivindicou.
    *
    * Elegível pro claim: llm_processed_at IS NULL E (nunca reivindicada
    * OU claim expirado há >2min — re-claim após crash do worker).
    * FOR UPDATE SKIP LOCKED no sub-select evita corrida entre ticks.
+   *
+   * Hardening (descoberto no FIX F):
+   *  - ticks NÃO se sobrepõem (_ticking). O setInterval continua
+   *    disparando o heartbeat, mas só UM lote processa por vez.
+   *  - claim de exatamente `concurrency` mensagens — processa tudo
+   *    que reivindicou num único Promise.all. Antes claîava 10 e
+   *    processava 2 a 2: as 8 da fila ficavam "claimed" minutos,
+   *    estouravam o claim de 2min e eram re-reivindicadas no meio do
+   *    processamento → espiral de trabalho duplicado no rate limiter.
    */
   async tick() {
     await this._heartbeat();
-    const claimed = (await this.db.query(
-      `UPDATE v3.messages SET claimed_at = NOW()
-       WHERE id IN (
-         SELECT id FROM v3.messages
-         WHERE llm_processed_at IS NULL
-           AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL '2 minutes')
-         ORDER BY created_at
-         LIMIT 10
-         FOR UPDATE SKIP LOCKED
-       )
-       RETURNING *`)).rows;
-    const results = [];
-    for (let i = 0; i < claimed.length; i += this.concurrency) {
-      const chunk = claimed.slice(i, i + this.concurrency);
-      results.push(...await Promise.all(chunk.map((m) => this.processMessage(m))));
+    if (this._ticking) return [];
+    this._ticking = true;
+    try {
+      const claimed = (await this.db.query(
+        `UPDATE v3.messages SET claimed_at = NOW()
+         WHERE id IN (
+           SELECT id FROM v3.messages
+           WHERE llm_processed_at IS NULL
+             AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL '2 minutes')
+           ORDER BY created_at
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED
+         )
+         RETURNING *`, [this.concurrency])).rows;
+      return await Promise.all(claimed.map((m) => this.processMessage(m)));
+    } finally {
+      this._ticking = false;
     }
-    return results;
   }
 
   start(intervalMs = 5000) {

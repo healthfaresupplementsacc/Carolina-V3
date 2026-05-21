@@ -56,7 +56,7 @@ function makeFakeDb(o = {}) {
         const elig = messages.filter((m) => !m.llm_processed_at
           && (!m.claimed_at || (nowMs - new Date(m.claimed_at).getTime()) > TWO_MIN));
         elig.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-        const claimed = elig.slice(0, 10);
+        const claimed = elig.slice(0, params[0] || 10); // LIMIT $1 = concurrency
         for (const m of claimed) m.claimed_at = new Date();
         return Promise.resolve({ rows: claimed });
       }
@@ -251,22 +251,32 @@ describe('V3 §2.8 — validação da resposta do LLM', () => {
 });
 
 describe('V3 FIX A — claim no DB contra dupla-processamento', () => {
-  test('2 ticks concorrentes com LLM lento → cada mensagem classifica 1x só', async () => {
-    const messages = [1, 2, 3, 4, 5].map((id) => msg({ id, slack_ts: 't.' + id }));
-    // delay no classify simula LLM lento (>tick em prod): sem o claim, o
-    // 2º tick re-pegaria as mesmas mensagens enquanto o 1º ainda processa.
-    const { observer, provider, db } = makeObserver({ llmResult: OPEN, messages, llmDelayMs: 20 });
-    await Promise.all([observer.tick(), observer.tick()]);
-    expect(provider.calls).toHaveLength(5); // 5 msgs, 1 classify cada — zero duplicata
-    expect(db.messages.every((m) => m.llm_processed_at)).toBe(true);
-    expect(db.messages.every((m) => m.claimed_at)).toBe(true);
+  test('ticks NÃO se sobrepõem — tick durante outro em andamento é no-op', async () => {
+    const messages = [1, 2, 3].map((id) => msg({ id, slack_ts: 't.' + id }));
+    // LLM lento: o 2º tick é disparado enquanto o 1º ainda processa.
+    const { observer, provider } = makeObserver({ llmResult: OPEN, messages, llmDelayMs: 20, concurrency: 3 });
+    const [r1, r2] = await Promise.all([observer.tick(), observer.tick()]);
+    const ran = r1.length ? r1 : r2;       // um rodou o lote
+    const skipped = r1.length ? r2 : r1;   // o outro caiu no guard _ticking
+    expect(ran).toHaveLength(3);
+    expect(skipped).toHaveLength(0);
+    expect(provider.calls).toHaveLength(3); // zero duplicata
   });
 
-  test('tick só processa o que reivindicou (claim marca claimed_at)', async () => {
-    const messages = [1, 2].map((id) => msg({ id, slack_ts: 'c.' + id }));
-    const { observer, db } = makeObserver({ llmResult: OPEN, messages });
-    await observer.tick();
-    expect(db.messages.every((m) => m.claimed_at)).toBe(true);
+  test('drenar a fila com ticks repetidos → cada mensagem classifica 1x', async () => {
+    const messages = [1, 2, 3, 4, 5].map((id) => msg({ id, slack_ts: 't.' + id }));
+    const { observer, provider, db } = makeObserver({ llmResult: OPEN, messages, concurrency: 2 });
+    while (db.messages.some((m) => !m.llm_processed_at)) await observer.tick();
+    expect(provider.calls).toHaveLength(5);
+    expect(db.messages.every((m) => m.llm_processed_at && m.claimed_at)).toBe(true);
+  });
+
+  test('claim de no máximo `concurrency` mensagens por tick', async () => {
+    const messages = [1, 2, 3, 4, 5].map((id) => msg({ id, slack_ts: 'c.' + id }));
+    const { observer, db } = makeObserver({ llmResult: OPEN, messages, concurrency: 2 });
+    const r = await observer.tick();
+    expect(r).toHaveLength(2); // só `concurrency`, não as 5
+    expect(db.messages.filter((m) => m.llm_processed_at)).toHaveLength(2);
   });
 
   test('mensagem com claim recente NÃO é re-reivindicada por outro tick', async () => {
@@ -351,10 +361,10 @@ describe('V3 §2.8 — contagens e vocabulário', () => {
 });
 
 describe('V3 §2.8 — worker loop', () => {
-  test('tick processa as não-processadas', async () => {
+  test('ticks repetidos processam todas as não-processadas', async () => {
     const messages = [1, 2, 3, 4, 5].map((id) => msg({ id, slack_ts: 't.' + id }));
-    const { observer, db } = makeObserver({ llmResult: OPEN, messages });
-    await observer.tick();
+    const { observer, db } = makeObserver({ llmResult: OPEN, messages, concurrency: 2 });
+    while (db.messages.some((m) => !m.llm_processed_at)) await observer.tick();
     expect(db.messages.every((m) => m.llm_processed_at)).toBe(true);
   });
 });
