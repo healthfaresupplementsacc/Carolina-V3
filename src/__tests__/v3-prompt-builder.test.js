@@ -50,6 +50,12 @@ describe('V3 §2.7 — buildContext estrutura', () => {
     expect(SYSTEM_PROMPT).toMatch(/nome ESCRITO no texto vence o dono da/);
   });
 
+  test('FIX — systemPrompt trata "S:"/"F:" como marcador start/finish, não nome', () => {
+    expect(SYSTEM_PROMPT).toMatch(/S = START/);
+    expect(SYSTEM_PROMPT).toMatch(/F = FINISH/);
+    expect(SYSTEM_PROMPT).toMatch(/NUNCA inicial de pessoa/);
+  });
+
   test('mensagem a interpretar incluída no userContent', async () => {
     const pb = new PromptBuilder({ db: makeFakeDb() });
     const r = await pb.buildContext(MSG, { author: AUTHOR });

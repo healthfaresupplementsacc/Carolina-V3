@@ -105,6 +105,15 @@ class PersonResolver {
       + '(um ADMIN e um OPERADOR), numa mensagem OPERACIONAL da linha de produção '
       + 'ele se refere ao OPERADOR — admins não trabalham na linha. Ex.: "Bruno" '
       + 'numa mensagem de produção é sempre o operador Bruno, nunca o owner.\n'
+      + 'REGRA — "S:"/"F:" NÃO SÃO NOMES: os prefixos "S:", "S-", "S;", "S " e '
+      + '"F:", "F-", "F " no INÍCIO da mensagem são marcadores LEGADOS de código '
+      + '(S=Start/iniciar atividade, F=Finish/terminar). São VERBOS, NUNCA inicial '
+      + 'de pessoa. "S: Iniciando revisao" NÃO indica Simone — o "S" é o marcador '
+      + 'de start. Ignore completamente esses prefixos ao identificar o autor.\n'
+      + 'REGRA DE OURO — sem um NOME explícito de outra pessoa escrito no texto, o '
+      + 'autor é o DONO da conta (indicado abaixo). Inicial solta ("S", "V") NÃO é '
+      + 'nome explícito. Só atribua a outra pessoa quando o nome estiver claramente '
+      + 'escrito na mensagem.\n'
       + 'Responda SOMENTE com JSON: {"person_id":int|null,'
       + '"identification_evidence":string|null,"confidence":"high|medium|low|unconfirmed",'
       + '"reasoning":string}.\n'
@@ -118,8 +127,13 @@ class PersonResolver {
       ? recentMsgs.slice().reverse().map((m) =>
         `  [${new Date(m.created_at).toISOString()}] ${m.person_name || '(não resolvido)'}: ${m.raw_text}`).join('\n')
       : '  (nenhuma mensagem recente)';
+    const owner = (candidates || []).find((c) => c.person_id === account.primary_owner_id);
+    const ownerLine = owner
+      ? `Dono da conta (autor PADRÃO se nenhum outro nome for citado no texto): "${owner.display_name}"\n`
+      : '';
     const userContent =
       `Conta compartilhada: ${account.description || account.slack_user_id}\n`
+      + ownerLine
       + `Operadores (quem normalmente posta dessa conta):\n${cand}\n\n`
       + `Admins (podem intervir em supervisão/emergência):\n${adm}\n\n`
       + `Mensagens recentes dessa conta (30 min):\n${recent}\n\n`

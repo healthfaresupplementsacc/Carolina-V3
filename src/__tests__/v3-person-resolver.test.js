@@ -251,6 +251,53 @@ describe('V3 FIX E — cross-account "Bruno" (nome no texto vence dono da conta)
   });
 });
 
+describe('V3 FIX — "S:"/"F:" não são inicial de pessoa', () => {
+  test('prompt de resolução reforça S:/F: marcador + regra de ouro + dono da conta', async () => {
+    const { resolver, provider } = makeResolver({
+      db: makeDb(), llmJson: { person_id: 4, confidence: 'high' },
+    });
+    await resolver.resolve('U_VITOR', 'S: Iniciando revisao VitaB2 (0151)', 'sf.0', { message_id: 300 });
+    const sys = provider.rawCalls[0].systemPrompt;
+    const usr = provider.rawCalls[0].userContent;
+    expect(sys).toMatch(/"S:"\/"F:" NÃO SÃO NOMES/);
+    expect(sys).toMatch(/marcadores LEGADOS de código/);
+    expect(sys).toMatch(/REGRA DE OURO/);
+    expect(usr).toMatch(/Dono da conta.*"Vitor"/); // owner explícito no contexto
+  });
+
+  // Caso real do shadow 21/mai — conta do Vitor, "S:" no início.
+  test('caso real: "S: Iniciando revisao" da conta do Vitor → Vitor (NÃO Simone)', async () => {
+    const { resolver } = makeResolver({
+      db: makeDb(),
+      llmJson: {
+        person_id: 4, confidence: 'high', identification_evidence: 'dono da conta, sem outro nome',
+        reasoning: '"S:" é marcador de start, não Simone; autor = dono da conta',
+      },
+    });
+    const r = await resolver.resolve('U_VITOR', 'S: Iniciando revisao VitaB2 (0151)', 'sf.1', { message_id: 301 });
+    expect(r.person_id).toBe(4);       // Vitor (dono da conta)
+    expect(r.person_id).not.toBe(5);   // NÃO Simone
+  });
+
+  test('caso real: "F: Limpeza Maquinario" da conta do Vitor → Vitor', async () => {
+    const { resolver } = makeResolver({
+      db: makeDb(),
+      llmJson: { person_id: 4, confidence: 'high', reasoning: '"F:" é marcador finish; autor = dono' },
+    });
+    const r = await resolver.resolve('U_VITOR', 'F: Limpeza Maquinario Formulacao', 'sf.2', { message_id: 302 });
+    expect(r.person_id).toBe(4);
+  });
+
+  test('nome explícito ainda vence: conta do Vitor + "Bruno" no texto → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({
+      db: makeDb(),
+      llmJson: { person_id: 7, confidence: 'high', identification_evidence: 'assinado -Bruno' },
+    });
+    const r = await resolver.resolve('U_VITOR', 'S-Potassium rodando-Bruno', 'sf.3', { message_id: 303 });
+    expect(r.person_id).toBe(7);       // Bruno Sarmento — nome explícito vence o dono
+  });
+});
+
 describe('V3 §2.3 — audit + cache', () => {
   test('toda resolução grava em prefix_resolution_log', async () => {
     const { resolver, db } = makeResolver({

@@ -61,11 +61,15 @@ const SHARED_ACCOUNTS_SEED = [
 
 // Os 4 operators entram em CADA conta (3 contas × 4 = 12 rows).
 // Admins (owner/manager) NUNCA entram — regra confirmada pelo Bruno.
+// identifies_as: SÓ o nome (e variante de caixa). Iniciais soltas
+// ('S','V') foram REMOVIDAS — colidiam com os marcadores "S:"/"F:"
+// (start/finish) e causavam falso-positivo (msg do Vitor virava Simone).
+// Princípio #23: identifica pelo NOME, não por inicial hardcoded.
 const SHARED_USERS_SEED = [
-  { person: 'Ana',            identifies_as: ['Ana'] },
-  { person: 'Bruno Sarmento', identifies_as: ['Bruno', 'Sarmento'] },
-  { person: 'Vitor',          identifies_as: ['Vitor', 'V'] },
-  { person: 'Simone',         identifies_as: ['Simone', 'S'] },
+  { person: 'Ana',            identifies_as: ['Ana', 'ana'] },
+  { person: 'Bruno Sarmento', identifies_as: ['Bruno', 'Sarmento', 'bruno'] },
+  { person: 'Vitor',          identifies_as: ['Vitor', 'vitor'] },
+  { person: 'Simone',         identifies_as: ['Simone', 'simone'] },
 ];
 
 // 3d — 18 activity_types (Sprint 1 §1.3.3d)

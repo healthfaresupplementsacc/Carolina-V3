@@ -37,7 +37,7 @@ const CATALOG = [
   ['Acetyl L-Carnitine', ['acetyl l-carnitine', 'acetil carnitina', 'alcar', 'l-carnitine', 'carnitine', 'acetil l-carnitina']],
   ['Activated Charcoal', ['charcoal', 'carvao ativado', 'carvao', 'activated charcoal', 'carbon ativado']],
   ['Aged Black Garlic', ['aged black garlic', 'black garlic', 'alho negro', 'alho preto', 'garlic', 'alho']],
-  ['Akkermansia', ['akkermansia', 'akkermansia muciniphila']],
+  ['Akkermansia', ['akkermansia', 'akkermansia muciniphila', 'akkemansia']],
   ['Aloe Vera', ['aloe', 'aloe vera', 'babosa', 'gel de aloe']],
   ['Apple Cider Vinegar', ['apple cider vinegar', 'apple cider', 'cider', 'acv vinegar', 'vinagre de maca', 'acv', 'vinagre', 'cider vinegar']],
   ['Banaba Leaf', ['banaba', 'banaba leaf', 'lagerstroemia']],
@@ -95,7 +95,7 @@ const CATALOG = [
   ['Turkesterone', ['turkesterone', 'tongkat ali', 'turk', 'turkersterone', 'eurycoma']],
   ['Valerian Root', ['valerian', 'valeriana', 'valerian root']],
   ['Vitamin B1', ['vitamina b1', 'thiamine', 'tiamina', 'vit b1', 'b1', 'vitamin b1']],
-  ['Vitamin B2', ['vitamina b2', 'riboflavin', 'riboflavina', 'vit b2', 'b2', 'vitamin b2']],
+  ['Vitamin B2', ['vitamina b2', 'riboflavin', 'riboflavina', 'vit b2', 'b2', 'vitamin b2', 'vita b2', 'vitab2']],
   ['White Kidney Bean', ['white kidney bean', 'kidney bean', 'feijao branco', 'kidney', 'white kidney']],
   ['Yohimbine', ['yohimbina', 'yohimbine', 'yohimbine hcl', 'yoimbina', 'iombina']],
 ].map(([canonical, aliases]) => ({ canonical, aliases }));
