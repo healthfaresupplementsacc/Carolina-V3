@@ -6,6 +6,7 @@
  * sem framework. É por aqui que o Bruno decide se o V3 está pronto
  * pro cutover — foco em legibilidade.
  *
+ * GET /api/admin/v3/overview          visão consolidada do dia (ao vivo)
  * GET /api/admin/v3/messages-shadow   o que o V3 entendeu de cada msg
  * GET /api/admin/v3/events-shadow     events criados (timeline por pessoa)
  * GET /api/admin/v3/timeline          preview do dashboard V3
@@ -17,12 +18,32 @@
  * Princípio #24: queries v3.* schema-qualificadas.
  */
 
+const { BatchService } = require('../services/BatchService');
+
 const CONF_COLOR = { high: '#16a34a', medium: '#ca8a04', low: '#ea580c', unconfirmed: '#dc2626' };
+// cor de fundo dos blocos da timeline por categoria de atividade.
+const CAT_BG = { production_phase: '#1e3a8a', support: '#78350f', meta: '#4c1d95' };
 const PAGES = [
+  ['overview', 'Overview'],
   ['messages-shadow', 'Mensagens'], ['events-shadow', 'Events'], ['timeline', 'Timeline'],
   ['divergences', 'Divergências'], ['vocabulary-pending', 'Vocabulário'],
   ['llm-metrics', 'Métricas'], ['health', 'Saúde'],
 ];
+
+/** Data YYYY-MM-DD no fuso America/New_York. */
+function nyDate(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}
+
+/** Segundos → "Xh Ym" / "Ym". */
+function fmtDur(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
 
 function checkPin(req) {
   const pin = (req.query && req.query.pin) || (req.headers && req.headers['x-admin-pin']);
@@ -44,15 +65,20 @@ function confBadge(c) {
     + `padding:1px 6px;border-radius:4px;font-size:11px">${esc(c || '?')}</span>`;
 }
 
-function page(title, pin, body) {
+function page(title, pin, body, opts = {}) {
   const nav = PAGES.map(([slug, label]) =>
     `<a href="/api/admin/v3/${slug}?pin=${encodeURIComponent(pin || '')}">${label}</a>`).join(' · ');
-  return '<!doctype html><html><head><meta charset="utf-8"><title>V3 — ' + esc(title) + '</title>'
+  const refresh = opts.refresh ? `<meta http-equiv="refresh" content="${opts.refresh}">` : '';
+  return '<!doctype html><html><head><meta charset="utf-8">' + refresh
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>V3 — ' + esc(title) + '</title>'
     + '<style>body{font-family:system-ui,sans-serif;margin:18px;background:#0f172a;color:#e2e8f0}'
-    + 'h1{font-size:18px}a{color:#38bdf8;text-decoration:none}nav{margin:8px 0 16px;font-size:13px}'
+    + 'h1{font-size:18px}h2{font-size:15px;margin:20px 0 8px;border-bottom:1px solid #334155;padding-bottom:3px}'
+    + 'a{color:#38bdf8;text-decoration:none}nav{margin:8px 0 16px;font-size:13px}'
     + 'table{border-collapse:collapse;width:100%;font-size:12px}'
     + 'th,td{border:1px solid #334155;padding:5px 7px;text-align:left;vertical-align:top}'
     + 'th{background:#1e293b}tr:nth-child(even){background:#172033}'
+    + 'input,select{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:3px}'
     + '.muted{color:#64748b}.big{font-size:22px;font-weight:700}</style></head><body>'
     + '<h1>HealthFare V3 (shadow) — ' + esc(title) + '</h1><nav>' + nav + '</nav>'
     + body + '</body></html>';
@@ -277,7 +303,209 @@ async function handleHealth(req, deps) {
   return { status: 200, contentType: 'text/html', body: page('Saúde do V3', req.query.pin, body) };
 }
 
+/**
+ * Overview — visão consolidada do dia, dados ao vivo. Temporário,
+ * pros 2-3 dias de validação do shadow. NÃO é o dashboard final.
+ * Read-only; data no fuso America/New_York; auto-refresh 60s.
+ */
+async function handleOverview(req, deps) {
+  if (!checkPin(req)) return deny();
+  const db = deps.db;
+  const date = req.query.date || nyDate();
+  const pin = req.query.pin;
+
+  // ── mensagens do dia (base das seções 1, 5, 6) ──
+  const msgs = (await db.query(
+    `SELECT m.created_at, m.slack_user_id, m.raw_text, m.llm_result,
+            m.llm_processed_at, m.processing_error
+     FROM v3.messages m
+     WHERE (m.created_at AT TIME ZONE 'America/New_York')::date = $1
+     ORDER BY m.created_at`, [date])).rows;
+
+  // ── events do dia (seção 2) ──
+  const events = (await db.query(
+    `SELECT e.person_id, e.started_at, e.ended_at, e.cowork_with, e.confidence,
+            p.display_name AS person_name, at.display_name AS activity, at.category
+     FROM v3.events e
+     LEFT JOIN v3.persons p ON p.id = e.person_id
+     LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+     WHERE e.deleted_at IS NULL
+       AND (e.started_at AT TIME ZONE 'America/New_York')::date = $1
+     ORDER BY p.display_name, e.started_at`, [date])).rows;
+
+  // ── produção do dia (seção 3) ──
+  const counts = (await db.query(
+    `SELECT pc.bottles, pc.reported_at, pc.confidence,
+            pr.canonical_name AS product, pb.batch_number,
+            per.display_name AS reporter
+     FROM v3.production_counts pc
+     JOIN v3.products pr ON pr.id = pc.product_id
+     LEFT JOIN v3.product_batches pb ON pb.id = pc.product_batch_id
+     LEFT JOIN v3.persons per ON per.id = pc.reported_by_person_id
+     WHERE pc.production_date = $1 AND pc.superseded_by IS NULL AND pc.deleted_at IS NULL
+     ORDER BY pr.canonical_name, pc.reported_at`, [date])).rows;
+
+  // ── lotes ativos AGORA (seção 4) — independe da data ──
+  const activeBatches = (await db.query(
+    `SELECT pb.id, pb.batch_number, pb.started_at, pr.canonical_name AS product
+     FROM v3.product_batches pb
+     JOIN v3.products pr ON pr.id = pb.product_id
+     WHERE pb.status = 'in_progress' AND pb.deleted_at IS NULL
+     ORDER BY pb.started_at`)).rows;
+  const batchService = deps.batchService || new BatchService({ db });
+  const batches = [];
+  for (const b of activeBatches) {
+    let summary = null;
+    try { summary = await batchService.getSummary(b.id); } catch (_) { /* batch sumiu */ }
+    batches.push({ batch: b, summary });
+  }
+
+  // ── derivações ──
+  const processed = msgs.filter((m) => m.llm_processed_at);
+  const withConf = processed.filter((m) => (m.llm_result || {}).confidence_overall);
+  const highMed = withConf.filter((m) => ['high', 'medium'].includes(m.llm_result.confidence_overall));
+  const pct = withConf.length ? Math.round((highMed.length / withConf.length) * 100) : null;
+  const cost = msgs.reduce((s, m) => s + Number((m.llm_result || {}).cost_estimate_usd || 0), 0);
+
+  const dist = {};
+  for (const m of processed) {
+    const lr = m.llm_result || {};
+    const c = lr.confidence_overall || (lr.skipped ? 'skipped' : (m.processing_error ? 'erro' : 'outro'));
+    dist[c] = (dist[c] || 0) + 1;
+  }
+
+  const attention = msgs.filter((m) => {
+    const lr = m.llm_result || {};
+    return ['low', 'unconfirmed'].includes(lr.confidence_overall) || lr.categorization === 'unclear';
+  });
+
+  // ── render ──
+  const card = (label, value, sub) =>
+    '<div style="display:inline-block;background:#1e293b;border:1px solid #334155;border-radius:8px;'
+    + 'padding:12px 18px;margin:4px;min-width:120px">'
+    + `<div class="muted" style="font-size:11px;text-transform:uppercase">${esc(label)}</div>`
+    + `<div class="big">${esc(value)}</div>`
+    + (sub ? `<div class="muted" style="font-size:11px">${esc(sub)}</div>` : '') + '</div>';
+
+  const enc = encodeURIComponent(pin || '');
+  let body = `<form style="margin-bottom:10px">`
+    + `<input type="hidden" name="pin" value="${esc(pin || '')}">`
+    + `dia: <input type="date" name="date" value="${esc(date)}" onchange="this.form.submit()"> `
+    + `<span class="muted">America/New_York · atualiza sozinho a cada 60s · </span>`
+    + `<a href="?pin=${enc}&date=${esc(date)}">atualizar agora</a></form>`;
+
+  // SEÇÃO 1
+  body += '<h2>Resumo do dia</h2><div>'
+    + card('Mensagens lidas', msgs.length)
+    + card('Events criados', events.length)
+    + card('Alta+média confiança', pct == null ? '—' : pct + '%',
+      withConf.length + ' c/ confiança')
+    + card('Custo do dia', '$' + cost.toFixed(4))
+    + '</div>';
+
+  // SEÇÃO 2 — timeline por pessoa
+  body += '<h2>Timeline por pessoa</h2>';
+  const byPerson = new Map();
+  for (const e of events) {
+    const k = e.person_name || ('person ' + e.person_id);
+    if (!byPerson.has(k)) byPerson.set(k, []);
+    byPerson.get(k).push(e);
+  }
+  if (!byPerson.size) {
+    body += '<p class="muted">Nenhum event nesse dia.</p>';
+  } else {
+    for (const [person, evs] of byPerson) {
+      const blocks = evs.map((e) => {
+        const hh = (e.started_at || '').toString().slice(11, 16);
+        const cw = (e.cowork_with || []).length ? ' 🔗' : '';
+        const live = e.ended_at ? '' : ' •';
+        const bg = CAT_BG[e.category] || '#1e293b';
+        return `<span title="${esc(e.category || 'atividade')} — início ${esc(hh)}"`
+          + ` style="background:${bg};border:1px solid #475569;padding:3px 8px;border-radius:4px;`
+          + `margin:2px;display:inline-block;font-size:12px">${esc(hh)} ${esc(e.activity || '?')}${cw}${live}</span>`;
+      }).join(' ');
+      body += `<div style="margin:6px 0;padding:8px;background:#172033;border-radius:6px">`
+        + `<b>${esc(person)}</b><br>${blocks}</div>`;
+    }
+    body += '<p class="muted" style="font-size:11px">'
+      + `<span style="background:${CAT_BG.production_phase};padding:1px 6px;border-radius:3px">fase de produção</span> `
+      + `<span style="background:${CAT_BG.support};padding:1px 6px;border-radius:3px">apoio</span> `
+      + `<span style="background:${CAT_BG.meta};padding:1px 6px;border-radius:3px">pausa/almoço</span> `
+      + ' &nbsp; 🔗 cowork &nbsp; • em andamento</p>';
+  }
+
+  // SEÇÃO 3 — produção
+  body += '<h2>Produção do dia</h2>';
+  if (!counts.length) {
+    body += '<p class="muted">Nenhuma contagem reportada nesse dia.</p>';
+  } else {
+    const totByProd = {};
+    for (const c of counts) totByProd[c.product] = (totByProd[c.product] || 0) + Number(c.bottles || 0);
+    body += '<table><tr><th>produto</th><th>lote</th><th>garrafas</th><th>reportado por</th><th>hora</th></tr>'
+      + counts.map((c) => `<tr><td>${esc(c.product)}</td><td>${esc(c.batch_number || '—')}</td>`
+        + `<td>${esc(c.bottles)}</td><td>${esc(c.reporter || '—')}</td>`
+        + `<td class="muted">${esc((c.reported_at || '').toString().slice(11, 16))}</td></tr>`).join('')
+      + '</table>'
+      + '<p>Total por produto: ' + Object.entries(totByProd)
+        .map(([p, n]) => `${esc(p)}: <b>${n}</b>`).join(' &nbsp;·&nbsp; ') + '</p>';
+  }
+
+  // SEÇÃO 4 — lotes ativos
+  body += '<h2>Lotes ativos</h2>';
+  if (!batches.length) {
+    body += '<p class="muted">Nenhum lote in_progress.</p>';
+  } else {
+    body += '<table><tr><th>produto</th><th>lote</th><th>iniciado</th>'
+      + '<th>pessoas que tocaram</th><th>tempo total</th></tr>'
+      + batches.map(({ batch, summary }) => {
+        const people = summary && summary.people.length
+          ? summary.people.map((p) => esc(p.display_name || ('#' + p.person_id))).join(', ')
+          : '—';
+        const dur = summary ? fmtDur(summary.total_seconds) : '—';
+        return `<tr><td>${esc(batch.product)}</td><td>${esc(batch.batch_number)}</td>`
+          + `<td class="muted">${esc((batch.started_at || '').toString().slice(0, 16))}</td>`
+          + `<td>${people}</td><td>${esc(dur)}</td></tr>`;
+      }).join('') + '</table>'
+      + '<p class="muted" style="font-size:11px">tempo total com dedup de cowork (BatchService).</p>';
+  }
+
+  // SEÇÃO 5 — distribuição de confiança
+  body += '<h2>Distribuição de confiança (do dia)</h2>';
+  const order = ['high', 'medium', 'low', 'unconfirmed', 'skipped', 'erro', 'outro'];
+  const totalDist = Object.values(dist).reduce((a, b) => a + b, 0);
+  const distRows = order.filter((k) => dist[k]).map((k) => {
+    const n = dist[k];
+    const w = totalDist ? Math.round((n / totalDist) * 100) : 0;
+    const col = CONF_COLOR[k] || '#64748b';
+    return `<div style="margin:3px 0"><span style="display:inline-block;width:96px">${esc(k)}</span>`
+      + `<span style="display:inline-block;background:${col};height:14px;`
+      + `width:${Math.max(w * 2, 6)}px;border-radius:3px;vertical-align:middle"></span> `
+      + `<b>${n}</b> <span class="muted">(${w}%)</span></div>`;
+  }).join('');
+  body += distRows || '<p class="muted">Nada processado nesse dia.</p>';
+
+  // SEÇÃO 6 — atenção
+  body += '<h2>Atenção — precisa de revisão</h2>';
+  body += `<p class="muted">${attention.length} mensagem(ns) com confiança low/unconfirmed `
+    + 'ou categorização unclear.</p>';
+  body += '<table><tr><th>hora</th><th>conta</th><th>texto</th><th>interpretação</th><th>conf</th></tr>'
+    + (attention.map((m) => {
+      const lr = m.llm_result || {};
+      const c = lr.confidence_overall || (lr.categorization === 'unclear' ? 'unclear' : '?');
+      return `<tr><td class="muted">${esc((m.created_at || '').toString().slice(11, 19))}</td>`
+        + `<td>${esc(m.slack_user_id)}</td><td>${esc(m.raw_text)}</td>`
+        + `<td>${esc(lr.interpretation || '—')}</td><td>${confBadge(c)}</td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="muted">nada — dia limpo</td></tr>')
+    + '</table>';
+
+  return {
+    status: 200, contentType: 'text/html',
+    body: page('Overview — ' + date, pin, body, { refresh: 60 }),
+  };
+}
+
 const HANDLERS = {
+  overview: handleOverview,
   'messages-shadow': handleMessagesShadow,
   'events-shadow': handleEventsShadow,
   timeline: handleTimeline,
@@ -304,7 +532,7 @@ function createRouter(deps) {
 }
 
 module.exports = {
-  checkPin, createRouter, HANDLERS,
-  handleMessagesShadow, handleEventsShadow, handleTimeline, handleDivergences,
-  handleVocabularyPending, handleLlmMetrics, handleHealth,
+  checkPin, createRouter, HANDLERS, nyDate, fmtDur,
+  handleOverview, handleMessagesShadow, handleEventsShadow, handleTimeline,
+  handleDivergences, handleVocabularyPending, handleLlmMetrics, handleHealth,
 };
