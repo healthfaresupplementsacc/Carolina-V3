@@ -1,0 +1,19 @@
+{
+  "name": "healthfare-v3-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HEALTHFARE V3 — SPA do dashboard (cliente puro da API /api/v3/data/*)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

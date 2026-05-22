@@ -70,7 +70,12 @@ function mount(app) {
   app.use('/', adminV3.createRouter({ db: _pool }));
   // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
   app.use('/', dataApi.createDataRouter({ db: _pool }));
-  console.log('[V3] rotas montadas: POST /slack/events-v2 + GET /api/admin/v3/* + GET /api/v3/data/*');
+  // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
+  // buildada em public/dashboard/. Aditivo — não toca nada.
+  const express = require('express');
+  const path = require('path');
+  app.use('/dashboard', express.static(path.join(process.cwd(), 'public', 'dashboard')));
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /dashboard');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */
