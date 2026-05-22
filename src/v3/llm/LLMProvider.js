@@ -33,7 +33,7 @@
 const ACTION_TYPES = [
   'close_event', 'open_event', 'cowork_join', 'cowork_leave',
   'break_start', 'break_end', 'eod_count', 'partial_count',
-  'note', 'narrative',
+  'set_goal', 'note', 'narrative',
 ];
 const CONFIDENCE_LEVELS = ['high', 'medium', 'low', 'unconfirmed'];
 

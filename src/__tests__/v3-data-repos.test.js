@@ -10,6 +10,7 @@ const { MessagesRepo } = require('../v3/data/messages-repo');
 const { MetricsRepo } = require('../v3/data/metrics-repo');
 const { TimelineRepo } = require('../v3/data/timeline-repo');
 const { HistoryRepo, resolveRange } = require('../v3/data/history-repo');
+const { GoalsRepo } = require('../v3/data/goals-repo');
 
 /** Fake db: rotas [{match:regex, rows:[]|fn}]; 1ª que casa responde. Registra calls. */
 function makeDb(routes = []) {
@@ -310,6 +311,44 @@ describe('V3 data — HistoryRepo', () => {
   });
 });
 
+describe('V3 data — GoalsRepo (esperado vs realizado)', () => {
+  test('goalsByDay calcula esperado/realizado/%, exclui duplicata, ignora duração inválida', async () => {
+    const db = makeDb([
+      { match: /FROM v3\.production_goals g/, rows: [
+        { id: 1, product_id: 56, batch_number: '0135', expected_quantity: 750, unit: 'bottle',
+          destinations: null, confidence: 'high', source: 'channel', created_by_person_id: 3,
+          product: 'Plant Sterols' }] },
+      { match: /FROM v3\.production_counts pc LEFT JOIN/, rows: [
+        { id: 10, product_id: 56, bottles: 723, unit: 'bottle', possible_duplicate_of: null,
+          product_batch_id: 9, batch_raw: 'BR-2026-0135', reporter: 'Ana', reported_at: '2026-05-19T22:00:00Z' },
+        { id: 11, product_id: 56, bottles: 723, unit: 'bottle', possible_duplicate_of: 10,
+          product_batch_id: 9, batch_raw: '0135', reporter: 'Ana', reported_at: '2026-05-19T22:30:00Z' }] },
+      { match: /FROM v3\.product_batches WHERE product_id = ANY/, rows: [
+        { id: 9, product_id: 56, batch_number: 'BR-2026-0135' }] },
+      { match: /FROM v3\.events e LEFT JOIN v3\.activity_types/, rows: [
+        { product_batch_id: 9, started_at: '2026-05-19T13:00:00Z', ended_at: '2026-05-19T14:00:00Z',
+          activity_name: 'Linha de Produção', activity_flow: 'production' },
+        { product_batch_id: 9, started_at: '2026-05-19T15:00:00Z', ended_at: '2026-05-19T14:00:00Z',
+          activity_name: 'Revisão', activity_flow: 'production' }] }, // ended<started → inválido
+    ]);
+    const out = await new GoalsRepo({ db }).goalsByDay('2026-05-19');
+    expect(out.goals).toHaveLength(1);
+    const g = out.goals[0];
+    expect(g.esperado).toBe(750);
+    expect(g.realizado).toBe(723);              // só a contagem NÃO-marcada
+    expect(g.pct_atingido).toBe(96);
+    expect(g.bateu).toBe(false);
+    expect(g.duplicatas_suspeitas).toHaveLength(1); // a 723 repetida, pra revisão
+    expect(g.batch.invalid_event_count).toBe(1);    // event de duração negativa ignorado
+    expect(g.batch.total_seconds).toBe(3600);       // só o event válido (1h), não poluído
+  });
+
+  test('goalsByDay sem metas → lista vazia', async () => {
+    const out = await new GoalsRepo({ db: makeDb() }).goalsByDay('2026-05-19');
+    expect(out.goals).toEqual([]);
+  });
+});
+
 describe('V3 data — repos são read-only (zero mutação)', () => {
   test('nenhum repo emite INSERT/UPDATE/DELETE', async () => {
     const db = makeDb();
@@ -328,6 +367,7 @@ describe('V3 data — repos são read-only (zero mutação)', () => {
     await new TimelineRepo({ db }).eventsByPersonDay(4, '2026-05-21');
     await new HistoryRepo({ db }).personHistory(4, {});
     await new HistoryRepo({ db }).productHistory(56, {});
+    await new GoalsRepo({ db }).goalsByDay('2026-05-21');
     expect(db.calls.length).toBeGreaterThan(0);
     expect(db.calls.every((c) => !/\b(INSERT|UPDATE|DELETE)\b/i.test(c.sql))).toBe(true);
   });

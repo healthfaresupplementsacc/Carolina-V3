@@ -19,6 +19,7 @@ const { PromptBuilder } = require('./llm/prompt-builder');
 const { EventService } = require('./services/EventService');
 const { BatchService } = require('./services/BatchService');
 const { ProductionCountService } = require('./services/ProductionCountService');
+const { GoalService } = require('./services/GoalService');
 const { Observer } = require('./llm/Observer');
 const { eventsV2Handler } = require('./slack/events-v2');
 const adminV3 = require('./admin-v3/routes');
@@ -37,6 +38,7 @@ function _init() {
     eventService: new EventService({ db: _pool }),
     batchService: new BatchService({ db: _pool }),
     productionCountService: new ProductionCountService({ db: _pool }),
+    goalService: new GoalService({ db: _pool }),
     personResolver: new PersonResolver({ db: _pool, provider }),
     promptBuilder: new PromptBuilder({ db: _pool }),
   };

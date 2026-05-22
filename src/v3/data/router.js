@@ -24,7 +24,9 @@ const { HealthRepo } = require('./health-repo');
 const { VocabularyRepo } = require('./vocabulary-repo');
 const { CatalogRepo } = require('./catalog-repo');
 const { HistoryRepo } = require('./history-repo');
-const { toNyIso, TZ } = require('./ny-date');
+const { GoalsRepo } = require('./goals-repo');
+const { GoalService } = require('../services/GoalService');
+const { toNyIso, TZ, resolveDate } = require('./ny-date');
 const { makeAuthMiddleware } = require('./auth');
 
 const API_VERSION = 'v3';
@@ -41,6 +43,7 @@ function buildRepos(db) {
     vocabulary: new VocabularyRepo({ db }),
     catalog: new CatalogRepo({ db }),
     history: new HistoryRepo({ db }),
+    goals: new GoalsRepo({ db }),
   };
 }
 
@@ -117,6 +120,29 @@ const ENDPOINTS = [
       data: await r.history.productHistory(intParam(req.params.id),
         { from: req.query.from, to: req.query.to }),
     }) },
+  { path: '/api/v3/data/goals',
+    handler: async (req, r) => {
+      const g = await r.goals.goalsByDay(req.query.date);
+      return { data: g, meta: { date: g.date } };
+    } },
+  // ÚNICO endpoint de escrita (Bloco 2) — input manual de meta.
+  { method: 'post', path: '/api/v3/data/goals',
+    handler: async (req, r, goalService) => {
+      const b = req.body || {};
+      const goal = await goalService.record({
+        product_id: b.product_id || null,
+        batch_number: b.batch_number || null,
+        expected_quantity: b.expected_quantity,
+        unit: b.unit || 'bottle',
+        destinations: b.destinations || null,
+        production_date: resolveDate(b.production_date),
+        source: 'dashboard',
+        created_by_person_id: b.created_by_person_id || null,
+        confidence: b.confidence || 'high',
+        actor_type: 'admin',
+      });
+      return { data: goal };
+    } },
 ];
 
 /**
@@ -127,18 +153,24 @@ function createDataRouter(deps = {}) {
   const express = require('express');
   const router = express.Router();
   const repos = deps.repos || buildRepos(deps.db);
+  const goalService = deps.goalService || new GoalService({ db: deps.db });
 
   // auth na borda — protege TODO o /api/v3/data/*
   router.use('/api/v3/data', makeAuthMiddleware(deps));
 
   for (const ep of ENDPOINTS) {
-    router.get(ep.path, async (req, res) => {
+    const method = ep.method || 'get';
+    router[method](ep.path, async (req, res) => {
       try {
-        const out = await ep.handler(req, repos);
+        const out = await ep.handler(req, repos, goalService);
         res.json(envelope(out.data, out.meta));
       } catch (e) {
-        console.error('[v3-data] erro em', ep.path, '-', e.message);
-        res.status(500).json({ error: { code: 'internal', message: e.message } });
+        console.error('[v3-data]', method.toUpperCase(), ep.path, '-', e.message);
+        // erro de validação de input → 400; o resto → 500.
+        const bad = /obrigatóri|inválid|não-corrigível/.test(e.message);
+        res.status(bad ? 400 : 500).json({
+          error: { code: bad ? 'bad_request' : 'internal', message: e.message },
+        });
       }
     });
   }

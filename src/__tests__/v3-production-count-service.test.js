@@ -52,6 +52,14 @@ function makeFakeDb() {
         && c.superseded_by == null && c.deleted_at == null);
       return { rows: r.map((x) => ({ ...x })) };
     }
+    // Bloco 2 — detecção de duplicata (mesmo produto/lote/dia, mesmo valor).
+    if (/^SELECT id FROM v3\.production_counts WHERE product_id = \$1 AND bottles = \$2/.test(s)) {
+      const r = counts.find((c) => c.product_id === params[0]
+        && Number(c.bottles) === Number(params[1]) && c.production_date === params[2]
+        && (c.product_batch_id == null ? params[3] == null : c.product_batch_id === params[3])
+        && c.superseded_by == null && c.deleted_at == null && c.possible_duplicate_of == null);
+      return { rows: r ? [{ id: r.id }] : [] };
+    }
     if (/^INSERT INTO v3\.audit_log/.test(s)) {
       audit.push({ actor_type: params[0], action: params[2], target_id: params[3] });
       return { rows: [] };
@@ -235,5 +243,33 @@ describe('V3 §2.6 — reassign / soft delete / restore / audit', () => {
     expect(auditActions(db)).toEqual(expect.arrayContaining([
       'count.recorded', 'count.superseded', 'count.reassigned', 'count.deleted',
     ]));
+  });
+});
+
+describe('V3 Bloco 2 — anti-duplicação (§7.6)', () => {
+  test('mesmo número 2x p/ mesmo produto/lote/dia → 2ª marca possible_duplicate_of', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const c1 = await s.record(base({ bottles: 568, source_message_ts: 'm1' }));
+    const c2 = await s.record(base({ bottles: 568, source_message_ts: 'm2' }));
+    expect(c1.possible_duplicate_of).toBeNull();    // 1ª não é suspeita
+    expect(c2.possible_duplicate_of).toBe(c1.id);   // 2ª aponta pra 1ª
+    // não somou, não rejeitou — as duas existem
+    expect(db.counts).toHaveLength(2);
+  });
+
+  test('números diferentes p/ mesmo lote → nenhuma marca de duplicata', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const c1 = await s.record(base({ bottles: 568, source_message_ts: 'm1' }));
+    const c2 = await s.record(base({ bottles: 723, source_message_ts: 'm2' }));
+    expect(c1.possible_duplicate_of).toBeNull();
+    expect(c2.possible_duplicate_of).toBeNull();
+  });
+
+  test('unit é gravado (bottle/box/uncertain)', async () => {
+    const db = makeFakeDb();
+    const c = await svc(db).record(base({ bottles: 30, unit: 'box', source_message_ts: 'm1' }));
+    expect(c.unit).toBe('box');
   });
 });

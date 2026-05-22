@@ -78,6 +78,7 @@ function mkServices(o = {}) {
     eventService: { upsert: jest.fn(async () => ({ id: ++_eid })), closeActivePersonEvent: jest.fn().mockResolvedValue([{ id: 999 }]) },
     batchService: { findOrCreateActive: jest.fn().mockResolvedValue({ id: 7 }) },
     productionCountService: { record: jest.fn().mockResolvedValue({ id: 9 }) },
+    goalService: { record: jest.fn().mockResolvedValue({ id: 1 }) },
     slack: { addReaction: jest.fn(), postMessage: jest.fn(), sendDM: jest.fn() },
   };
 }
@@ -357,6 +358,35 @@ describe('V3 §2.8 — contagens e vocabulário', () => {
     await observer.processMessage(m1);
     await observer.processMessage(m2);
     expect(db.vocab.get('fita')).toBe(2);
+  });
+});
+
+describe('V3 Bloco 2 — set_goal (meta)', () => {
+  test('action set_goal → goalService.record chamado (source channel)', async () => {
+    const m = msg();
+    const { observer, goalService } = makeObserver({
+      message: m,
+      llmResult: { categorization: 'goal_set', confidence: 'high', actions: [
+        { type: 'set_goal', person_id: 6, product_id: 5, batch_number: 'BR-2026-0135', expected_quantity: 750 }] },
+    });
+    await observer.processMessage(m);
+    expect(goalService.record).toHaveBeenCalledTimes(1);
+    expect(goalService.record.mock.calls[0][0]).toMatchObject({
+      product_id: 5, batch_number: 'BR-2026-0135', expected_quantity: 750, source: 'channel',
+    });
+  });
+
+  test('set_goal vale mesmo com autor ADMIN — mas sem event de trabalho', async () => {
+    const m = msg();
+    const { observer, goalService, eventService } = makeObserver({
+      message: m,
+      author: { person_id: 1, resolution_method: 'admin_intervention', confidence: 'high', is_admin_context: true },
+      llmResult: { categorization: 'goal_set', confidence: 'high', actions: [
+        { type: 'set_goal', person_id: 1, product_id: 5, expected_quantity: 500 }] },
+    });
+    await observer.processMessage(m);
+    expect(goalService.record).toHaveBeenCalledTimes(1);   // meta gravada
+    expect(eventService.upsert).not.toHaveBeenCalled();     // admin não cria event
   });
 });
 

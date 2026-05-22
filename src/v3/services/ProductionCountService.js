@@ -75,11 +75,12 @@ class ProductionCountService {
   async _insert(c, p) {
     const cols = ['product_id', 'product_batch_id', 'bottles', 'reported_at',
       'production_date', 'reported_by_person_id', 'source_message_ts', 'source_event_id',
-      'notes', 'confidence'];
+      'notes', 'confidence', 'unit', 'possible_duplicate_of'];
     const vals = [
       p.product_id, p.product_batch_id || null, p.bottles, p.reported_at,
       p.production_date, p.reported_by_person_id, p.source_message_ts || null,
-      p.source_event_id || null, p.notes || null, p.confidence || 'high'];
+      p.source_event_id || null, p.notes || null, p.confidence || 'high',
+      p.unit || 'bottle', p.possible_duplicate_of || null];
     const ph = cols.map((_, i) => `$${i + 1}`).join(', ');
     const r = await c.query(
       `INSERT INTO v3.production_counts (${cols.join(', ')}) VALUES (${ph}) RETURNING *`, vals);
@@ -121,6 +122,18 @@ class ProductionCountService {
            ORDER BY id LIMIT 1`, [p.source_message_ts]);
         if (ex.rows[0]) return ex.rows[0]; // idempotente — não duplica
       }
+      // Anti-duplicação §7.6: mesmo número, mesmo produto/lote/dia, já
+      // registrado e vivo → marca a suspeita (possible_duplicate_of).
+      // NÃO soma, NÃO rejeita — grava marcado; o realizado ignora marcados.
+      const dup = await c.query(
+        `SELECT id FROM v3.production_counts
+         WHERE product_id = $1 AND bottles = $2 AND production_date = $3
+           AND product_batch_id IS NOT DISTINCT FROM $4
+           AND superseded_by IS NULL AND deleted_at IS NULL AND possible_duplicate_of IS NULL
+         ORDER BY id LIMIT 1`,
+        [p.product_id, p.bottles, p.production_date, p.product_batch_id || null]);
+      const possibleDuplicateOf = dup.rows[0] ? dup.rows[0].id : null;
+
       const row = await this._insert(c, {
         product_id: p.product_id,
         product_batch_id: p.product_batch_id || null,
@@ -132,11 +145,16 @@ class ProductionCountService {
         source_event_id: p.source_event_id || null,
         notes: p.notes || null,
         confidence: p.confidence || 'high',
+        unit: p.unit || 'bottle',
+        possible_duplicate_of: possibleDuplicateOf,
       });
       await this._audit(c, {
         actorType, actorPersonId: p.actor_person_id, action: 'count.recorded',
         targetId: row.id, after: row,
-        metadata: { ambiguous_batch: !p.product_batch_id },
+        metadata: {
+          ambiguous_batch: !p.product_batch_id,
+          possible_duplicate_of: possibleDuplicateOf,
+        },
       });
       return row;
     });

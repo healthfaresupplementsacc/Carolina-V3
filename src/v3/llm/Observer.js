@@ -53,6 +53,7 @@ class Observer {
     this.eventService = deps.eventService;
     this.batchService = deps.batchService;
     this.countService = deps.productionCountService;
+    this.goalService = deps.goalService || null; // Bloco 2 — metas
     this.slack = deps.slack || null;
     this.botUserId = deps.botUserId || null;
     this.mode = deps.mode || 'shadow';
@@ -145,12 +146,13 @@ class Observer {
     const created = [];
     const updated = [];
     const adminCtx = !!(author && author.is_admin_context);
-    if (!adminCtx) {
-      for (const action of (decision.actions || [])) {
-        const r = await this._applyAction(action, message);
-        if (r.created) created.push(...r.created);
-        if (r.updated) updated.push(...r.updated);
-      }
+    for (const action of (decision.actions || [])) {
+      // set_goal vale SEMPRE (admin DEFINE meta — Bloco 2). As demais
+      // actions (events de trabalho) só fora de admin_context.
+      if (adminCtx && (!action || action.type !== 'set_goal')) continue;
+      const r = await this._applyAction(action, message);
+      if (r.created) created.push(...r.created);
+      if (r.updated) updated.push(...r.updated);
     }
     await this._upsertVocabulary(decision.new_vocabulary_terms);
 
@@ -172,8 +174,28 @@ class Observer {
   // ── persistência de uma action ─────────────────────────────
 
   async _applyAction(action, message) {
-    if (!action || !action.person_id) return {};
+    if (!action) return {};
     const t = action.type;
+    // set_goal — meta (esperado). NÃO exige person_id (a meta tem
+    // created_by opcional). É a única action que vale de mensagem admin.
+    if (t === 'set_goal') {
+      if (!this.goalService || action.expected_quantity == null) return {};
+      await this.goalService.record({
+        product_id: action.product_id || null,
+        batch_number: action.batch_number || null,
+        expected_quantity: action.expected_quantity,
+        unit: action.unit || 'bottle',
+        destinations: action.destinations || null,
+        production_date: etDate(new Date(message.created_at || this.now())),
+        source: 'channel',
+        source_message_ts: message.slack_ts,
+        created_by_person_id: action.person_id || null,
+        confidence: action.confidence || 'high',
+        actor_type: 'llm_observer',
+      });
+      return {};
+    }
+    if (!action.person_id) return {};
     if (t === 'open_event' || t === 'break_start' || t === 'cowork_join') {
       let batchId = null;
       if (action.product_id && action.batch_number) {
@@ -216,6 +238,7 @@ class Observer {
         product_id: action.product_id,
         product_batch_id: batchId,
         bottles: action.bottles,
+        unit: action.unit || 'bottle',
         reported_at: message.created_at || this.now(),
         production_date: etDate(new Date(message.created_at || this.now())),
         reported_by_person_id: action.person_id,

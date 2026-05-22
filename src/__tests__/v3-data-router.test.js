@@ -93,9 +93,31 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
     expect(out.data.flows[0].mode).toBe('block');
   });
 
-  test('16 endpoints registrados, todos sob /api/v3/data/', () => {
-    expect(ENDPOINTS).toHaveLength(16);
+  test('GET /goals → goals.goalsByDay(date)', async () => {
+    const repos = { goals: { goalsByDay: jest.fn(async (d) => ({ date: d, goals: [] })) } };
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/goals' && (e.method || 'get') === 'get');
+    const out = await ep.handler({ query: { date: '2026-05-19' }, params: {} }, repos);
+    expect(repos.goals.goalsByDay).toHaveBeenCalledWith('2026-05-19');
+    expect(out.meta.date).toBe('2026-05-19');
+  });
+
+  test('POST /goals → goalService.record (input manual de meta)', async () => {
+    const goalService = { record: jest.fn(async (p) => ({ id: 1, ...p })) };
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/goals' && e.method === 'post');
+    const out = await ep.handler(
+      { body: { product_id: 56, batch_number: '0135', expected_quantity: 750, production_date: '2026-05-19' }, query: {}, params: {} },
+      {}, goalService);
+    expect(goalService.record).toHaveBeenCalled();
+    expect(goalService.record.mock.calls[0][0]).toMatchObject({
+      product_id: 56, expected_quantity: 750, source: 'dashboard', actor_type: 'admin',
+    });
+    expect(out.data.id).toBe(1);
+  });
+
+  test('18 endpoints registrados, todos sob /api/v3/data/ (1 POST)', () => {
+    expect(ENDPOINTS).toHaveLength(18);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
+    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(1);
   });
 });
 
