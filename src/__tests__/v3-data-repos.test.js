@@ -11,6 +11,8 @@ const { MetricsRepo } = require('../v3/data/metrics-repo');
 const { TimelineRepo } = require('../v3/data/timeline-repo');
 const { HistoryRepo, resolveRange } = require('../v3/data/history-repo');
 const { GoalsRepo } = require('../v3/data/goals-repo');
+const { FlowViewsRepo } = require('../v3/data/flow-views-repo');
+const { DeadlinesRepo } = require('../v3/data/deadlines-repo');
 
 /** Fake db: rotas [{match:regex, rows:[]|fn}]; 1ª que casa responde. Registra calls. */
 function makeDb(routes = []) {
@@ -349,6 +351,62 @@ describe('V3 data — GoalsRepo (esperado vs realizado)', () => {
   });
 });
 
+describe('V3 data — FlowViewsRepo (Bloco 3)', () => {
+  const evRoute = (rows) => [{ match: /FROM v3\.events e LEFT JOIN v3\.activity_types at/, rows }];
+
+  test('productionByDay agrupa por lote, soma fases válidas, ignora duração inválida', async () => {
+    const db = makeDb(evRoute([
+      { id: 1, product_batch_id: 9, person_id: 4, started_at: '2026-05-21T13:00:00Z',
+        ended_at: '2026-05-21T14:00:00Z', activity_name: 'Mix', activity_slug: 'mixing',
+        batch_number: '0142', product_id: 67, product: 'Vitamin B2', person_name: 'Vitor' },
+      { id: 2, product_batch_id: 9, person_id: 4, started_at: '2026-05-21T15:00:00Z',
+        ended_at: '2026-05-21T14:00:00Z', activity_name: 'Revisão', activity_slug: 'review',
+        batch_number: '0142', product_id: 67, product: 'Vitamin B2', person_name: 'Vitor' },
+    ]));
+    const out = await new FlowViewsRepo({ db }).productionByDay('2026-05-21');
+    expect(out.mode).toBe('ordered');
+    expect(out.lotes).toHaveLength(1);
+    expect(out.lotes[0].total_seconds).toBe(3600);     // só o Mix válido (1h)
+    expect(out.lotes[0].invalid_event_count).toBe(1);  // Revisão ended<started
+    expect(out.lotes[0].phases).toEqual([{ activity: 'Mix', seconds: 3600 }]);
+  });
+
+  test('pnpByDay soma o bloco do dia; packages null (sem fonte ainda)', async () => {
+    const db = makeDb(evRoute([
+      { id: 1, product_batch_id: null, person_id: 5, started_at: '2026-05-21T13:00:00Z',
+        ended_at: '2026-05-21T13:30:00Z', activity_name: 'Impressão de Ordens',
+        activity_slug: 'order_printing', person_name: 'Simone' },
+    ]));
+    const out = await new FlowViewsRepo({ db }).pnpByDay('2026-05-21');
+    expect(out.mode).toBe('block');
+    expect(out.total_seconds).toBe(1800);
+    expect(out.packages).toBeNull();
+    expect(out.sub_steps).toEqual([{ activity: 'Impressão de Ordens', seconds: 1800 }]);
+  });
+
+  test('supportByDay lista ocorrências; conserto marcado downtime', async () => {
+    const db = makeDb(evRoute([
+      { id: 1, started_at: '2026-05-21T13:00:00Z', ended_at: '2026-05-21T15:00:00Z',
+        activity_name: 'Conserto', activity_slug: 'repair', person_name: 'Ana' },
+    ]));
+    const out = await new FlowViewsRepo({ db }).supportByDay('2026-05-21');
+    expect(out.mode).toBe('loose');
+    expect(out.occurrences[0].is_downtime).toBe(true);
+  });
+});
+
+describe('V3 data — DeadlinesRepo (Bloco 3)', () => {
+  test('list calcula minutes_until_today p/ deadline recorrente', async () => {
+    const db = makeDb([{ match: /FROM v3\.deadlines ORDER BY/, rows: [
+      { id: 1, flow: 'pnp', label: 'Corte do correio', kind: 'recurring',
+        time_of_day: '13:00', weekdays: [1, 2, 3, 4, 5], active: true }] }]);
+    // 2026-05-21 = quinta · 12:00 NY → faltam 60 min pro corte das 13:00
+    const repo = new DeadlinesRepo({ db, now: () => Date.parse('2026-05-21T12:00:00-04:00') });
+    const out = await repo.list();
+    expect(out.deadlines[0].minutes_until_today).toBe(60);
+  });
+});
+
 describe('V3 data — repos são read-only (zero mutação)', () => {
   test('nenhum repo emite INSERT/UPDATE/DELETE', async () => {
     const db = makeDb();
@@ -368,6 +426,10 @@ describe('V3 data — repos são read-only (zero mutação)', () => {
     await new HistoryRepo({ db }).personHistory(4, {});
     await new HistoryRepo({ db }).productHistory(56, {});
     await new GoalsRepo({ db }).goalsByDay('2026-05-21');
+    await new FlowViewsRepo({ db }).productionByDay('2026-05-21');
+    await new FlowViewsRepo({ db }).pnpByDay('2026-05-21');
+    await new FlowViewsRepo({ db }).supportByDay('2026-05-21');
+    await new DeadlinesRepo({ db }).list();
     expect(db.calls.length).toBeGreaterThan(0);
     expect(db.calls.every((c) => !/\b(INSERT|UPDATE|DELETE)\b/i.test(c.sql))).toBe(true);
   });

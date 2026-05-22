@@ -9,7 +9,8 @@ function fakeRes() {
   r.json = (j) => { r._json = j; return r; };
   return r;
 }
-const epByPath = (p) => ENDPOINTS.find((e) => e.path === p);
+const epByPath = (p) => ENDPOINTS.find((e) => e.path === p && (e.method || 'get') === 'get');
+const epBy = (p, m) => ENDPOINTS.find((e) => e.path === p && (e.method || 'get') === m);
 
 describe('V3 data API — auth na borda', () => {
   test('PIN correto na query → next()', () => {
@@ -102,22 +103,69 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
   });
 
   test('POST /goals → goalService.record (input manual de meta)', async () => {
-    const goalService = { record: jest.fn(async (p) => ({ id: 1, ...p })) };
-    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/goals' && e.method === 'post');
+    const services = { goal: { record: jest.fn(async (p) => ({ id: 1, ...p })) } };
+    const ep = epBy('/api/v3/data/goals', 'post');
     const out = await ep.handler(
       { body: { product_id: 56, batch_number: '0135', expected_quantity: 750, production_date: '2026-05-19' }, query: {}, params: {} },
-      {}, goalService);
-    expect(goalService.record).toHaveBeenCalled();
-    expect(goalService.record.mock.calls[0][0]).toMatchObject({
+      {}, services);
+    expect(services.goal.record).toHaveBeenCalled();
+    expect(services.goal.record.mock.calls[0][0]).toMatchObject({
       product_id: 56, expected_quantity: 750, source: 'dashboard', actor_type: 'admin',
     });
     expect(out.data.id).toBe(1);
   });
 
-  test('18 endpoints registrados, todos sob /api/v3/data/ (1 POST)', () => {
-    expect(ENDPOINTS).toHaveLength(18);
+  test('37 endpoints registrados, todos sob /api/v3/data/', () => {
+    expect(ENDPOINTS).toHaveLength(37);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
-    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(1);
+    expect(ENDPOINTS.filter((e) => (e.method || 'get') === 'get')).toHaveLength(21);
+    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(6);
+    expect(ENDPOINTS.filter((e) => e.method === 'patch')).toHaveLength(6);
+    expect(ENDPOINTS.filter((e) => e.method === 'delete')).toHaveLength(4);
+  });
+});
+
+describe('V3 data API — endpoints de escrita (Bloco 3)', () => {
+  test('PATCH /goals/:id → goal.correct(id, changes, by, note)', async () => {
+    const services = { goal: { correct: jest.fn(async () => ({ id: 5, expected_quantity: 900 })) } };
+    const ep = epBy('/api/v3/data/goals/:id', 'patch');
+    await ep.handler({ params: { id: '5' }, query: {},
+      body: { changes: { expected_quantity: 900 }, by_person_id: 1, note: 'ajuste' } }, {}, services);
+    expect(services.goal.correct).toHaveBeenCalledWith(5, { expected_quantity: 900 }, 1, 'ajuste');
+  });
+
+  test('DELETE /events/:id → event.softDelete', async () => {
+    const services = { event: { softDelete: jest.fn(async () => ({ id: 7, deleted_at: 'x' })) } };
+    const ep = epBy('/api/v3/data/events/:id', 'delete');
+    await ep.handler({ params: { id: '7' }, query: {}, body: { by_person_id: 1, reason: 'erro' } }, {}, services);
+    expect(services.event.softDelete).toHaveBeenCalledWith(7, 1, 'erro');
+  });
+
+  test('POST /counts/:id/confirm — decision additional limpa o flag', async () => {
+    const services = { count: {
+      softDelete: jest.fn(), confirmNotDuplicate: jest.fn(async () => ({ id: 9 })),
+    } };
+    const ep = epBy('/api/v3/data/counts/:id/confirm', 'post');
+    await ep.handler({ params: { id: '9' }, query: {}, body: { decision: 'additional', by_person_id: 1 } }, {}, services);
+    expect(services.count.confirmNotDuplicate).toHaveBeenCalledWith(9, 1);
+    expect(services.count.softDelete).not.toHaveBeenCalled();
+  });
+
+  test('POST /counts/:id/confirm — decision duplicate faz softDelete', async () => {
+    const services = { count: {
+      softDelete: jest.fn(async () => ({ id: 9 })), confirmNotDuplicate: jest.fn(),
+    } };
+    const ep = epBy('/api/v3/data/counts/:id/confirm', 'post');
+    await ep.handler({ params: { id: '9' }, query: {}, body: { decision: 'duplicate', by_person_id: 1 } }, {}, services);
+    expect(services.count.softDelete).toHaveBeenCalled();
+    expect(services.count.confirmNotDuplicate).not.toHaveBeenCalled();
+  });
+
+  test('PATCH /deadlines/:id → deadline.update', async () => {
+    const services = { deadline: { update: jest.fn(async () => ({ id: 1, time_of_day: '14:00' })) } };
+    const ep = epBy('/api/v3/data/deadlines/:id', 'patch');
+    await ep.handler({ params: { id: '1' }, query: {}, body: { changes: { time_of_day: '14:00' } } }, {}, services);
+    expect(services.deadline.update).toHaveBeenCalledWith(1, { time_of_day: '14:00' }, undefined);
   });
 });
 

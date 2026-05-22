@@ -1,18 +1,15 @@
 'use strict';
 /**
- * HEALTHFARE V3 — Bloco 0 / Etapa 2 — API de dados JSON.
+ * HEALTHFARE V3 — API de dados JSON /api/v3/data/*
  *
- * GET /api/v3/data/* — contrato ESTÁVEL e VERSIONADO (v3) entre o
- * cérebro e qualquer cliente (dashboard, BI, sistema externo). O
- * cérebro não conhece os clientes; isto é a única porta de leitura.
+ * Contrato ESTÁVEL e VERSIONADO (v3) entre o cérebro e os clientes
+ * (dashboard, BI, sistema externo). JSON puro, nunca HTML.
+ * Envelope { meta:{version,tz,date?,generated_at}, data }.
+ * Auth na borda (auth.js). Os repos devolvem só `data`.
  *
- * - Retorna JSON puro, nunca HTML.
- * - Envelope { meta:{version,tz,date?,generated_at}, data }.
- * - Auth na borda (middleware único, ver auth.js).
- * - Os repos (src/v3/data/*) devolvem só `data`; o envelope é montado
- *   AQUI — assim os handlers HTML reusam os mesmos repos sem envelope.
- *
- * ADITIVO: rotas novas. Não toca nada existente (HTML, shadow, worker).
+ * Bloco 0: leitura. Bloco 2: 1ª escrita (POST /goals). Bloco 3:
+ * o set completo de escrita (PATCH/DELETE) — "admin controla tudo",
+ * sempre via os services porta-única, auditado.
  */
 
 const { TimelineRepo } = require('./timeline-repo');
@@ -25,13 +22,20 @@ const { VocabularyRepo } = require('./vocabulary-repo');
 const { CatalogRepo } = require('./catalog-repo');
 const { HistoryRepo } = require('./history-repo');
 const { GoalsRepo } = require('./goals-repo');
+const { FlowViewsRepo } = require('./flow-views-repo');
+const { DeadlinesRepo } = require('./deadlines-repo');
 const { GoalService } = require('../services/GoalService');
+const { EventService } = require('../services/EventService');
+const { BatchService } = require('../services/BatchService');
+const { ProductionCountService } = require('../services/ProductionCountService');
+const { DeadlineService } = require('../services/DeadlineService');
+const { CatalogService } = require('../services/CatalogService');
 const { toNyIso, TZ, resolveDate } = require('./ny-date');
 const { makeAuthMiddleware } = require('./auth');
 
 const API_VERSION = 'v3';
 
-/** Instancia os repos de leitura sobre um pool/cliente pg. */
+/** Repos de leitura sobre um pool/cliente pg. */
 function buildRepos(db) {
   return {
     timeline: new TimelineRepo({ db }),
@@ -44,10 +48,24 @@ function buildRepos(db) {
     catalog: new CatalogRepo({ db }),
     history: new HistoryRepo({ db }),
     goals: new GoalsRepo({ db }),
+    flowViews: new FlowViewsRepo({ db }),
+    deadlines: new DeadlinesRepo({ db }),
   };
 }
 
-/** Envelope padrão da API. `data` = payload do repo. */
+/** Services porta-única (escrita), sobre um pool/cliente pg. */
+function buildServices(db) {
+  return {
+    goal: new GoalService({ db }),
+    event: new EventService({ db }),
+    batch: new BatchService({ db }),
+    count: new ProductionCountService({ db }),
+    deadline: new DeadlineService({ db }),
+    catalog: new CatalogService({ db }),
+  };
+}
+
+/** Envelope padrão da API. `data` = payload do repo/service. */
 function envelope(data, metaExtra) {
   return {
     meta: Object.assign(
@@ -61,12 +79,14 @@ const intParam = (v) => {
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
 };
+const body = (req) => (req && req.body) || {};
 
 /**
- * Cada endpoint: handler async (req, repos) → { data, meta? }.
- * O router enrola em envelope() e responde JSON. Exportado pra teste.
+ * Cada endpoint: { method?, path, handler async (req, repos, services) }
+ * → { data, meta? }. Exportado pra teste.
  */
 const ENDPOINTS = [
+  // ── LEITURA ───────────────────────────────────────────────
   { path: '/api/v3/data/timeline',
     handler: async (req, r) => {
       const d = await r.timeline.eventsByDay(req.query.date);
@@ -125,35 +145,128 @@ const ENDPOINTS = [
       const g = await r.goals.goalsByDay(req.query.date);
       return { data: g, meta: { date: g.date } };
     } },
-  // ÚNICO endpoint de escrita (Bloco 2) — input manual de meta.
-  { method: 'post', path: '/api/v3/data/goals',
-    handler: async (req, r, goalService) => {
-      const b = req.body || {};
-      const goal = await goalService.record({
-        product_id: b.product_id || null,
-        batch_number: b.batch_number || null,
-        expected_quantity: b.expected_quantity,
-        unit: b.unit || 'bottle',
-        destinations: b.destinations || null,
-        production_date: resolveDate(b.production_date),
-        source: 'dashboard',
-        created_by_person_id: b.created_by_person_id || null,
-        confidence: b.confidence || 'high',
-        actor_type: 'admin',
-      });
-      return { data: goal };
+  // Bloco 3 — visões por fluxo
+  { path: '/api/v3/data/production',
+    handler: async (req, r) => {
+      const d = await r.flowViews.productionByDay(req.query.date);
+      return { data: d, meta: { date: d.date } };
     } },
+  { path: '/api/v3/data/pp',
+    handler: async (req, r) => {
+      const d = await r.flowViews.pnpByDay(req.query.date);
+      return { data: d, meta: { date: d.date } };
+    } },
+  { path: '/api/v3/data/support',
+    handler: async (req, r) => {
+      const d = await r.flowViews.supportByDay(req.query.date);
+      return { data: d, meta: { date: d.date } };
+    } },
+  { path: '/api/v3/data/deadlines',
+    handler: async (req, r) => ({ data: await r.deadlines.list() }) },
+
+  // ── ESCRITA (Bloco 3 — admin controla tudo, auditado) ─────
+  // metas
+  { method: 'post', path: '/api/v3/data/goals',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.goal.record({
+        product_id: b.product_id || null, batch_number: b.batch_number || null,
+        expected_quantity: b.expected_quantity, unit: b.unit || 'bottle',
+        destinations: b.destinations || null, production_date: resolveDate(b.production_date),
+        source: 'dashboard', created_by_person_id: b.created_by_person_id || null,
+        confidence: b.confidence || 'high', actor_type: 'admin',
+      }) };
+    } },
+  { method: 'patch', path: '/api/v3/data/goals/:id',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.goal.correct(intParam(req.params.id), b.changes || {}, b.by_person_id, b.note) };
+    } },
+  { method: 'delete', path: '/api/v3/data/goals/:id',
+    handler: async (req, r, s) => ({
+      data: await s.goal.softDelete(intParam(req.params.id), body(req).by_person_id, body(req).reason),
+    }) },
+  // events
+  { method: 'patch', path: '/api/v3/data/events/:id',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.event.correct(intParam(req.params.id), b.changes || {}, b.by_person_id, b.note) };
+    } },
+  { method: 'delete', path: '/api/v3/data/events/:id',
+    handler: async (req, r, s) => ({
+      data: await s.event.softDelete(intParam(req.params.id), body(req).by_person_id, body(req).reason),
+    }) },
+  { method: 'post', path: '/api/v3/data/events/:id/restore',
+    handler: async (req, r, s) => ({
+      data: await s.event.restore(intParam(req.params.id), body(req).by_person_id),
+    }) },
+  { method: 'post', path: '/api/v3/data/events/merge',
+    handler: async (req, r, s) => ({
+      data: await s.event.mergeEvents(body(req).event_ids || [], body(req).by_person_id),
+    }) },
+  { method: 'post', path: '/api/v3/data/events/:id/split',
+    handler: async (req, r, s) => ({
+      data: await s.event.splitEvent(intParam(req.params.id), body(req).split_at, body(req).by_person_id),
+    }) },
+  // contagens
+  { method: 'patch', path: '/api/v3/data/counts/:id',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.count.supersede(intParam(req.params.id), b.new_bottles, b.by_person_id, b.note) };
+    } },
+  { method: 'delete', path: '/api/v3/data/counts/:id',
+    handler: async (req, r, s) => ({
+      data: await s.count.softDelete(intParam(req.params.id), body(req).by_person_id, body(req).reason),
+    }) },
+  { method: 'post', path: '/api/v3/data/counts/:id/confirm',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      const id = intParam(req.params.id);
+      // decision: 'duplicate' → some da soma (softDelete) | 'additional' → entra (limpa flag)
+      if (b.decision === 'duplicate') {
+        return { data: await s.count.softDelete(id, b.by_person_id, 'duplicata confirmada pelo admin') };
+      }
+      if (b.decision === 'additional') {
+        return { data: await s.count.confirmNotDuplicate(id, b.by_person_id) };
+      }
+      throw new Error('confirm: decision inválido (duplicate|additional)');
+    } },
+  // lotes
+  { method: 'patch', path: '/api/v3/data/batches/:id',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.batch.closeBatch(intParam(req.params.id), b.finished_at || null,
+        b.status, { actorType: 'admin', actorPersonId: b.by_person_id }) };
+    } },
+  // fases (activity_types)
+  { method: 'patch', path: '/api/v3/data/catalog/activity-types/:id',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.catalog.updateActivityType(intParam(req.params.id), b.changes || {}, b.by_person_id) };
+    } },
+  // deadlines
+  { method: 'post', path: '/api/v3/data/deadlines',
+    handler: async (req, r, s) => ({ data: await s.deadline.create(body(req), body(req).by_person_id) }) },
+  { method: 'patch', path: '/api/v3/data/deadlines/:id',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      return { data: await s.deadline.update(intParam(req.params.id), b.changes || {}, b.by_person_id) };
+    } },
+  { method: 'delete', path: '/api/v3/data/deadlines/:id',
+    handler: async (req, r, s) => ({
+      data: await s.deadline.remove(intParam(req.params.id), body(req).by_person_id),
+    }) },
 ];
 
 /**
- * Router Express da API de dados. Montar com app.use('/', router)
- * — igual ao admin-v3. deps.db = pool pg; deps.repos injetável (teste).
+ * Router Express da API de dados. Montar com app.use('/', router).
+ * deps.db = pool pg; deps.repos / deps.services injetáveis (teste).
  */
 function createDataRouter(deps = {}) {
   const express = require('express');
   const router = express.Router();
   const repos = deps.repos || buildRepos(deps.db);
-  const goalService = deps.goalService || new GoalService({ db: deps.db });
+  const services = deps.services || buildServices(deps.db);
 
   // auth na borda — protege TODO o /api/v3/data/*
   router.use('/api/v3/data', makeAuthMiddleware(deps));
@@ -162,21 +275,25 @@ function createDataRouter(deps = {}) {
     const method = ep.method || 'get';
     router[method](ep.path, async (req, res) => {
       try {
-        const out = await ep.handler(req, repos, goalService);
+        const out = await ep.handler(req, repos, services);
         res.json(envelope(out.data, out.meta));
       } catch (e) {
         console.error('[v3-data]', method.toUpperCase(), ep.path, '-', e.message);
-        // erro de validação de input → 400; o resto → 500.
-        const bad = /obrigatóri|inválid|não-corrigível/.test(e.message);
-        res.status(bad ? 400 : 500).json({
-          error: { code: bad ? 'bad_request' : 'internal', message: e.message },
+        const notFound = /não existe/.test(e.message);
+        const bad = /obrigatóri|inválid|não-(corrigível|editável)|precisa de/.test(e.message);
+        const code = notFound ? 404 : (bad ? 400 : 500);
+        res.status(code).json({
+          error: {
+            code: notFound ? 'not_found' : (bad ? 'bad_request' : 'internal'),
+            message: e.message,
+          },
         });
       }
     });
   }
 
-  console.log('[V3] API de dados montada: GET /api/v3/data/* (' + ENDPOINTS.length + ' endpoints)');
+  console.log('[V3] API de dados montada: /api/v3/data/* (' + ENDPOINTS.length + ' endpoints)');
   return router;
 }
 
-module.exports = { createDataRouter, buildRepos, envelope, ENDPOINTS, API_VERSION };
+module.exports = { createDataRouter, buildRepos, buildServices, envelope, ENDPOINTS, API_VERSION };

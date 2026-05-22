@@ -244,6 +244,25 @@ class ProductionCountService {
     });
   }
 
+  /**
+   * Confirma que uma contagem marcada como suspeita de duplicata é, na
+   * verdade, produção ADICIONAL: limpa possible_duplicate_of → ela passa
+   * a entrar na soma do realizado. Decisão do admin (Bloco 3 §7.6).
+   */
+  async confirmNotDuplicate(countId, byPersonId, actorTypeRaw = 'admin') {
+    const actorType = this._actor(actorTypeRaw);
+    return this._withTx(async (c) => {
+      const before = await this._getById(c, countId);
+      if (!before) throw new Error('confirmNotDuplicate: count ' + countId + ' não existe');
+      const after = await this._patch(c, countId, { possible_duplicate_of: null });
+      await this._audit(c, {
+        actorType, actorPersonId: byPersonId, action: 'count.confirmed_not_duplicate',
+        targetId: countId, before, after,
+      });
+      return after;
+    });
+  }
+
   // ── leitura ────────────────────────────────────────────────
 
   /** Contagens vivas (não-superseded, não-deletadas) de um batch. */

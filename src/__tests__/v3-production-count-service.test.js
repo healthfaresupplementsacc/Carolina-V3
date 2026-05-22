@@ -272,4 +272,15 @@ describe('V3 Bloco 2 — anti-duplicação (§7.6)', () => {
     const c = await svc(db).record(base({ bottles: 30, unit: 'box', source_message_ts: 'm1' }));
     expect(c.unit).toBe('box');
   });
+
+  test('confirmNotDuplicate limpa a marca (admin: "é adicional")', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.record(base({ bottles: 568, source_message_ts: 'm1' }));
+    const c2 = await s.record(base({ bottles: 568, source_message_ts: 'm2' }));
+    expect(c2.possible_duplicate_of).not.toBeNull();
+    const cleared = await s.confirmNotDuplicate(c2.id, 99);
+    expect(cleared.possible_duplicate_of).toBeNull(); // entra na soma do realizado
+    expect(auditActions(db)).toContain('count.confirmed_not_duplicate');
+  });
 });
