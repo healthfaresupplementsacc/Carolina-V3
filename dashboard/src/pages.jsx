@@ -1,6 +1,9 @@
-// HEALTHFARE V3 — SPA — as telas (Bloco 3b: somente leitura).
+// HEALTHFARE V3 — SPA — as telas. Hoje = centro de comando ao vivo.
 import React, { useState } from 'react';
-import { useFetch, fmtDur, fmtTime, fmtDateTime } from './api.js';
+import {
+  useFetch, usePoll, useNow, nyToday, nyMinutes,
+  fmtDur, fmtTime, fmtDateTime,
+} from './api.js';
 import { Loading, ErrorBox, Empty, Metric, ConfBadge, GoalBar, ActivityBlock, FlowLegend } from './ui.jsx';
 
 /** Wrapper: trata loading/erro, senão chama render(data,meta). */
@@ -10,49 +13,288 @@ function View({ st, children }) {
   return children(st.data, st.meta);
 }
 
-// ── HOJE — visão consolidada ───────────────────────────────
-export function Hoje({ date }) {
-  const metrics = useFetch('/metrics?date=' + date, [date]);
-  const timeline = useFetch('/timeline?date=' + date, [date]);
-  const goals = useFetch('/goals?date=' + date, [date]);
-  const prod = useFetch('/production?date=' + date, [date]);
-  const pp = useFetch('/pp?date=' + date, [date]);
-  const sup = useFetch('/support?date=' + date, [date]);
+// ── HOJE — CENTRO DE COMANDO (mapa vivo do dia) ────────────
+// Uma tela só: topo = resumo do dia · centro = timeline de TODOS
+// lado a lado. Ao vivo (poll 12s) quando a data é hoje.
 
-  const m = metrics.data || {};
-  const conf = m.by_confidence || {};
-  const withConf = ['high', 'medium', 'low', 'unconfirmed'].reduce((s, k) => s + (conf[k] || 0), 0);
-  const hm = (conf.high || 0) + (conf.medium || 0);
-  const pct = withConf ? Math.round((hm / withConf) * 100) : null;
-  const eventCount = (timeline.data ? timeline.data.people : []).reduce((s, p) => s + p.events.length, 0);
-  const goalList = goals.data ? goals.data.goals : [];
-  const bateu = goalList.filter((g) => g.bateu === true).length;
+const FLOW_COLOR = { production: 'var(--prod)', pnp: 'var(--pnp)', support: 'var(--support)' };
+
+/** minuto-do-dia (0..1439) de um ISO com offset de NY. */
+const hm = (iso) => (iso ? Number(iso.slice(11, 13)) * 60 + Number(iso.slice(14, 16)) : null);
+
+/** iniciais de um nome (até 2 letras). */
+function initials(name) {
+  const w = String(name || '?').trim().split(/\s+/);
+  return ((w[0] || '?')[0] + (w[1] ? w[1][0] : '')).toUpperCase();
+}
+
+export function Hoje({ date }) {
+  const isToday = date === nyToday();
+  const nowMs = useNow(isToday);                 // tick 1s — só hoje
+  const nowM = isToday ? nyMinutes(nowMs) : null;
+  const POLL = isToday ? 12000 : 0;              // ao vivo só hoje
+
+  const timeline = usePoll('/timeline?date=' + date, [date], POLL);
+  const production = usePoll('/production?date=' + date, [date], POLL);
+  const pp = usePoll('/pp?date=' + date, [date], POLL);
+  const goals = usePoll('/goals?date=' + date, [date], POLL);
+  const counts = usePoll('/counts?date=' + date, [date], POLL);
+  const deadlines = usePoll('/deadlines', [], POLL);
+
+  const people = (timeline.data && timeline.data.people) || [];
+  const lotes = (production.data && production.data.lotes) || [];
+
+  // batch_id → lote (nº + produto) — sem tocar o backend.
+  const batchById = {};
+  for (const l of lotes) if (l.batch_id != null) batchById[l.batch_id] = l;
 
   return (
-    <>
-      <h2>Resumo do dia · {date}</h2>
-      <div className="cards">
-        <Metric label="Processadas" value={metrics.loading ? '…' : (m.total_processed || 0)}
-          sub={'erros: ' + (m.errors || 0)} />
-        <Metric label="Events criados" value={timeline.loading ? '…' : eventCount} />
-        <Metric label="Alta+média confiança" value={pct == null ? '—' : pct + '%'}
-          sub={withConf + ' c/ confiança'} />
-        <Metric label="Custo do dia" value={metrics.loading ? '…' : '$' + Number(m.cost_estimate_usd || 0).toFixed(4)} />
+    <div className="cc">
+      <div className="cc-head">
+        <h2>{isToday ? 'Centro de comando' : 'Centro de comando · ' + date}</h2>
+        <span className="cc-legend">
+          <i style={{ background: 'var(--prod)' }} />Produção
+          <i style={{ background: 'var(--pnp)' }} />P&amp;P
+          <i style={{ background: 'var(--support)' }} />Suporte
+          <span className="muted">&nbsp;🔗 cowork · ⏱ em andamento</span>
+        </span>
       </div>
+      <CCTopo people={people} counts={counts} goals={goals}
+        pp={pp} deadlines={deadlines} production={production} />
+      <CCTimeline people={people} batchById={batchById} isToday={isToday}
+        nowM={nowM} nowMs={nowMs} loading={timeline.loading} error={timeline.error} />
+    </div>
+  );
+}
 
-      <h2>Os 3 fluxos</h2>
-      <div className="cards">
-        <Metric label="Produção" value={prod.loading ? '…' : (prod.data.lotes.length)}
-          sub="lotes trabalhados" />
-        <Metric label="Picking & Packing" value={pp.loading ? '…' : fmtDur(pp.data.total_seconds)}
-          sub="bloco do dia" />
-        <Metric label="Suporte" value={sup.loading ? '…' : (sup.data.occurrences.length)}
-          sub="ocorrências" />
-        <Metric label="Metas" value={goals.loading ? '…' : goalList.length}
-          sub={bateu + ' bateram'} />
+// ── TOPO — resumo do dia ───────────────────────────────────
+function CCTopo({ people, counts, goals, pp, deadlines, production }) {
+  const goalList = (goals.data && goals.data.goals) || [];
+
+  // "começou HH:MM" por meta — 1º event do lote na timeline.
+  const startByGoal = {};
+  for (const g of goalList) {
+    const bid = g.batch && g.batch.id;
+    if (bid == null) continue;
+    let min = null;
+    for (const p of people) for (const e of p.events) {
+      if (e.product_batch_id === bid && e.started_at && (!min || e.started_at < min)) min = e.started_at;
+    }
+    if (min) startByGoal[g.goal_id] = fmtTime(min);
+  }
+
+  // alertas — duplicatas, durações inválidas, conserto/parada.
+  const alerts = [];
+  for (const g of goalList) {
+    const n = (g.duplicatas_suspeitas || []).length;
+    if (n) alerts.push(n + ' contagem(ns) suspeita(s) de duplicata · '
+      + (g.product.canonical_name || g.batch_number));
+  }
+  const invProd = ((production.data && production.data.lotes) || [])
+    .reduce((s, l) => s + (l.invalid_event_count || 0), 0);
+  const invPp = (pp.data && pp.data.invalid_event_count) || 0;
+  if (invProd + invPp) alerts.push((invProd + invPp) + ' event(s) de duração inválida ignorados');
+  for (const p of people) for (const e of p.events) {
+    if (e.activity && e.activity.slug === 'repair') {
+      alerts.push('Conserto/parada · ' + (p.display_name || '?') + ' ' + fmtTime(e.started_at));
+    }
+  }
+
+  return (
+    <div className="cc-topo">
+      <CardProducao counts={counts} />
+      <CardMetas goals={goals} startByGoal={startByGoal} />
+      <CardPP pp={pp} deadlines={deadlines} />
+      <CardAtencao alerts={alerts} loading={goals.loading || production.loading} />
+    </div>
+  );
+}
+
+function CardProducao({ counts }) {
+  const totals = (counts.data && counts.data.totals_by_product) || {};
+  const entries = Object.entries(totals);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  return (
+    <div className="cc-card">
+      <div className="cc-card-h">📦 Produção hoje</div>
+      <div className="cc-big">{counts.loading ? '…' : total}<span className="cc-unit"> garrafas</span></div>
+      <div className="cc-list">
+        {entries.length
+          ? entries.map(([p, v]) => <div key={p}><span>{p}</span><strong>{v}</strong></div>)
+          : <span className="muted small">sem contagem ainda</span>}
       </div>
-      <p className="small muted">Navegue pelas abas pra ver cada fluxo em detalhe.</p>
-    </>
+    </div>
+  );
+}
+
+function CardMetas({ goals, startByGoal }) {
+  const list = (goals.data && goals.data.goals) || [];
+  return (
+    <div className="cc-card">
+      <div className="cc-card-h">🎯 Metas em andamento</div>
+      {goals.loading ? <div className="cc-big">…</div>
+        : !list.length ? <span className="muted small">nenhuma meta hoje</span>
+          : list.map((g) => (
+            <div key={g.goal_id} className="cc-goal">
+              <div className="small">
+                <strong>{g.product.canonical_name || '(produto ?)'}</strong>
+                {' '}<span className="muted">{g.batch_number}</span>
+              </div>
+              <div className="cc-goal-n">
+                {g.realizado}<span className="muted"> / {g.esperado}</span>
+                {g.pct_atingido != null
+                  ? <span style={{ color: g.bateu ? 'var(--ok)' : 'var(--accent)' }}> · {g.pct_atingido}%</span>
+                  : null}
+              </div>
+              <GoalBar pct={g.pct_atingido} bateu={g.bateu} />
+              <div className="small muted">
+                {startByGoal[g.goal_id] ? 'começou ' + startByGoal[g.goal_id] : 'ainda não começou'}
+              </div>
+            </div>
+          ))}
+    </div>
+  );
+}
+
+function CardPP({ pp, deadlines }) {
+  const d = pp.data || {};
+  const dl = ((deadlines.data && deadlines.data.deadlines) || []).find((x) => x.flow === 'pnp');
+  const late = dl && dl.minutes_until_today != null && dl.minutes_until_today < 0;
+  return (
+    <div className="cc-card">
+      <div className="cc-card-h">🚚 P&amp;P do dia</div>
+      <div className="cc-big">{pp.loading ? '…' : fmtDur(d.total_seconds || 0)}</div>
+      <div className="cc-list">
+        <div><span>quantidade</span>
+          <strong>{d.packages == null ? '— sem fonte' : d.packages}</strong></div>
+        {dl ? (
+          <div><span>correio {dl.time_of_day}</span>
+            <strong className={late ? 'downtime' : ''}>
+              {dl.minutes_until_today == null ? '—'
+                : dl.minutes_until_today >= 0 ? 'faltam ' + dl.minutes_until_today + 'm'
+                  : 'passou há ' + (-dl.minutes_until_today) + 'm'}
+            </strong>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CardAtencao({ alerts, loading }) {
+  const n = alerts.length;
+  return (
+    <div className={'cc-card cc-atencao' + (n ? ' on' : '')}>
+      <div className="cc-card-h">{n ? '⚠ Atenção' : '✓ Tudo certo'}</div>
+      <div className="cc-big">{loading ? '…' : n}</div>
+      <div className="cc-list">
+        {n ? alerts.map((a, i) => <div key={i} className="cc-alert">{a}</div>)
+          : <span className="muted small">nenhum alerta</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── CENTRO — timeline de TODOS lado a lado ─────────────────
+function CCTimeline({ people, batchById, isToday, nowM, nowMs, loading, error }) {
+  if (error) return <ErrorBox error={error} />;
+  if (loading && !people.length) return <Loading />;
+  if (!people.length) return <Empty>Nenhuma atividade nesse dia ainda.</Empty>;
+
+  // janela de horas — do 1º início ao último fim (ou agora).
+  let minM = Infinity;
+  let maxM = -Infinity;
+  for (const p of people) {
+    for (const e of p.events) {
+      const s = hm(e.started_at);
+      if (s == null) continue;
+      if (s < minM) minM = s;
+      const en = e.ended_at ? hm(e.ended_at) : (isToday ? nowM : s + 30);
+      if (en > maxM) maxM = en;
+    }
+  }
+  if (!Number.isFinite(minM)) { minM = 8 * 60; maxM = 18 * 60; }
+  if (isToday && nowM > maxM) maxM = nowM;
+  const startH = Math.floor(minM / 60);
+  let endH = Math.ceil(maxM / 60);
+  if (endH - startH < 2) endH = startH + 2;
+  const rangeStart = startH * 60;
+  const rangeEnd = endH * 60;
+  const span = rangeEnd - rangeStart;
+  const pct = (m) => ((m - rangeStart) / span) * 100;
+  const hours = [];
+  for (let h = startH; h <= endH; h++) hours.push(h);
+  const showNow = isToday && nowM >= rangeStart && nowM <= rangeEnd;
+
+  return (
+    <div className="cc-timeline">
+      <div className="cc-grid" style={{ '--hp': (100 / (endH - startH)) + '%' }}>
+        <div className="cc-axis">
+          <div className="cc-name cc-axis-name">{isToday ? '● AO VIVO' : 'histórico'}</div>
+          <div className="cc-track cc-axis-track">
+            {hours.map((h) => (
+              <span key={h} className="cc-tick" style={{ left: pct(h * 60) + '%' }}>{h}h</span>
+            ))}
+            {showNow ? <span className="cc-now" style={{ left: pct(nowM) + '%' }} /> : null}
+          </div>
+        </div>
+        {people.map((p) => (
+          <CCRow key={p.person_id} person={p} batchById={batchById} isToday={isToday}
+            nowM={nowM} nowMs={nowMs} pct={pct}
+            rangeStart={rangeStart} rangeEnd={rangeEnd} showNow={showNow} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CCRow({ person, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, showNow }) {
+  return (
+    <div className="cc-row">
+      <div className="cc-name">
+        <span className="cc-avatar">{initials(person.display_name)}</span>
+        <span className="cc-pname">{person.display_name || ('#' + person.person_id)}</span>
+      </div>
+      <div className="cc-track">
+        {person.events.map((e) => (
+          <CCBlock key={e.event_id} ev={e} batchById={batchById} isToday={isToday}
+            nowM={nowM} nowMs={nowMs} pct={pct} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+        ))}
+        {showNow ? <span className="cc-now" style={{ left: pct(nowM) + '%' }} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function CCBlock({ ev, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd }) {
+  const startM = hm(ev.started_at);
+  if (startM == null) return null;
+  const live = !ev.ended_at && isToday;
+  let endM = ev.ended_at ? hm(ev.ended_at) : (isToday ? nowM : startM + 20);
+  if (endM <= startM) endM = startM + 6;
+  const left = Math.max(0, pct(Math.max(startM, rangeStart)));
+  const right = Math.min(100, pct(Math.min(endM, rangeEnd)));
+  const width = Math.max(1.4, right - left);
+
+  const flow = ev.flow || (ev.activity && ev.activity.category) || null;
+  const fn = ev.activity ? ev.activity.display_name : '?';
+  const batch = ev.product_batch_id != null ? batchById[ev.product_batch_id] : null;
+  const prod = batch && batch.product ? batch.product.canonical_name : null;
+  const cowork = (ev.cowork_with || []).length > 0;
+  const elapsed = live ? fmtDur((nowMs - Date.parse(ev.started_at)) / 1000) : null;
+  const title = fn + (prod ? ' · ' + prod : '') + ' · '
+    + fmtTime(ev.started_at) + '→' + (ev.ended_at ? fmtTime(ev.ended_at) : 'agora')
+    + (cowork ? ' · cowork' : '');
+
+  return (
+    <span className={'cc-block' + (live ? ' live' : '') + (cowork ? ' cowork' : '')}
+      style={{ left: left + '%', width: width + '%', background: FLOW_COLOR[flow] || 'var(--panel2)' }}
+      title={title}>
+      <span className="cc-bk-fn">{fn}</span>
+      {prod ? <span className="cc-bk-pr">{prod}</span> : null}
+      {cowork ? <span className="cc-bk-link">🔗</span> : null}
+      {live ? <span className="cc-bk-live">⏱ {elapsed}</span> : null}
+    </span>
   );
 }
 
