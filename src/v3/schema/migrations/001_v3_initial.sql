@@ -59,17 +59,27 @@ CREATE TABLE v3.shared_account_users (
   UNIQUE(shared_account_id, person_id)
 );
 
--- 4 ── v3.activity_types ─────────────────────────────────────
+-- 4 ── v3.flows + v3.activity_types ──────────────────────────
+-- v3.flows: os 3 fluxos independentes (Bloco 1 / migration 004).
+CREATE TABLE v3.flows (
+  slug         TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  is_ordered   BOOLEAN NOT NULL DEFAULT false,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE v3.activity_types (
   id               SERIAL PRIMARY KEY,
   slug             TEXT NOT NULL UNIQUE,
   display_name     TEXT NOT NULL,
   category         TEXT NOT NULL
-                     CHECK (category IN ('production_phase','support','meta')),
+                     CHECK (category IN ('production_phase','support','meta','pnp_phase')),
   requires_product BOOLEAN NOT NULL DEFAULT false,
   emoji            TEXT,
   color            TEXT,
-  active           BOOLEAN NOT NULL DEFAULT true
+  active           BOOLEAN NOT NULL DEFAULT true,
+  flow             TEXT REFERENCES v3.flows(slug),  -- Bloco 1: fluxo do activity_type
+  phase_order      INTEGER                          -- Bloco 1: posição na sequência
 );
 
 -- 5 ── v3.products ───────────────────────────────────────────
@@ -114,6 +124,7 @@ CREATE TABLE v3.events (
                          CHECK (confidence IN ('high','medium','low','unconfirmed')),
   cowork_with         INTEGER[] NOT NULL DEFAULT '{}',
   closed_reason       TEXT,
+  flow_override       TEXT REFERENCES v3.flows(slug),  -- Bloco 1: override opcional de fluxo
   last_stale_check_at TIMESTAMPTZ,
   stale_check_count   INTEGER NOT NULL DEFAULT 0,
   deleted_at          TIMESTAMPTZ,
