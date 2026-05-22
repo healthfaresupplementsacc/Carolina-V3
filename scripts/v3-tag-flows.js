@@ -28,7 +28,7 @@ const FLOW_MAP = {
   encapsulation:   { flow: 'production', phase_order: 3 },
   review:          { flow: 'production', phase_order: 4 },
   production_line: { flow: 'production', phase_order: 5 },
-  counting:        { flow: 'production', phase_order: 6 },
+  counting:        { flow: 'production', phase_order: null }, // atividade opcional — fora da esteira
   // FLUXO P&P (ordenado) — category vira 'pnp_phase'
   labeling:        { flow: 'pnp', phase_order: 3, category: 'pnp_phase' },
   packaging:       { flow: 'pnp', phase_order: 4, category: 'pnp_phase' },

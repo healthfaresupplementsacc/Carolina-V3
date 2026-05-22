@@ -86,8 +86,15 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
     expect(repos.messages.messagesByDay).toHaveBeenCalledWith('2026-05-21', { limit: '20' });
   });
 
-  test('15 endpoints registrados, todos sob /api/v3/data/', () => {
-    expect(ENDPOINTS).toHaveLength(15);
+  test('/flows → catalog.flows()', async () => {
+    const repos = { catalog: { flows: jest.fn(async () => ({ flows: [{ slug: 'pnp', mode: 'block' }] })) } };
+    const out = await epByPath('/api/v3/data/flows').handler({ query: {}, params: {} }, repos);
+    expect(repos.catalog.flows).toHaveBeenCalled();
+    expect(out.data.flows[0].mode).toBe('block');
+  });
+
+  test('16 endpoints registrados, todos sob /api/v3/data/', () => {
+    expect(ENDPOINTS).toHaveLength(16);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
   });
 });

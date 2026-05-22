@@ -121,7 +121,7 @@ class PromptBuilder {
         db.query('SELECT id, display_name, role FROM v3.persons WHERE active = true AND deleted_at IS NULL'),
         db.query('SELECT person_id, activity_type_id, started_at, phase_label FROM v3.events WHERE ended_at IS NULL AND deleted_at IS NULL'),
         db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true ORDER BY canonical_name'),
-        db.query('SELECT id, slug, display_name, category, requires_product FROM v3.activity_types WHERE active = true'),
+        db.query('SELECT id, slug, display_name, category, requires_product, flow, phase_order FROM v3.activity_types WHERE active = true'),
         db.query(`SELECT b.id, b.batch_number, b.started_at, b.product_id, p.canonical_name AS product_name
                   FROM v3.product_batches b JOIN v3.products p ON p.id = b.product_id
                   WHERE b.status = 'in_progress' AND b.deleted_at IS NULL`),
@@ -203,11 +203,35 @@ class PromptBuilder {
         `- product_id=${p.id} "${p.canonical_name}" aliases=[${(p.aliases || []).join(', ')}]`).join('\n')]);
     }
 
-    // ACTIVITY TYPES
+    // ACTIVITY TYPES — agrupados por FLUXO. Os 3 fluxos são INDEPENDENTES
+    // e rodam em paralelo; NÃO misture P&P com produção (erro do legado).
     if (ctx.activityTypes.length) {
-      sec.push(['TIPOS DE ATIVIDADE', ctx.activityTypes.map((a) =>
-        `- activity_type_id=${a.id} ${a.slug} "${a.display_name}" (${a.category}`
-        + `${a.requires_product ? ', requer produto' : ''})`).join('\n')]);
+      const FLOW_LABEL = {
+        production: 'PRODUÇÃO — fabricar suplementos; esteira de fases por lote',
+        pnp: 'PICKING & PACKING — enviar pedidos do estoque; bloco do dia (sub-passos)',
+        support: 'SUPORTE — tarefas avulsas, não presas a lote',
+      };
+      const at = ctx.activityTypes;
+      const lines = [];
+      for (const flow of ['production', 'pnp', 'support']) {
+        const inFlow = at.filter((a) => a.flow === flow)
+          .sort((x, y) => (x.phase_order || 99) - (y.phase_order || 99));
+        if (!inFlow.length) continue;
+        lines.push(`FLUXO ${FLOW_LABEL[flow] || flow}:`);
+        for (const a of inFlow) {
+          const ph = a.phase_order ? ` [fase ${a.phase_order}]` : '';
+          lines.push(`  - activity_type_id=${a.id} ${a.slug} "${a.display_name}"${ph}`
+            + `${a.requires_product ? ' (requer produto)' : ''}`);
+        }
+      }
+      const semFluxo = at.filter((a) => !a.flow);
+      if (semFluxo.length) {
+        lines.push('SEM FLUXO (não classificado):');
+        for (const a of semFluxo) {
+          lines.push(`  - activity_type_id=${a.id} ${a.slug} "${a.display_name}"`);
+        }
+      }
+      sec.push(['TIPOS DE ATIVIDADE (por fluxo)', lines.join('\n')]);
     }
 
     // BATCHES ATIVOS

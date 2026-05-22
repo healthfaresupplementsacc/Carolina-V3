@@ -43,11 +43,24 @@ class CatalogRepo {
     };
   }
 
-  /** Tipos de atividade (Bloco 1 vai anexar fluxo/fase aqui). */
+  /** Os 3 fluxos (Bloco 1) + o modo de medição de cada um. */
+  async flows() {
+    const r = await this.db.query(
+      'SELECT slug, display_name, mode FROM v3.flows ORDER BY slug');
+    return {
+      flows: (r.rows || []).map((f) => ({
+        slug: f.slug,
+        display_name: f.display_name,
+        mode: f.mode, // ordered | block | loose
+      })),
+    };
+  }
+
+  /** Tipos de atividade — com fluxo e ordem de fase (Bloco 1). */
   async activityTypes() {
     const r = await this.db.query(
-      `SELECT id, slug, display_name, category, requires_product, active
-       FROM v3.activity_types ORDER BY display_name`);
+      `SELECT id, slug, display_name, category, requires_product, active, flow, phase_order
+       FROM v3.activity_types ORDER BY flow, phase_order NULLS LAST, display_name`);
     return {
       activity_types: (r.rows || []).map((a) => ({
         id: a.id,
@@ -56,6 +69,8 @@ class CatalogRepo {
         category: a.category,
         requires_product: !!a.requires_product,
         active: a.active !== false,
+        flow: a.flow || null,
+        phase_order: a.phase_order != null ? a.phase_order : null,
       })),
     };
   }

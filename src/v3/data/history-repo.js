@@ -37,10 +37,10 @@ class HistoryRepo {
     const { from, to } = resolveRange(opts);
     const r = await this.db.query(
       `SELECT e.id, e.started_at, e.ended_at, e.confidence, e.cowork_with,
-              e.product_batch_id,
+              e.product_batch_id, e.flow_override,
               (e.started_at AT TIME ZONE 'America/New_York')::date AS ny_day,
               at.slug AS activity_slug, at.display_name AS activity_name,
-              at.category AS activity_category
+              at.category AS activity_category, at.flow AS activity_flow
        FROM v3.events e
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
        WHERE e.deleted_at IS NULL AND e.person_id = $1
@@ -56,6 +56,7 @@ class HistoryRepo {
         activity: e.activity_name
           ? { slug: e.activity_slug, display_name: e.activity_name, category: e.activity_category }
           : null,
+        flow: e.flow_override || e.activity_flow || null,
         started_at: toNyIso(e.started_at),
         ended_at: toNyIso(e.ended_at),
         confidence: e.confidence || null,

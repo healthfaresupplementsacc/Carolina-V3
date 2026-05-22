@@ -99,6 +99,8 @@ const ENDPOINTS = [
     handler: async (req, r) => ({ data: await r.health.workerHealth() }) },
   { path: '/api/v3/data/vocabulary',
     handler: async (req, r) => ({ data: await r.vocabulary.pending() }) },
+  { path: '/api/v3/data/flows',
+    handler: async (req, r) => ({ data: await r.catalog.flows() }) },
   { path: '/api/v3/data/catalog/persons',
     handler: async (req, r) => ({ data: await r.catalog.persons() }) },
   { path: '/api/v3/data/catalog/products',

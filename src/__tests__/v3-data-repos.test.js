@@ -99,17 +99,28 @@ describe('V3 data — VocabularyRepo', () => {
 });
 
 describe('V3 data — CatalogRepo', () => {
-  test('persons / products / activityTypes mapeiam o shape estável', async () => {
+  test('persons / products / activityTypes mapeiam o shape estável (com fluxo)', async () => {
     const db = makeDb([
       { match: /FROM v3\.persons WHERE deleted_at/, rows: [{ id: 4, display_name: 'Vitor', role: 'operator', slack_user_id: 'U08JC85HMNE', active: true }] },
       { match: /FROM v3\.products ORDER BY/, rows: [{ id: 67, canonical_name: 'Vitamin B2', aliases: ['vita b2'], active: true }] },
-      { match: /FROM v3\.activity_types ORDER BY/, rows: [{ id: 5, slug: 'production_line', display_name: 'Linha de Produção', category: 'production_phase', requires_product: true, active: true }] },
+      { match: /FROM v3\.activity_types ORDER BY/, rows: [{ id: 5, slug: 'production_line', display_name: 'Linha de Produção', category: 'production_phase', requires_product: true, active: true, flow: 'production', phase_order: 5 }] },
     ]);
     const repo = new CatalogRepo({ db });
     expect((await repo.persons()).persons[0].display_name).toBe('Vitor');
     expect((await repo.products()).products[0].aliases).toEqual(['vita b2']);
     const at = (await repo.activityTypes()).activity_types[0];
-    expect(at).toMatchObject({ slug: 'production_line', category: 'production_phase', requires_product: true });
+    expect(at).toMatchObject({ slug: 'production_line', flow: 'production', phase_order: 5 });
+  });
+
+  test('flows() devolve os 3 fluxos com o mode', async () => {
+    const db = makeDb([{ match: /FROM v3\.flows ORDER BY/, rows: [
+      { slug: 'production', display_name: 'Produção', mode: 'ordered' },
+      { slug: 'pnp', display_name: 'Picking & Packing', mode: 'block' },
+      { slug: 'support', display_name: 'Suporte', mode: 'loose' },
+    ] }]);
+    const out = await new CatalogRepo({ db }).flows();
+    expect(out.flows).toHaveLength(3);
+    expect(out.flows.find((f) => f.slug === 'pnp').mode).toBe('block');
   });
 });
 
@@ -223,12 +234,13 @@ describe('V3 data — TimelineRepo', () => {
   const ev = (over) => Object.assign({
     id: 1, person_id: 4, activity_type_id: 5, product_batch_id: null,
     started_at: '2026-05-21T12:00:00Z', ended_at: null, confidence: 'high', cowork_with: [],
-    phase_label: null, description: null, source_message_ts: 't.1',
+    phase_label: null, description: null, source_message_ts: 't.1', flow_override: null,
     person_name: 'Vitor', person_role: 'operator',
     activity_slug: 'production_line', activity_name: 'Linha de Produção', activity_category: 'production_phase',
+    activity_flow: 'production', activity_phase_order: 5,
   }, over);
 
-  test('eventsByDay agrupa por pessoa e dá o shape do event', async () => {
+  test('eventsByDay agrupa por pessoa e dá o shape do event (com flow)', async () => {
     const db = makeDb([{ match: /FROM v3\.events e .* WHERE e\.deleted_at IS NULL AND \(e\.started_at/, rows: [
       ev({ id: 1, person_id: 4, person_name: 'Vitor' }),
       ev({ id: 2, person_id: 6, person_name: 'Ana', activity_name: 'Revisão' }),
@@ -237,10 +249,19 @@ describe('V3 data — TimelineRepo', () => {
     expect(out.people).toHaveLength(2);
     const vitor = out.people.find((p) => p.display_name === 'Vitor');
     expect(vitor.events[0]).toMatchObject({
-      event_id: 1, activity: { slug: 'production_line', category: 'production_phase' },
+      event_id: 1, flow: 'production',
+      activity: { slug: 'production_line', category: 'production_phase', phase_order: 5 },
     });
     // timestamps saem em ISO com offset de NY (-04:00 EDT / -05:00 EST), não UTC Z
     expect(vitor.events[0].started_at).toMatch(/^2026-05-21T\d{2}:\d{2}:\d{2}-0[45]:00$/);
+  });
+
+  test('flow_override do event vence o flow derivado do activity_type', async () => {
+    const db = makeDb([{ match: /FROM v3\.events e .* WHERE e\.deleted_at IS NULL AND \(e\.started_at/, rows: [
+      ev({ id: 9, activity_flow: 'production', flow_override: 'support' }),
+    ] }]);
+    const out = await new TimelineRepo({ db }).eventsByDay('2026-05-21');
+    expect(out.people[0].events[0].flow).toBe('support'); // override > derivado
   });
 
   test('eventsByPersonDay filtra por pessoa (param) e devolve só ela', async () => {

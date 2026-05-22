@@ -88,12 +88,27 @@ describe('V3 §2.7 — seções dinâmicas', () => {
 
   test('activity_types e batches ativos incluídos', async () => {
     const db = makeFakeDb({
-      activityTypes: [{ id: 10, slug: 'formulation', display_name: 'Formulação', category: 'production_phase', requires_product: true }],
+      activityTypes: [{ id: 10, slug: 'formulation', display_name: 'Formulação', category: 'production_phase', requires_product: true, flow: 'production', phase_order: 1 }],
       batches: [{ id: 1, batch_number: '0136', started_at: '2026-05-20T09:00:00.000Z', product_id: 5, product_name: 'Plant Sterols' }],
     });
     const r = await new PromptBuilder({ db }).buildContext(MSG, { author: AUTHOR });
     expect(r.userContent).toContain('activity_type_id=10 formulation');
     expect(r.userContent).toMatch(/product_batch_id=1 "Plant Sterols" batch 0136/);
+  });
+
+  test('Bloco 1 — activity_types agrupados por fluxo no prompt', async () => {
+    const db = makeFakeDb({
+      activityTypes: [
+        { id: 1, slug: 'formulation', display_name: 'Formulação', category: 'production_phase', requires_product: true, flow: 'production', phase_order: 1 },
+        { id: 15, slug: 'orders', display_name: 'Ordens (P&P)', category: 'pnp_phase', requires_product: false, flow: 'pnp', phase_order: null },
+        { id: 9, slug: 'cleaning', display_name: 'Limpeza', category: 'support', requires_product: false, flow: 'support', phase_order: null },
+      ],
+    });
+    const r = await new PromptBuilder({ db }).buildContext(MSG, { author: AUTHOR });
+    expect(r.userContent).toMatch(/FLUXO PRODUÇÃO/);
+    expect(r.userContent).toMatch(/FLUXO PICKING & PACKING/);
+    expect(r.userContent).toMatch(/FLUXO SUPORTE/);
+    expect(r.userContent).toContain('[fase 1]'); // ordem da fase de produção
   });
 
   test('mensagens do canal em ordem cronológica', async () => {

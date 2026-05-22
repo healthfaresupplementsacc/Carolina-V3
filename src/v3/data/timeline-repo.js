@@ -20,8 +20,11 @@ function shapeEvent(e) {
         slug: e.activity_slug || null,
         display_name: e.activity_name || null,
         category: e.activity_category || null,
+        phase_order: e.activity_phase_order != null ? e.activity_phase_order : null,
       }
       : null,
+    // fluxo efetivo: override do event vence o derivado do activity_type.
+    flow: e.flow_override || e.activity_flow || null,
     started_at: toNyIso(e.started_at),
     ended_at: toNyIso(e.ended_at),
     confidence: e.confidence || null,
@@ -35,10 +38,11 @@ function shapeEvent(e) {
 
 const EVENT_COLUMNS = `e.id, e.person_id, e.activity_type_id, e.product_batch_id,
             e.started_at, e.ended_at, e.confidence, e.cowork_with,
-            e.phase_label, e.description, e.source_message_ts,
+            e.phase_label, e.description, e.source_message_ts, e.flow_override,
             p.display_name AS person_name, p.role AS person_role,
             at.slug AS activity_slug, at.display_name AS activity_name,
-            at.category AS activity_category`;
+            at.category AS activity_category, at.flow AS activity_flow,
+            at.phase_order AS activity_phase_order`;
 
 class TimelineRepo {
   constructor(deps = {}) {
