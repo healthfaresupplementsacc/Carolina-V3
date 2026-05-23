@@ -85,8 +85,59 @@ export function fmtDur(sec) {
   if (m) return `${m}m`;
   return `${s}s`;
 }
-export const fmtTime = (iso) => (iso ? String(iso).slice(11, 16) : '—');
-export const fmtDateTime = (iso) => (iso ? String(iso).slice(0, 16).replace('T', ' ') : '—');
+/** Hora curta 12h AM/PM no fuso NY (ex.: "1:45 PM"). */
+export function fmtTime(iso) {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(new Date(iso));
+}
+
+/** Data + hora 12h AM/PM no fuso NY (ex.: "May 22, 1:45 PM"). */
+export function fmtDateTime(iso) {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(new Date(iso));
+}
+
+/** Cronômetro h:mm:ss (precisão de segundo). Pra ao-vivo + duração total. */
+export function fmtClock(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h) return `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  return `${m}:${String(ss).padStart(2, '0')}`;
+}
+
+/** Minutos absolutos → "Xmin" / "Xh" / "Xh Ymin". Pra "faltam 420m" → "7h". */
+export function fmtMinutes(n) {
+  const abs = Math.abs(Math.round(Number(n) || 0));
+  if (abs < 60) return abs + 'min';
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return m === 0 ? h + 'h' : h + 'h ' + m + 'min';
+}
+
+/** Hora do eixo: 0 → "12 AM", 12 → "12 PM", 13 → "1 PM". */
+export function fmtHour12(h) {
+  const hh = ((h % 24) + 24) % 24;
+  if (hh === 0) return '12 AM';
+  if (hh === 12) return '12 PM';
+  return hh < 12 ? hh + ' AM' : (hh - 12) + ' PM';
+}
+
+/** "HH:MM" (24h) → "h:MM AM/PM". Aceita deadline.time_of_day. */
+export function fmt12hHHMM(hhmm) {
+  if (!hhmm) return '—';
+  const [h, m] = String(hhmm).split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  const ampm = h < 12 ? 'AM' : 'PM';
+  const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
 
 /** Data de hoje YYYY-MM-DD no fuso America/New_York. */
 export function nyToday() {

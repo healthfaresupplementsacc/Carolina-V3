@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
   useFetch, usePoll, useNow, nyToday, nyMinutes,
-  fmtDur, fmtTime, fmtDateTime,
+  fmtDur, fmtTime, fmtDateTime, fmtClock, fmtMinutes, fmtHour12, fmt12hHHMM,
 } from './api.js';
 import { Loading, ErrorBox, Empty, Metric, ConfBadge, GoalBar, ActivityBlock, FlowLegend } from './ui.jsx';
 
@@ -33,6 +33,7 @@ export function Hoje({ date }) {
   const nowMs = useNow(isToday);                 // tick 1s — só hoje
   const nowM = isToday ? nyMinutes(nowMs) : null;
   const POLL = isToday ? 12000 : 0;              // ao vivo só hoje
+  const [sel, setSel] = useState(null);          // event selecionado p/ detalhe
 
   const timeline = usePoll('/timeline?date=' + date, [date], POLL);
   const production = usePoll('/production?date=' + date, [date], POLL);
@@ -49,20 +50,26 @@ export function Hoje({ date }) {
   for (const l of lotes) if (l.batch_id != null) batchById[l.batch_id] = l;
 
   return (
-    <div className="cc">
+    <div className={'cc' + (sel ? ' cc-with-detail' : '')}>
       <div className="cc-head">
         <h2>{isToday ? 'Centro de comando' : 'Centro de comando · ' + date}</h2>
         <span className="cc-legend">
           <i style={{ background: 'var(--prod)' }} />Produção
           <i style={{ background: 'var(--pnp)' }} />P&amp;P
           <i style={{ background: 'var(--support)' }} />Suporte
-          <span className="muted">&nbsp;🔗 cowork · ⏱ em andamento</span>
+          <span className="muted">&nbsp;🔗 cowork · ⏱ em andamento · ⏰ passou esperado</span>
         </span>
       </div>
       <CCTopo people={people} counts={counts} goals={goals}
         pp={pp} deadlines={deadlines} production={production} />
       <CCTimeline people={people} batchById={batchById} isToday={isToday}
-        nowM={nowM} nowMs={nowMs} loading={timeline.loading} error={timeline.error} />
+        nowM={nowM} nowMs={nowMs} loading={timeline.loading} error={timeline.error}
+        selected={sel} onSelect={setSel} />
+      {sel ? (
+        <CCDetail ev={sel.ev} person={sel.person} people={people}
+          batchById={batchById} isToday={isToday} nowMs={nowMs}
+          onClose={() => setSel(null)} />
+      ) : null}
     </div>
   );
 }
@@ -168,11 +175,11 @@ function CardPP({ pp, deadlines }) {
         <div><span>quantidade</span>
           <strong>{d.packages == null ? '— sem fonte' : d.packages}</strong></div>
         {dl ? (
-          <div><span>correio {dl.time_of_day}</span>
+          <div><span>correio {fmt12hHHMM(dl.time_of_day)}</span>
             <strong className={late ? 'downtime' : ''}>
               {dl.minutes_until_today == null ? '—'
-                : dl.minutes_until_today >= 0 ? 'faltam ' + dl.minutes_until_today + 'm'
-                  : 'passou há ' + (-dl.minutes_until_today) + 'm'}
+                : dl.minutes_until_today >= 0 ? 'faltam ' + fmtMinutes(dl.minutes_until_today)
+                  : 'passou há ' + fmtMinutes(-dl.minutes_until_today)}
             </strong>
           </div>
         ) : null}
@@ -196,7 +203,7 @@ function CardAtencao({ alerts, loading }) {
 }
 
 // ── CENTRO — timeline de TODOS lado a lado ─────────────────
-function CCTimeline({ people, batchById, isToday, nowM, nowMs, loading, error }) {
+function CCTimeline({ people, batchById, isToday, nowM, nowMs, loading, error, selected, onSelect }) {
   if (error) return <ErrorBox error={error} />;
   if (loading && !people.length) return <Loading />;
   if (!people.length) return <Empty>Nenhuma atividade nesse dia ainda.</Empty>;
@@ -233,7 +240,7 @@ function CCTimeline({ people, batchById, isToday, nowM, nowMs, loading, error })
           <div className="cc-name cc-axis-name">{isToday ? '● AO VIVO' : 'histórico'}</div>
           <div className="cc-track cc-axis-track">
             {hours.map((h) => (
-              <span key={h} className="cc-tick" style={{ left: pct(h * 60) + '%' }}>{h}h</span>
+              <span key={h} className="cc-tick" style={{ left: pct(h * 60) + '%' }}>{fmtHour12(h)}</span>
             ))}
             {showNow ? <span className="cc-now" style={{ left: pct(nowM) + '%' }} /> : null}
           </div>
@@ -241,24 +248,37 @@ function CCTimeline({ people, batchById, isToday, nowM, nowMs, loading, error })
         {people.map((p) => (
           <CCRow key={p.person_id} person={p} batchById={batchById} isToday={isToday}
             nowM={nowM} nowMs={nowMs} pct={pct}
-            rangeStart={rangeStart} rangeEnd={rangeEnd} showNow={showNow} />
+            rangeStart={rangeStart} rangeEnd={rangeEnd} showNow={showNow}
+            selectedEvId={selected && selected.ev ? selected.ev.event_id : null}
+            onSelect={onSelect} />
         ))}
       </div>
     </div>
   );
 }
 
-function CCRow({ person, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, showNow }) {
+function CCRow({ person, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, showNow, selectedEvId, onSelect }) {
+  // B.4 — idle por pessoa. Read-side já calcula em /timeline. âmbar a partir de 30min.
+  const idleSec = person.idle_seconds || 0;
+  const idleHot = idleSec >= 30 * 60;
   return (
     <div className="cc-row">
       <div className="cc-name">
         <span className="cc-avatar">{initials(person.display_name)}</span>
-        <span className="cc-pname">{person.display_name || ('#' + person.person_id)}</span>
+        <div className="cc-pname-wrap">
+          <span className="cc-pname">{person.display_name || ('#' + person.person_id)}</span>
+          {idleSec > 0 ? (
+            <span className={'cc-idle' + (idleHot ? ' hot' : '')} title={'tempo ocioso entre atividades hoje'}>
+              idle {fmtDur(idleSec)}
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="cc-track">
         {person.events.map((e) => (
-          <CCBlock key={e.event_id} ev={e} batchById={batchById} isToday={isToday}
-            nowM={nowM} nowMs={nowMs} pct={pct} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+          <CCBlock key={e.event_id} ev={e} person={person} batchById={batchById} isToday={isToday}
+            nowM={nowM} nowMs={nowMs} pct={pct} rangeStart={rangeStart} rangeEnd={rangeEnd}
+            selected={selectedEvId === e.event_id} onSelect={onSelect} />
         ))}
         {showNow ? <span className="cc-now" style={{ left: pct(nowM) + '%' }} /> : null}
       </div>
@@ -266,7 +286,75 @@ function CCRow({ person, batchById, isToday, nowM, nowMs, pct, rangeStart, range
   );
 }
 
-function CCBlock({ ev, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd }) {
+// B.3 — Painel lateral de detalhe (360px desktop, fullscreen mobile).
+// Read-only por enquanto (B.5 adiciona "editar"; B.6 adiciona "+ novo").
+function CCDetail({ ev, person, people, batchById, isToday, nowMs, onClose }) {
+  if (!ev) return null;
+  const live = !ev.ended_at && isToday;
+  const elapsedSec = live
+    ? (nowMs - Date.parse(ev.started_at)) / 1000
+    : (ev.ended_at ? (Date.parse(ev.ended_at) - Date.parse(ev.started_at)) / 1000 : null);
+  const batch = ev.product_batch_id != null ? batchById[ev.product_batch_id] : null;
+  const prod = batch && batch.product ? batch.product.canonical_name : null;
+  const cowork = (ev.cowork_with || []).map((id) => {
+    const p = people.find((x) => x.person_id === id);
+    return p ? p.display_name : ('#' + id);
+  });
+  const kind = ev.activity
+    ? (ev.activity.category === 'meta' ? 'meta'
+      : (ev.activity.is_background ? 'background' : 'foreground'))
+    : 'foreground';
+  const expected = ev.activity ? ev.activity.expected_seconds : null;
+  const overrun = ev.activity && ev.activity.is_background && expected != null
+    && elapsedSec != null && elapsedSec > expected;
+  return (
+    <aside className="cc-detail" role="dialog" aria-label="Detalhe do evento">
+      <header className="cc-detail-h">
+        <div>
+          <div className="cc-detail-title">{person.display_name || ('#' + person.person_id)}</div>
+          <div className="cc-detail-sub">
+            <span className="cc-detail-kind" data-kind={kind}>{kind}</span>
+            {' '}{ev.activity ? ev.activity.display_name : '(sem atividade)'}
+            {ev.activity && ev.activity.slug ? <span className="muted small"> · {ev.activity.slug}</span> : null}
+          </div>
+        </div>
+        <button className="cc-detail-close" onClick={onClose} aria-label="fechar">×</button>
+      </header>
+
+      <dl className="cc-detail-fields">
+        <dt>Fluxo</dt><dd>{ev.flow || '—'}</dd>
+        <dt>Entrada</dt><dd>{fmtTime(ev.started_at)} <span className="muted small">({fmtDateTime(ev.started_at)})</span></dd>
+        <dt>Saída</dt><dd>{ev.ended_at ? fmtTime(ev.ended_at) : <em className="muted">em andamento</em>}</dd>
+        <dt>Duração</dt><dd>
+          {elapsedSec != null ? fmtClock(elapsedSec) : '—'}
+          {live ? <span className="muted small"> · contando</span> : null}
+        </dd>
+        {prod ? (<><dt>Produto</dt><dd>{prod} <span className="muted small">/ {batch.batch_number}</span></dd></>) : null}
+        {ev.quantity != null ? (<><dt>Quantidade</dt><dd>{ev.quantity} {ev.quantity_unit || ''}</dd></>) : null}
+        {cowork.length ? (<><dt>Cowork</dt><dd>{cowork.join(', ')}</dd></>) : null}
+        {expected != null ? (
+          <><dt>Esperado</dt>
+            <dd>
+              {fmtClock(expected)}
+              {overrun ? <strong className="downtime"> ⏰ passou {Math.round((elapsedSec - expected) / 60)}min</strong> : null}
+            </dd></>
+        ) : null}
+        <dt>Confiança</dt><dd><ConfBadge value={ev.confidence} /></dd>
+        {ev.phase_label ? (<><dt>Phase</dt><dd>{ev.phase_label}</dd></>) : null}
+        {ev.description ? (<><dt>Descrição</dt><dd className="cc-detail-desc">{ev.description}</dd></>) : null}
+        {ev.source_message_ts ? (<><dt>Slack ts</dt><dd className="muted small">{ev.source_message_ts}</dd></>) : null}
+        {ev.closed_reason ? (<><dt>Fechamento</dt><dd className="muted">{ev.closed_reason}</dd></>) : null}
+        <dt>ID</dt><dd className="muted small">ev {ev.event_id}</dd>
+      </dl>
+
+      <footer className="cc-detail-foot">
+        <span className="muted small">Editar/apagar/criar — bloco B.EDIÇÃO (depois).</span>
+      </footer>
+    </aside>
+  );
+}
+
+function CCBlock({ ev, person, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, selected, onSelect }) {
   const startM = hm(ev.started_at);
   if (startM == null) return null;
   const live = !ev.ended_at && isToday;
@@ -281,19 +369,44 @@ function CCBlock({ ev, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEn
   const batch = ev.product_batch_id != null ? batchById[ev.product_batch_id] : null;
   const prod = batch && batch.product ? batch.product.canonical_name : null;
   const cowork = (ev.cowork_with || []).length > 0;
-  const elapsed = live ? fmtDur((nowMs - Date.parse(ev.started_at)) / 1000) : null;
+
+  // B.2 — cronômetro h:mm:ss: live = tempo correndo; fechado = duração final congelada.
+  const elapsedSec = live
+    ? (nowMs - Date.parse(ev.started_at)) / 1000
+    : (ev.ended_at ? (Date.parse(ev.ended_at) - Date.parse(ev.started_at)) / 1000 : null);
+  const clockStr = (elapsedSec != null && elapsedSec > 0) ? fmtClock(elapsedSec) : null;
+
+  // B.4 — alerta background passou do expected_seconds.
+  const expected = ev.activity ? ev.activity.expected_seconds : null;
+  const isBg = ev.activity ? ev.activity.is_background === true : false;
+  const overrun = isBg && expected != null && elapsedSec != null && elapsedSec > expected;
+  const overMin = overrun ? Math.round((elapsedSec - expected) / 60) : 0;
+
   const title = fn + (prod ? ' · ' + prod : '') + ' · '
     + fmtTime(ev.started_at) + '→' + (ev.ended_at ? fmtTime(ev.ended_at) : 'agora')
-    + (cowork ? ' · cowork' : '');
+    + (clockStr ? ' · ' + clockStr : '')
+    + (cowork ? ' · cowork' : '')
+    + (overrun ? ' · passou ' + overMin + 'min do esperado' : '');
+
+  const cls = ['cc-block']
+    .concat(live ? ['live'] : [])
+    .concat(cowork ? ['cowork'] : [])
+    .concat(selected ? ['selected'] : [])
+    .concat(overrun ? ['overrun'] : [])
+    .join(' ');
 
   return (
-    <span className={'cc-block' + (live ? ' live' : '') + (cowork ? ' cowork' : '')}
+    <span className={cls}
       style={{ left: left + '%', width: width + '%', background: FLOW_COLOR[flow] || 'var(--panel2)' }}
-      title={title}>
+      title={title}
+      onClick={() => onSelect && onSelect({ ev, person })}
+      role="button">
       <span className="cc-bk-fn">{fn}</span>
       {prod ? <span className="cc-bk-pr">{prod}</span> : null}
       {cowork ? <span className="cc-bk-link">🔗</span> : null}
-      {live ? <span className="cc-bk-live">⏱ {elapsed}</span> : null}
+      {overrun ? <span className="cc-bk-warn" title={'+'+overMin+'min'}>⏰</span> : null}
+      {live && clockStr ? <span className="cc-bk-live">⏱ {clockStr}</span> : null}
+      {!live && clockStr ? <span className="cc-bk-dur">{clockStr}</span> : null}
     </span>
   );
 }

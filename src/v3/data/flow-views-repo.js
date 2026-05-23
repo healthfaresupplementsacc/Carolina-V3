@@ -17,6 +17,43 @@ const { validSeconds } = require('./goals-repo');
 
 const DOWNTIME_SLUGS = new Set(['repair']); // conserto = parada (downtime)
 
+/**
+ * Bounds (UTC ms) do dia NY YYYY-MM-DD. Detecta EDT/EST via Intl.
+ * Usado pra CLAMPAR a duração de events que cruzam meia-noite —
+ * o ev 136 (shipping aberto 22→23/mai) inflava o P&P do dia 22 em
+ * 22h44m porque a regra antiga somava a duração inteira no dia do
+ * `started_at`. Bug #B.7 do dashboard B.
+ */
+function nyDayBounds(dateStr) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  // meio-dia UTC SEMPRE cai dentro do dia NY do mesmo y-m-d.
+  const noonUtcMs = Date.UTC(y, m - 1, d, 12);
+  const tz = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', timeZoneName: 'short',
+  }).formatToParts(noonUtcMs).find((p) => p.type === 'timeZoneName').value;
+  const offsetH = tz === 'EDT' ? -4 : -5;
+  const startMs = Date.UTC(y, m - 1, d, -offsetH);
+  return { startMs, endMs: startMs + 24 * 3600 * 1000 };
+}
+
+/**
+ * Segundos válidos de um event DENTRO da janela [dayStart, dayEnd] NY.
+ * Mesmo guard de validSeconds (ended>started); event aberto conta até
+ * `now` (clampado ao endMs). Event que cruza meia-noite só contribui
+ * com a parte do dia em questão.
+ */
+function clampedSeconds(started, ended, dayStartMs, dayEndMs, nowMs) {
+  if (!started) return null;
+  const sRaw = new Date(started).getTime();
+  const eRaw = ended ? new Date(ended).getTime() : nowMs;
+  if (Number.isNaN(sRaw) || Number.isNaN(eRaw)) return null;
+  if (eRaw <= sRaw) return null; // guard duração negativa/zero
+  const s = Math.max(sRaw, dayStartMs);
+  const e = Math.min(eRaw, dayEndMs);
+  const sec = (e - s) / 1000;
+  return sec > 0 ? sec : null;
+}
+
 const EV_COLUMNS = `e.id, e.product_batch_id, e.person_id, e.started_at, e.ended_at,
   at.display_name AS activity_name, at.slug AS activity_slug, at.phase_order,
   pb.batch_number, pb.product_id, pr.canonical_name AS product,
@@ -49,6 +86,7 @@ class FlowViewsRepo {
     const d = resolveDate(date);
     const evs = await this._dayEvents(d, 'production');
     const now = this._now();
+    const bounds = nyDayBounds(d);
     const byBatch = new Map();
     for (const e of evs) {
       const key = e.product_batch_id || 0;
@@ -63,7 +101,9 @@ class FlowViewsRepo {
       }
       const b = byBatch.get(key);
       if (e.person_name) b._people.add(e.person_name);
-      const secs = validSeconds(e.started_at, e.ended_at, now);
+      // B.7 — clamp à janela NY do dia: event que cruzou meia-noite
+      // só contribui com a parte que cai dentro de [00:00, 24:00] NY.
+      const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
       if (secs == null) { b.invalid_event_count += 1; continue; }
       b.total_seconds += secs;
       const ph = e.activity_name || '(não classificado)';
@@ -86,13 +126,14 @@ class FlowViewsRepo {
     const d = resolveDate(date);
     const evs = await this._dayEvents(d, 'pnp');
     const now = this._now();
+    const bounds = nyDayBounds(d);
     let total = 0;
     let invalid = 0;
     const subSteps = new Map();
     const people = new Set();
     for (const e of evs) {
       if (e.person_name) people.add(e.person_name);
-      const secs = validSeconds(e.started_at, e.ended_at, now);
+      const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
       if (secs == null) { invalid += 1; continue; }
       total += secs;
       const ss = e.activity_name || '(?)';
@@ -118,6 +159,7 @@ class FlowViewsRepo {
     const d = resolveDate(date);
     const evs = await this._dayEvents(d, 'support');
     const now = this._now();
+    const bounds = nyDayBounds(d);
     return {
       date: d, flow: 'support', mode: 'loose',
       occurrences: evs.map((e) => ({
@@ -126,11 +168,11 @@ class FlowViewsRepo {
         person: e.person_name || null,
         started_at: toNyIso(e.started_at),
         ended_at: toNyIso(e.ended_at),
-        seconds: validSeconds(e.started_at, e.ended_at, now),
+        seconds: clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now),
         is_downtime: DOWNTIME_SLUGS.has(e.activity_slug),
       })),
     };
   }
 }
 
-module.exports = { FlowViewsRepo };
+module.exports = { FlowViewsRepo, nyDayBounds, clampedSeconds };
