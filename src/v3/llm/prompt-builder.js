@@ -23,11 +23,31 @@ const SYSTEM_PROMPT = [
   'Responda SOMENTE com o JSON do schema no fim — nada fora do JSON.',
   '',
   'PRINCÍPIO FUNDAMENTAL: a unidade é a PESSOA, não a tarefa. Cada pessoa',
-  'tem uma timeline contínua. Uma mensagem pode: abrir atividade (fecha a',
-  'anterior automaticamente), continuar a atual (não cria nada), fechar,',
+  'tem uma timeline contínua. Uma mensagem pode: abrir atividade (foreground',
+  'fecha a foreground anterior automaticamente; background NÃO fecha nada),',
+  'continuar a atual (não cria nada), fechar (close nomeado quando precisar),',
   'iniciar/terminar break ou almoço, iniciar/terminar cowork (ajudar outra',
   'pessoa), reportar contagem de produção (EOD ou parcial), ser nota,',
   'narrativa, ou small talk.',
+  '',
+  '⚠️ DUAS PESSOAS NUMA MENSAGEM = DOIS EVENTOS. Quando o texto descreve',
+  'DUAS+ pessoas fazendo coisas diferentes ("Vitor assumindo a linha e a',
+  'Ana indo para a revisão"), gere UMA action POR PESSOA, cada uma com a',
+  'sua atividade. NÃO cole as duas numa pessoa só; NÃO perca a atividade',
+  'da outra. Use cowork_join SÓ se as duas estão fazendo a MESMA atividade',
+  'juntas (regra 5).',
+  '',
+  '⚠️ BACKGROUND (formulação / mix / encapsulação) RODA NA MÁQUINA em',
+  'paralelo: NÃO fecha a foreground (linha/revisão/P&P/suporte) nem é',
+  'fechada por uma nova foreground. Só fecha com close NOMEADO ("F:',
+  'encapsulação"). O contexto EQUIPE marca cada atividade aberta com [fg]/',
+  '[bg]/[meta] — leia antes de decidir o que abrir/fechar.',
+  '',
+  '⚠️ BREAK/ALMOÇO PAUSAM A FOREGROUND, MAS NÃO O BACKGROUND. Quando',
+  'alguém vai almoçar/pausar, a foreground dele encerra (auto-pause); a',
+  'encapsulação/mixer que está rodando continua aberta. Não duplique:',
+  'NÃO emita close_event da foreground junto com break_start — o sistema',
+  'pausa a foreground sozinho.',
   '',
   'REGRAS:',
   '1. NÃO existe código obrigatório (S/F/P/N). O time escreve livre —',
@@ -41,8 +61,9 @@ const SYSTEM_PROMPT = [
   '   Nunca chute confiança alta.',
   '4. Produto fora do catálogo → NÃO crie event com produto inventado;',
   '   sinalize em new_vocabulary_terms / admin_question.',
-  '5. Cowork: "vou ajudar o X" → cowork_join (cowork_with=[id de X]);',
-  '   "voltei pra Y" → cowork_leave.',
+  '5. Cowork: "vou ajudar o X" → cowork_join (cowork_with=[id de X]).',
+  '   "voltei pra Y" → cowork_leave. Quando alguém começa um FLUXO onde',
+  '   outra pessoa já está ativa (mesmo activity_type), CONSIDERE cowork.',
   '6. EOD: "Rutin-684, Plant-720" → uma action eod_count por produto, com',
   '   bottles. "feito 300 até agora" → partial_count. Infira a UNIDADE da',
   '   quantidade: número ≥ 50 → quase sempre bottle; pequeno e redondo',
@@ -52,6 +73,18 @@ const SYSTEM_PROMPT = [
   '8. Mensagem de ADMIN (owner/manager) no canal de produção é SUPERVISÃO —',
   '   categorization=admin_intervention, actions=[]. Admin não trabalha na',
   '   linha. EXCEÇÃO: a META do dia (regra 11) — admin DEFINE meta.',
+  '12. CLOSE NOMEADO: quando a mensagem nomeia a atividade que terminou',
+  '    ("F: encapsulação", "F: linha Tribulus"), inclua activity_type_id',
+  '    na action close_event — o sistema fecha SÓ o event daquele tipo',
+  '    (importante quando há foreground + N background abertos).',
+  '13. P&P EMENDA: as etapas de Picking & Packing (impressão → separação',
+  '    → embalagem) emendam (fim de uma = início da próxima). Não invente',
+  '    gap entre elas. EXCEÇÃO: se alguém disser explícito "pausa", aí',
+  '    fecha (close_event) e a próxima etapa abre depois.',
+  '14. QUANTIDADE no open_event: quando a mensagem traz um número associado',
+  '    à atividade ("impressão das ordens - 142" → 142 ordens), inclua',
+  '    quantity e quantity_unit na action open_event (unit="order" pra P&P,',
+  '    "bottle" pra produção, etc.).',
   '11. META (esperado vs realizado): mensagem — em geral do manager de',
   '   manhã — com LOTE (BR-2026-XXXX ou só o número) + produto + quantidade',
   '   por destino (ex.: "BR-2026-0135 Plant Sterols 750>FBA / 0136 100>WFS,',
@@ -79,6 +112,7 @@ const SYSTEM_PROMPT = [
   '    "started_at": "ISO8601|null", "ended_at": "ISO8601|null",',
   '    "cowork_with": [int], "description": "string|null",',
   '    "bottles": int|null, "unit": "bottle|box|uncertain|null",',
+  '    "quantity": int|null, "quantity_unit": "order|bottle|box|null",',
   '    "expected_quantity": int|null, "destinations": [{"dest":"string","qty":int}]|null,',
   '    "confidence": "high|medium|low|unconfirmed"',
   '  }],',
@@ -131,9 +165,15 @@ class PromptBuilder {
     const [persons, activeEvents, products, activityTypes, batches, channelMsgs, corrections, vocab] =
       await Promise.all([
         db.query('SELECT id, display_name, role FROM v3.persons WHERE active = true AND deleted_at IS NULL'),
-        db.query('SELECT person_id, activity_type_id, started_at, phase_label FROM v3.events WHERE ended_at IS NULL AND deleted_at IS NULL'),
+        db.query(
+          `SELECT e.person_id, e.activity_type_id, e.started_at, e.phase_label,
+                  at.category, at.is_background
+           FROM v3.events e
+           LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+           WHERE e.ended_at IS NULL AND e.deleted_at IS NULL
+           ORDER BY e.started_at`),
         db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true ORDER BY canonical_name'),
-        db.query('SELECT id, slug, display_name, category, requires_product, flow, phase_order FROM v3.activity_types WHERE active = true'),
+        db.query('SELECT id, slug, display_name, category, requires_product, flow, phase_order, is_background, expected_seconds FROM v3.activity_types WHERE active = true'),
         db.query(`SELECT b.id, b.batch_number, b.started_at, b.product_id, p.canonical_name AS product_name
                   FROM v3.product_batches b JOIN v3.products p ON p.id = b.product_id
                   WHERE b.status = 'in_progress' AND b.deleted_at IS NULL`),
@@ -180,7 +220,17 @@ class PromptBuilder {
     const sec = []; // seções; vazias são omitidas
     const atById = new Map(ctx.activityTypes.map((a) => [a.id, a]));
     const personById = new Map(ctx.persons.map((p) => [p.id, p]));
-    const evByPerson = new Map(ctx.activeEvents.map((e) => [e.person_id, e]));
+    // Multi-event: cada pessoa pode ter 1 foreground + N background + N meta.
+    const evsByPerson = new Map();
+    for (const e of ctx.activeEvents) {
+      if (!evsByPerson.has(e.person_id)) evsByPerson.set(e.person_id, []);
+      evsByPerson.get(e.person_id).push(e);
+    }
+    const kindOfEv = (e) => {
+      if (e.category === 'meta') return 'meta';
+      if (e.is_background === true) return 'bg';
+      return 'fg';
+    };
 
     // AUTOR
     const ap = author.person_id ? personById.get(author.person_id) : null;
@@ -196,17 +246,22 @@ class PromptBuilder {
     }
     sec.push(['AUTOR DA MENSAGEM', autorLinhas.join('\n')]);
 
-    // EQUIPE
+    // EQUIPE — lista TODAS as atividades abertas de cada pessoa, com o kind.
+    // Crítico pro LLM saber QUAL atividade fechar quando vem "F: encapsulação"
+    // numa pessoa que tem foreground + background abertos simultaneamente.
     if (ctx.persons.length) {
       const linhas = ctx.persons.map((p) => {
-        const ev = evByPerson.get(p.id);
-        if (!ev) return `- person_id=${p.id} "${p.display_name}" (${p.role}) — sem atividade ativa`;
-        const at = ev.activity_type_id ? atById.get(ev.activity_type_id) : null;
-        return `- person_id=${p.id} "${p.display_name}" (${p.role}) — agora: `
-          + `${at ? at.display_name : '(atividade não classificada)'}`
-          + `${ev.phase_label ? ' / ' + ev.phase_label : ''} desde ${this._ts(ev.started_at)}`;
+        const evs = evsByPerson.get(p.id) || [];
+        if (!evs.length) return `- person_id=${p.id} "${p.display_name}" (${p.role}) — sem atividade ativa`;
+        const items = evs.map((ev) => {
+          const at = ev.activity_type_id ? atById.get(ev.activity_type_id) : null;
+          return `[${kindOfEv(ev)}] activity_type_id=${ev.activity_type_id || '?'} `
+            + `"${at ? at.display_name : '(não classificada)'}"`
+            + `${ev.phase_label ? ' / ' + ev.phase_label : ''} desde ${this._ts(ev.started_at)}`;
+        });
+        return `- person_id=${p.id} "${p.display_name}" (${p.role}) — abertas: ${items.join(' | ')}`;
       });
-      sec.push(['EQUIPE (estado atual)', linhas.join('\n')]);
+      sec.push(['EQUIPE (todas as atividades abertas por pessoa)', linhas.join('\n')]);
     }
 
     // PRODUTOS
@@ -232,7 +287,8 @@ class PromptBuilder {
         lines.push(`FLUXO ${FLOW_LABEL[flow] || flow}:`);
         for (const a of inFlow) {
           const ph = a.phase_order ? ` [fase ${a.phase_order}]` : '';
-          lines.push(`  - activity_type_id=${a.id} ${a.slug} "${a.display_name}"${ph}`
+          const bg = a.is_background ? ' [BACKGROUND — roda em paralelo]' : '';
+          lines.push(`  - activity_type_id=${a.id} ${a.slug} "${a.display_name}"${ph}${bg}`
             + `${a.requires_product ? ' (requer produto)' : ''}`);
         }
       }

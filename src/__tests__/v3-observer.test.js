@@ -75,7 +75,11 @@ function mkServices(o = {}) {
     provider,
     personResolver: { resolve: jest.fn().mockResolvedValue(o.author || { person_id: 6, resolution_method: 'direct', confidence: 'high' }) },
     promptBuilder: { buildContext: jest.fn().mockResolvedValue({ systemPrompt: 's', userContent: 'u' }) },
-    eventService: { upsert: jest.fn(async () => ({ id: ++_eid })), closeActivePersonEvent: jest.fn().mockResolvedValue([{ id: 999 }]) },
+    eventService: {
+      upsert: jest.fn(async () => ({ id: ++_eid })),
+      closeActivePersonEvent: jest.fn().mockResolvedValue([{ id: 999 }]),
+      safetyAutoClose: jest.fn().mockResolvedValue([]),
+    },
     batchService: { findOrCreateActive: jest.fn().mockResolvedValue({ id: 7 }) },
     productionCountService: { record: jest.fn().mockResolvedValue({ id: 9 }) },
     goalService: { record: jest.fn().mockResolvedValue({ id: 1 }) },
@@ -396,5 +400,91 @@ describe('V3 §2.8 — worker loop', () => {
     const { observer, db } = makeObserver({ llmResult: OPEN, messages, concurrency: 2 });
     while (db.messages.some((m) => !m.llm_processed_at)) await observer.tick();
     expect(db.messages.every((m) => m.llm_processed_at)).toBe(true);
+  });
+});
+
+describe('V3 §2.8 — Captura Aprimorada (Parte A)', () => {
+  test('A2 — duas pessoas numa mensagem geram DOIS events (Vitor/linha + Ana/revisão)', async () => {
+    // O caso real do dia 22: "Vitor assumindo a linha e a Ana indo para a
+    // revisão". O LLM deve produzir 2 actions, uma por pessoa. O Observer
+    // persiste as duas — cada upsert tem o person_id correto.
+    const m = msg({ slack_ts: '99.1', raw_text: 'Vitor - assumindo a linha de producao e a Ana indo para a revisao' });
+    const { observer, eventService } = makeObserver({
+      message: m,
+      // ativo: as 2 actions corretas que o LLM deveria emitir
+      llmResult: {
+        categorization: 'activity_start', confidence: 'high',
+        actions: [
+          { type: 'open_event', person_id: 4, activity_type_id: 10, confidence: 'high' }, // Vitor → linha
+          { type: 'open_event', person_id: 6, activity_type_id: 20, confidence: 'high' }, // Ana → review
+        ],
+      },
+      dbOpts: { persons: [4, 6], activityTypes: [10, 20] },
+    });
+    await observer.processMessage(m);
+    expect(eventService.upsert).toHaveBeenCalledTimes(2);
+    const calls = eventService.upsert.mock.calls.map((c) => c[0]);
+    expect(calls.find((x) => x.person_id === 4)).toMatchObject({ person_id: 4, activity_type_id: 10 });
+    expect(calls.find((x) => x.person_id === 6)).toMatchObject({ person_id: 6, activity_type_id: 20 });
+  });
+
+  test('A2 — open_event repassa quantity / quantity_unit ("142 ordens")', async () => {
+    const m = msg({ slack_ts: '99.2', raw_text: 'S: impressao das ordens - 142' });
+    const { observer, eventService } = makeObserver({
+      message: m,
+      llmResult: {
+        categorization: 'activity_start', confidence: 'high',
+        actions: [{
+          type: 'open_event', person_id: 6, activity_type_id: 10,
+          quantity: 142, quantity_unit: 'order', confidence: 'high',
+        }],
+      },
+    });
+    await observer.processMessage(m);
+    expect(eventService.upsert.mock.calls[0][0]).toMatchObject({ quantity: 142, quantity_unit: 'order' });
+  });
+
+  test('A1 — close_event com activity_type_id é forwarded pro closeActivePersonEvent', async () => {
+    // "F: encapsulação" — close nomeado fecha SÓ o event daquele tipo.
+    const m = msg({ slack_ts: '99.3', raw_text: 'F: encapsulação' });
+    const { observer, eventService } = makeObserver({
+      message: m,
+      llmResult: {
+        categorization: 'activity_end', confidence: 'high',
+        actions: [{ type: 'close_event', person_id: 6, activity_type_id: 10, confidence: 'high' }],
+      },
+    });
+    await observer.processMessage(m);
+    expect(eventService.closeActivePersonEvent).toHaveBeenCalledTimes(1);
+    const opts = eventService.closeActivePersonEvent.mock.calls[0][3];
+    expect(opts).toMatchObject({ kind: 'foreground', activityTypeId: 10 });
+  });
+
+  test('A1 — break_end aciona closeActivePersonEvent com kind=meta', async () => {
+    const m = msg({ slack_ts: '99.4', raw_text: 'voltei do almoço' });
+    const { observer, eventService } = makeObserver({
+      message: m,
+      llmResult: {
+        categorization: 'break_end', confidence: 'high',
+        actions: [{ type: 'break_end', person_id: 6, confidence: 'high' }],
+      },
+    });
+    await observer.processMessage(m);
+    const opts = eventService.closeActivePersonEvent.mock.calls[0][3];
+    expect(opts.kind).toBe('meta');
+  });
+
+  test('A7 — safetyAutoClose é chamado no 1º tick + rate-limited (5min)', async () => {
+    const { observer, eventService } = makeObserver({ llmResult: OPEN });
+    // 1º tick: chama uma vez (sem _lastSafetyAutoCloseMs ainda)
+    await observer.tick();
+    expect(eventService.safetyAutoClose).toHaveBeenCalledTimes(1);
+    // 2º tick logo em seguida: NÃO chama de novo (cooldown 5min)
+    await observer.tick();
+    expect(eventService.safetyAutoClose).toHaveBeenCalledTimes(1);
+    // forçar reset do cooldown → chama de novo
+    observer._lastSafetyAutoCloseMs = Date.now() - 6 * 60 * 1000;
+    await observer.tick();
+    expect(eventService.safetyAutoClose).toHaveBeenCalledTimes(2);
   });
 });

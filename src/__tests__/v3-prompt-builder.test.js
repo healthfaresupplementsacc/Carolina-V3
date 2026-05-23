@@ -12,7 +12,9 @@ function makeFakeDb(seed = {}) {
     query: jest.fn((sql) => {
       const s = String(sql).replace(/\s+/g, ' ');
       if (/FROM v3\.persons WHERE active = true/.test(s)) return Promise.resolve({ rows: d.persons });
-      if (/FROM v3\.events WHERE ended_at IS NULL/.test(s)) return Promise.resolve({ rows: d.activeEvents });
+      if (/FROM v3\.events e.*WHERE e\.ended_at IS NULL/.test(s) || /FROM v3\.events WHERE ended_at IS NULL/.test(s)) {
+        return Promise.resolve({ rows: d.activeEvents });
+      }
       if (/FROM v3\.products WHERE active = true/.test(s)) return Promise.resolve({ rows: d.products });
       if (/FROM v3\.activity_types WHERE active = true/.test(s)) return Promise.resolve({ rows: d.activityTypes });
       if (/FROM v3\.product_batches b JOIN/.test(s)) return Promise.resolve({ rows: d.batches });
@@ -56,6 +58,33 @@ describe('V3 §2.7 — buildContext estrutura', () => {
     expect(SYSTEM_PROMPT).toMatch(/NUNCA inicial de pessoa/);
   });
 
+  test('Captura A2 — regra "duas pessoas na msg = dois events"', () => {
+    // a causa-raiz do erro do dia 22 (Vitor/Ana). O prompt precisa
+    // instruir explicitamente o LLM a emitir UMA action POR PESSOA.
+    expect(SYSTEM_PROMPT).toMatch(/DUAS PESSOAS NUMA MENSAGEM = DOIS EVENTOS/);
+    expect(SYSTEM_PROMPT).toMatch(/UMA action POR PESSOA/);
+  });
+
+  test('Captura A1 — regra background (roda em paralelo, close nomeado)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/BACKGROUND.*formulação.*mix.*encapsulação/i);
+    expect(SYSTEM_PROMPT).toMatch(/RODA NA MÁQUINA em\s+paralelo/);
+    expect(SYSTEM_PROMPT).toMatch(/CLOSE NOMEADO/);
+  });
+
+  test('Captura A4 — regra "break/almoço pausa foreground, não bg"', () => {
+    expect(SYSTEM_PROMPT).toMatch(/BREAK\/ALMOÇO PAUSAM A FOREGROUND, MAS NÃO O BACKGROUND/);
+  });
+
+  test('Captura A2 — regra de quantidade no open_event', () => {
+    expect(SYSTEM_PROMPT).toMatch(/QUANTIDADE no open_event/);
+    expect(SYSTEM_PROMPT).toMatch(/quantity.*quantity_unit/);
+  });
+
+  test('Captura A2 — regra P&P emenda + exceção "pausa"', () => {
+    expect(SYSTEM_PROMPT).toMatch(/P&P EMENDA/);
+    expect(SYSTEM_PROMPT).toMatch(/EXCEÇÃO.*pausa/);
+  });
+
   test('mensagem a interpretar incluída no userContent', async () => {
     const pb = new PromptBuilder({ db: makeFakeDb() });
     const r = await pb.buildContext(MSG, { author: AUTHOR });
@@ -75,8 +104,10 @@ describe('V3 §2.7 — seções dinâmicas', () => {
       activityTypes: [{ id: 10, slug: 'formulation', display_name: 'Formulação', category: 'production_phase', requires_product: true }],
     });
     const r = await new PromptBuilder({ db }).buildContext(MSG, { author: AUTHOR });
-    expect(r.userContent).toContain('EQUIPE (estado atual)');
-    expect(r.userContent).toMatch(/Vitor.*agora: Formulação/);
+    // Captura Aprimorada A1: a seção EQUIPE agora lista TODAS as
+    // atividades abertas por pessoa, marcando o kind [fg|bg|meta].
+    expect(r.userContent).toContain('EQUIPE (todas as atividades abertas por pessoa)');
+    expect(r.userContent).toMatch(/Vitor.*\[fg\].*Formulação/);
     expect(r.userContent).toMatch(/Ana.*sem atividade ativa/);
   });
 

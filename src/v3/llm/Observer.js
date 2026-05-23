@@ -214,15 +214,27 @@ class Observer {
         source_message_ts: message.slack_ts,
         confidence: action.confidence || 'high',
         cowork_with: action.cowork_with || [],
+        // Captura Aprimorada A2 — P&P "142 ordens" / quantidades em events.
+        quantity: action.quantity != null ? action.quantity : null,
+        quantity_unit: action.quantity_unit || null,
         actor_type: 'llm_observer',
       });
       return { created: [ev.id] };
     }
     if (t === 'close_event' || t === 'break_end' || t === 'cowork_leave') {
       const reason = t === 'cowork_leave' ? 'cowork_pause' : 'manual';
+      // Captura Aprimorada A1 — close nomeado: se a action carregar
+      // activity_type_id, fecha SÓ o event aberto desse tipo (ex.: "F:
+      // encapsulação" fecha só a encapsulação, não o foreground). Sem
+      // activity_type_id, fecha o foreground ativo (regra antiga).
+      const kind = t === 'break_end' ? 'meta' : 'foreground';
       const closed = await this.eventService.closeActivePersonEvent(
         action.person_id, action.ended_at || message.created_at || this.now(), reason,
-        { kind: t === 'break_end' ? 'meta' : 'work', actorType: 'llm_observer' });
+        {
+          kind,
+          activityTypeId: action.activity_type_id || null,
+          actorType: 'llm_observer',
+        });
       return { updated: (closed || []).map((e) => e.id) };
     }
     if (t === 'eod_count' || t === 'partial_count') {
@@ -422,6 +434,19 @@ class Observer {
    */
   async tick() {
     await this._heartbeat();
+    // Auto-close de segurança (Captura Aprimorada A7): 1× a cada 5min,
+    // sem bloquear o claim. Fecha events de DIA ANTERIOR ou do dia atual
+    // se já passou do expedient_end_hour_ny. Marca closed_reason=
+    // 'auto_closed_eod'. Erro aqui nunca interrompe o tick.
+    const nowMs = this.now().getTime();
+    if (!this._lastSafetyAutoCloseMs || nowMs - this._lastSafetyAutoCloseMs > 5 * 60 * 1000) {
+      this._lastSafetyAutoCloseMs = nowMs;
+      try {
+        await this.eventService.safetyAutoClose(this.now());
+      } catch (e) {
+        console.error('[Observer] safetyAutoClose error:', e.message);
+      }
+    }
     if (this._ticking) return [];
     this._ticking = true;
     try {

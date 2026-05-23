@@ -27,7 +27,19 @@ const VALID_ACTOR_TYPES = ['admin', 'llm_observer', 'llm_assistant', 'system', '
 const CORRECTABLE = new Set([
   'person_id', 'activity_type_id', 'product_batch_id', 'started_at', 'ended_at',
   'phase_label', 'description', 'confidence', 'closed_reason', 'cowork_with',
+  'quantity', 'quantity_unit',
 ]);
+
+// "kind" derivado do activity_type — invariante nova (Bloco Captura):
+//   meta        — category='meta' (break/lunch). Coexiste com tudo.
+//   background  — is_background=true (formulation/mixing/encapsulation).
+//                 Roda na máquina; coexiste com foreground e outros bg.
+//                 N abertas por pessoa. Só fecha com close explícito.
+//   foreground  — o resto (incluindo activity_type_id NULL). Máx 1 por pessoa.
+// Mantém 'work' como ALIAS de 'foreground' pra retro-compat dos chamadores.
+const KIND_META = 'meta';
+const KIND_BACKGROUND = 'background';
+const KIND_FOREGROUND = 'foreground';
 
 const uniq = (arr) => [...new Set(arr)];
 
@@ -128,12 +140,13 @@ class EventService {
 
     const cols = ['person_id', 'activity_type_id', 'product_batch_id', 'started_at',
       'ended_at', 'phase_label', 'description', 'source_message_ts', 'confidence',
-      'cowork_with', 'closed_reason'];
+      'cowork_with', 'closed_reason', 'quantity', 'quantity_unit'];
     const vals = [
       p.person_id, p.activity_type_id || null, p.product_batch_id || null, p.started_at,
       endedAt, p.phase_label || null, p.description || null,
       p.source_message_ts || null, p.confidence || 'high',
-      p.cowork_with || [], p.closed_reason || null];
+      p.cowork_with || [], p.closed_reason || null,
+      p.quantity != null ? p.quantity : null, p.quantity_unit || null];
     const ph = cols.map((_, i) => `$${i + 1}`).join(', ');
     const r = await c.query(
       `INSERT INTO v3.events (${cols.join(', ')}) VALUES (${ph}) RETURNING *`, vals);
@@ -148,10 +161,36 @@ class EventService {
     return r.rows[0];
   }
 
-  async _categoryOf(c, activityTypeId) {
-    if (!activityTypeId) return null; // sem classificação → tratado como trabalho
-    const r = await c.query('SELECT category FROM v3.activity_types WHERE id = $1', [activityTypeId]);
-    return r.rows[0] ? r.rows[0].category : null;
+  /**
+   * Retorna o "kind" do activity_type:  'meta' | 'background' | 'foreground'.
+   * activity_type_id NULL → tratado como foreground (mantém comportamento
+   * antigo de "sem classificação = trabalho").
+   */
+  async _kindOf(c, activityTypeId) {
+    if (!activityTypeId) return KIND_FOREGROUND;
+    const r = await c.query(
+      'SELECT category, is_background FROM v3.activity_types WHERE id = $1',
+      [activityTypeId]);
+    const row = r.rows[0];
+    if (!row) return KIND_FOREGROUND;
+    if (row.category === 'meta') return KIND_META;
+    if (row.is_background === true) return KIND_BACKGROUND;
+    return KIND_FOREGROUND;
+  }
+
+  /** Lê uma setting JSONB. Retorna fallback se a tabela/setting não existir. */
+  async _setting(c, key, fallback) {
+    try {
+      const r = await c.query('SELECT value FROM v3.settings WHERE key = $1', [key]);
+      if (!r.rows[0]) return fallback;
+      const v = r.rows[0].value;
+      // value chega como objeto/primitivo já parsado pelo node-pg, mas
+      // alguns ambientes devolvem string — normaliza.
+      if (typeof v === 'string') {
+        try { return JSON.parse(v); } catch (_) { return v; }
+      }
+      return v;
+    } catch (_) { return fallback; }
   }
 
   async _findBySourceTx(c, ts) {
@@ -174,17 +213,33 @@ class EventService {
     return r.rows;
   }
 
-  /** event de trabalho (não-meta) ativo mais recente da pessoa. */
-  async _activeWorkEvent(c, personId) {
+  /**
+   * Event FOREGROUND ativo mais recente da pessoa. Renomeado de
+   * _activeWorkEvent (que ainda fica como alias pra retro-compat).
+   * Ignora background (coexiste) e meta. Usado pelo cowork.
+   */
+  async _activeForegroundEvent(c, personId) {
     const rows = await this._activeByPerson(c, personId);
     for (const ev of rows) {
-      if ((await this._categoryOf(c, ev.activity_type_id)) !== 'meta') return ev;
+      if ((await this._kindOf(c, ev.activity_type_id)) === KIND_FOREGROUND) return ev;
     }
     return null;
   }
 
+  /** Alias pra código antigo. Mantido pra retro-compat (testes/chamadas). */
+  async _activeWorkEvent(c, personId) {
+    return this._activeForegroundEvent(c, personId);
+  }
+
   // ── cowork ─────────────────────────────────────────────────
 
+  /**
+   * Sincroniza cowork BIDIRECIONAL. Pra cada pessoa do grupo (dono +
+   * coworkers), encontra o event-âncora (foreground ativo) e grava o
+   * cowork_with apontando pras OUTRAS. Os events ancorados ficam com o
+   * cowork histórico — quando fecham, MANTÊM o cowork (não sofrem unlink).
+   * Esse é o conserto do bug descoberto na auditoria do dia 22.
+   */
   async _syncCowork(c, eventId, coworkPersonIds) {
     const ev = await this._getById(c, eventId);
     if (!ev) return;
@@ -194,7 +249,7 @@ class EventService {
       if (personId === ev.person_id) {
         targetId = eventId;
       } else {
-        const w = await this._activeWorkEvent(c, personId);
+        const w = await this._activeForegroundEvent(c, personId);
         targetId = w ? w.id : null;
       }
       if (targetId) {
@@ -203,43 +258,51 @@ class EventService {
     }
   }
 
-  /** Ao fechar um event, remove o dono dele do cowork_with dos coworkers ativos. */
-  async _unlinkCoworkOnClose(c, closedEvent) {
-    const cw = closedEvent && closedEvent.cowork_with;
-    if (!cw || !cw.length) return;
-    for (const personId of cw) {
-      const w = await this._activeWorkEvent(c, personId);
-      if (w && Array.isArray(w.cowork_with) && w.cowork_with.includes(closedEvent.person_id)) {
-        await this._patch(c, w.id, { cowork_with: w.cowork_with.filter((x) => x !== closedEvent.person_id) });
-      }
-    }
-  }
-
   // ── close ──────────────────────────────────────────────────
 
   /**
-   * Fecha o event ativo da pessoa.
-   * @param {object} opts  opts.kind 'work'(default) | 'meta' | 'any'
+   * Fecha event(s) ativo(s) da pessoa.
+   * @param {object} opts  opts.kind:
+   *   'foreground' (default) — fecha foreground ativo (1)
+   *   'background'           — fecha background(s) ativo(s); se houver
+   *                            activityTypeId, fecha SÓ o(s) daquele tipo
+   *                            (FIFO se múltiplos)
+   *   'meta'                 — fecha meta(s) (break/lunch) ativo(s)
+   *   'any'                  — fecha tudo aberto
+   *   'work'                 — ALIAS de 'foreground' (retro-compat)
+   * @param {number} opts.activityTypeId  filtra pelo activity_type (close
+   *   nomeado, ex.: "F: encapsulação"). Quando setado, fecha SÓ os events
+   *   abertos com esse activity_type_id (FIFO: mais antigo primeiro).
    */
   async closeActivePersonEvent(personId, endedAt, reason, opts = {}) {
     const actorType = this._actor(opts.actorType);
-    return this._withTx((c) => this._closeActive(c, personId, endedAt, reason, opts.kind || 'work', actorType, opts.actorPersonId));
+    const kind = opts.kind === 'work' ? KIND_FOREGROUND : (opts.kind || KIND_FOREGROUND);
+    return this._withTx((c) => this._closeActive(c, personId, endedAt, reason, kind, actorType, {
+      actorPersonId: opts.actorPersonId, activityTypeId: opts.activityTypeId || null,
+    }));
   }
 
-  async _closeActive(c, personId, endedAt, reason, kind, actorType, actorPersonId) {
+  async _closeActive(c, personId, endedAt, reason, kind, actorType, opts = {}) {
     const rows = await this._activeByPerson(c, personId);
+    // ordem FIFO (mais antigo primeiro) — relevante quando opts.activityTypeId
+    // bate em N events do mesmo tipo abertos: fecha o mais antigo primeiro.
+    rows.sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
     const closed = [];
     for (const ev of rows) {
-      const isMeta = (await this._categoryOf(c, ev.activity_type_id)) === 'meta';
-      const matches = kind === 'any' || (kind === 'meta' ? isMeta : !isMeta);
+      // filtro por activity_type_id nomeado (ex.: "F: encapsulação"):
+      // quando setado, ignora events que não casam.
+      if (opts.activityTypeId != null && ev.activity_type_id !== opts.activityTypeId) continue;
+      const evKind = await this._kindOf(c, ev.activity_type_id);
+      const matches = kind === 'any' || evKind === kind;
       if (!matches) continue;
       const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
-      await this._unlinkCoworkOnClose(c, ev);
       await this._audit(c, {
-        actorType, actorPersonId, action: 'event.closed', targetId: ev.id,
-        before: ev, after, metadata: { reason },
+        actorType, actorPersonId: opts.actorPersonId, action: 'event.closed', targetId: ev.id,
+        before: ev, after, metadata: { reason, kind, activityTypeId: opts.activityTypeId || null },
       });
       closed.push(after);
+      // close nomeado fecha SÓ o primeiro match (FIFO). Sem nome, fecha tudo.
+      if (opts.activityTypeId != null) break;
     }
     return closed;
   }
@@ -264,6 +327,8 @@ class EventService {
           description: p.description || null,
           confidence: p.confidence || 'high',
           closed_reason: p.closed_reason || null,
+          quantity: p.quantity != null ? p.quantity : null,
+          quantity_unit: p.quantity_unit || null,
         });
         await this._audit(c, {
           actorType, actorPersonId: p.actor_person_id, action: 'event.updated',
@@ -274,12 +339,37 @@ class EventService {
         return after;
       }
 
-      // 2 — auto-close do event de trabalho anterior (só p/ event ativo de trabalho)
+      // 2 — auto-close baseado no KIND do novo event (invariante nova):
+      //
+      //   foreground  → fecha o foreground ativo anterior em p.started_at
+      //                 (emenda contígua). NÃO toca background nem meta.
+      //   background  → abre sem fechar nada. Convive com foreground e
+      //                 com outros background. Só fecha em close nomeado
+      //                 ("F: encapsulação") ou no auto-close de segurança.
+      //   meta        → almoço/break "pausam" foreground (configurável
+      //                 via setting meta_pauses_foreground). Background
+      //                 NÃO é pausado (roda na máquina). Caso real: Vitor
+      //                 organização 12:13→13:45 + almoço 12:31 não podia
+      //                 coexistir; almoço fecha a organização.
+      //
+      //   Antes-do-almoço-sem-volta: se o último foreground/background
+      //   abriu há > break_assumed_seconds (~45min), o sistema NÃO sabe
+      //   o tempo real do almoço; deixa o close natural acontecer.
+      //   Quando a meta é fechada (volta do almoço), o consumidor de
+      //   _closeActive(kind='meta') aplica a regra dos 45min.
       if (!p.ended_at) {
-        const isMeta = (await this._categoryOf(c, p.activity_type_id)) === 'meta';
-        if (!isMeta) {
-          await this._closeActive(c, p.person_id, p.started_at, 'next_event', 'work', actorType, p.actor_person_id);
+        const newKind = await this._kindOf(c, p.activity_type_id);
+        if (newKind === KIND_FOREGROUND) {
+          await this._closeActive(c, p.person_id, p.started_at, 'next_event',
+            KIND_FOREGROUND, actorType, { actorPersonId: p.actor_person_id });
+        } else if (newKind === KIND_META) {
+          const metaPausesFg = await this._setting(c, 'meta_pauses_foreground', true);
+          if (metaPausesFg) {
+            await this._closeActive(c, p.person_id, p.started_at, 'paused_by_meta',
+              KIND_FOREGROUND, actorType, { actorPersonId: p.actor_person_id });
+          }
         }
+        // background: nada a fechar. Múltiplos bg coexistem.
       }
 
       // 3 — insert
@@ -292,6 +382,71 @@ class EventService {
       // 4 — cowork sync
       if (p.cowork_with && p.cowork_with.length) await this._syncCowork(c, ev.id, p.cowork_with);
       return ev;
+    });
+  }
+
+  // ── leitura / utilitários públicos ─────────────────────────
+
+  /**
+   * Lista os events abertos de uma pessoa enriquecidos com o KIND
+   * (meta|background|foreground). Usado pelo Observer e pelo prompt-
+   * builder pra raciocinar sobre "qual fechar" / "o que pausa o quê".
+   */
+  async getActiveEventsByPerson(personId) {
+    return this._withTx(async (c) => {
+      const rows = await this._activeByPerson(c, personId);
+      const out = [];
+      for (const ev of rows) {
+        out.push(Object.assign({}, ev, { kind: await this._kindOf(c, ev.activity_type_id) }));
+      }
+      return out;
+    });
+  }
+
+  /**
+   * Auto-close de SEGURANÇA no fim do expediente. Fecha events abertos
+   * cujo started_at é de um dia NY < refTime ou do mesmo dia mas após
+   * a hora do fim do expediente (settings.expedient_end_hour_ny, default
+   * 19h NY). ended_at = (data NY do started_at) + expedient_end_hour.
+   * Se já é depois desse horário, o event de hoje também entra. Idempotente:
+   * só pega events abertos; ao re-rodar não fecha duas vezes.
+   *
+   * Marca closed_reason='auto_closed_eod' e audita actor_type='system'.
+   * Aplica a foreground E a background (esquecidos pra sempre é o cenário).
+   * Não toca em meta (almoço sem volta vira problema separado, A4).
+   */
+  async safetyAutoClose(refTimeArg) {
+    const refTime = refTimeArg ? new Date(refTimeArg) : new Date();
+    return this._withTx(async (c) => {
+      const endHour = await this._setting(c, 'expedient_end_hour_ny', 19);
+      const r = await c.query(
+        `SELECT e.id, e.person_id, e.activity_type_id, e.started_at, e.ended_at,
+                e.cowork_with, e.confidence,
+                (e.started_at AT TIME ZONE 'America/New_York')::date AS ny_date
+         FROM v3.events e
+         WHERE e.ended_at IS NULL AND e.deleted_at IS NULL`);
+      const closed = [];
+      for (const ev of r.rows) {
+        const kind = await this._kindOf(c, ev.activity_type_id);
+        if (kind === KIND_META) continue;  // meta tem regra própria (45min)
+        // ended_at = data NY do started_at + endHour:00 NY
+        const nyDate = String(ev.ny_date instanceof Date
+          ? ev.ny_date.toISOString().slice(0, 10) : ev.ny_date);
+        const eodIso = `${nyDate}T${String(endHour).padStart(2, '0')}:00:00-04:00`;
+        // só fecha se refTime já passou desse EOD
+        if (refTime < new Date(eodIso)) continue;
+        const after = await this._patch(c, ev.id, {
+          ended_at: eodIso,
+          closed_reason: 'auto_closed_eod',
+        });
+        await this._audit(c, {
+          actorType: 'system', action: 'event.closed', targetId: ev.id,
+          before: ev, after,
+          metadata: { reason: 'auto_closed_eod', kind, ny_date: nyDate, end_hour: endHour },
+        });
+        closed.push(after);
+      }
+      return closed;
     });
   }
 
@@ -432,4 +587,7 @@ class EventService {
   }
 }
 
-module.exports = { EventService, VALID_ACTOR_TYPES, CORRECTABLE, isNegativeDuration };
+module.exports = {
+  EventService, VALID_ACTOR_TYPES, CORRECTABLE, isNegativeDuration,
+  KIND_META, KIND_BACKGROUND, KIND_FOREGROUND,
+};

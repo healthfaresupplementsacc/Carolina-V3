@@ -8,6 +8,8 @@
 const VALID_ACTOR_TYPES = ['admin', 'llm_observer', 'llm_assistant', 'system', 'app_home'];
 const EDITABLE = new Set([
   'display_name', 'category', 'requires_product', 'active', 'flow', 'phase_order', 'emoji', 'color',
+  // Bloco Captura Aprimorada (A1): admin pode editar
+  'is_background', 'expected_seconds',
 ]);
 
 class CatalogService {

@@ -3,16 +3,25 @@
 const { EventService } = require('../v3/services/EventService');
 
 // activity_type ids usados nos testes
-const WORK = 10;   // production_phase
+const WORK = 10;   // production_phase (foreground)
 const BREAK = 20;  // meta
 const LUNCH = 21;  // meta
+const BG = 30;     // is_background=true (formulação/mix/encapsulação)
+const BG2 = 31;    // outro background tipo (pra testes de FIFO de mesmo tipo)
 
-/** Fake in-memory de v3.events / v3.activity_types / v3.audit_log. */
-function makeFakeDb() {
+/** Fake in-memory de v3.events / v3.activity_types / v3.audit_log / v3.settings. */
+function makeFakeDb(settings = {}) {
   let nextId = 1;
   const events = [];
   const audit = [];
-  const cats = { [WORK]: 'production_phase', [BREAK]: 'meta', [LUNCH]: 'meta' };
+  // { category, is_background } por activity_type_id
+  const ATS = {
+    [WORK]: { category: 'production_phase', is_background: false },
+    [BREAK]: { category: 'meta', is_background: false },
+    [LUNCH]: { category: 'meta', is_background: false },
+    [BG]: { category: 'production_phase', is_background: true },
+    [BG2]: { category: 'production_phase', is_background: true },
+  };
 
   function run(sql, params = []) {
     const s = String(sql).replace(/\s+/g, ' ').trim();
@@ -54,9 +63,20 @@ function makeFakeDb() {
         .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
       return { rows: r.map((x) => ({ ...x })) };
     }
+    if (/^SELECT category, is_background FROM v3\.activity_types/.test(s)) {
+      const a = ATS[params[0]];
+      return { rows: a != null ? [{ category: a.category, is_background: a.is_background }] : [] };
+    }
     if (/^SELECT category FROM v3\.activity_types/.test(s)) {
-      const c = cats[params[0]];
-      return { rows: c != null ? [{ category: c }] : [] };
+      // legacy: alguns callers antigos ainda pedem só category
+      const a = ATS[params[0]];
+      return { rows: a != null ? [{ category: a.category }] : [] };
+    }
+    if (/^SELECT value FROM v3\.settings WHERE key = \$1/.test(s)) {
+      if (Object.prototype.hasOwnProperty.call(settings, params[0])) {
+        return { rows: [{ value: settings[params[0]] }] };
+      }
+      return { rows: [] };
     }
     if (/^INSERT INTO v3\.audit_log/.test(s)) {
       audit.push({
@@ -134,19 +154,37 @@ describe('V3 §2.4 — auto-close + invariante', () => {
     expect(active(db, 2)).toHaveLength(1);
   });
 
-  test('break NÃO fecha event de trabalho — coexistem (2 ativos OK)', async () => {
+  test('break (meta) PAUSA o foreground — invariante nova (Captura A4)', async () => {
     const db = makeFakeDb();
     const s = svc(db);
     await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
     await s.upsert({ person_id: 1, activity_type_id: BREAK, started_at: T(12), actor_type: 'llm_observer' });
-    expect(active(db, 1)).toHaveLength(2); // trabalho + break
+    // antes coexistiam (2); agora meta pausa foreground → só o break ativo.
+    expect(active(db, 1)).toHaveLength(1);
+    expect(active(db, 1)[0].activity_type_id).toBe(BREAK);
+    // o WORK foi fechado por 'paused_by_meta' (auditado)
+    expect(actions(db)).toContain('event.closed');
   });
 
-  test('lunch (meta) coexiste com trabalho', async () => {
+  test('lunch PAUSA foreground mas NÃO o background (Captura A4)', async () => {
     const db = makeFakeDb();
     const s = svc(db);
     await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(10), actor_type: 'llm_observer' });
     await s.upsert({ person_id: 1, activity_type_id: LUNCH, started_at: T(12), actor_type: 'llm_observer' });
+    // foreground (WORK) pausado; background (BG) e lunch continuam abertos.
+    const act = active(db, 1);
+    expect(act).toHaveLength(2);
+    const types = act.map((e) => e.activity_type_id).sort();
+    expect(types).toEqual([BG, LUNCH].sort());
+  });
+
+  test('meta_pauses_foreground=false desliga a pausa (setting)', async () => {
+    const db = makeFakeDb({ meta_pauses_foreground: false });
+    const s = svc(db);
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: LUNCH, started_at: T(12), actor_type: 'llm_observer' });
+    // setting OFF → comportamento antigo (coexistem)
     expect(active(db, 1)).toHaveLength(2);
   });
 
@@ -181,15 +219,100 @@ describe('V3 §2.4 — cowork bidirecional', () => {
     expect(db.events.find((e) => e.id === eC.id).cowork_with.sort()).toEqual([1, 2]);
   });
 
-  test('ao fechar A, B e C têm A removido do cowork_with', async () => {
+  test('ao fechar A, B e C MANTÊM A no cowork_with (histórico) — Captura A3', async () => {
+    // Bug do dia 22/mai: _unlinkCoworkOnClose apagava o histórico do lado
+    // que fechou depois (ev 120/130/134). Conserto: removeu o unlink;
+    // cowork fica histórico bidirecional nos dois lados.
     const db = makeFakeDb();
     const s = svc(db);
     const eB = await s.upsert({ person_id: 2, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
     const eC = await s.upsert({ person_id: 3, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
-    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), cowork_with: [2, 3], actor_type: 'llm_observer' });
+    const eA = await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), cowork_with: [2, 3], actor_type: 'llm_observer' });
+    // antes do close: bidirecional, simétrico
+    expect(db.events.find((e) => e.id === eA.id).cowork_with.sort()).toEqual([2, 3]);
+    expect(db.events.find((e) => e.id === eB.id).cowork_with.sort()).toEqual([1, 3]);
+    expect(db.events.find((e) => e.id === eC.id).cowork_with.sort()).toEqual([1, 2]);
+    // A fecha primeiro
     await s.closeActivePersonEvent(1, T(12), 'manual');
-    expect(db.events.find((e) => e.id === eB.id).cowork_with).toEqual([3]);
-    expect(db.events.find((e) => e.id === eC.id).cowork_with).toEqual([2]);
+    // todos MANTÊM o cowork histórico
+    expect(db.events.find((e) => e.id === eA.id).cowork_with.sort()).toEqual([2, 3]);
+    expect(db.events.find((e) => e.id === eB.id).cowork_with.sort()).toEqual([1, 3]);
+    expect(db.events.find((e) => e.id === eC.id).cowork_with.sort()).toEqual([1, 2]);
+  });
+});
+
+describe('V3 §2.4 — background vs foreground (Captura Aprimorada A1)', () => {
+  test('background NÃO fecha foreground; coexistem', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(10), actor_type: 'llm_observer' });
+    expect(active(db, 1)).toHaveLength(2);
+  });
+
+  test('foreground nova fecha foreground anterior, NÃO mexe no background', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(10), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(11), actor_type: 'llm_observer' });
+    const act = active(db, 1);
+    expect(act).toHaveLength(2); // bg + 2ª fg; 1ª fg fechou
+    expect(act.find((e) => e.activity_type_id === BG)).toBeDefined();
+    // a foreground que sobrou é a de T(11)
+    const fg = act.find((e) => e.activity_type_id === WORK);
+    expect(fg.started_at).toBe(T(11));
+  });
+
+  test('múltiplos backgrounds coexistem por pessoa', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: BG2, started_at: T(10), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(11), actor_type: 'llm_observer' });
+    expect(active(db, 1)).toHaveLength(3); // 2 bg + 1 fg
+  });
+
+  test('close nomeado por activity_type_id fecha só o(s) daquele tipo — FIFO se múltiplos', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    // foreground + 2 backgrounds DO MESMO TIPO + estado preparado
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(10), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(11), actor_type: 'llm_observer' });
+    expect(active(db, 1)).toHaveLength(3);
+    // "F: encapsulação" — close nomeado pelo activity_type_id
+    await s.closeActivePersonEvent(1, T(12), 'manual', {
+      kind: 'background', activityTypeId: BG, actorType: 'llm_observer',
+    });
+    const act = active(db, 1);
+    // FIFO: o BG mais antigo (T(10)) fechou; o de T(11) e a foreground continuam
+    expect(act).toHaveLength(2);
+    expect(act.find((e) => e.activity_type_id === WORK)).toBeDefined();
+    const remBg = act.find((e) => e.activity_type_id === BG);
+    expect(remBg.started_at).toBe(T(11));
+  });
+
+  test('close genérico (sem activity_type_id) fecha só foreground; bg sobrevive', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(9), actor_type: 'llm_observer' });
+    await s.upsert({ person_id: 1, activity_type_id: BG, started_at: T(10), actor_type: 'llm_observer' });
+    await s.closeActivePersonEvent(1, T(12), 'manual', { actorType: 'llm_observer' });
+    const act = active(db, 1);
+    expect(act).toHaveLength(1);
+    expect(act[0].activity_type_id).toBe(BG);
+  });
+
+  test('quantity / quantity_unit persistem no upsert', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(9),
+      quantity: 142, quantity_unit: 'order', actor_type: 'llm_observer',
+    });
+    expect(db.events.find((e) => e.id === ev.id).quantity).toBe(142);
+    expect(db.events.find((e) => e.id === ev.id).quantity_unit).toBe('order');
   });
 });
 
