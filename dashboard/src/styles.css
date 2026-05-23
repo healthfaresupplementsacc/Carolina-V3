@@ -106,19 +106,19 @@ th { background: var(--panel2); }
 .cc-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; margin: 0 5px 0 12px; }
 
 /* topo — 4 cards de resumo */
-.cc-topo { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.cc-topo { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
 .cc-card {
-  flex: 1; min-width: 210px; background: var(--panel);
-  border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px;
+  flex: 1; min-width: 230px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
 }
 .cc-card-h {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--muted); margin-bottom: 7px; font-weight: 600;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); margin-bottom: 8px; font-weight: 600;
 }
-.cc-big { font-size: 30px; font-weight: 800; line-height: 1; }
-.cc-unit { font-size: 13px; font-weight: 500; color: var(--muted); }
-.cc-list { margin-top: 9px; display: flex; flex-direction: column; gap: 3px; }
-.cc-list > div { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.cc-big { font-size: 32px; font-weight: 800; line-height: 1; }
+.cc-unit { font-size: 14px; font-weight: 500; color: var(--muted); }
+.cc-list { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.cc-list > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
 .cc-list > div > span { color: var(--muted); }
 .cc-alert { color: var(--warn); }
 .cc-atencao.on {
@@ -133,60 +133,97 @@ th { background: var(--panel2); }
 /* centro — timeline de todos lado a lado */
 .cc-timeline {
   background: var(--panel); border: 1px solid var(--border);
-  border-radius: 12px; padding: 8px 12px 12px; overflow-x: auto;
+  border-radius: 12px; padding: 8px 0 12px; overflow-x: auto;
 }
-.cc-grid { min-width: 760px; }
+/* Largura por hora FIXA (Bruno prefere blocos grandes + scroll lateral
+   a apertar tudo na largura). --hours vem inline do JS, --cc-hour-px e
+   --name-w do CSS (com media query no mobile). */
+.cc-grid {
+  --name-w: 200px;
+  --cc-hour-px: 150px;
+  width: calc(var(--name-w) + var(--cc-hour-px) * var(--hours, 12));
+  min-width: 100%;
+}
 .cc-axis, .cc-row { display: flex; align-items: stretch; }
 .cc-row { border-top: 1px solid var(--border); }
 .cc-name {
-  flex: 0 0 150px; display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px 6px 2px; position: sticky; left: 0;
+  flex: 0 0 var(--name-w); display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px 10px 14px; position: sticky; left: 0;
   background: var(--panel); z-index: 2;
+  border-right: 1px solid var(--border);
 }
 .cc-axis-name {
-  font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
   color: var(--accent); font-weight: 700;
 }
 .cc-avatar {
-  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%;
+  flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%;
   background: var(--panel2); border: 1px solid var(--border);
   display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700; color: var(--accent);
+  font-size: 14px; font-weight: 700; color: var(--accent);
 }
 .cc-pname {
-  font-size: 13px; font-weight: 600;
+  font-size: 14px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .cc-track {
-  position: relative; flex: 1; min-height: 48px;
+  position: relative;
+  flex: 0 0 calc(var(--cc-hour-px) * var(--hours, 12));
+  min-height: 68px;
   background-image: repeating-linear-gradient(
     90deg, var(--border) 0 1px, transparent 1px var(--hp));
 }
-.cc-axis-track { min-height: 24px; background-image: none; }
+.cc-axis-track {
+  min-height: 28px; background-image: none;
+  border-bottom: 1px solid var(--border);
+}
 .cc-tick {
-  position: absolute; top: 5px; transform: translateX(-50%);
-  font-size: 10px; color: var(--muted); white-space: nowrap;
+  position: absolute; top: 6px; transform: translateX(-50%);
+  font-size: 12px; color: var(--muted); white-space: nowrap;
+  font-weight: 600;
 }
 .cc-now {
   position: absolute; top: 0; bottom: 0; width: 2px;
   background: var(--accent); box-shadow: 0 0 8px var(--accent); z-index: 3;
 }
 .cc-block {
-  position: absolute; top: 5px; bottom: 5px; box-sizing: border-box;
-  border-radius: 5px; border: 1px solid rgba(255, 255, 255, .14);
-  padding: 3px 6px; overflow: hidden; cursor: default;
-  display: flex; flex-direction: column; justify-content: center;
+  position: absolute; top: 7px; bottom: 7px; box-sizing: border-box;
+  border-radius: 6px; border: 1px solid rgba(255, 255, 255, .14);
+  padding: 6px 10px; overflow: hidden; cursor: pointer;
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
 }
 .cc-bk-fn {
-  font-size: 11px; font-weight: 700; color: #fff;
+  font-size: 13px; font-weight: 700; color: #fff;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.2;
 }
 .cc-bk-pr {
-  font-size: 10px; color: rgba(255, 255, 255, .78);
+  font-size: 11px; color: rgba(255, 255, 255, .8);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.2;
 }
-.cc-bk-live { font-size: 10px; font-weight: 700; color: #fff; }
-.cc-bk-link { position: absolute; top: 1px; right: 3px; font-size: 9px; }
+.cc-bk-live, .cc-bk-dur {
+  font-size: 11px; font-weight: 700; color: #fff;
+  font-variant-numeric: tabular-nums; margin-top: 1px;
+}
+.cc-bk-dur { color: rgba(255, 255, 255, .85); font-weight: 600; }
+
+/* Cowork: chips com iniciais no canto direito do bloco. */
+.cc-bk-cowork {
+  position: absolute; top: 4px; right: 5px;
+  display: flex; gap: 3px;
+}
+.cc-cw-chip {
+  background: rgba(255, 255, 255, .96); color: #0f172a;
+  padding: 1px 6px; border-radius: 10px;
+  font-size: 10px; font-weight: 800; letter-spacing: .04em;
+  line-height: 1.4;
+}
+.cc-bk-warn { position: absolute; top: 4px; left: 6px; font-size: 13px; z-index: 1; }
+/* Evita o texto bater nas chips/warning absolutos. */
+.cc-block.cowork .cc-bk-fn, .cc-block.cowork .cc-bk-pr { padding-right: 42px; }
+.cc-block.overrun .cc-bk-fn, .cc-block.overrun .cc-bk-pr { padding-left: 22px; }
+
 .cc-block.cowork { border-style: dashed; border-color: rgba(255, 255, 255, .55); }
 .cc-block.live {
   border-color: var(--accent);
@@ -198,17 +235,9 @@ th { background: var(--panel2); }
 }
 
 /* B.4 — idle por pessoa (na linha do nome) */
-.cc-pname-wrap { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.cc-idle { font-size: 10px; color: var(--muted); white-space: nowrap; }
-.cc-idle.hot { color: var(--warn); font-weight: 600; }
-
-/* B.2 — cronômetro fechado (estático, sem ícone) */
-.cc-bk-dur {
-  font-size: 10px; color: rgba(255, 255, 255, .85);
-  font-variant-numeric: tabular-nums;
-}
-.cc-bk-live { font-variant-numeric: tabular-nums; }
-.cc-bk-warn { position: absolute; top: 1px; left: 3px; font-size: 10px; }
+.cc-pname-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-idle { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cc-idle.hot { color: var(--warn); font-weight: 700; }
 
 /* B.4 — bloco background passou expected_seconds */
 .cc-block.overrun {
@@ -267,6 +296,13 @@ th { background: var(--panel2); }
   background: var(--panel2);
 }
 
+@media (max-width: 900px) {
+  /* mobile/tablet: reduz só um pouco a coluna de nomes; mantém horas
+     generosas (Bruno aceitou scroll lateral em troca de legibilidade). */
+  .cc-grid { --name-w: 140px; --cc-hour-px: 130px; }
+  .cc-avatar { flex: 0 0 32px; width: 32px; height: 32px; font-size: 12px; }
+}
+
 @media (max-width: 700px) {
   .cc-detail { width: 100%; }
 }
@@ -276,5 +312,7 @@ th { background: var(--panel2); }
   .topbar { padding: 10px 12px; }
   .metric { min-width: 44%; flex: 1; }
   .cc-card { min-width: 44%; }
-  .cc-name { flex-basis: 116px; }
+  .cc-grid { --name-w: 120px; --cc-hour-px: 120px; }
+  .cc-avatar { flex: 0 0 28px; width: 28px; height: 28px; font-size: 11px; }
+  .cc-pname { font-size: 13px; }
 }
