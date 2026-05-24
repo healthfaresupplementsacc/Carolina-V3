@@ -10,9 +10,25 @@ export const clearPin = () => sessionStorage.removeItem('v3pin');
 
 /** GET na API. 401 → marca .unauthorized; erros → Error com a mensagem. */
 export async function apiGet(path) {
+  return apiCall('GET', path);
+}
+
+/** Escrita: POST/PATCH/DELETE com body JSON. Erros viram Error legível. */
+export const apiPost = (path, body) => apiCall('POST', path, body);
+export const apiPatch = (path, body) => apiCall('PATCH', path, body);
+export const apiDelete = (path, body) => apiCall('DELETE', path, body);
+
+async function apiCall(method, path, body) {
   let r;
   try {
-    r = await fetch(BASE + path, { headers: { 'x-admin-pin': getPin() } });
+    r = await fetch(BASE + path, {
+      method,
+      headers: {
+        'x-admin-pin': getPin(),
+        ...(body != null ? { 'content-type': 'application/json' } : {}),
+      },
+      body: body != null ? JSON.stringify(body) : undefined,
+    });
   } catch (e) {
     throw new Error('sem conexão com a API');
   }
@@ -144,6 +160,41 @@ export function nyToday() {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date());
+}
+
+/** ISO com offset NY (-04:00 EDT / -05:00 EST) pra um instante ms.
+ *  Detecta automaticamente o offset corrente do dia. */
+export function toNyOffsetIso(ms) {
+  const d = new Date(ms);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', timeZoneName: 'short',
+  }).formatToParts(d);
+  const tz = parts.find((p) => p.type === 'timeZoneName').value;
+  return tz === 'EDT' ? '-04:00' : '-05:00';
+}
+
+/** ISO UTC → "yyyy-MM-ddThh:mm" no fuso NY (formato de <input datetime-local>). */
+export function isoToNyDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+  // en-CA dá yyyy-mm-dd; manualmente junta no formato esperado.
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+/** "yyyy-MM-ddThh:mm" (interpretado como NY) → ISO UTC com offset NY explícito. */
+export function nyDatetimeLocalToIso(s) {
+  if (!s) return null;
+  // pega o offset NY pra essa data específica (EDT ou EST)
+  const [date, time] = String(s).split('T');
+  const [y, mo, d] = date.split('-').map(Number);
+  const noonUtcMs = Date.UTC(y, mo - 1, d, 12);
+  const off = toNyOffsetIso(noonUtcMs);
+  return `${date}T${time}:00${off}`;
 }
 
 /** Minuto-do-dia (0..1439) no fuso America/New_York pra um instante ms. */

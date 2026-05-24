@@ -3,6 +3,8 @@ import React, { useState } from 'react';
 import {
   useFetch, usePoll, useNow, nyToday, nyMinutes,
   fmtDur, fmtTime, fmtDateTime, fmtClock, fmtMinutes, fmtHour12, fmt12hHHMM,
+  apiPost, apiPatch, apiDelete,
+  isoToNyDatetimeLocal, nyDatetimeLocalToIso,
 } from './api.js';
 import { Loading, ErrorBox, Empty, Metric, ConfBadge, GoalBar, ActivityBlock, FlowLegend } from './ui.jsx';
 
@@ -33,15 +35,16 @@ export function Hoje({ date }) {
   const nowMs = useNow(isToday);                 // tick 1s — só hoje
   const nowM = isToday ? nyMinutes(nowMs) : null;
   const POLL = isToday ? 12000 : 0;              // ao vivo só hoje
-  const [sel, setSel] = useState(null);          // event selecionado p/ painel
+  const [sel, setSel] = useState(null);          // {ev, person, mode?} | null
   const [hov, setHov] = useState(null);          // hover tip ({payload,x,y} | null)
+  const [refreshTick, setRefreshTick] = useState(0); // bump → re-fetch após write
 
-  const timeline = usePoll('/timeline?date=' + date, [date], POLL);
-  const production = usePoll('/production?date=' + date, [date], POLL);
-  const pp = usePoll('/pp?date=' + date, [date], POLL);
-  const goals = usePoll('/goals?date=' + date, [date], POLL);
-  const counts = usePoll('/counts?date=' + date, [date], POLL);
-  const deadlines = usePoll('/deadlines', [], POLL);
+  const timeline = usePoll('/timeline?date=' + date, [date, refreshTick], POLL);
+  const production = usePoll('/production?date=' + date, [date, refreshTick], POLL);
+  const pp = usePoll('/pp?date=' + date, [date, refreshTick], POLL);
+  const goals = usePoll('/goals?date=' + date, [date, refreshTick], POLL);
+  const counts = usePoll('/counts?date=' + date, [date, refreshTick], POLL);
+  const deadlines = usePoll('/deadlines', [refreshTick], POLL);
 
   const people = (timeline.data && timeline.data.people) || [];
   const lotes = (production.data && production.data.lotes) || [];
@@ -60,6 +63,9 @@ export function Hoje({ date }) {
           <i style={{ background: 'var(--support)' }} />Suporte
           <span className="muted">&nbsp;🔗 cowork · ⏱ em andamento · ⏰ passou esperado</span>
         </span>
+        <button className="cc-btn cc-btn-primary cc-new-btn"
+          onClick={() => setSel({ mode: 'create' })}
+          title="Criar event novo (admin)">+ novo registro</button>
       </div>
       <CCTopo people={people} counts={counts} goals={goals}
         pp={pp} deadlines={deadlines} production={production} />
@@ -67,9 +73,12 @@ export function Hoje({ date }) {
         nowM={nowM} nowMs={nowMs} loading={timeline.loading} error={timeline.error}
         selected={sel} onSelect={setSel} onHover={setHov} />
       {sel ? (
-        <CCDetail ev={sel.ev} person={sel.person} people={people}
-          batchById={batchById} isToday={isToday} nowMs={nowMs}
-          onClose={() => setSel(null)} />
+        <CCDetail
+          initialMode={sel.mode || 'view'}
+          ev={sel.ev} person={sel.person} people={people}
+          batchById={batchById} isToday={isToday} nowMs={nowMs} date={date}
+          onClose={() => setSel(null)}
+          onChanged={() => setRefreshTick((t) => t + 1)} />
       ) : null}
       {hov ? <CCHoverTip {...hov} /> : null}
     </div>
@@ -320,70 +329,318 @@ function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeS
   );
 }
 
-// B.3 — Painel lateral de detalhe (360px desktop, fullscreen mobile).
-// Read-only por enquanto (B.5 adiciona "editar"; B.6 adiciona "+ novo").
-function CCDetail({ ev, person, people, batchById, isToday, nowMs, onClose }) {
-  if (!ev) return null;
-  const live = !ev.ended_at && isToday;
-  const elapsedSec = live
-    ? (nowMs - Date.parse(ev.started_at)) / 1000
-    : (ev.ended_at ? (Date.parse(ev.ended_at) - Date.parse(ev.started_at)) / 1000 : null);
-  const batch = ev.product_batch_id != null ? batchById[ev.product_batch_id] : null;
-  const prod = batch && batch.product ? batch.product.canonical_name : null;
-  const cowork = (ev.cowork_with || []).map((id) => {
-    const p = people.find((x) => x.person_id === id);
-    return p ? p.display_name : ('#' + id);
-  });
-  const kind = ev.activity
-    ? (ev.activity.category === 'meta' ? 'meta'
-      : (ev.activity.is_background ? 'background' : 'foreground'))
-    : 'foreground';
-  const expected = ev.activity ? ev.activity.expected_seconds : null;
-  const overrun = ev.activity && ev.activity.is_background && expected != null
-    && elapsedSec != null && elapsedSec > expected;
+// B.3+B.5+B.6 — Painel lateral de detalhe com modos view / edit / create.
+//   view   — somente leitura (clique num bloco). botão "Editar" → edit.
+//   edit   — PATCH /events/:id. botão "Apagar" → DELETE. botão "Cancelar" → view.
+//   create — POST /events. inicia em branco (botão "+ novo" no topo da timeline).
+function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday, nowMs, date, onClose, onChanged }) {
+  const [mode, setMode] = useState(initialMode);
+  const isCreate = mode === 'create';
+  const isEdit = mode === 'edit';
+  const isWrite = isCreate || isEdit;
+
+  // catálogos só carregam quando entra em edit/create
+  const personsCat = useFetch(isWrite ? '/catalog/persons' : null, [isWrite]);
+  const atsCat = useFetch(isWrite ? '/catalog/activity-types' : null, [isWrite]);
+  const batchesCat = useFetch(isWrite ? '/batches' : null, [isWrite]);
+
+  const buildForm = () => {
+    if (isCreate) {
+      // create: começa com data do dia (12:00 PM NY como default razoável)
+      const today = date || nyToday();
+      const defaultStart = isoToNyDatetimeLocal(`${today}T16:00:00.000Z`); // 12:00 PM NY em maio
+      return {
+        person_id: '', activity_type_id: '', product_batch_id: '',
+        started_at_local: defaultStart, ended_at_local: '', description: '',
+      };
+    }
+    return {
+      person_id: String(person && person.person_id || ''),
+      activity_type_id: ev && ev.activity ? String(ev.activity.id) : '',
+      product_batch_id: ev && ev.product_batch_id != null ? String(ev.product_batch_id) : '',
+      started_at_local: ev ? isoToNyDatetimeLocal(ev.started_at) : '',
+      ended_at_local: ev && ev.ended_at ? isoToNyDatetimeLocal(ev.ended_at) : '',
+      description: ev && ev.description ? ev.description : '',
+    };
+  };
+  const [form, setForm] = useState(buildForm);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [confirmingOverlap, setConfirmingOverlap] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target ? e.target.value : e }));
+
+  // Check de sobreposição com OUTROS foreground da mesma pessoa.
+  // Background/meta coexistem (não alertam).
+  const overlap = (() => {
+    if (!isWrite) return [];
+    const sLocal = form.started_at_local;
+    if (!sLocal) return [];
+    const startMs = Date.parse(nyDatetimeLocalToIso(sLocal));
+    const endMs = form.ended_at_local
+      ? Date.parse(nyDatetimeLocalToIso(form.ended_at_local))
+      : Number.MAX_SAFE_INTEGER; // sem fim = "estende até infinito"
+    if (Number.isNaN(startMs) || Number.isNaN(endMs)) return [];
+    const pid = Number(form.person_id);
+    const personRow = people.find((p) => p.person_id === pid);
+    if (!personRow) return [];
+    const out = [];
+    const currentId = isEdit && ev ? ev.event_id : null;
+    for (const o of personRow.events) {
+      if (currentId && o.event_id === currentId) continue;
+      const isBg = o.activity && o.activity.is_background;
+      const isMeta = o.activity && o.activity.category === 'meta';
+      if (isBg || isMeta) continue;
+      const os = Date.parse(o.started_at);
+      const oe = o.ended_at ? Date.parse(o.ended_at) : Date.now();
+      if (Math.max(startMs, os) < Math.min(endMs, oe)) out.push(o);
+    }
+    return out;
+  })();
+
+  async function onSave(e) {
+    e && e.preventDefault();
+    setErr(null);
+    if (!form.person_id) return setErr('Escolhe a pessoa.');
+    if (!form.started_at_local) return setErr('Defina a hora de início.');
+    if (overlap.length && !confirmingOverlap) {
+      setConfirmingOverlap(true);
+      return;
+    }
+    setBusy(true);
+    try {
+      const payload = {
+        person_id: Number(form.person_id),
+        activity_type_id: form.activity_type_id ? Number(form.activity_type_id) : null,
+        product_batch_id: form.product_batch_id ? Number(form.product_batch_id) : null,
+        started_at: nyDatetimeLocalToIso(form.started_at_local),
+        ended_at: form.ended_at_local ? nyDatetimeLocalToIso(form.ended_at_local) : null,
+        description: form.description || null,
+      };
+      if (isCreate) {
+        await apiPost('/events', payload);
+      } else {
+        // PATCH manda só os campos como `changes`
+        await apiPatch('/events/' + ev.event_id, {
+          changes: payload,
+          note: 'edição via dashboard',
+        });
+      }
+      onChanged && onChanged();
+      onClose && onClose();
+    } catch (e2) {
+      setErr(e2.message);
+      setConfirmingOverlap(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!ev || !ev.event_id) return;
+    if (!confirmingDelete) { setConfirmingDelete(true); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiDelete('/events/' + ev.event_id, { reason: 'apagado via dashboard' });
+      onChanged && onChanged();
+      onClose && onClose();
+    } catch (e2) { setErr(e2.message); }
+    finally { setBusy(false); }
+  }
+
+  // ── view-only sub-render ──
+  if (mode === 'view') {
+    const live = !ev.ended_at && isToday;
+    const elapsedSec = live
+      ? (nowMs - Date.parse(ev.started_at)) / 1000
+      : (ev.ended_at ? (Date.parse(ev.ended_at) - Date.parse(ev.started_at)) / 1000 : null);
+    const batch = ev.product_batch_id != null ? batchById[ev.product_batch_id] : null;
+    const prod = batch && batch.product ? batch.product.canonical_name : null;
+    const cowork = (ev.cowork_with || []).map((id) => {
+      const p = people.find((x) => x.person_id === id);
+      return p ? p.display_name : ('#' + id);
+    });
+    const kind = ev.activity
+      ? (ev.activity.category === 'meta' ? 'meta'
+        : (ev.activity.is_background ? 'background' : 'foreground'))
+      : 'foreground';
+    const expected = ev.activity ? ev.activity.expected_seconds : null;
+    const overrun = ev.activity && ev.activity.is_background && expected != null
+      && elapsedSec != null && elapsedSec > expected;
+    return (
+      <aside className="cc-detail" role="dialog" aria-label="Detalhe do evento">
+        <header className="cc-detail-h">
+          <div>
+            <div className="cc-detail-title">{person.display_name || ('#' + person.person_id)}</div>
+            <div className="cc-detail-sub">
+              <span className="cc-detail-kind" data-kind={kind}>{kind}</span>
+              {' '}{ev.activity ? ev.activity.display_name : '(sem atividade)'}
+              {ev.activity && ev.activity.slug ? <span className="muted small"> · {ev.activity.slug}</span> : null}
+            </div>
+          </div>
+          <button className="cc-detail-close" onClick={onClose} aria-label="fechar">×</button>
+        </header>
+
+        <dl className="cc-detail-fields">
+          <dt>Fluxo</dt><dd>{ev.flow || '—'}</dd>
+          <dt>Entrada</dt><dd>{fmtTime(ev.started_at)} <span className="muted small">({fmtDateTime(ev.started_at)})</span></dd>
+          <dt>Saída</dt><dd>{ev.ended_at ? fmtTime(ev.ended_at) : <em className="muted">em andamento</em>}</dd>
+          <dt>Duração</dt><dd>
+            {elapsedSec != null ? fmtClock(elapsedSec) : '—'}
+            {live ? <span className="muted small"> · contando</span> : null}
+          </dd>
+          {prod ? (<><dt>Produto</dt><dd>{prod} <span className="muted small">/ {batch.batch_number}</span></dd></>) : null}
+          {ev.quantity != null ? (<><dt>Quantidade</dt><dd>{ev.quantity} {ev.quantity_unit || ''}</dd></>) : null}
+          {cowork.length ? (<><dt>Cowork</dt><dd>{cowork.join(', ')}</dd></>) : null}
+          {expected != null ? (
+            <><dt>Esperado</dt>
+              <dd>
+                {fmtClock(expected)}
+                {overrun ? <strong className="downtime"> ⏰ passou {Math.round((elapsedSec - expected) / 60)}min</strong> : null}
+              </dd></>
+          ) : null}
+          <dt>Confiança</dt><dd><ConfBadge value={ev.confidence} /></dd>
+          {ev.phase_label ? (<><dt>Phase</dt><dd>{ev.phase_label}</dd></>) : null}
+          {ev.description ? (<><dt>Descrição</dt><dd className="cc-detail-desc">{ev.description}</dd></>) : null}
+          {ev.source_message_ts ? (<><dt>Slack ts</dt><dd className="muted small">{ev.source_message_ts}</dd></>) : null}
+          {ev.closed_reason ? (<><dt>Fechamento</dt><dd className="muted">{ev.closed_reason}</dd></>) : null}
+          <dt>ID</dt><dd className="muted small">ev {ev.event_id}</dd>
+        </dl>
+
+        <footer className="cc-detail-foot cc-detail-actions">
+          <button className="cc-btn cc-btn-primary" onClick={() => setMode('edit')}>Editar</button>
+        </footer>
+      </aside>
+    );
+  }
+
+  // ── edit / create render ──
+  const persons = (personsCat.data && personsCat.data.persons) || [];
+  const ats = (atsCat.data && atsCat.data.activity_types) || [];
+  const batches = (batchesCat.data && batchesCat.data.batches) || [];
+  // agrupa activity_types por flow (e separa bg/fg) pro select ficar legível.
+  const atGroups = [
+    { label: 'Produção', items: ats.filter((a) => a.flow === 'production') },
+    { label: 'P&P',      items: ats.filter((a) => a.flow === 'pnp') },
+    { label: 'Suporte',  items: ats.filter((a) => a.flow === 'support') },
+    { label: '(sem fluxo)', items: ats.filter((a) => !a.flow) },
+  ].filter((g) => g.items.length);
+
   return (
-    <aside className="cc-detail" role="dialog" aria-label="Detalhe do evento">
+    <aside className="cc-detail" role="dialog" aria-label={isCreate ? 'Criar event' : 'Editar event'}>
       <header className="cc-detail-h">
         <div>
-          <div className="cc-detail-title">{person.display_name || ('#' + person.person_id)}</div>
-          <div className="cc-detail-sub">
-            <span className="cc-detail-kind" data-kind={kind}>{kind}</span>
-            {' '}{ev.activity ? ev.activity.display_name : '(sem atividade)'}
-            {ev.activity && ev.activity.slug ? <span className="muted small"> · {ev.activity.slug}</span> : null}
+          <div className="cc-detail-title">
+            {isCreate ? '+ novo registro' : 'Editar event ' + (ev && ev.event_id)}
+          </div>
+          <div className="cc-detail-sub muted small">
+            {isCreate
+              ? 'Criação manual (source_message_ts=null, actor=admin, auditado).'
+              : 'Edição admin — auditada e reversível. Não ensina nada ao sistema.'}
           </div>
         </div>
         <button className="cc-detail-close" onClick={onClose} aria-label="fechar">×</button>
       </header>
 
-      <dl className="cc-detail-fields">
-        <dt>Fluxo</dt><dd>{ev.flow || '—'}</dd>
-        <dt>Entrada</dt><dd>{fmtTime(ev.started_at)} <span className="muted small">({fmtDateTime(ev.started_at)})</span></dd>
-        <dt>Saída</dt><dd>{ev.ended_at ? fmtTime(ev.ended_at) : <em className="muted">em andamento</em>}</dd>
-        <dt>Duração</dt><dd>
-          {elapsedSec != null ? fmtClock(elapsedSec) : '—'}
-          {live ? <span className="muted small"> · contando</span> : null}
-        </dd>
-        {prod ? (<><dt>Produto</dt><dd>{prod} <span className="muted small">/ {batch.batch_number}</span></dd></>) : null}
-        {ev.quantity != null ? (<><dt>Quantidade</dt><dd>{ev.quantity} {ev.quantity_unit || ''}</dd></>) : null}
-        {cowork.length ? (<><dt>Cowork</dt><dd>{cowork.join(', ')}</dd></>) : null}
-        {expected != null ? (
-          <><dt>Esperado</dt>
-            <dd>
-              {fmtClock(expected)}
-              {overrun ? <strong className="downtime"> ⏰ passou {Math.round((elapsedSec - expected) / 60)}min</strong> : null}
-            </dd></>
-        ) : null}
-        <dt>Confiança</dt><dd><ConfBadge value={ev.confidence} /></dd>
-        {ev.phase_label ? (<><dt>Phase</dt><dd>{ev.phase_label}</dd></>) : null}
-        {ev.description ? (<><dt>Descrição</dt><dd className="cc-detail-desc">{ev.description}</dd></>) : null}
-        {ev.source_message_ts ? (<><dt>Slack ts</dt><dd className="muted small">{ev.source_message_ts}</dd></>) : null}
-        {ev.closed_reason ? (<><dt>Fechamento</dt><dd className="muted">{ev.closed_reason}</dd></>) : null}
-        <dt>ID</dt><dd className="muted small">ev {ev.event_id}</dd>
-      </dl>
+      <form className="cc-form" onSubmit={onSave}>
+        <label className="cc-field">
+          <span>Pessoa</span>
+          <select value={form.person_id} onChange={set('person_id')} required>
+            <option value="">— escolher —</option>
+            {persons.map((p) => (
+              <option key={p.id} value={p.id}>{p.display_name} ({p.role || '?'})</option>
+            ))}
+          </select>
+        </label>
 
-      <footer className="cc-detail-foot">
-        <span className="muted small">Editar/apagar/criar — bloco B.EDIÇÃO (depois).</span>
-      </footer>
+        <label className="cc-field">
+          <span>Função</span>
+          <select value={form.activity_type_id} onChange={set('activity_type_id')}>
+            <option value="">(sem atividade)</option>
+            {atGroups.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.items.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.display_name}{a.is_background ? ' · bg' : ''}{a.category === 'meta' ? ' · meta' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
+        <label className="cc-field">
+          <span>Produto / Lote</span>
+          <select value={form.product_batch_id} onChange={set('product_batch_id')}>
+            <option value="">(nenhum)</option>
+            {batches.map((b) => (
+              <option key={b.id} value={b.id}>{b.product_name} / {b.batch_number}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="cc-field-row">
+          <label className="cc-field">
+            <span>Início (NY)</span>
+            <input type="datetime-local" value={form.started_at_local} onChange={set('started_at_local')} required />
+          </label>
+          <label className="cc-field">
+            <span>Fim (NY · vazio = aberto)</span>
+            <input type="datetime-local" value={form.ended_at_local} onChange={set('ended_at_local')} />
+          </label>
+        </div>
+
+        <label className="cc-field">
+          <span>Descrição</span>
+          <textarea rows="3" value={form.description} onChange={set('description')} placeholder="livre — contexto, motivo da correção, etc." />
+        </label>
+
+        {overlap.length ? (
+          <div className="cc-warn">
+            ⚠ {overlap.length === 1 ? 'Cria sobreposição com' : 'Cria sobreposição com'}:
+            {overlap.map((o) => (
+              <div key={o.event_id} className="small">
+                · ev {o.event_id} {o.activity ? o.activity.display_name : '?'} {fmtTime(o.started_at)}→{o.ended_at ? fmtTime(o.ended_at) : 'aberto'}
+              </div>
+            ))}
+            <div className="small muted" style={{ marginTop: 6 }}>
+              {confirmingOverlap
+                ? 'Clica Salvar de novo pra confirmar (admin manda).'
+                : 'Apenas aviso — admin pode prosseguir. Clica Salvar de novo pra confirmar.'}
+            </div>
+          </div>
+        ) : null}
+
+        {err ? <div className="cc-err">erro: {err}</div> : null}
+
+        <div className="cc-form-actions">
+          <button type="submit" className={'cc-btn cc-btn-primary' + (overlap.length && !confirmingOverlap ? ' warn' : '')} disabled={busy}>
+            {busy ? '…' : (overlap.length && confirmingOverlap ? 'Salvar mesmo assim' : 'Salvar')}
+          </button>
+          {isEdit ? (
+            confirmingDelete ? (
+              <>
+                <button type="button" className="cc-btn cc-btn-danger" onClick={onDelete} disabled={busy}>
+                  Confirmar apagar
+                </button>
+                <button type="button" className="cc-btn" onClick={() => setConfirmingDelete(false)} disabled={busy}>
+                  cancelar apagar
+                </button>
+              </>
+            ) : (
+              <button type="button" className="cc-btn cc-btn-danger" onClick={onDelete} disabled={busy}>
+                Apagar
+              </button>
+            )
+          ) : null}
+          <button type="button" className="cc-btn" onClick={() => {
+            if (isCreate) { onClose(); }
+            else { setMode('view'); setForm(buildForm); setErr(null); setConfirmingOverlap(false); setConfirmingDelete(false); }
+          }} disabled={busy}>
+            Cancelar
+          </button>
+        </div>
+      </form>
     </aside>
   );
 }

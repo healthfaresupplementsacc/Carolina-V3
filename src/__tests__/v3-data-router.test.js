@@ -115,11 +115,11 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
     expect(out.data.id).toBe(1);
   });
 
-  test('37 endpoints registrados, todos sob /api/v3/data/', () => {
-    expect(ENDPOINTS).toHaveLength(37);
+  test('38 endpoints registrados, todos sob /api/v3/data/', () => {
+    expect(ENDPOINTS).toHaveLength(38);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
     expect(ENDPOINTS.filter((e) => (e.method || 'get') === 'get')).toHaveLength(21);
-    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(6);
+    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(7);
     expect(ENDPOINTS.filter((e) => e.method === 'patch')).toHaveLength(6);
     expect(ENDPOINTS.filter((e) => e.method === 'delete')).toHaveLength(4);
   });
@@ -132,6 +132,33 @@ describe('V3 data API — endpoints de escrita (Bloco 3)', () => {
     await ep.handler({ params: { id: '5' }, query: {},
       body: { changes: { expected_quantity: 900 }, by_person_id: 1, note: 'ajuste' } }, {}, services);
     expect(services.goal.correct).toHaveBeenCalledWith(5, { expected_quantity: 900 }, 1, 'ajuste');
+  });
+
+  test('POST /events → event.upsert com actor_type=admin e source_message_ts=null (B.6)', async () => {
+    const services = { event: { upsert: jest.fn(async () => ({ id: 200 })) } };
+    const ep = epBy('/api/v3/data/events', 'post');
+    expect(ep).toBeDefined();
+    await ep.handler({ params: {}, query: {}, body: {
+      person_id: 4, activity_type_id: 5, started_at: '2026-05-24T12:00:00-04:00',
+      ended_at: '2026-05-24T13:00:00-04:00', description: 'criado via dashboard',
+    } }, {}, services);
+    expect(services.event.upsert).toHaveBeenCalledTimes(1);
+    const arg = services.event.upsert.mock.calls[0][0];
+    expect(arg.person_id).toBe(4);
+    expect(arg.activity_type_id).toBe(5);
+    expect(arg.actor_type).toBe('admin');
+    expect(arg.source_message_ts).toBeNull();
+    expect(arg.ended_at).toBe('2026-05-24T13:00:00-04:00');
+  });
+
+  test('POST /events — campos obrigatórios: 400 sem person_id ou started_at', async () => {
+    const services = { event: { upsert: jest.fn() } };
+    const ep = epBy('/api/v3/data/events', 'post');
+    await expect(ep.handler({ params: {}, query: {}, body: { started_at: 'x' } }, {}, services))
+      .rejects.toThrow(/person_id/);
+    await expect(ep.handler({ params: {}, query: {}, body: { person_id: 1 } }, {}, services))
+      .rejects.toThrow(/started_at/);
+    expect(services.event.upsert).not.toHaveBeenCalled();
   });
 
   test('DELETE /events/:id → event.softDelete', async () => {

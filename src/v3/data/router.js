@@ -186,6 +186,32 @@ const ENDPOINTS = [
     handler: async (req, r, s) => ({
       data: await s.goal.softDelete(intParam(req.params.id), body(req).by_person_id, body(req).reason),
     }) },
+  // events — CREATE (B.6: admin cria event direto pela UI; ex.: o
+  // caso Bruno Sarmento/formulação que faltou no dia 22 e o LLM
+  // nunca abriu). source_message_ts=NULL é a marca de criação manual
+  // (idempotência por ts não aplicável). actor_type='admin' no audit.
+  { method: 'post', path: '/api/v3/data/events',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      if (!b.person_id) throw new Error('person_id obrigatório');
+      if (!b.started_at) throw new Error('started_at obrigatório');
+      return { data: await s.event.upsert({
+        person_id: b.person_id,
+        activity_type_id: b.activity_type_id || null,
+        product_batch_id: b.product_batch_id || null,
+        started_at: b.started_at,
+        ended_at: b.ended_at || null,
+        phase_label: b.phase_label || null,
+        description: b.description || null,
+        confidence: b.confidence || 'high',
+        cowork_with: b.cowork_with || [],
+        quantity: b.quantity != null ? b.quantity : null,
+        quantity_unit: b.quantity_unit || null,
+        source_message_ts: null,
+        actor_type: 'admin',
+        actor_person_id: b.by_person_id || null,
+      }) };
+    } },
   // events
   { method: 'patch', path: '/api/v3/data/events/:id',
     handler: async (req, r, s) => {
