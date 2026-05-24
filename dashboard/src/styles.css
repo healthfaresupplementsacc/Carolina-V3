@@ -369,6 +369,38 @@ th { background: var(--panel2); }
   border-top: 1px solid var(--border); margin-top: 6px; padding-top: 14px;
 }
 
+/* Toast bottom-right pra ações com undo (ex.: apagar event). */
+.cc-toast {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60;
+  background: var(--panel); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 11px 14px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .55);
+  max-width: 420px; font-size: 13px;
+  animation: cc-toast-in .18s ease-out;
+}
+@keyframes cc-toast-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.cc-toast-msg { color: var(--text); }
+.cc-toast-undo {
+  background: transparent; color: var(--accent); border: 1px solid var(--accent);
+  border-radius: 5px; padding: 4px 11px; font-size: 12px; font-weight: 700;
+  cursor: pointer;
+}
+.cc-toast-undo:hover { background: var(--accent); color: #04263a; }
+.cc-toast-x {
+  background: transparent; border: none; color: var(--muted);
+  font-size: 18px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.cc-toast-x:hover { color: var(--text); }
+
+@media (max-width: 560px) {
+  .cc-toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+}
+
 @media (max-width: 900px) {
   /* mobile/tablet: reduz só um pouco a coluna de nomes; mantém horas
      generosas (Bruno aceitou scroll lateral em troca de legibilidade). */

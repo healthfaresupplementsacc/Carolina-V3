@@ -1,5 +1,5 @@
 // HEALTHFARE V3 — SPA — as telas. Hoje = centro de comando ao vivo.
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   useFetch, usePoll, useNow, nyToday, nyMinutes,
   fmtDur, fmtTime, fmtDateTime, fmtClock, fmtMinutes, fmtHour12, fmt12hHHMM,
@@ -38,6 +38,8 @@ export function Hoje({ date }) {
   const [sel, setSel] = useState(null);          // {ev, person, mode?} | null
   const [hov, setHov] = useState(null);          // hover tip ({payload,x,y} | null)
   const [refreshTick, setRefreshTick] = useState(0); // bump → re-fetch após write
+  const [toast, setToast] = useState(null);      // {message, undo?, ttlMs?} | null
+  const refresh = () => setRefreshTick((t) => t + 1);
 
   const timeline = usePoll('/timeline?date=' + date, [date, refreshTick], POLL);
   const production = usePoll('/production?date=' + date, [date, refreshTick], POLL);
@@ -78,9 +80,41 @@ export function Hoje({ date }) {
           ev={sel.ev} person={sel.person} people={people}
           batchById={batchById} isToday={isToday} nowMs={nowMs} date={date}
           onClose={() => setSel(null)}
-          onChanged={() => setRefreshTick((t) => t + 1)} />
+          onChanged={refresh}
+          onToast={setToast} />
       ) : null}
       {hov ? <CCHoverTip {...hov} /> : null}
+      {toast ? (
+        <CCToast toast={toast}
+          onClose={() => setToast(null)}
+          onUndo={async () => {
+            try {
+              await toast.undo();
+              setToast({ message: 'Desfeito.', ttlMs: 3500 });
+              refresh();
+            } catch (e) {
+              setToast({ message: 'Erro ao desfazer: ' + e.message, ttlMs: 6000 });
+            }
+          }} />
+      ) : null}
+    </div>
+  );
+}
+
+/** Toast canto-inferior-direito, com botão "Desfazer" opcional + timeout. */
+function CCToast({ toast, onClose, onUndo }) {
+  useEffect(() => {
+    const ttl = toast.ttlMs || 8000;
+    const t = setTimeout(onClose, ttl);
+    return () => clearTimeout(t);
+  }, [toast, onClose]);
+  return (
+    <div className="cc-toast" role="status">
+      <span className="cc-toast-msg">{toast.message}</span>
+      {toast.undo ? (
+        <button type="button" className="cc-toast-undo" onClick={onUndo}>Desfazer</button>
+      ) : null}
+      <button type="button" className="cc-toast-x" onClick={onClose} aria-label="fechar">×</button>
     </div>
   );
 }
@@ -333,7 +367,7 @@ function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeS
 //   view   — somente leitura (clique num bloco). botão "Editar" → edit.
 //   edit   — PATCH /events/:id. botão "Apagar" → DELETE. botão "Cancelar" → view.
 //   create — POST /events. inicia em branco (botão "+ novo" no topo da timeline).
-function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday, nowMs, date, onClose, onChanged }) {
+function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday, nowMs, date, onClose, onChanged, onToast }) {
   const [mode, setMode] = useState(initialMode);
   const isCreate = mode === 'create';
   const isEdit = mode === 'edit';
@@ -352,6 +386,7 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
       return {
         person_id: '', activity_type_id: '', product_batch_id: '',
         started_at_local: defaultStart, ended_at_local: '', description: '',
+        quantity: '', quantity_unit: '',
       };
     }
     return {
@@ -361,6 +396,8 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
       started_at_local: ev ? isoToNyDatetimeLocal(ev.started_at) : '',
       ended_at_local: ev && ev.ended_at ? isoToNyDatetimeLocal(ev.ended_at) : '',
       description: ev && ev.description ? ev.description : '',
+      quantity: ev && ev.quantity != null ? String(ev.quantity) : '',
+      quantity_unit: ev && ev.quantity_unit ? ev.quantity_unit : '',
     };
   };
   const [form, setForm] = useState(buildForm);
@@ -409,6 +446,10 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
     }
     setBusy(true);
     try {
+      const qtyN = form.quantity === '' ? null : Number(form.quantity);
+      if (qtyN != null && !Number.isFinite(qtyN)) {
+        setBusy(false); return setErr('Quantidade tem que ser número.');
+      }
       const payload = {
         person_id: Number(form.person_id),
         activity_type_id: form.activity_type_id ? Number(form.activity_type_id) : null,
@@ -416,6 +457,8 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
         started_at: nyDatetimeLocalToIso(form.started_at_local),
         ended_at: form.ended_at_local ? nyDatetimeLocalToIso(form.ended_at_local) : null,
         description: form.description || null,
+        quantity: qtyN,
+        quantity_unit: form.quantity_unit || null,
       };
       if (isCreate) {
         await apiPost('/events', payload);
@@ -441,7 +484,14 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
     if (!confirmingDelete) { setConfirmingDelete(true); return; }
     setBusy(true); setErr(null);
     try {
-      await apiDelete('/events/' + ev.event_id, { reason: 'apagado via dashboard' });
+      const evId = ev.event_id;
+      await apiDelete('/events/' + evId, { reason: 'apagado via dashboard' });
+      // Toast com Desfazer — chama POST /events/:id/restore (já existe).
+      onToast && onToast({
+        message: `Event ${evId} apagado.`,
+        undo: () => apiPost('/events/' + evId + '/restore', { by_person_id: null }),
+        ttlMs: 10000,
+      });
       onChanged && onChanged();
       onClose && onClose();
     } catch (e2) { setErr(e2.message); }
@@ -587,6 +637,24 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
           <label className="cc-field">
             <span>Fim (NY · vazio = aberto)</span>
             <input type="datetime-local" value={form.ended_at_local} onChange={set('ended_at_local')} />
+          </label>
+        </div>
+
+        <div className="cc-field-row">
+          <label className="cc-field">
+            <span>Quantidade (opcional)</span>
+            <input type="number" min="0" step="1" value={form.quantity} onChange={set('quantity')}
+              placeholder="ex: 142 (ordens P&P) / 750 (garrafas)" />
+          </label>
+          <label className="cc-field">
+            <span>Unidade</span>
+            <select value={form.quantity_unit} onChange={set('quantity_unit')}>
+              <option value="">(nenhuma)</option>
+              <option value="order">order (P&amp;P)</option>
+              <option value="bottle">bottle (garrafas)</option>
+              <option value="box">box</option>
+              <option value="uncertain">uncertain</option>
+            </select>
           </label>
         </div>
 
