@@ -51,27 +51,31 @@ const EVENT_COLUMNS = `e.id, e.person_id, e.activity_type_id, e.product_batch_id
             at.is_background AS activity_is_background,
             at.expected_seconds AS activity_expected_seconds`;
 
+/** Threshold default (s) pra distinguir IDLE (curto) de NÃO REPORTADO (longo).
+ *  Configurável depois via v3.settings.idle_long_gap_threshold_seconds. */
+const IDLE_LONG_GAP_THRESHOLD_SEC_DEFAULT = 3600; // 60min
+
 /**
- * Idle por pessoa = soma dos trechos de [1º started_at, último ended_at]
- * onde NADA está aberto. Aberto = qualquer event (fg/bg/meta) cobrindo o
- * instante. Background rodando ≠ idle (double-task). Lunch ≠ idle.
- * @param {Array} events  rows com started_at/ended_at
- * @param {number} nowMs  agora (epoch ms) — usado pra events ainda abertos
- * @returns {number} idle em segundos (>=0; 0 se nenhum gap)
+ * Calcula gaps de uma pessoa num dia, DISTINGUINDO:
+ *  - idle_seconds        — soma dos gaps CURTOS (≤ threshold). "tempo parado real".
+ *  - unreported_seconds  — soma dos gaps LONGOS (> threshold). "parou de postar".
+ *  - unreported_since    — ISO do último ended_at SE houver gap trailing > threshold.
+ *
+ * Aberto = qualquer event (fg/bg/meta) cobrindo o instante. Background rodando
+ * ≠ idle (double-task). Trailing gap = do último ended_at até dayEndMs (passou
+ * de expedient_end_hour ou now do dia atual).
  */
-function computeIdleSeconds(events, nowMs) {
-  if (!events.length) return 0;
-  // intervalos [start, end] em ms; events abertos viram [start, nowMs].
+function computeGaps(events, nowMs, dayEndMs, threshold = IDLE_LONG_GAP_THRESHOLD_SEC_DEFAULT) {
+  if (!events.length) return { idle_seconds: 0, unreported_seconds: 0, unreported_since: null };
   const ivs = events
     .filter((e) => e.started_at)
     .map((e) => {
       const s = new Date(e.started_at).getTime();
       const en = e.ended_at ? new Date(e.ended_at).getTime() : nowMs;
-      return [Math.min(s, en), Math.max(s, en)]; // guard contra inválidos
+      return [Math.min(s, en), Math.max(s, en)];
     })
     .filter(([s, e]) => e > s);
-  if (!ivs.length) return 0;
-  // merge intervalos sobrepostos
+  if (!ivs.length) return { idle_seconds: 0, unreported_seconds: 0, unreported_since: null };
   ivs.sort((a, b) => a[0] - b[0]);
   const merged = [ivs[0].slice()];
   for (let i = 1; i < ivs.length; i++) {
@@ -79,12 +83,39 @@ function computeIdleSeconds(events, nowMs) {
     if (ivs[i][0] <= last[1]) last[1] = Math.max(last[1], ivs[i][1]);
     else merged.push(ivs[i].slice());
   }
-  const dayStart = merged[0][0];
-  const dayEnd = merged[merged.length - 1][1];
-  let covered = 0;
-  for (const [s, e] of merged) covered += (e - s);
-  const span = dayEnd - dayStart;
-  return Math.max(0, Math.round((span - covered) / 1000));
+  const thresholdMs = threshold * 1000;
+  let idleSec = 0;
+  let unreportedSec = 0;
+  // gaps internos
+  for (let i = 1; i < merged.length; i++) {
+    const gapMs = merged[i][0] - merged[i - 1][1];
+    if (gapMs <= 0) continue;
+    if (gapMs > thresholdMs) unreportedSec += gapMs / 1000;
+    else idleSec += gapMs / 1000;
+  }
+  // gap TRAILING: do último ended até dayEnd (ou now, o que for menor)
+  const lastEnd = merged[merged.length - 1][1];
+  const cap = Math.min(nowMs, dayEndMs || nowMs);
+  let unreportedSince = null;
+  if (cap > lastEnd) {
+    const trailingMs = cap - lastEnd;
+    if (trailingMs > thresholdMs) {
+      unreportedSec += trailingMs / 1000;
+      unreportedSince = new Date(lastEnd).toISOString();
+    } else {
+      idleSec += trailingMs / 1000;
+    }
+  }
+  return {
+    idle_seconds: Math.round(idleSec),
+    unreported_seconds: Math.round(unreportedSec),
+    unreported_since: unreportedSince,
+  };
+}
+
+/** Compat: API antiga só com idle. Mantida pra retro-compat e teste. */
+function computeIdleSeconds(events, nowMs) {
+  return computeGaps(events, nowMs, nowMs).idle_seconds;
 }
 
 class TimelineRepo {
@@ -120,8 +151,31 @@ class TimelineRepo {
       bp._raw.push(e);
     }
     const nowMs = Date.now();
+    // dayEnd = expedient_end_hour_ny (default 19h) no fuso NY do dia `d`.
+    // Trailing gap até esse cap é considerado "não reportado" se exceder.
+    // Pra hoje, cap = min(EOD, now).
+    const [y, mo, dy] = d.split('-').map(Number);
+    const noonUtc = Date.UTC(y, mo - 1, dy, 12);
+    const tz = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', timeZoneName: 'short',
+    }).formatToParts(noonUtc).find((p) => p.type === 'timeZoneName').value;
+    const off = tz === 'EDT' ? -4 : -5;
+    // pega o setting expedient_end_hour_ny (default 19)
+    let endHour = 19;
+    try {
+      const s = await this.db.query("SELECT value FROM v3.settings WHERE key = 'expedient_end_hour_ny'");
+      if (s.rows[0]) {
+        const v = s.rows[0].value;
+        const n = typeof v === 'number' ? v : parseInt(typeof v === 'string' ? v.replace(/"/g, '') : v, 10);
+        if (Number.isFinite(n)) endHour = n;
+      }
+    } catch (_) { /* default */ }
+    const dayEndMs = Date.UTC(y, mo - 1, dy, endHour - off);
     for (const bp of byPerson.values()) {
-      bp.idle_seconds = computeIdleSeconds(bp._raw, nowMs);
+      const g = computeGaps(bp._raw, nowMs, dayEndMs);
+      bp.idle_seconds = g.idle_seconds;
+      bp.unreported_seconds = g.unreported_seconds;
+      bp.unreported_since = g.unreported_since;
       delete bp._raw;
     }
     return { date: d, people: [...byPerson.values()] };
@@ -151,4 +205,4 @@ class TimelineRepo {
   }
 }
 
-module.exports = { TimelineRepo, computeIdleSeconds };
+module.exports = { TimelineRepo, computeIdleSeconds, computeGaps };

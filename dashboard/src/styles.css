@@ -234,10 +234,30 @@ th { background: var(--panel2); }
   50% { box-shadow: 0 0 0 1px var(--accent), 0 0 17px rgba(56, 189, 248, .7); }
 }
 
-/* B.4 — idle por pessoa (na linha do nome) */
+/* B.4 — idle distinguido (na linha do nome) */
 .cc-pname-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cc-idle { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .cc-idle.hot { color: var(--warn); font-weight: 700; }
+.cc-unreported {
+  font-size: 11px; color: var(--warn); font-weight: 600;
+  white-space: nowrap; line-height: 1.3;
+}
+
+/* Hover popup (segue o mouse). Click no bloco abre o painel completo. */
+.cc-hover {
+  position: fixed; z-index: 100; pointer-events: none;
+  background: var(--panel); border: 1px solid var(--accent);
+  border-radius: 8px; padding: 9px 12px;
+  font-size: 12px; line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+  max-width: 260px;
+}
+.cc-hover strong { display: block; font-size: 13px; color: var(--text); margin-bottom: 2px; }
+.cc-hover-prod { color: rgba(226, 232, 240, .85); }
+.cc-hover-clock {
+  margin-top: 4px; font-size: 11px; color: var(--accent);
+  font-variant-numeric: tabular-nums; font-weight: 700;
+}
 
 /* B.4 — bloco background passou expected_seconds */
 .cc-block.overrun {

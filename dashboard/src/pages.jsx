@@ -33,7 +33,8 @@ export function Hoje({ date }) {
   const nowMs = useNow(isToday);                 // tick 1s — só hoje
   const nowM = isToday ? nyMinutes(nowMs) : null;
   const POLL = isToday ? 12000 : 0;              // ao vivo só hoje
-  const [sel, setSel] = useState(null);          // event selecionado p/ detalhe
+  const [sel, setSel] = useState(null);          // event selecionado p/ painel
+  const [hov, setHov] = useState(null);          // hover tip ({payload,x,y} | null)
 
   const timeline = usePoll('/timeline?date=' + date, [date], POLL);
   const production = usePoll('/production?date=' + date, [date], POLL);
@@ -64,12 +65,29 @@ export function Hoje({ date }) {
         pp={pp} deadlines={deadlines} production={production} />
       <CCTimeline people={people} allPeople={people} batchById={batchById} isToday={isToday}
         nowM={nowM} nowMs={nowMs} loading={timeline.loading} error={timeline.error}
-        selected={sel} onSelect={setSel} />
+        selected={sel} onSelect={setSel} onHover={setHov} />
       {sel ? (
         <CCDetail ev={sel.ev} person={sel.person} people={people}
           batchById={batchById} isToday={isToday} nowMs={nowMs}
           onClose={() => setSel(null)} />
       ) : null}
+      {hov ? <CCHoverTip {...hov} /> : null}
+    </div>
+  );
+}
+
+/** Pop-up pequeno que segue o mouse (essencial). Clique no bloco abre o painel. */
+function CCHoverTip({ payload, x, y }) {
+  const { personName, fn, prod, clockStr, live } = payload;
+  // clamp pra direita/baixo da viewport (evita sair da tela)
+  const w = 240; const h = 80;
+  const left = (typeof window !== 'undefined' && x + 16 + w > window.innerWidth) ? x - w - 12 : x + 14;
+  const top = (typeof window !== 'undefined' && y + 16 + h > window.innerHeight) ? y - h - 12 : y + 14;
+  return (
+    <div className="cc-hover" style={{ left, top }}>
+      <strong>{personName}</strong>
+      <div>{fn}{prod ? <> · <span className="cc-hover-prod">{prod}</span></> : null}</div>
+      {clockStr ? <div className="cc-hover-clock">{live ? '⏱ ' : ''}{clockStr}</div> : null}
     </div>
   );
 }
@@ -203,7 +221,7 @@ function CardAtencao({ alerts, loading }) {
 }
 
 // ── CENTRO — timeline de TODOS lado a lado ─────────────────
-function CCTimeline({ people, allPeople, batchById, isToday, nowM, nowMs, loading, error, selected, onSelect }) {
+function CCTimeline({ people, allPeople, batchById, isToday, nowM, nowMs, loading, error, selected, onSelect, onHover }) {
   if (error) return <ErrorBox error={error} />;
   if (loading && !people.length) return <Loading />;
   if (!people.length) return <Empty>Nenhuma atividade nesse dia ainda.</Empty>;
@@ -254,16 +272,21 @@ function CCTimeline({ people, allPeople, batchById, isToday, nowM, nowMs, loadin
             nowM={nowM} nowMs={nowMs} pct={pct}
             rangeStart={rangeStart} rangeEnd={rangeEnd} showNow={showNow}
             selectedEvId={selected && selected.ev ? selected.ev.event_id : null}
-            onSelect={onSelect} />
+            onSelect={onSelect} onHover={onHover} />
         ))}
       </div>
     </div>
   );
 }
 
-function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, showNow, selectedEvId, onSelect }) {
-  // B.4 — idle por pessoa. Read-side já calcula em /timeline. âmbar a partir de 30min.
+function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, showNow, selectedEvId, onSelect, onHover }) {
+  // B.4 — idle distinguido em DOIS rótulos:
+  //  idle           = soma dos gaps CURTOS (≤ threshold) — tempo parado real.
+  //  não reportado  = gaps LONGOS (> threshold) OU trailing-até-fim-do-dia.
+  // âmbar idle a partir de 30min (Bruno).
   const idleSec = person.idle_seconds || 0;
+  const unreportedSec = person.unreported_seconds || 0;
+  const unreportedSince = person.unreported_since || null;
   const idleHot = idleSec >= 30 * 60;
   return (
     <div className="cc-row">
@@ -272,8 +295,14 @@ function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeS
         <div className="cc-pname-wrap">
           <span className="cc-pname">{person.display_name || ('#' + person.person_id)}</span>
           {idleSec > 0 ? (
-            <span className={'cc-idle' + (idleHot ? ' hot' : '')} title={'tempo ocioso entre atividades hoje'}>
+            <span className={'cc-idle' + (idleHot ? ' hot' : '')} title="tempo ocioso entre atividades (gaps curtos)">
               idle {fmtDur(idleSec)}
+            </span>
+          ) : null}
+          {unreportedSec > 0 ? (
+            <span className="cc-unreported" title="gap longo ou parou de reportar">
+              sem registro {fmtDur(unreportedSec)}
+              {unreportedSince ? <> · desde {fmtTime(unreportedSince)}</> : null}
             </span>
           ) : null}
         </div>
@@ -283,7 +312,7 @@ function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeS
           <CCBlock key={e.event_id} ev={e} person={person} allPeople={allPeople}
             batchById={batchById} isToday={isToday}
             nowM={nowM} nowMs={nowMs} pct={pct} rangeStart={rangeStart} rangeEnd={rangeEnd}
-            selected={selectedEvId === e.event_id} onSelect={onSelect} />
+            selected={selectedEvId === e.event_id} onSelect={onSelect} onHover={onHover} />
         ))}
         {showNow ? <span className="cc-now" style={{ left: pct(nowM) + '%' }} /> : null}
       </div>
@@ -359,7 +388,7 @@ function CCDetail({ ev, person, people, batchById, isToday, nowMs, onClose }) {
   );
 }
 
-function CCBlock({ ev, person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, selected, onSelect }) {
+function CCBlock({ ev, person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeStart, rangeEnd, selected, onSelect, onHover }) {
   const startM = hm(ev.started_at);
   if (startM == null) return null;
   const live = !ev.ended_at && isToday;
@@ -393,12 +422,14 @@ function CCBlock({ ev, person, allPeople, batchById, isToday, nowM, nowMs, pct, 
   const overrun = isBg && expected != null && elapsedSec != null && elapsedSec > expected;
   const overMin = overrun ? Math.round((elapsedSec - expected) / 60) : 0;
 
-  const coworkText = cowork ? ' · cowork com ' + coworkBadges.map((b) => b.name).join(', ') : '';
-  const title = fn + (prod ? ' · ' + prod : '') + ' · '
-    + fmtTime(ev.started_at) + '→' + (ev.ended_at ? fmtTime(ev.ended_at) : 'agora')
-    + (clockStr ? ' · ' + clockStr : '')
-    + coworkText
-    + (overrun ? ' · passou ' + overMin + 'min do esperado' : '');
+  // Payload pro hover popup (pessoa, função, produto, cronômetro).
+  const hoverPayload = {
+    personName: person.display_name || ('#' + person.person_id),
+    fn, prod, clockStr, live,
+  };
+  const onEnter = (e) => onHover && onHover({ payload: hoverPayload, x: e.clientX, y: e.clientY });
+  const onMove = (e) => onHover && onHover({ payload: hoverPayload, x: e.clientX, y: e.clientY });
+  const onLeave = () => onHover && onHover(null);
 
   const cls = ['cc-block']
     .concat(live ? ['live'] : [])
@@ -407,22 +438,30 @@ function CCBlock({ ev, person, allPeople, batchById, isToday, nowM, nowMs, pct, 
     .concat(overrun ? ['overrun'] : [])
     .join(' ');
 
+  // aria-label substitui o title nativo (sem tooltip duplicado em cima do hover popup)
+  const ariaLabel = fn + (prod ? ' · ' + prod : '') + ' · '
+    + fmtTime(ev.started_at) + '→' + (ev.ended_at ? fmtTime(ev.ended_at) : 'agora')
+    + (clockStr ? ' · ' + clockStr : '')
+    + (cowork ? ' · cowork com ' + coworkBadges.map((b) => b.name).join(', ') : '')
+    + (overrun ? ' · passou ' + overMin + 'min do esperado' : '');
+
   return (
     <span className={cls}
       style={{ left: left + '%', width: width + '%', background: FLOW_COLOR[flow] || 'var(--panel2)' }}
-      title={title}
+      aria-label={ariaLabel}
       onClick={() => onSelect && onSelect({ ev, person })}
+      onMouseEnter={onEnter} onMouseMove={onMove} onMouseLeave={onLeave}
       role="button">
       <span className="cc-bk-fn">{fn}</span>
       {prod ? <span className="cc-bk-pr">{prod}</span> : null}
       {cowork ? (
         <span className="cc-bk-cowork">
           {coworkBadges.map((b) => (
-            <span key={b.id} className="cc-cw-chip" title={'cowork com ' + b.name + ' · ' + fn}>{b.initials}</span>
+            <span key={b.id} className="cc-cw-chip" aria-label={'cowork com ' + b.name}>{b.initials}</span>
           ))}
         </span>
       ) : null}
-      {overrun ? <span className="cc-bk-warn" title={'passou ' + overMin + 'min do esperado'}>⏰</span> : null}
+      {overrun ? <span className="cc-bk-warn" aria-label={'passou ' + overMin + 'min do esperado'}>⏰</span> : null}
       {live && clockStr ? <span className="cc-bk-live">⏱ {clockStr}</span> : null}
       {!live && clockStr ? <span className="cc-bk-dur">{clockStr}</span> : null}
     </span>

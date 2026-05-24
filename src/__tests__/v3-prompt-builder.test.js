@@ -85,6 +85,15 @@ describe('V3 §2.7 — buildContext estrutura', () => {
     expect(SYSTEM_PROMPT).toMatch(/EXCEÇÃO.*pausa/);
   });
 
+  test('Captura — TRÊS sentidos de envio (P&P cliente / DC produção / clínica injeções)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/TRÊS sentidos de "envio"/);
+    expect(SYSTEM_PROMPT).toMatch(/PEDIDOS DE CLIENTE.*slug=shipping/s);
+    expect(SYSTEM_PROMPT).toMatch(/dc_shipment.*flow=production/s);
+    expect(SYSTEM_PROMPT).toMatch(/clinic_shipment.*flow=support/s);
+    expect(SYSTEM_PROMPT).toMatch(/FBA|WFS/);
+    expect(SYSTEM_PROMPT).toMatch(/INJEÇÕES/);
+  });
+
   test('mensagem a interpretar incluída no userContent', async () => {
     const pb = new PromptBuilder({ db: makeFakeDb() });
     const r = await pb.buildContext(MSG, { author: AUTHOR });
