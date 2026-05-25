@@ -80,6 +80,13 @@ describe('V3 §2.7 — buildContext estrutura', () => {
     expect(SYSTEM_PROMPT).toMatch(/quantity.*quantity_unit/);
   });
 
+  test('Cowork — inferência obrigatória do EQUIPE state (sem nomear)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/INFERÊNCIA OBRIGATÓRIA/);
+    expect(SYSTEM_PROMPT).toMatch(/ajuda\/ajudando/);
+    expect(SYSTEM_PROMPT).toMatch(/LEIA a seção EQUIPE/);
+    expect(SYSTEM_PROMPT).toMatch(/cowork_with vazio/);
+  });
+
   test('Captura A2 — regra P&P emenda + exceção "pausa"', () => {
     expect(SYSTEM_PROMPT).toMatch(/P&P EMENDA/);
     expect(SYSTEM_PROMPT).toMatch(/EXCEÇÃO.*pausa/);

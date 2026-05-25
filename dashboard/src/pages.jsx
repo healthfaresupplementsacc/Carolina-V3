@@ -571,22 +571,29 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
   const personsCat = useFetch(isWrite ? '/catalog/persons' : null, [isWrite]);
   const atsCat = useFetch(isWrite ? '/catalog/activity-types' : null, [isWrite]);
   const batchesCat = useFetch(isWrite ? '/batches' : null, [isWrite]);
+  const productsCat = useFetch(isWrite ? '/catalog/products' : null, [isWrite]);
 
   const buildForm = () => {
     if (isCreate) {
-      // create: começa com data do dia (12:00 PM NY como default razoável)
       const today = date || nyToday();
       const defaultStart = isoToNyDatetimeLocal(`${today}T16:00:00.000Z`); // 12:00 PM NY em maio
       return {
-        person_id: '', activity_type_id: '', product_batch_id: '',
+        person_id: '', activity_type_id: '',
+        product_id: '', batch_number: '',
         started_at_local: defaultStart, ended_at_local: '', description: '',
         quantity: '', quantity_unit: '',
       };
     }
+    // pra um event existente: resolve produto+lote a partir do batchById
+    // (já carregado em Hoje). Se faltar contexto, ficam vazios e o admin
+    // re-escolhe do catálogo.
+    const batch = ev && ev.product_batch_id != null && batchById
+      ? batchById[ev.product_batch_id] : null;
     return {
       person_id: String(person && person.person_id || ''),
       activity_type_id: ev && ev.activity ? String(ev.activity.id) : '',
-      product_batch_id: ev && ev.product_batch_id != null ? String(ev.product_batch_id) : '',
+      product_id: batch && batch.product ? String(batch.product.id) : '',
+      batch_number: batch && batch.batch_number ? batch.batch_number : '',
       started_at_local: ev ? isoToNyDatetimeLocal(ev.started_at) : '',
       ended_at_local: ev && ev.ended_at ? isoToNyDatetimeLocal(ev.ended_at) : '',
       description: ev && ev.description ? ev.description : '',
@@ -644,10 +651,22 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
       if (qtyN != null && !Number.isFinite(qtyN)) {
         setBusy(false); return setErr('Quantidade tem que ser número.');
       }
+      // Resolve product_batch_id: se produto setado, chama /batches/resolve
+      // pra encontrar ou criar o batch desse produto+lote. Se vazio, é null.
+      let productBatchId = null;
+      if (form.product_id) {
+        const resolved = await apiPost('/batches/resolve', {
+          product_id: Number(form.product_id),
+          batch_number: form.batch_number || null,
+        });
+        productBatchId = resolved.data && resolved.data.batch_id;
+      } else if (form.batch_number) {
+        throw new Error('Escolhe um produto antes do lote.');
+      }
       const payload = {
         person_id: Number(form.person_id),
         activity_type_id: form.activity_type_id ? Number(form.activity_type_id) : null,
-        product_batch_id: form.product_batch_id ? Number(form.product_batch_id) : null,
+        product_batch_id: productBatchId,
         started_at: nyDatetimeLocalToIso(form.started_at_local),
         ended_at: form.ended_at_local ? nyDatetimeLocalToIso(form.ended_at_local) : null,
         description: form.description || null,
@@ -820,15 +839,46 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
           </select>
         </label>
 
-        <label className="cc-field">
-          <span>Produto / Lote</span>
-          <select value={form.product_batch_id} onChange={set('product_batch_id')}>
-            <option value="">(nenhum)</option>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>{b.product_name} / {b.batch_number}</option>
+        <div className="cc-field-row">
+          <label className="cc-field">
+            <span>Produto (catálogo)</span>
+            <select value={form.product_id} onChange={(e) => {
+              const v = e.target.value;
+              // ao trocar produto, sugere o 1º lote ativo desse produto (se houver)
+              setForm((f) => {
+                const next = Object.assign({}, f, { product_id: v });
+                if (v) {
+                  const activeForProd = batches.find((b) => String(b.product_id) === String(v));
+                  if (activeForProd && !f.batch_number) next.batch_number = activeForProd.batch_number;
+                } else {
+                  next.batch_number = '';
+                }
+                return next;
+              });
+            }}>
+              <option value="">(nenhum)</option>
+              {((productsCat.data && productsCat.data.products) || []).map((p) => (
+                <option key={p.id} value={p.id}>{p.canonical_name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="cc-field">
+            <span>Lote (opcional)</span>
+            <input type="text" value={form.batch_number} onChange={set('batch_number')}
+              placeholder={form.product_id ? 'ex: BR-2026-0148 ou vazio = sem lote' : 'escolhe produto antes'}
+              disabled={!form.product_id} />
+          </label>
+        </div>
+        {form.product_id && batches.filter((b) => String(b.product_id) === String(form.product_id)).length ? (
+          <div className="cc-batch-chips small muted">
+            lotes ativos:&nbsp;
+            {batches.filter((b) => String(b.product_id) === String(form.product_id)).map((b) => (
+              <button key={b.id} type="button" className="cc-btn-link"
+                onClick={() => setForm((f) => ({ ...f, batch_number: b.batch_number }))}
+                title="usar esse lote">{b.batch_number}</button>
             ))}
-          </select>
-        </label>
+          </div>
+        ) : null}
 
         <div className="cc-field-row">
           <label className="cc-field">

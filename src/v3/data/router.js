@@ -276,6 +276,30 @@ const ENDPOINTS = [
       }
       throw new Error('confirm: decision inválido (duplicate|additional)');
     } },
+  // lotes — resolve produto+nº lote → batch_id (cria se não existir).
+  // Usado pelo drawer de edição quando o admin escolhe produto + lote
+  // pra anexar ao event. batch_number opcional → '(sem lote)' como
+  // placeholder, permitindo eventos com produto mas sem nº de lote
+  // (ex.: "Bruno mencionou Potassium" sem informar o lote).
+  { method: 'post', path: '/api/v3/data/batches/resolve',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      const productId = parseInt(b.product_id, 10);
+      if (!Number.isFinite(productId)) throw new Error('product_id obrigatório');
+      const batchNum = (b.batch_number == null || String(b.batch_number).trim() === '')
+        ? '(sem lote)'
+        : String(b.batch_number).trim();
+      const startedAt = b.started_at || new Date().toISOString();
+      const batch = await s.batch.findOrCreateActive(productId, batchNum, startedAt,
+        { actorType: 'admin' });
+      return { data: {
+        batch_id: batch.id,
+        product_id: batch.product_id,
+        batch_number: batch.batch_number,
+        status: batch.status,
+        started_at: batch.started_at,
+      } };
+    } },
   // lotes
   { method: 'patch', path: '/api/v3/data/batches/:id',
     handler: async (req, r, s) => {

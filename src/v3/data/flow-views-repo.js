@@ -54,6 +54,42 @@ function clampedSeconds(started, ended, dayStartMs, dayEndMs, nowMs) {
   return sec > 0 ? sec : null;
 }
 
+/**
+ * Intervalo [s,e] clampado à janela do dia. Retorna null se inválido/fora.
+ */
+function clampedInterval(started, ended, dayStartMs, dayEndMs, nowMs) {
+  if (!started) return null;
+  const sRaw = new Date(started).getTime();
+  const eRaw = ended ? new Date(ended).getTime() : nowMs;
+  if (Number.isNaN(sRaw) || Number.isNaN(eRaw)) return null;
+  if (eRaw <= sRaw) return null;
+  const s = Math.max(sRaw, dayStartMs);
+  const e = Math.min(eRaw, dayEndMs);
+  return e > s ? [s, e] : null;
+}
+
+/**
+ * União de intervalos (em ms) → soma de segundos cobertos.
+ * Ex: [[10,20],[15,25],[30,40]] → 20s (10-25 = 15s + 30-40 = 10s).
+ * Usado pra calcular tempo-de-parede do bloco P&P (sem somar paralelo).
+ */
+function unionSeconds(intervals) {
+  if (!intervals || !intervals.length) return 0;
+  const sorted = intervals.slice().sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  let [s, e] = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i][0] <= e) {
+      e = Math.max(e, sorted[i][1]); // sobrepõe
+    } else {
+      covered += e - s;
+      [s, e] = sorted[i];
+    }
+  }
+  covered += e - s;
+  return Math.round(covered / 1000);
+}
+
 const EV_COLUMNS = `e.id, e.product_batch_id, e.person_id, e.started_at, e.ended_at,
   e.quantity, e.quantity_unit,
   at.display_name AS activity_name, at.slug AS activity_slug, at.phase_order,
@@ -122,29 +158,39 @@ class FlowViewsRepo {
     };
   }
 
-  /** P&P — o bloco do dia: tempo total somado + sub-passos + quantidades. */
+  /** P&P — o bloco do dia: TEMPO-DE-PAREDE (união de intervalos) + sub-passos + quantidades.
+   *  Antes: somava o tempo de cada pessoa (inflava com cowork). Agora total =
+   *  união dos intervalos cobertos por algum event de P&P, então 2 pessoas
+   *  na MESMA atividade ao mesmo tempo conta como 1 vez (modelo "tempo de
+   *  parede do bloco", combinado com Bruno). sub_steps mantém soma por
+   *  atividade pra ver onde o tempo foi gasto. person_seconds mantém soma
+   *  por pessoa pra ver carga individual. */
   async pnpByDay(date) {
     const d = resolveDate(date);
     const evs = await this._dayEvents(d, 'pnp');
     const now = this._now();
     const bounds = nyDayBounds(d);
-    let total = 0;
     let invalid = 0;
-    const subSteps = new Map();
+    const subSteps = new Map();      // activity → soma de seconds (pessoa-hora; mantém)
     const people = new Set();
-    // Captura Aprimorada A2: agrega quantity dos events (ex.: "impressao
-    // das ordens - 468" vira event.quantity=468 unit='order'). Total de
-    // ordens do dia = SOMA dos quantity onde unit='order' (events distintos
-    // = lotes diferentes; default é somar).
-    const quantities = [];   // [{event_id, activity, quantity, unit}]
+    const allIntervals = [];          // [[s,e],...] pra união do total
+    const subIntervals = new Map();   // activity → [[s,e],...] pra união por sub-passo
+    const personSeconds = new Map();  // person_name → soma de seconds (carga individual)
+    const quantities = [];
     let ordersTotal = 0;
     for (const e of evs) {
       if (e.person_name) people.add(e.person_name);
-      const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
-      if (secs == null) { invalid += 1; continue; }
-      total += secs;
+      const iv = clampedInterval(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
+      if (!iv) { invalid += 1; continue; }
+      const secs = (iv[1] - iv[0]) / 1000;
+      allIntervals.push(iv);
       const ss = e.activity_name || '(?)';
+      if (!subIntervals.has(ss)) subIntervals.set(ss, []);
+      subIntervals.get(ss).push(iv);
       subSteps.set(ss, (subSteps.get(ss) || 0) + secs);
+      if (e.person_name) {
+        personSeconds.set(e.person_name, (personSeconds.get(e.person_name) || 0) + secs);
+      }
       if (e.quantity != null) {
         quantities.push({
           event_id: e.id, activity: ss, quantity: Number(e.quantity), unit: e.quantity_unit || null,
@@ -152,22 +198,28 @@ class FlowViewsRepo {
         if (e.quantity_unit === 'order') ordersTotal += Number(e.quantity);
       }
     }
+    const wallSeconds = unionSeconds(allIntervals);
+    // sub_steps com tempo-de-parede por atividade (uniao) + carga total
+    // (soma pessoa-hora). Frontend pode escolher qual mostrar.
+    const subStepsOut = [...subIntervals.entries()].map(([activity, ivs]) => ({
+      activity,
+      seconds: Math.round(subSteps.get(activity) || 0),    // soma (pessoa-hora)
+      wall_seconds: unionSeconds(ivs),                      // união (sem dupla contagem)
+    }));
     return {
       date: d, flow: 'pnp', mode: 'block',
-      total_seconds: Math.round(total),
+      total_seconds: wallSeconds,         // NOVO MODELO: união de intervalos
+      person_seconds_total: Math.round([...personSeconds.values()].reduce((s, v) => s + v, 0)),
+      person_seconds: [...personSeconds.entries()].map(([person, s]) => ({ person, seconds: Math.round(s) })),
       invalid_event_count: invalid,
       event_count: evs.length,
       people: [...people],
-      sub_steps: [...subSteps.entries()].map(([activity, s]) => ({ activity, seconds: Math.round(s) })),
-      // Captura A2: agora temos fonte real (LLM extrai quantity de
-      // "ordens - N" / "ordens: N" / "N ordens"). Retrocompat: `packages`
-      // continua presente apontando pro ordersTotal pra UI antiga não
-      // quebrar; o nome canônico passa a ser `orders` + `quantities`.
+      sub_steps: subStepsOut,
       orders: ordersTotal,
-      seconds_per_order: ordersTotal > 0 ? Math.round(total / ordersTotal) : null,
+      seconds_per_order: ordersTotal > 0 ? Math.round(wallSeconds / ordersTotal) : null,
       quantities,
       packages: ordersTotal > 0 ? ordersTotal : null,
-      seconds_per_package: ordersTotal > 0 ? Math.round(total / ordersTotal) : null,
+      seconds_per_package: ordersTotal > 0 ? Math.round(wallSeconds / ordersTotal) : null,
     };
   }
 
@@ -192,4 +244,4 @@ class FlowViewsRepo {
   }
 }
 
-module.exports = { FlowViewsRepo, nyDayBounds, clampedSeconds };
+module.exports = { FlowViewsRepo, nyDayBounds, clampedSeconds, clampedInterval, unionSeconds };

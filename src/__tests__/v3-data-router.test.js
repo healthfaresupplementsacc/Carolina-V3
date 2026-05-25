@@ -115,13 +115,34 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
     expect(out.data.id).toBe(1);
   });
 
-  test('47 endpoints registrados, todos sob /api/v3/data/', () => {
-    expect(ENDPOINTS).toHaveLength(47);
+  test('48 endpoints registrados, todos sob /api/v3/data/', () => {
+    expect(ENDPOINTS).toHaveLength(48);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
     expect(ENDPOINTS.filter((e) => (e.method || 'get') === 'get')).toHaveLength(24);
-    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(11);
+    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(12);
     expect(ENDPOINTS.filter((e) => e.method === 'patch')).toHaveLength(7);
     expect(ENDPOINTS.filter((e) => e.method === 'delete')).toHaveLength(5);
+  });
+
+  test('POST /batches/resolve cria/encontra batch com placeholder se sem nº', async () => {
+    const findOrCreateActive = jest.fn(async () => ({ id: 99, product_id: 7, batch_number: '(sem lote)', status: 'in_progress', started_at: 'x' }));
+    const services = { batch: { findOrCreateActive } };
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/batches/resolve' && e.method === 'post');
+    expect(ep).toBeDefined();
+    const out = await ep.handler({ params: {}, query: {}, body: { product_id: 7 } }, {}, services);
+    expect(findOrCreateActive).toHaveBeenCalled();
+    const args = findOrCreateActive.mock.calls[0];
+    expect(args[0]).toBe(7);
+    expect(args[1]).toBe('(sem lote)');
+    expect(out.data.batch_id).toBe(99);
+  });
+
+  test('POST /batches/resolve com nº de lote: usa o nº trimmed', async () => {
+    const findOrCreateActive = jest.fn(async () => ({ id: 42, product_id: 7, batch_number: 'BR-2026-0148', status: 'in_progress' }));
+    const services = { batch: { findOrCreateActive } };
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/batches/resolve' && e.method === 'post');
+    await ep.handler({ params: {}, query: {}, body: { product_id: 7, batch_number: '  BR-2026-0148  ' } }, {}, services);
+    expect(findOrCreateActive.mock.calls[0][1]).toBe('BR-2026-0148');
   });
 });
 

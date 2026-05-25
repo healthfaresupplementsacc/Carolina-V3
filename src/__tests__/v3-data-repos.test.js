@@ -220,6 +220,26 @@ describe('V3 data — MessagesRepo', () => {
   });
 });
 
+describe('V3 data — unionSeconds (pnpByDay cowork-aware)', () => {
+  const { unionSeconds } = require('../v3/data/flow-views-repo');
+  test('intervalos disjuntos = soma', () => {
+    expect(unionSeconds([[0, 1000], [2000, 3000]])).toBe(2);
+  });
+  test('intervalos sobrepostos contam só 1×', () => {
+    expect(unionSeconds([[0, 5000], [3000, 8000]])).toBe(8);  // 0..8 = 8s, não 5+5=10
+  });
+  test('inclusão total → soma do maior', () => {
+    expect(unionSeconds([[0, 10000], [2000, 5000]])).toBe(10);
+  });
+  test('vazio → 0', () => {
+    expect(unionSeconds([])).toBe(0);
+    expect(unionSeconds(null)).toBe(0);
+  });
+  test('ordem não importa', () => {
+    expect(unionSeconds([[3000, 5000], [0, 2000]])).toBe(4);
+  });
+});
+
 describe('V3 data — MetricsRepo', () => {
   test('metricsByDay agrega total, erros, custo e distribuições', async () => {
     const db = makeDb([{ match: /SELECT llm_result, processing_error FROM v3\.messages/, rows: [
@@ -402,7 +422,27 @@ describe('V3 data — FlowViewsRepo (Bloco 3)', () => {
     expect(out.mode).toBe('block');
     expect(out.total_seconds).toBe(1800);
     expect(out.packages).toBeNull();
-    expect(out.sub_steps).toEqual([{ activity: 'Impressão de Ordens', seconds: 1800 }]);
+    expect(out.sub_steps).toEqual([{ activity: 'Impressão de Ordens', seconds: 1800, wall_seconds: 1800 }]);
+  });
+
+  test('pnpByDay com COWORK (2 pessoas mesma atividade overlap) — total = união, sub_steps tem wall_seconds', async () => {
+    // Simone 13:00→14:00 + Vitor 13:30→14:30 (mesma atividade)
+    // soma = 60+60 = 120min; união = 13:00→14:30 = 90min
+    const db = makeDb(evRoute([
+      { id: 1, person_id: 5, started_at: '2026-05-21T13:00:00Z', ended_at: '2026-05-21T14:00:00Z',
+        activity_name: 'Ordens (P&P)', activity_slug: 'orders', person_name: 'Simone' },
+      { id: 2, person_id: 4, started_at: '2026-05-21T13:30:00Z', ended_at: '2026-05-21T14:30:00Z',
+        activity_name: 'Ordens (P&P)', activity_slug: 'orders', person_name: 'Vitor' },
+    ]));
+    const out = await new FlowViewsRepo({ db }).pnpByDay('2026-05-21');
+    expect(out.total_seconds).toBe(5400);            // 90min = união
+    expect(out.person_seconds_total).toBe(7200);     // 120min = soma (pessoa-hora)
+    expect(out.sub_steps[0].seconds).toBe(7200);     // soma por atividade
+    expect(out.sub_steps[0].wall_seconds).toBe(5400); // união por atividade
+    expect(out.person_seconds.sort((a, b) => a.person.localeCompare(b.person))).toEqual([
+      { person: 'Simone', seconds: 3600 },
+      { person: 'Vitor', seconds: 3600 },
+    ]);
   });
 
   test('supportByDay lista ocorrências; conserto marcado downtime', async () => {
