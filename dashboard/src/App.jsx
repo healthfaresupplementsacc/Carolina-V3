@@ -6,12 +6,12 @@ import * as Pages from './pages.jsx';
 const TABS = [
   ['hoje', 'Hoje'], ['producao', 'Produção'], ['pp', 'P&P'], ['suporte', 'Suporte'],
   ['pessoas', 'Pessoas'], ['produto', 'Produto'], ['metas', 'Metas'],
-  ['planejamento', 'Planejamento'], ['carolina', 'Carolina'],
+  ['planejamento', 'Planejamento'], ['carolina', 'Carolina'], ['config', 'Config'],
 ];
 const PAGE = {
   hoje: Pages.Hoje, producao: Pages.Producao, pp: Pages.PP, suporte: Pages.Suporte,
   pessoas: Pages.Pessoas, produto: Pages.Produto, metas: Pages.Metas,
-  planejamento: Pages.Planejamento, carolina: Pages.Carolina,
+  planejamento: Pages.Planejamento, carolina: Pages.Carolina, config: Pages.Config,
 };
 
 /** Rota atual do hash (#hoje → 'hoje'). */

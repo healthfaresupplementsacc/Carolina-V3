@@ -39,7 +39,26 @@ export function Hoje({ date }) {
   const [hov, setHov] = useState(null);          // hover tip ({payload,x,y} | null)
   const [refreshTick, setRefreshTick] = useState(0); // bump → re-fetch após write
   const [toast, setToast] = useState(null);      // {message, undo?, ttlMs?} | null
+  const [mergeArm, setMergeArm] = useState(null); // {ev1, person1} | null
+  const [mergeConfirm, setMergeConfirm] = useState(null); // {ev1,p1,ev2,p2} | null
+  const [splitOpen, setSplitOpen] = useState(null); // {ev, person} | null
   const refresh = () => setRefreshTick((t) => t + 1);
+
+  // Click handler unificado: enquanto mergeArm está setado, próximo
+  // clique em outro bloco vira "candidato de merge"; senão abre o painel.
+  const handleBlockClick = (payload) => {
+    if (mergeArm && payload.ev.event_id !== mergeArm.ev1.event_id) {
+      setMergeConfirm({ ev1: mergeArm.ev1, p1: mergeArm.person1,
+        ev2: payload.ev, p2: payload.person });
+      return;
+    }
+    if (mergeArm && payload.ev.event_id === mergeArm.ev1.event_id) {
+      // clicou no próprio armed → cancela
+      setMergeArm(null);
+      return;
+    }
+    setSel(payload);
+  };
 
   const timeline = usePoll('/timeline?date=' + date, [date, refreshTick], POLL);
   const production = usePoll('/production?date=' + date, [date, refreshTick], POLL);
@@ -71,9 +90,17 @@ export function Hoje({ date }) {
       </div>
       <CCTopo people={people} counts={counts} goals={goals}
         pp={pp} deadlines={deadlines} production={production} />
+      {mergeArm ? (
+        <div className="cc-mode-banner">
+          <span>🔗 <strong>Modo juntar:</strong> clique em outro event pra juntar com
+            {' "'}<strong>{mergeArm.ev1.activity ? mergeArm.ev1.activity.display_name : '?'}</strong>{'"'}
+            {' (ev '}{mergeArm.ev1.event_id}{')'}</span>
+          <button className="cc-btn" onClick={() => setMergeArm(null)}>Cancelar</button>
+        </div>
+      ) : null}
       <CCTimeline people={people} allPeople={people} batchById={batchById} isToday={isToday}
         nowM={nowM} nowMs={nowMs} loading={timeline.loading} error={timeline.error}
-        selected={sel} onSelect={setSel} onHover={setHov} />
+        selected={sel} onSelect={handleBlockClick} onHover={setHov} />
       {sel ? (
         <CCDetail
           initialMode={sel.mode || 'view'}
@@ -81,7 +108,19 @@ export function Hoje({ date }) {
           batchById={batchById} isToday={isToday} nowMs={nowMs} date={date}
           onClose={() => setSel(null)}
           onChanged={refresh}
-          onToast={setToast} />
+          onToast={setToast}
+          onArmMerge={(ev, p) => { setSel(null); setMergeArm({ ev1: ev, person1: p }); }}
+          onOpenSplit={(ev, p) => { setSel(null); setSplitOpen({ ev, person: p }); }} />
+      ) : null}
+      {mergeConfirm ? (
+        <CCMergeConfirm {...mergeConfirm}
+          onClose={() => setMergeConfirm(null)}
+          onDone={(toastSpec) => { setMergeConfirm(null); setMergeArm(null); refresh(); setToast(toastSpec); }} />
+      ) : null}
+      {splitOpen ? (
+        <CCSplitModal {...splitOpen}
+          onClose={() => setSplitOpen(null)}
+          onDone={(toastSpec) => { setSplitOpen(null); refresh(); setToast(toastSpec); }} />
       ) : null}
       {hov ? <CCHoverTip {...hov} /> : null}
       {toast ? (
@@ -97,6 +136,153 @@ export function Hoje({ date }) {
             }
           }} />
       ) : null}
+    </div>
+  );
+}
+
+/** Confirma o merge de 2 events. Preview do resultado (min started → max ended). */
+function CCMergeConfirm({ ev1, p1, ev2, p2, onClose, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  // preview: o sobrevivente é o de menor started_at; ended_at = max
+  const a = Date.parse(ev1.started_at) <= Date.parse(ev2.started_at) ? ev1 : ev2;
+  const b = a === ev1 ? ev2 : ev1;
+  const survivorStart = a.started_at;
+  const anyOpen = !ev1.ended_at || !ev2.ended_at;
+  const survivorEnd = anyOpen ? null
+    : (Date.parse(ev1.ended_at) >= Date.parse(ev2.ended_at) ? ev1.ended_at : ev2.ended_at);
+
+  const samePerson = p1.person_id === p2.person_id;
+  const sameActivity = (ev1.activity && ev2.activity && ev1.activity.id === ev2.activity.id);
+
+  async function go() {
+    setBusy(true); setErr(null);
+    try {
+      await apiPost('/events/merge', {
+        event_ids: [ev1.event_id, ev2.event_id],
+        by_person_id: null,
+      });
+      onDone && onDone({
+        message: `Eventos ev ${ev1.event_id} + ev ${ev2.event_id} juntados.`,
+        ttlMs: 6000,
+      });
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <CCModal title={'Juntar 2 events'} onClose={onClose} footer={
+      <>
+        <button className="cc-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="cc-btn cc-btn-primary" onClick={go} disabled={busy}>
+          {busy ? '…' : 'Confirmar juntar'}
+        </button>
+      </>
+    }>
+      <div className="cc-merge-preview">
+        <div className="cc-merge-side">
+          <div className="muted small">ev {ev1.event_id} · {p1.display_name}</div>
+          <div><strong>{ev1.activity ? ev1.activity.display_name : '?'}</strong></div>
+          <div className="small">{fmtTime(ev1.started_at)} → {ev1.ended_at ? fmtTime(ev1.ended_at) : 'aberto'}</div>
+        </div>
+        <div className="cc-merge-plus">+</div>
+        <div className="cc-merge-side">
+          <div className="muted small">ev {ev2.event_id} · {p2.display_name}</div>
+          <div><strong>{ev2.activity ? ev2.activity.display_name : '?'}</strong></div>
+          <div className="small">{fmtTime(ev2.started_at)} → {ev2.ended_at ? fmtTime(ev2.ended_at) : 'aberto'}</div>
+        </div>
+      </div>
+      <div className="cc-merge-result">
+        <div className="muted small">Resultado (sobrevivente = ev {a.event_id}):</div>
+        <div><strong>{fmtTime(survivorStart)} → {survivorEnd ? fmtTime(survivorEnd) : 'aberto'}</strong></div>
+        <div className="small muted">O outro vira soft-deleted (closed_reason='merged') — reversível via restore.</div>
+      </div>
+      {!samePerson ? (
+        <div className="cc-warn">⚠ Pessoas diferentes ({p1.display_name} × {p2.display_name}). O service não bloqueia; sobrevive a pessoa do ev {a.event_id}.</div>
+      ) : null}
+      {!sameActivity ? (
+        <div className="cc-warn">⚠ Tipos de atividade diferentes. O service não bloqueia; sobrevive a atividade do ev {a.event_id}.</div>
+      ) : null}
+      {err ? <div className="cc-err">erro: {err}</div> : null}
+    </CCModal>
+  );
+}
+
+/** Divide um event em 2 num split_at (datetime NY). */
+function CCSplitModal({ ev, person, onClose, onDone }) {
+  // default: meio do intervalo
+  const midMs = Math.round((Date.parse(ev.started_at) + Date.parse(ev.ended_at)) / 2);
+  const [splitLocal, setSplitLocal] = useState(isoToNyDatetimeLocal(new Date(midMs).toISOString()));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const sMs = Date.parse(ev.started_at);
+  const eMs = Date.parse(ev.ended_at);
+  const splitMs = splitLocal ? Date.parse(nyDatetimeLocalToIso(splitLocal)) : NaN;
+  const inRange = Number.isFinite(splitMs) && splitMs > sMs && splitMs < eMs;
+
+  async function go() {
+    if (!inRange) return setErr('split_at fora do intervalo do event.');
+    setBusy(true); setErr(null);
+    try {
+      const r = await apiPost('/events/' + ev.event_id + '/split', {
+        split_at: nyDatetimeLocalToIso(splitLocal),
+        by_person_id: null,
+      });
+      const second = r.data && r.data.second;
+      onDone && onDone({
+        message: `Event ev ${ev.event_id} dividido em 2 (novo: ev ${second ? second.id : '?'}).`,
+        ttlMs: 6000,
+      });
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <CCModal title={'Dividir event ' + ev.event_id} onClose={onClose} footer={
+      <>
+        <button className="cc-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="cc-btn cc-btn-primary" onClick={go} disabled={busy || !inRange}>
+          {busy ? '…' : 'Dividir'}
+        </button>
+      </>
+    }>
+      <div className="small muted">
+        {ev.activity ? ev.activity.display_name : '?'} · {person.display_name}
+        <br />Intervalo: {fmtTime(ev.started_at)} → {fmtTime(ev.ended_at)}
+      </div>
+      <label className="cc-field" style={{ marginTop: 12 }}>
+        <span>Horário do corte (NY)</span>
+        <input type="datetime-local" value={splitLocal} onChange={(e) => setSplitLocal(e.target.value)} />
+      </label>
+      {!inRange ? (
+        <div className="cc-warn">
+          ⚠ O horário precisa estar ENTRE {fmtTime(ev.started_at)} e {fmtTime(ev.ended_at)}.
+        </div>
+      ) : (
+        <div className="cc-merge-result small">
+          1ª parte: {fmtTime(ev.started_at)} → <strong>{splitLocal && fmtTime(nyDatetimeLocalToIso(splitLocal))}</strong><br/>
+          2ª parte: <strong>{splitLocal && fmtTime(nyDatetimeLocalToIso(splitLocal))}</strong> → {fmtTime(ev.ended_at)}
+        </div>
+      )}
+      {err ? <div className="cc-err">erro: {err}</div> : null}
+    </CCModal>
+  );
+}
+
+/** Modal genérico (overlay + caixa). ESC e click no overlay fecham. */
+function CCModal({ title, onClose, children, footer, wide }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="cc-modal-overlay" onClick={onClose}>
+      <div className={'cc-modal' + (wide ? ' wide' : '')} onClick={(e) => e.stopPropagation()} role="dialog" aria-label={title}>
+        <header className="cc-modal-h">
+          <span className="cc-modal-title">{title}</span>
+          <button className="cc-detail-close" onClick={onClose} aria-label="fechar">×</button>
+        </header>
+        <div className="cc-modal-body">{children}</div>
+        {footer ? <footer className="cc-modal-foot">{footer}</footer> : null}
+      </div>
     </div>
   );
 }
@@ -367,7 +553,7 @@ function CCRow({ person, allPeople, batchById, isToday, nowM, nowMs, pct, rangeS
 //   view   — somente leitura (clique num bloco). botão "Editar" → edit.
 //   edit   — PATCH /events/:id. botão "Apagar" → DELETE. botão "Cancelar" → view.
 //   create — POST /events. inicia em branco (botão "+ novo" no topo da timeline).
-function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday, nowMs, date, onClose, onChanged, onToast }) {
+function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday, nowMs, date, onClose, onChanged, onToast, onArmMerge, onOpenSplit }) {
   const [mode, setMode] = useState(initialMode);
   const isCreate = mode === 'create';
   const isEdit = mode === 'edit';
@@ -559,6 +745,13 @@ function CCDetail({ initialMode = 'view', ev, person, people, batchById, isToday
 
         <footer className="cc-detail-foot cc-detail-actions">
           <button className="cc-btn cc-btn-primary" onClick={() => setMode('edit')}>Editar</button>
+          <button className="cc-btn" onClick={() => onArmMerge && onArmMerge(ev, person)}
+            title="entra em modo juntar — depois clica em outro event">Juntar com outro</button>
+          <button className="cc-btn" onClick={() => onOpenSplit && onOpenSplit(ev, person)}
+            disabled={!ev.ended_at}
+            title={ev.ended_at ? 'dividir em duas partes' : 'só fecha events com fim definido podem ser divididos'}>
+            Dividir
+          </button>
         </footer>
       </aside>
     );
@@ -962,11 +1155,26 @@ export function Pessoas({ date }) {
   );
 }
 
-// ── PRODUTO — histórico (busca) ────────────────────────────
+// ── PRODUTO — histórico (busca) + editar/apagar count ──────
 export function Produto() {
+  const [tick, setTick] = useState(0);
+  const [toast, setToast] = useState(null);
+  const [editing, setEditing] = useState(null);
   const products = useFetch('/catalog/products', []);
   const [pid, setPid] = useState('');
-  const hist = useFetch(pid ? '/product/' + pid + '/history' : null, [pid]);
+  const hist = useFetch(pid ? '/product/' + pid + '/history' : null, [pid, tick]);
+  const refresh = () => setTick((t) => t + 1);
+
+  async function onDeleteCount(countId) {
+    // Contagens não têm endpoint público de restore (counts/softDelete fica
+    // no service mas não exposto). Apagar é DEFINITIVO via UI; o registro
+    // permanece no DB com deleted_at (recuperável via SQL admin).
+    try {
+      await apiDelete(`/counts/${countId}`, { reason: 'apagada via dashboard' });
+      setToast({ message: `Contagem ${countId} apagada (sem desfazer via UI; registro fica em deleted_at no banco).`, ttlMs: 8000 });
+      refresh();
+    } catch (e) { setToast({ message: 'erro: ' + e.message, ttlMs: 6000 }); }
+  }
 
   return (
     <>
@@ -984,7 +1192,7 @@ export function Produto() {
             <h3>{d.product.canonical_name} · {d.from} → {d.to}</h3>
             {d.counts.length ? (
               <table>
-                <thead><tr><th>data</th><th>lote</th><th>garrafas</th><th>reportado por</th></tr></thead>
+                <thead><tr><th>data</th><th>lote</th><th>garrafas</th><th>reportado por</th><th></th></tr></thead>
                 <tbody>
                   {d.counts.map((c) => (
                     <tr key={c.id}>
@@ -992,6 +1200,11 @@ export function Produto() {
                       <td>{c.batch ? c.batch.batch_number : '—'}</td>
                       <td>{c.bottles}</td>
                       <td>{c.reporter ? c.reporter.display_name : '—'}</td>
+                      <td className="small">
+                        <button className="cc-btn" onClick={() => setEditing(c)}>Editar</button>
+                        {' '}
+                        <button className="cc-btn cc-btn-danger" onClick={() => onDeleteCount(c.id)}>Apagar</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1001,17 +1214,94 @@ export function Produto() {
           </div>
         )}</View>
       ) : null}
+      {editing ? (
+        <CountEditModal count={editing} onClose={() => setEditing(null)}
+          onDone={(msg) => { setEditing(null); refresh(); setToast({ message: msg, ttlMs: 5000 }); }} />
+      ) : null}
+      {toast ? <CCToast toast={toast} onClose={() => setToast(null)}
+        onUndo={async () => {
+          if (!toast.undo) return setToast(null);
+          try { await toast.undo(); setToast({ message: 'Desfeito.', ttlMs: 3500 }); refresh(); }
+          catch (e) { setToast({ message: 'erro ao desfazer: ' + e.message, ttlMs: 6000 }); }
+        }} /> : null}
     </>
   );
 }
 
-// ── METAS — esperado vs realizado + duplicatas ─────────────
+/** Modal de edição de contagem — usa supersede (PATCH /counts/:id). */
+function CountEditModal({ count, onClose, onDone }) {
+  const [bottles, setBottles] = useState(String(count.bottles || 0));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function go(e) {
+    e && e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const n = Number(bottles);
+      if (!Number.isFinite(n) || n < 0) throw new Error('Quantidade inválida.');
+      await apiPatch(`/counts/${count.id}`, {
+        new_bottles: n, by_person_id: null, note: 'edição via dashboard',
+      });
+      onDone(`Contagem ${count.id} atualizada (bottles=${n}, anterior fica superseded).`);
+    } catch (e2) { setErr(e2.message); setBusy(false); }
+  }
+  return (
+    <CCModal title={'Editar contagem ' + count.id} onClose={onClose} footer={
+      <>
+        <button className="cc-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="cc-btn cc-btn-primary" onClick={go} disabled={busy}>{busy ? '…' : 'Salvar'}</button>
+      </>
+    }>
+      <div className="small muted">
+        {count.product ? count.product.canonical_name : '?'} / {count.batch ? count.batch.batch_number : '—'}
+        <br />Reportada por {count.reporter ? count.reporter.display_name : '—'}
+      </div>
+      <form className="cc-form" onSubmit={go} style={{ padding: 0, marginTop: 10 }}>
+        <label className="cc-field">
+          <span>Garrafas</span>
+          <input type="number" min="0" step="1" value={bottles} onChange={(e) => setBottles(e.target.value)} required />
+        </label>
+        <p className="small muted">
+          O service usa <strong>supersede</strong>: cria uma nova contagem, marca a anterior como superseded. Histórico preservado.
+        </p>
+        {err ? <div className="cc-err">erro: {err}</div> : null}
+      </form>
+    </CCModal>
+  );
+}
+
+// ── METAS — esperado vs realizado + duplicatas + edição ────
 export function Metas({ date }) {
-  const goals = useFetch('/goals?date=' + date, [date]);
+  const [tick, setTick] = useState(0);
+  const [toast, setToast] = useState(null);
+  const [editing, setEditing] = useState(null); // goal sendo editado
+  const goals = useFetch('/goals?date=' + date, [date, tick]);
+  const refresh = () => setTick((t) => t + 1);
+
+  async function onConfirm(countId, decision) {
+    try {
+      await apiPost(`/counts/${countId}/confirm`, { decision, by_person_id: null });
+      setToast({
+        message: decision === 'duplicate'
+          ? `Contagem ${countId} marcada como DUPLICATA (não soma).`
+          : `Contagem ${countId} confirmada como ADICIONAL (entra no realizado).`,
+        ttlMs: 6000,
+      });
+      refresh();
+    } catch (e) { setToast({ message: 'erro: ' + e.message, ttlMs: 6000 }); }
+  }
+  async function onDeleteGoal(goalId) {
+    try {
+      await apiDelete(`/goals/${goalId}`, { reason: 'apagada via dashboard' });
+      setToast({ message: `Meta ${goalId} apagada.`, ttlMs: 6000 });
+      refresh();
+    } catch (e) { setToast({ message: 'erro: ' + e.message, ttlMs: 6000 }); }
+  }
+
   return (
     <>
       <h2>Metas · {date}</h2>
-      <p className="small muted">Esperado vs realizado por lote. (Criar/editar meta — Bloco 3c.)</p>
+      <p className="small muted">Esperado vs realizado por lote. Edita, apaga e confirma duplicatas direto aqui.</p>
       <View st={goals}>{(d) => {
         if (!d.goals.length) return <Empty>Nenhuma meta registrada nesse dia.</Empty>;
         const dups = d.goals.flatMap((g) => g.duplicatas_suspeitas.map((x) => ({ g, x })));
@@ -1019,7 +1309,7 @@ export function Metas({ date }) {
           <>
             <div className="cards">
               {d.goals.map((g) => (
-                <div className="card" key={g.goal_id} style={{ minWidth: 220 }}>
+                <div className="card" key={g.goal_id} style={{ minWidth: 240 }}>
                   <strong>{g.product ? g.product.canonical_name : '(produto ?)'} · {g.batch_number}</strong>
                   <div className="small" style={{ margin: '6px 0' }}>
                     {g.esperado} → {g.realizado}
@@ -1030,9 +1320,12 @@ export function Metas({ date }) {
                   </div>
                   <GoalBar pct={g.pct_atingido} bateu={g.bateu} />
                   {g.batch
-                    ? <p className="small muted" style={{ marginBottom: 0 }}>
-                      lote: {fmtDur(g.batch.total_seconds)}</p>
+                    ? <p className="small muted" style={{ marginBottom: 4 }}>lote: {fmtDur(g.batch.total_seconds)}</p>
                     : null}
+                  <div className="cc-detail-actions" style={{ marginTop: 8 }}>
+                    <button className="cc-btn" onClick={() => setEditing(g)}>Editar</button>
+                    <button className="cc-btn cc-btn-danger" onClick={() => onDeleteGoal(g.goal_id)}>Apagar</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1046,7 +1339,15 @@ export function Metas({ date }) {
                       {' — '}{x.bottles} reportado por {x.reporter || '?'} ({fmtDateTime(x.reported_at)})
                     </div>
                     <div className="small muted">
-                      mesmo número já contado — confirmar duplicata/adicional é Bloco 3c.
+                      Mesmo número/lote já contado. Decide: duplicata (não soma) ou adicional (entra no realizado).
+                    </div>
+                    <div className="cc-detail-actions" style={{ marginTop: 8 }}>
+                      <button className="cc-btn cc-btn-danger" onClick={() => onConfirm(x.count_id, 'duplicate')}>
+                        Confirmar duplicata
+                      </button>
+                      <button className="cc-btn cc-btn-primary" onClick={() => onConfirm(x.count_id, 'additional')}>
+                        Confirmar adicional
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -1055,7 +1356,72 @@ export function Metas({ date }) {
           </>
         );
       }}</View>
+      {editing ? (
+        <GoalEditModal goal={editing} onClose={() => setEditing(null)}
+          onDone={(msg) => { setEditing(null); refresh(); setToast({ message: msg, ttlMs: 5000 }); }} />
+      ) : null}
+      {toast ? <CCToast toast={toast} onClose={() => setToast(null)} onUndo={() => {}} /> : null}
     </>
+  );
+}
+
+/** Modal de edição de meta — campos: expected_quantity, unit, confidence. */
+function GoalEditModal({ goal, onClose, onDone }) {
+  const [form, setForm] = useState({
+    expected_quantity: String(goal.esperado || 0),
+    unit: goal.unit || 'bottle',
+    confidence: goal.confidence || 'high',
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  async function go(e) {
+    e && e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const qty = Number(form.expected_quantity);
+      if (!Number.isFinite(qty) || qty < 0) throw new Error('Quantidade inválida.');
+      await apiPatch(`/goals/${goal.goal_id}`, {
+        changes: { expected_quantity: qty, unit: form.unit, confidence: form.confidence },
+        by_person_id: null, note: 'edição via dashboard',
+      });
+      onDone(`Meta ${goal.goal_id} atualizada (esperado=${qty}).`);
+    } catch (e2) { setErr(e2.message); setBusy(false); }
+  }
+  return (
+    <CCModal title={'Editar meta · ' + (goal.product ? goal.product.canonical_name : '?') + ' / ' + goal.batch_number}
+      onClose={onClose} footer={
+        <>
+          <button className="cc-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="cc-btn cc-btn-primary" onClick={go} disabled={busy}>{busy ? '…' : 'Salvar'}</button>
+        </>
+      }>
+      <form className="cc-form" onSubmit={go} style={{ padding: 0 }}>
+        <label className="cc-field">
+          <span>Quantidade esperada</span>
+          <input type="number" min="0" step="1" value={form.expected_quantity} onChange={set('expected_quantity')} required />
+        </label>
+        <label className="cc-field">
+          <span>Unidade</span>
+          <select value={form.unit} onChange={set('unit')}>
+            <option value="bottle">bottle</option>
+            <option value="box">box</option>
+            <option value="order">order</option>
+            <option value="uncertain">uncertain</option>
+          </select>
+        </label>
+        <label className="cc-field">
+          <span>Confiança</span>
+          <select value={form.confidence} onChange={set('confidence')}>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+            <option value="unconfirmed">unconfirmed</option>
+          </select>
+        </label>
+        {err ? <div className="cc-err">erro: {err}</div> : null}
+      </form>
+    </CCModal>
   );
 }
 
@@ -1078,4 +1444,190 @@ export function Planejamento() {
 export function Carolina() {
   return <Placeholder title="Chat com a Carolina" bloco={5}
     desc="Conversa de aprendizado: a Carolina traz observações, você confirma/corrige, ela aprende." />;
+}
+
+// ── CONFIG — deadlines configuráveis (CRUD) ────────────────
+const WD_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+export function Config() {
+  const [tick, setTick] = useState(0);
+  const [toast, setToast] = useState(null);
+  const [editing, setEditing] = useState(null); // 'new' | deadline object
+  const deadlines = useFetch('/deadlines', [tick]);
+  const refresh = () => setTick((t) => t + 1);
+
+  async function onDelete(id) {
+    try {
+      await apiDelete(`/deadlines/${id}`, { by_person_id: null });
+      setToast({ message: `Deadline ${id} apagada.`, ttlMs: 6000 });
+      refresh();
+    } catch (e) { setToast({ message: 'erro: ' + e.message, ttlMs: 6000 }); }
+  }
+
+  return (
+    <>
+      <h2>Configurações</h2>
+      <p className="small muted">Deadlines (cortes recorrentes ou data-única) usados pelos cards do dashboard. PIN obrigatório, auditado.</p>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 10px' }}>
+        <h3 style={{ margin: 0 }}>Deadlines</h3>
+        <button className="cc-btn cc-btn-primary" onClick={() => setEditing('new')}>+ novo deadline</button>
+      </div>
+
+      <View st={deadlines}>{(d) => (
+        !d.deadlines.length ? <Empty>Nenhuma deadline configurada.</Empty> : (
+          <table>
+            <thead>
+              <tr>
+                <th>id</th><th>label</th><th>fluxo</th><th>tipo</th><th>horário</th>
+                <th>dias</th><th>data</th><th>ativa</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.deadlines.map((dl) => (
+                <tr key={dl.id}>
+                  <td className="muted">{dl.id}</td>
+                  <td><strong>{dl.label}</strong>
+                    {dl.notes ? <div className="small muted">{dl.notes}</div> : null}
+                  </td>
+                  <td>{dl.flow || '—'}</td>
+                  <td>{dl.kind}</td>
+                  <td>{dl.time_of_day ? fmt12hHHMM(dl.time_of_day) : '—'}</td>
+                  <td className="small">{(dl.weekdays || []).map((w) => WD_LABELS[w]).join(' ') || '—'}</td>
+                  <td>{dl.due_date || '—'}</td>
+                  <td>{dl.active ? '✓' : '—'}</td>
+                  <td className="small" style={{ whiteSpace: 'nowrap' }}>
+                    <button className="cc-btn" onClick={() => setEditing(dl)}>Editar</button>
+                    {' '}
+                    <button className="cc-btn cc-btn-danger" onClick={() => onDelete(dl.id)}>Apagar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}</View>
+
+      {editing ? (
+        <DeadlineEditModal deadline={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onDone={(msg) => { setEditing(null); refresh(); setToast({ message: msg, ttlMs: 5000 }); }} />
+      ) : null}
+      {toast ? <CCToast toast={toast} onClose={() => setToast(null)} onUndo={() => {}} /> : null}
+    </>
+  );
+}
+
+/** Modal de edição/criação de deadline. */
+function DeadlineEditModal({ deadline, onClose, onDone }) {
+  const isNew = !deadline;
+  const [form, setForm] = useState(() => ({
+    label: deadline ? deadline.label : '',
+    flow: deadline ? (deadline.flow || '') : '',
+    kind: deadline ? deadline.kind : 'recurring',
+    time_of_day: deadline ? (deadline.time_of_day || '') : '13:00',
+    weekdays: deadline ? (deadline.weekdays || [1, 2, 3, 4, 5]) : [1, 2, 3, 4, 5],
+    due_date: deadline ? (deadline.due_date || '') : '',
+    active: deadline ? deadline.active : true,
+    notes: deadline ? (deadline.notes || '') : '',
+  }));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+  const toggleWd = (n) => setForm((f) => ({
+    ...f, weekdays: f.weekdays.includes(n) ? f.weekdays.filter((x) => x !== n) : [...f.weekdays, n].sort(),
+  }));
+  const isRecurring = form.kind === 'recurring';
+
+  async function go(e) {
+    e && e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      if (!form.label) throw new Error('label obrigatório.');
+      const payload = {
+        label: form.label,
+        flow: form.flow || null,
+        kind: form.kind,
+        time_of_day: isRecurring ? form.time_of_day : null,
+        weekdays: isRecurring ? form.weekdays : null,
+        due_date: !isRecurring && form.due_date ? form.due_date : null,
+        active: form.active,
+        notes: form.notes || null,
+      };
+      if (isNew) {
+        payload.by_person_id = null;
+        await apiPost('/deadlines', payload);
+        onDone(`Deadline "${form.label}" criada.`);
+      } else {
+        await apiPatch(`/deadlines/${deadline.id}`, { changes: payload, by_person_id: null });
+        onDone(`Deadline ${deadline.id} atualizada.`);
+      }
+    } catch (e2) { setErr(e2.message); setBusy(false); }
+  }
+
+  return (
+    <CCModal title={isNew ? 'Novo deadline' : 'Editar deadline ' + deadline.id} onClose={onClose} wide footer={
+      <>
+        <button className="cc-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="cc-btn cc-btn-primary" onClick={go} disabled={busy}>{busy ? '…' : 'Salvar'}</button>
+      </>
+    }>
+      <form className="cc-form" onSubmit={go} style={{ padding: 0 }}>
+        <label className="cc-field">
+          <span>Label (ex: "Corte correio P&P")</span>
+          <input type="text" value={form.label} onChange={set('label')} required />
+        </label>
+        <div className="cc-field-row">
+          <label className="cc-field">
+            <span>Fluxo</span>
+            <select value={form.flow} onChange={set('flow')}>
+              <option value="">(geral / sem fluxo)</option>
+              <option value="production">production</option>
+              <option value="pnp">pnp</option>
+              <option value="support">support</option>
+            </select>
+          </label>
+          <label className="cc-field">
+            <span>Tipo</span>
+            <select value={form.kind} onChange={set('kind')}>
+              <option value="recurring">recurring (semanal)</option>
+              <option value="oneoff">oneoff (data única)</option>
+            </select>
+          </label>
+        </div>
+        {isRecurring ? (
+          <>
+            <label className="cc-field">
+              <span>Horário (HH:MM)</span>
+              <input type="time" value={form.time_of_day} onChange={set('time_of_day')} required />
+            </label>
+            <div className="cc-field">
+              <span>Dias da semana</span>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                {WD_LABELS.map((lbl, n) => (
+                  <button key={n} type="button"
+                    className={'cc-btn' + (form.weekdays.includes(n) ? ' cc-btn-primary' : '')}
+                    onClick={() => toggleWd(n)} style={{ minWidth: 48 }}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <label className="cc-field">
+            <span>Data (YYYY-MM-DD)</span>
+            <input type="date" value={form.due_date} onChange={set('due_date')} required />
+          </label>
+        )}
+        <label className="cc-field">
+          <span>Notas (opcional)</span>
+          <textarea rows="2" value={form.notes} onChange={set('notes')} />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <input type="checkbox" checked={form.active} onChange={set('active')} />
+          <span>Ativa</span>
+        </label>
+        {err ? <div className="cc-err">erro: {err}</div> : null}
+      </form>
+    </CCModal>
+  );
 }
