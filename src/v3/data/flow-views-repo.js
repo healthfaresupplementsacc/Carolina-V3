@@ -55,6 +55,7 @@ function clampedSeconds(started, ended, dayStartMs, dayEndMs, nowMs) {
 }
 
 const EV_COLUMNS = `e.id, e.product_batch_id, e.person_id, e.started_at, e.ended_at,
+  e.quantity, e.quantity_unit,
   at.display_name AS activity_name, at.slug AS activity_slug, at.phase_order,
   pb.batch_number, pb.product_id, pr.canonical_name AS product,
   p.display_name AS person_name`;
@@ -121,7 +122,7 @@ class FlowViewsRepo {
     };
   }
 
-  /** P&P — o bloco do dia: tempo total somado + sub-passos presentes. */
+  /** P&P — o bloco do dia: tempo total somado + sub-passos + quantidades. */
   async pnpByDay(date) {
     const d = resolveDate(date);
     const evs = await this._dayEvents(d, 'pnp');
@@ -131,6 +132,12 @@ class FlowViewsRepo {
     let invalid = 0;
     const subSteps = new Map();
     const people = new Set();
+    // Captura Aprimorada A2: agrega quantity dos events (ex.: "impressao
+    // das ordens - 468" vira event.quantity=468 unit='order'). Total de
+    // ordens do dia = SOMA dos quantity onde unit='order' (events distintos
+    // = lotes diferentes; default é somar).
+    const quantities = [];   // [{event_id, activity, quantity, unit}]
+    let ordersTotal = 0;
     for (const e of evs) {
       if (e.person_name) people.add(e.person_name);
       const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
@@ -138,6 +145,12 @@ class FlowViewsRepo {
       total += secs;
       const ss = e.activity_name || '(?)';
       subSteps.set(ss, (subSteps.get(ss) || 0) + secs);
+      if (e.quantity != null) {
+        quantities.push({
+          event_id: e.id, activity: ss, quantity: Number(e.quantity), unit: e.quantity_unit || null,
+        });
+        if (e.quantity_unit === 'order') ordersTotal += Number(e.quantity);
+      }
     }
     return {
       date: d, flow: 'pnp', mode: 'block',
@@ -146,11 +159,15 @@ class FlowViewsRepo {
       event_count: evs.length,
       people: [...people],
       sub_steps: [...subSteps.entries()].map(([activity, s]) => ({ activity, seconds: Math.round(s) })),
-      // nº de pacotes: sem fonte de dado ainda (Veeqo / captura de qtd
-      // pelo Observer é futuro). null = pendente. Sem isso, tempo/pacote
-      // também fica null.
-      packages: null,
-      seconds_per_package: null,
+      // Captura A2: agora temos fonte real (LLM extrai quantity de
+      // "ordens - N" / "ordens: N" / "N ordens"). Retrocompat: `packages`
+      // continua presente apontando pro ordersTotal pra UI antiga não
+      // quebrar; o nome canônico passa a ser `orders` + `quantities`.
+      orders: ordersTotal,
+      seconds_per_order: ordersTotal > 0 ? Math.round(total / ordersTotal) : null,
+      quantities,
+      packages: ordersTotal > 0 ? ordersTotal : null,
+      seconds_per_package: ordersTotal > 0 ? Math.round(total / ordersTotal) : null,
     };
   }
 

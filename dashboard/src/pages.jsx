@@ -414,13 +414,21 @@ function CardPP({ pp, deadlines }) {
   const d = pp.data || {};
   const dl = ((deadlines.data && deadlines.data.deadlines) || []).find((x) => x.flow === 'pnp');
   const late = dl && dl.minutes_until_today != null && dl.minutes_until_today < 0;
+  // ordens do dia: soma de quantity (unit='order') dos events P&P. Vem do
+  // backend (flow-views-repo.pnpByDay.orders); fallback pra `packages` em
+  // builds antigos.
+  const orders = (d.orders != null ? d.orders : d.packages) || 0;
+  const secPerOrder = d.seconds_per_order != null ? d.seconds_per_order : d.seconds_per_package;
   return (
     <div className="cc-card">
       <div className="cc-card-h">🚚 P&amp;P do dia</div>
       <div className="cc-big">{pp.loading ? '…' : fmtDur(d.total_seconds || 0)}</div>
       <div className="cc-list">
-        <div><span>quantidade</span>
-          <strong>{d.packages == null ? '— sem fonte' : d.packages}</strong></div>
+        <div><span>ordens</span>
+          <strong>{orders ? orders + ' ordens' : '—'}</strong></div>
+        {orders > 0 && secPerOrder != null ? (
+          <div><span>tempo/ordem</span><strong>{fmtDur(secPerOrder)}</strong></div>
+        ) : null}
         {dl ? (
           <div><span>correio {fmt12hHHMM(dl.time_of_day)}</span>
             <strong className={late ? 'downtime' : ''}>
