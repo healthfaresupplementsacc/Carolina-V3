@@ -1,0 +1,148 @@
+import React from 'react';
+import { Icon } from './Icons.jsx';
+
+/* Shell: sidebar nav + top bar + page wrapper.
+   Routing via simple hash. Theme from <html data-theme>.
+*/
+
+const NAV = [
+  { section: "Operação", en: "Operations", items: [
+    { id: "hoje",      pt: "Hoje",          en: "Today",          icon: "home" },
+    { id: "producao",  pt: "Produção",      en: "Production",     icon: "factory" },
+    { id: "metas",     pt: "Metas",         en: "Goals",          icon: "target" },
+    { id: "pessoas",   pt: "Pessoas",       en: "People",         icon: "people" },
+  ]},
+  { section: "Display", en: "Floor Display", items: [
+    { id: "floor",     pt: "Painel da Fábrica", en: "Floor Display", icon: "tv" },
+  ]},
+  { section: "Outros", en: "Other", items: [
+    { id: "pp",           pt: "P&P",            en: "Pick & Pack",     icon: "pp" },
+    { id: "suporte",      pt: "Suporte",        en: "Support",         icon: "support" },
+    { id: "produto",      pt: "Produto",        en: "Product",         icon: "product" },
+    { id: "falar",        pt: "Falar",          en: "Speak",           icon: "chat" },
+    { id: "planejamento", pt: "Planejamento",   en: "Planning",        icon: "plan" },
+    // E0 ajuste: Carolina volta na nav como placeholder Bloco 5 (chat de aprendizado).
+    { id: "carolina",     pt: "Carolina",       en: "Carolina",        icon: "chat" },
+    { id: "config",       pt: "Config",         en: "Settings",        icon: "config" },
+  ]},
+];
+
+const ALL_PAGES = NAV.flatMap(s => s.items);
+
+function findPage(id) {
+  return ALL_PAGES.find(p => p.id === id) || ALL_PAGES[0];
+}
+
+const Sidebar = ({ route, onRoute, collapsed }) => {
+  return (
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-mark">
+          <BrandH/>
+        </div>
+        {!collapsed && (
+          <div>
+            <div className="brand-name">HealthFare</div>
+            <div className="brand-sub">Production · V4</div>
+          </div>
+        )}
+      </div>
+      <nav className="nav">
+        {NAV.map(sec => (
+          <React.Fragment key={sec.section}>
+            {!collapsed && <div className="nav-section">{sec.section}<span style={{ opacity: 0.55, marginLeft: 6 }}>· {sec.en}</span></div>}
+            {collapsed && <div style={{ height: 8 }}/>}
+            {sec.items.map(it => (
+              <a key={it.id} href={`#${it.id}`}
+                 className={`nav-item ${route === it.id ? "active" : ""}`}
+                 onClick={e => { e.preventDefault(); onRoute(it.id); }}>
+                <span className="nav-ico"><Icon name={it.icon} size={17}/></span>
+                {!collapsed && (
+                  <>
+                    <span className="nav-label">{it.pt}</span>
+                    <span className="nav-sub-en">{it.en}</span>
+                  </>
+                )}
+              </a>
+            ))}
+          </React.Fragment>
+        ))}
+      </nav>
+      <div className="sidebar-foot">
+        <div className="live-dot"/>
+        {!collapsed && (
+          <div className="sync-text">
+            <b>Sincronizado</b><br/>
+            <span>worker ativo · fila 0</span>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+};
+
+// Hand-drawn "H + leaf" mark mimicking the logo, scaled small
+const BrandH = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M5 4v16M5 12h10M15 4v16" stroke="#fff" strokeWidth="2.6" strokeLinecap="round"/>
+    <path d="M19 6c-1 5-4 8-9 10 1-4 3-7 5-8a6 6 0 0 1 4-2z" fill="#3fc874"/>
+  </svg>
+);
+
+const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent }) => {
+  const page = findPage(pageId);
+  return (
+    <header className="topbar">
+      <div className="page-title">
+        <h1>{page.pt}</h1>
+        <span className="en">· {page.en}</span>
+        {pageId === "hoje" && (
+          <span className="pill live" style={{ marginLeft: 12 }}>
+            <span className="dot"/>ao vivo · live
+          </span>
+        )}
+      </div>
+      <div className="topbar-spacer"/>
+      <button className="icon-btn" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
+      <button className="icon-btn" title="Notificações" aria-label="Notifications" style={{ position: "relative" }}>
+        <Icon name="bell" size={17}/>
+        <span style={{ position: "absolute", top: 6, right: 7, width: 7, height: 7, borderRadius: "50%", background: "var(--bad)", boxShadow: "0 0 0 2px var(--surface)" }}/>
+      </button>
+      <button className="icon-btn" title={`Tema: ${theme}`} aria-label="Toggle theme" onClick={onTheme}>
+        <Icon name={theme === "dark" ? "sun" : "moon"} size={17}/>
+      </button>
+      <DatePicker date={date} onDate={onDate}/>
+      {pageId === "hoje" && (
+        <button className="btn primary" onClick={onNewEvent}>
+          <Icon name="plus" size={15}/> Novo registro
+        </button>
+      )}
+    </header>
+  );
+};
+
+const DatePicker = ({ date, onDate }) => {
+  const d = new Date(date);
+  const today = new Date();
+  const isToday = d.toDateString() === today.toDateString();
+  const ptMonths = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  const ptDays = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+  const shift = (n) => {
+    const nd = new Date(d); nd.setDate(nd.getDate() + n);
+    onDate(nd.toISOString().slice(0,10));
+  };
+  return (
+    <div className="date-picker">
+      <button onClick={() => shift(-1)} title="Dia anterior"><Icon name="left" size={15}/></button>
+      <div className="date-value">
+        {isToday ? "Hoje" : ptDays[d.getDay()]}, {d.getDate()} {ptMonths[d.getMonth()]}
+        <span className="small">{ptDays[d.getDay()]} · {isToday ? "Today" : ""}</span>
+      </div>
+      <button onClick={() => shift(1)} title="Próximo dia"><Icon name="right" size={15}/></button>
+    </div>
+  );
+};
+
+Object.assign(window, { Sidebar, TopBar, findPage, ALL_PAGES });
+
+export { Sidebar, TopBar, findPage, ALL_PAGES };
