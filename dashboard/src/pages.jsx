@@ -1446,6 +1446,272 @@ export function Carolina() {
     desc="Conversa de aprendizado: a Carolina traz observações, você confirma/corrige, ela aprende." />;
 }
 
+// ── FALAR — porta de saída MANUAL (postar como "Carolina" et al) ──
+// Independente do Observer (que continua shadow). SÓ posta quando
+// o Bruno aperta Enviar. PIN obrigatório (auth da API).
+const CH_OPTIONS = [
+  { value: 'production', label: 'Produção (#orders-and-inventory)' },
+  { value: 'admin',      label: 'Admin (#admin-orin)' },
+];
+
+export function Falar() {
+  const [tick, setTick] = useState(0);
+  const [toast, setToast] = useState(null);
+  const profiles = useFetch('/sender-profiles', [tick]);
+  const history = useFetch('/sent-history?limit=15', [tick]);
+  const refresh = () => setTick((t) => t + 1);
+
+  const [text, setText] = useState('');
+  const [channel, setChannel] = useState('production');
+  const [senderId, setSenderId] = useState('');
+  const [imageData, setImageData] = useState(null); // { dataUrl, filename, sizeKB }
+  const [confirming, setConfirming] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(null); // 'new' | profile
+  const [err, setErr] = useState(null);
+
+  const profileList = (profiles.data && profiles.data.profiles) || [];
+  const selectedProfile = profileList.find((p) => String(p.id) === String(senderId))
+    || profileList.find((p) => p.is_default)
+    || profileList[0];
+
+  // mantém senderId estável quando os profiles chegam
+  useEffect(() => {
+    if (!senderId && selectedProfile) setSenderId(String(selectedProfile.id));
+  }, [selectedProfile, senderId]);
+
+  function onPickImage(e) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) { setImageData(null); return; }
+    if (f.size > 8 * 1024 * 1024) { setErr('imagem grande demais (max 8MB).'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setImageData({
+      dataUrl: reader.result, filename: f.name,
+      sizeKB: Math.round(f.size / 1024),
+    });
+    reader.readAsDataURL(f);
+    setErr(null);
+  }
+
+  async function onSend() {
+    if (!selectedProfile) return setErr('Escolha uma persona.');
+    if (!text && !imageData) return setErr('Texto ou imagem obrigatório.');
+    if (!confirming) { setConfirming(true); return; }
+    setSending(true); setErr(null);
+    try {
+      const payload = {
+        channel,
+        sender_name: selectedProfile.name,
+        sender_icon: selectedProfile.icon || null,
+        text: text || null,
+        image: imageData ? {
+          dataUrl: imageData.dataUrl, filename: imageData.filename,
+        } : null,
+      };
+      const r = await apiPost('/send', payload);
+      setToast({
+        message: `Enviado como "${selectedProfile.name}" em ${channel}. ts=${(r.data && r.data.ts) || '?'}`,
+        ttlMs: 6000,
+      });
+      setText(''); setImageData(null); setConfirming(false);
+      refresh();
+    } catch (e) { setErr(e.message); setConfirming(false); }
+    finally { setSending(false); }
+  }
+
+  return (
+    <>
+      <h2>Falar como</h2>
+      <p className="small muted">
+        Porta de saída <strong>manual</strong>: posta no Slack só quando você clica Enviar.
+        Auditado em <code>audit_log</code>. Independente do Observer (que continua shadow — não posta sozinho).
+      </p>
+
+      <div className="cards" style={{ alignItems: 'flex-start' }}>
+        <div className="card" style={{ minWidth: 380, flex: 1 }}>
+          <h3 style={{ marginTop: 0 }}>Nova mensagem</h3>
+          <form className="cc-form" style={{ padding: 0 }} onSubmit={(e) => { e.preventDefault(); onSend(); }}>
+            <div className="cc-field-row">
+              <label className="cc-field">
+                <span>Persona</span>
+                <select value={senderId} onChange={(e) => { setSenderId(e.target.value); setConfirming(false); }}>
+                  {profileList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.is_default ? ' ★' : ''}{p.icon ? ' ' + p.icon : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="cc-field">
+                <span>Canal</span>
+                <select value={channel} onChange={(e) => { setChannel(e.target.value); setConfirming(false); }}>
+                  {CH_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <label className="cc-field">
+              <span>Texto</span>
+              <textarea rows="4" value={text} onChange={(e) => { setText(e.target.value); setConfirming(false); }}
+                placeholder="escreva a mensagem que vai sair no Slack" />
+            </label>
+
+            <label className="cc-field">
+              <span>Imagem (opcional, max 8MB)</span>
+              <input type="file" accept="image/*" onChange={onPickImage} />
+              {imageData ? (
+                <div className="small muted" style={{ marginTop: 4 }}>
+                  {imageData.filename} · {imageData.sizeKB} KB · <a href="#" onClick={(e) => { e.preventDefault(); setImageData(null); }}>remover</a>
+                </div>
+              ) : null}
+            </label>
+
+            {/* PREVIEW */}
+            {(text || imageData) && selectedProfile ? (
+              <div className="falar-preview">
+                <div className="small muted" style={{ marginBottom: 6 }}>preview:</div>
+                <div className="falar-msg">
+                  <strong>{selectedProfile.name}</strong>
+                  {selectedProfile.icon ? <span className="muted small"> {selectedProfile.icon}</span> : null}
+                  {text ? <pre>{text}</pre> : null}
+                  {imageData ? <img src={imageData.dataUrl} alt="" className="falar-img" /> : null}
+                </div>
+                <div className="small muted">→ {CH_OPTIONS.find((c) => c.value === channel).label}</div>
+              </div>
+            ) : null}
+
+            {err ? <div className="cc-err">erro: {err}</div> : null}
+
+            <div className="cc-form-actions">
+              <button type="submit" className={'cc-btn cc-btn-primary' + (confirming ? ' warn' : '')} disabled={sending}>
+                {sending ? '…' : (confirming ? 'Confirmar envio' : 'Enviar')}
+              </button>
+              {confirming ? (
+                <button type="button" className="cc-btn" onClick={() => setConfirming(false)} disabled={sending}>
+                  cancelar
+                </button>
+              ) : null}
+            </div>
+          </form>
+        </div>
+
+        <div className="card" style={{ minWidth: 260, flex: '0 1 320px' }}>
+          <h3 style={{ marginTop: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Personas</span>
+            <button className="cc-btn" onClick={() => setEditingProfile('new')}>+ nova</button>
+          </h3>
+          <View st={profiles}>{(d) => (
+            !d.profiles.length ? <Empty>nenhuma persona</Empty> : (
+              <ul className="falar-personas">
+                {d.profiles.map((p) => (
+                  <li key={p.id}>
+                    <span><strong>{p.name}</strong>{p.is_default ? ' ★' : ''}
+                      {p.icon ? <span className="muted small"> {p.icon}</span> : null}</span>
+                    <span className="falar-persona-actions">
+                      {!p.is_default ? (
+                        <button className="cc-btn-link" onClick={async () => {
+                          try { await apiPost(`/sender-profiles/${p.id}/set-default`, {}); refresh(); }
+                          catch (e) { setToast({ message: 'erro: ' + e.message, ttlMs: 5000 }); }
+                        }}>★ default</button>
+                      ) : null}
+                      <button className="cc-btn-link" onClick={() => setEditingProfile(p)}>editar</button>
+                      {!p.is_default ? (
+                        <button className="cc-btn-link cc-link-danger" onClick={async () => {
+                          try { await apiDelete(`/sender-profiles/${p.id}`); refresh();
+                            setToast({ message: `"${p.name}" apagada.`, ttlMs: 4000 }); }
+                          catch (e) { setToast({ message: 'erro: ' + e.message, ttlMs: 5000 }); }
+                        }}>apagar</button>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}</View>
+        </div>
+      </div>
+
+      <h3>Histórico (últimos 15)</h3>
+      <View st={history}>{(d) => (
+        !d.posts.length ? <Empty>nada enviado ainda.</Empty> : (
+          <table className="falar-history">
+            <thead>
+              <tr><th>quando</th><th>persona</th><th>canal</th><th>texto</th><th>img?</th><th>ts</th></tr>
+            </thead>
+            <tbody>
+              {d.posts.map((p) => {
+                const m = p.metadata || {};
+                return (
+                  <tr key={p.id}>
+                    <td className="muted small">{fmtDateTime(p.created_at)}</td>
+                    <td><strong>{m.sender_name || '?'}</strong></td>
+                    <td className="small">{(m.channel || '').slice(0, 11)}</td>
+                    <td className="small" title={m.text_preview || ''}>
+                      {(m.text_preview || '').slice(0, 60)}{(m.text_preview || '').length > 60 ? '…' : ''}
+                    </td>
+                    <td>{m.has_image ? (m.image_permalink ? <a href={m.image_permalink} target="_blank" rel="noreferrer">📎</a> : '📎') : '—'}</td>
+                    <td className="muted small">{m.slack_ts || '—'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )
+      )}</View>
+
+      {editingProfile ? (
+        <PersonaEditModal profile={editingProfile === 'new' ? null : editingProfile}
+          onClose={() => setEditingProfile(null)}
+          onDone={(msg) => { setEditingProfile(null); refresh(); setToast({ message: msg, ttlMs: 4000 }); }} />
+      ) : null}
+      {toast ? <CCToast toast={toast} onClose={() => setToast(null)} onUndo={() => {}} /> : null}
+    </>
+  );
+}
+
+function PersonaEditModal({ profile, onClose, onDone }) {
+  const isNew = !profile;
+  const [name, setName] = useState(profile ? profile.name : '');
+  const [icon, setIcon] = useState(profile ? (profile.icon || '') : '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function go(e) {
+    e && e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      if (!name.trim()) throw new Error('nome obrigatório.');
+      if (isNew) {
+        await apiPost('/sender-profiles', { name: name.trim(), icon: icon.trim() || null });
+        onDone(`Persona "${name}" criada.`);
+      } else {
+        await apiPatch(`/sender-profiles/${profile.id}`, { name: name.trim(), icon: icon.trim() || null });
+        onDone(`Persona "${name}" atualizada.`);
+      }
+    } catch (e2) { setErr(e2.message); setBusy(false); }
+  }
+  return (
+    <CCModal title={isNew ? 'Nova persona' : 'Editar "' + profile.name + '"'} onClose={onClose} footer={
+      <>
+        <button className="cc-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+        <button className="cc-btn cc-btn-primary" onClick={go} disabled={busy}>{busy ? '…' : 'Salvar'}</button>
+      </>
+    }>
+      <form className="cc-form" onSubmit={go} style={{ padding: 0 }}>
+        <label className="cc-field">
+          <span>Nome (vai aparecer como username no Slack)</span>
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />
+        </label>
+        <label className="cc-field">
+          <span>Ícone (opcional · :emoji: ou URL https://)</span>
+          <input type="text" value={icon} onChange={(e) => setIcon(e.target.value)}
+            placeholder="ex: :wave: ou https://.../avatar.png" />
+        </label>
+        {err ? <div className="cc-err">erro: {err}</div> : null}
+      </form>
+    </CCModal>
+  );
+}
+
 // ── CONFIG — deadlines configuráveis (CRUD) ────────────────
 const WD_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 

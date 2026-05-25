@@ -460,6 +460,40 @@ th { background: var(--panel2); }
   .cc-toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
 }
 
+/* Falar — porta de saída manual */
+.falar-preview {
+  background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px; margin: 6px 0;
+}
+.falar-msg {
+  background: var(--bg); border-radius: 6px; padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+}
+.falar-msg strong { font-size: 14px; color: var(--text); }
+.falar-msg pre {
+  margin: 6px 0 0; font: inherit; white-space: pre-wrap; word-break: break-word;
+  color: var(--text);
+}
+.falar-img {
+  display: block; max-width: 100%; max-height: 240px;
+  border-radius: 5px; margin-top: 8px; border: 1px solid var(--border);
+}
+.falar-personas { list-style: none; padding: 0; margin: 0; }
+.falar-personas li {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.falar-personas li:last-child { border-bottom: none; }
+.falar-persona-actions { display: flex; gap: 8px; }
+.cc-btn-link {
+  background: transparent; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; padding: 2px 4px; font-weight: 600;
+}
+.cc-btn-link:hover { text-decoration: underline; }
+.cc-link-danger { color: var(--bad); }
+.falar-history { font-size: 12px; }
+.falar-history td { vertical-align: middle; }
+
 @media (max-width: 900px) {
   /* mobile/tablet: reduz só um pouco a coluna de nomes; mantém horas
      generosas (Bruno aceitou scroll lateral em troca de legibilidade). */

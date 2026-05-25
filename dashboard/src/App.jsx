@@ -6,11 +6,13 @@ import * as Pages from './pages.jsx';
 const TABS = [
   ['hoje', 'Hoje'], ['producao', 'Produção'], ['pp', 'P&P'], ['suporte', 'Suporte'],
   ['pessoas', 'Pessoas'], ['produto', 'Produto'], ['metas', 'Metas'],
+  ['falar', 'Falar'],
   ['planejamento', 'Planejamento'], ['carolina', 'Carolina'], ['config', 'Config'],
 ];
 const PAGE = {
   hoje: Pages.Hoje, producao: Pages.Producao, pp: Pages.PP, suporte: Pages.Suporte,
   pessoas: Pages.Pessoas, produto: Pages.Produto, metas: Pages.Metas,
+  falar: Pages.Falar,
   planejamento: Pages.Planejamento, carolina: Pages.Carolina, config: Pages.Config,
 };
 

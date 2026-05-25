@@ -24,12 +24,14 @@ const { HistoryRepo } = require('./history-repo');
 const { GoalsRepo } = require('./goals-repo');
 const { FlowViewsRepo } = require('./flow-views-repo');
 const { DeadlinesRepo } = require('./deadlines-repo');
+const { SenderProfilesRepo } = require('./sender-profiles-repo');
 const { GoalService } = require('../services/GoalService');
 const { EventService } = require('../services/EventService');
 const { BatchService } = require('../services/BatchService');
 const { ProductionCountService } = require('../services/ProductionCountService');
 const { DeadlineService } = require('../services/DeadlineService');
 const { CatalogService } = require('../services/CatalogService');
+const { SenderService } = require('../services/SenderService');
 const { toNyIso, TZ, resolveDate } = require('./ny-date');
 const { makeAuthMiddleware } = require('./auth');
 
@@ -50,6 +52,7 @@ function buildRepos(db) {
     goals: new GoalsRepo({ db }),
     flowViews: new FlowViewsRepo({ db }),
     deadlines: new DeadlinesRepo({ db }),
+    senderProfiles: new SenderProfilesRepo({ db }),
   };
 }
 
@@ -62,6 +65,8 @@ function buildServices(db) {
     count: new ProductionCountService({ db }),
     deadline: new DeadlineService({ db }),
     catalog: new CatalogService({ db }),
+    sender: new SenderService({ db }),
+    senderProfile: new SenderProfilesRepo({ db }), // share repo for CRUD writes too
   };
 }
 
@@ -163,6 +168,11 @@ const ENDPOINTS = [
     } },
   { path: '/api/v3/data/deadlines',
     handler: async (req, r) => ({ data: await r.deadlines.list() }) },
+  // sender profiles + manual post (porta de saída admin)
+  { path: '/api/v3/data/sender-profiles',
+    handler: async (req, r) => ({ data: await r.senderProfiles.list() }) },
+  { path: '/api/v3/data/sent-history',
+    handler: async (req, r, s) => ({ data: await s.sender.recentPosts(req.query.limit) }) },
 
   // ── ESCRITA (Bloco 3 — admin controla tudo, auditado) ─────
   // metas
@@ -269,6 +279,32 @@ const ENDPOINTS = [
     handler: async (req, r, s) => {
       const b = body(req);
       return { data: await s.catalog.updateActivityType(intParam(req.params.id), b.changes || {}, b.by_person_id) };
+    } },
+  // sender profiles (CRUD)
+  { method: 'post', path: '/api/v3/data/sender-profiles',
+    handler: async (req, r, s) => ({ data: await s.senderProfile.create(body(req)) }) },
+  { method: 'patch', path: '/api/v3/data/sender-profiles/:id',
+    handler: async (req, r, s) => ({ data: await s.senderProfile.update(intParam(req.params.id), body(req)) }) },
+  { method: 'delete', path: '/api/v3/data/sender-profiles/:id',
+    handler: async (req, r, s) => ({ data: await s.senderProfile.softDelete(intParam(req.params.id)) }) },
+  { method: 'post', path: '/api/v3/data/sender-profiles/:id/set-default',
+    handler: async (req, r, s) => ({ data: await s.senderProfile.setDefault(intParam(req.params.id)) }) },
+  // porta de saída MANUAL — única rota que POSTA no Slack via dashboard.
+  // PIN obrigatório (middleware na borda); audit em manual_post.sent.
+  { method: 'post', path: '/api/v3/data/send',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      if (!b.sender_name) throw new Error('sender_name obrigatório');
+      if (!b.channel) throw new Error('channel obrigatório');
+      if (!b.text && !b.image) throw new Error('text ou image obrigatório');
+      const out = await s.sender.send({
+        channel: b.channel,
+        text: b.text || null,
+        sender: { name: b.sender_name, icon: b.sender_icon || null },
+        image: b.image || null,
+        actorType: 'admin',
+      });
+      return { data: out };
     } },
   // deadlines
   { method: 'post', path: '/api/v3/data/deadlines',

@@ -27,8 +27,11 @@ function rawBodySaver(req, _res, buf) {
 app.use('/slack', express.json({ verify: rawBodySaver }));
 app.use('/slack', express.urlencoded({ extended: true, verify: rawBodySaver }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// 10mb pra permitir base64 de imagem no POST /api/v3/data/send (porta de
+// saída manual). PIN-gated, body chega só do dashboard admin. Resto das
+// rotas usa o mesmo parser mas raramente passa de uns KB.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/archive', express.static(path.join(process.cwd(), 'public', 'archive')));
 
 // ===== ROUTES =====
