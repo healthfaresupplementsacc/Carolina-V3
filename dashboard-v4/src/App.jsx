@@ -120,13 +120,15 @@ function AuthedApp({ onLogout }) {
     });
   };
 
-  // Side panel
+  // Side panel — agora flutuante e posicionado perto do clique (E7 #1).
   const [panelEvent, setPanelEvent] = React.useState(null);
-  const openPanel = (ev) => {
+  const [panelPos, setPanelPos] = React.useState(null);
+  const openPanel = (ev, coords) => {
     setPanelEvent(ev);
+    setPanelPos(coords && coords.x != null ? coords : null);
     setState((s) => ({ ...s, selectedEventId: ev?.id || null }));
   };
-  const closePanel = () => openPanel(null);
+  const closePanel = () => { setPanelEvent(null); setPanelPos(null); setState((s) => ({ ...s, selectedEventId: null })); };
 
   // Toast (one-shot)
   const [toast, setToast] = React.useState(null);
@@ -224,6 +226,7 @@ function AuthedApp({ onLogout }) {
           onDelete={onDelete}
           operators={snapshot.hfdata.operators || []}
           now={window.HFH.liveNowMin()}
+          initialPos={panelPos}
         />
       )}
 

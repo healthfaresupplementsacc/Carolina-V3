@@ -1,5 +1,124 @@
 /* Page-specific additions (inputs, floor display, etc.) */
 
+/* ============================================================
+   E7 — Timeline additions
+   ============================================================ */
+
+/* Background mini-tabs (E7 #2): aparecem no TOPO da lane quando
+   o event tem _is_background=true. Estilo aba de navegador. */
+.tl-bg-tab {
+  position: absolute;
+  top: 6px;
+  height: 18px;
+  border-radius: 6px 6px 4px 4px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--border);
+  border-bottom: 2px solid var(--flow-prod);
+  font-size: 10.5px; font-weight: 700;
+  color: var(--text-2);
+  padding: 0 8px;
+  display: flex; align-items: center; gap: 6px;
+  cursor: grab;
+  z-index: 4;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.tl-bg-tab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.10);
+  z-index: 6;
+}
+.tl-bg-tab.flow-production { border-bottom-color: var(--flow-prod); }
+.tl-bg-tab.flow-pnp        { border-bottom-color: var(--flow-pnp); }
+.tl-bg-tab.flow-support    { border-bottom-color: var(--flow-support); }
+.tl-bg-tab.selected        { outline: 2px solid var(--hf-navy-500); outline-offset: 1px; }
+.tl-bg-tab .bg-tab-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--flow-prod);
+  flex: 0 0 6px;
+}
+.tl-bg-tab.flow-pnp     .bg-tab-dot { background: var(--flow-pnp); }
+.tl-bg-tab.flow-support .bg-tab-dot { background: var(--flow-support); }
+.tl-bg-tab .bg-tab-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.tl-bg-tab.live .bg-tab-live {
+  color: var(--hf-leaf-600); font-size: 9px;
+  animation: tl-bg-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tl-bg-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* Quando há bg tabs, empurra os blocos fg pra baixo pra não sobreporem.
+   Estratégia simples: aumenta padding-top da .tl-track. */
+.tl-row .tl-track > .tl-block {
+  /* Mantém o block centrado verticalmente — bg tab fica acima sem colisão
+     porque tl-block já tem altura/top próprios. */
+}
+
+/* Nome clicável (E7 #5) — vira botão expand */
+.tl-name.tl-name-clickable { cursor: pointer; transition: background 0.12s ease; }
+.tl-name.tl-name-clickable:hover { background: var(--surface-2); }
+.tl-row.expanded .tl-name { background: var(--surface-2); }
+
+/* Painel expandido inline da pessoa (E7 #5) */
+.tl-row-expansion {
+  display: grid;
+  grid-template-columns: var(--name-w) 1fr;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-bottom: 2px solid var(--hf-navy-500);
+  animation: tl-exp-slidedown 0.18s ease;
+}
+@keyframes tl-exp-slidedown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.tl-expansion-name { padding: 12px 14px; }
+.tl-expansion-name .exp-title {
+  font-size: 12px; font-weight: 700; letter-spacing: -0.005em;
+  color: var(--text-2); margin-bottom: 6px;
+}
+.tl-expansion-name .exp-gaps { display: flex; gap: 4px; flex-wrap: wrap; }
+.tl-expansion-name .exp-gaps .tag {
+  font-size: 10.5px; padding: 2px 6px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-3); font-weight: 600;
+}
+.tl-expansion-name .exp-gaps .tag-warn { color: var(--warn); border-color: var(--warn); }
+.tl-expansion-list { padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.exp-row {
+  display: grid; grid-template-columns: 130px 1fr 70px;
+  gap: 10px; align-items: center;
+  padding: 6px 10px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  font-size: 12px;
+  text-align: left; color: var(--text);
+}
+.exp-row-event { cursor: pointer; transition: background 0.12s ease, transform 0.12s ease; }
+.exp-row-event:hover { background: var(--surface-2); transform: translateX(2px); }
+.exp-row-gap { background: transparent; border-style: dashed; opacity: 0.7; }
+.exp-row .exp-time { font-size: 11px; color: var(--text-3); }
+.exp-row .exp-act { font-weight: 600; }
+.exp-row .exp-act.flow-production { color: var(--flow-prod); }
+.exp-row .exp-act.flow-pnp        { color: var(--flow-pnp); }
+.exp-row .exp-act.flow-support    { color: var(--flow-support); }
+.exp-row .exp-act.muted           { color: var(--text-3); font-weight: 500; }
+.exp-row .exp-dur { font-size: 11px; text-align: right; }
+.exp-row .exp-dur.muted { color: var(--text-3); }
+.exp-row .exp-bg-pill {
+  font-size: 9.5px; font-weight: 600;
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--surface-2); color: var(--text-3);
+  margin-left: 6px; vertical-align: middle;
+}
+.exp-empty { padding: 12px; color: var(--text-3); font-size: 12px; font-style: italic; text-align: center; }
+
+/* ============================================================
+   E7 — Float panel (substitui side panel + backdrop)
+   ============================================================ */
+
+.float-panel { /* visual base — inline styles posicionam */ }
+.float-panel .float-panel-head:active { cursor: grabbing; }
+.float-panel .input { background: var(--surface); }
+
+
+
 .input {
   width: 100%;
   padding: 8px 10px;

@@ -19,7 +19,9 @@ const HOUR_PX_DEFAULT = 140; // px per hour on desktop
 function snap(min) { return Math.round(min / 5) * 5; } // 5-min snap during drag
 
 function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
-                    onUpdateEvent, onMergeRequest, onSelectEvent, selectedId }) {
+                    onUpdateEvent, onMergeRequest, onSelectEvent, selectedId,
+                    expandedOpIds, onToggleExpand,
+                    gaps }) {
   const { DAY_START, DAY_END, DEADLINE_MIN, activities, FLOWS } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
   const dayMin = DAY_END - DAY_START;
@@ -75,8 +77,8 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
       // Did mouse move at all? if no, treat as click (open panel)
       const moved = Math.abs(e.clientX - d.startX) > 4 || Math.abs(e.clientY - d.startY) > 4;
       if (!moved) {
-        // treat as click; open panel
-        onSelectEvent && onSelectEvent(d.id);
+        // treat as click; open panel (passa coords pro painel flutuante posicionar perto)
+        onSelectEvent && onSelectEvent(d.id, { x: e.clientX, y: e.clientY });
         setDrag(null);
         return;
       }
@@ -190,18 +192,32 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
             const opEvents = byOp[op.id] || [];
             const dimmed = filterOps && filterOps.size > 0 && !filterOps.has(op.id);
             const isDropActive = dragHoveredRowIdx === opIdx && drag && drag.mode === "body";
-            // Compute idle / sem registro
-            const last = opEvents.length ? opEvents[opEvents.length - 1] : null;
+            // Separa foreground vs background (E7 #2)
+            const fgEvents = opEvents.filter((e) => !e._is_background);
+            const bgEvents = opEvents.filter((e) => e._is_background);
+            // Compute idle / sem registro (só sobre foreground)
+            const last = fgEvents.length ? fgEvents[fgEvents.length - 1] : null;
             const isLive = last && last.ended_min == null;
             const idleSince = !isLive && last ? Math.max(0, now - last.ended_min) : 0;
-            const sinceFirst = opEvents.length ? now - opEvents[0].started_min : 0;
+            const expanded = expandedOpIds && expandedOpIds.has(op.id);
+            const personGap = gaps && gaps[op.id];
 
             return (
-              <div key={op.id} className={`tl-row ${dimmed ? "dim" : ""} ${isDropActive ? "drop-active" : ""}`}>
-                <div className="tl-name">
+              <React.Fragment key={op.id}>
+              <div className={`tl-row ${dimmed ? "dim" : ""} ${isDropActive ? "drop-active" : ""} ${expanded ? "expanded" : ""}`}>
+                <div className="tl-name tl-name-clickable"
+                     onClick={() => onToggleExpand && onToggleExpand(op.id)}
+                     title={expanded ? "Recolher detalhes" : "Expandir detalhes"}>
                   <OperatorAvatar op={op}/>
                   <div className="tl-name-info">
-                    <div className="nm">{op.name}</div>
+                    <div className="nm">
+                      {op.name}
+                      <span className="tl-expand-caret" style={{
+                        marginLeft: 6, fontSize: 10, color: "var(--text-3)",
+                        transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        display: 'inline-block', transition: 'transform 0.18s ease',
+                      }}>▶</span>
+                    </div>
                     <div className="ro">{op.role}</div>
                     {isLive
                       ? <div className="meta" style={{ color: "var(--hf-leaf-600)" }}>● ao vivo · {fmtCron((now - last.started_min))}</div>
@@ -222,8 +238,34 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                   {/* Now line */}
                   {now >= DAY_START && now <= DAY_END && <div className="tl-now" style={{ left: nowX }}/>}
 
-                  {/* Event blocks */}
-                  {opEvents.map(ev => {
+                  {/* Background tabs (E7 #2) — mini-pills no topo da lane com nome
+                      da tarefa de fundo. Se um evento background cobrir [s,e], a
+                      tab fica posicionada exatamente sobre essas coordenadas. */}
+                  {bgEvents.map((ev) => {
+                    const act = activities[ev.activity];
+                    if (!act) return null;
+                    const isLiveBg = ev.ended_min == null;
+                    const endMin = isLiveBg ? Math.min(now, DAY_END) : ev.ended_min;
+                    const start = ev.started_min;
+                    const left = ((start - DAY_START) / 60) * hourPx;
+                    const width = Math.max(40, ((endMin - start) / 60) * hourPx);
+                    const flow = act.flow;
+                    const productName = ev.product ? window.HFData.products[ev.product]?.name : null;
+                    return (
+                      <div key={`bg-${ev.id}`}
+                           className={`tl-bg-tab flow-${flow} ${isLiveBg ? 'live' : ''} ${selectedId === ev.id ? 'selected' : ''}`}
+                           style={{ left, width }}
+                           onMouseDown={(e) => { e.stopPropagation(); startDrag(e, ev, opIdx, "body"); }}
+                           title={`background · ${act.name}${productName ? ' · ' + productName : ''}`}>
+                        <span className="bg-tab-dot"/>
+                        <span className="bg-tab-label">{act.name}</span>
+                        {isLiveBg && <span className="bg-tab-live" title="rodando">●</span>}
+                      </div>
+                    );
+                  })}
+
+                  {/* Foreground event blocks */}
+                  {fgEvents.map(ev => {
                     const act = activities[ev.activity];
                     if (!act) return null;
                     const flow = act.flow;
@@ -237,12 +279,7 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     const start = isDragging ? drag.newStart : ev.started_min;
                     const end = isDragging ? drag.newEnd : endMin;
                     const dragRowMismatch = isDragging && drag.mode === "body" && drag.newOpIdx !== opIdx;
-                    if (dragRowMismatch) return null; // shown in the dragged-to row instead
-
-                    // Render in destination row when dragging vertically
-                    if (!isDragging && drag && drag.id === ev.id && drag.mode === "body" && drag.newOpIdx === opIdx && drag.origOpIdx !== opIdx) {
-                      // already rendered below
-                    }
+                    if (dragRowMismatch) return null;
 
                     const left = ((start - DAY_START) / 60) * hourPx;
                     const width = Math.max(28, ((end - start) / 60) * hourPx);
@@ -268,11 +305,10 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                             <div className="tl-handle right" onMouseDown={e => startDrag(e, ev, opIdx, "right")}/>
                           </>
                         )}
-                        {!isLiveEv && <div className="tl-handle left" onMouseDown={e => startDrag(e, ev, opIdx, "left")}/>}
                         {ev.overrun && <span className="bk-overrun">⏰</span>}
                         {ev.cowork && ev.cowork.length > 0 && (
                           <div className="bk-cow">
-                            {ev.cowork.slice(0,3).map(cw => {
+                            {ev.cowork.slice(0, 3).map(cw => {
                               const o = operators.find(x => x.id === cw);
                               return o ? <span key={cw} className="chip">{o.short}</span> : null;
                             })}
@@ -311,6 +347,13 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                   })()}
                 </div>
               </div>
+              {expanded && (
+                <PersonExpansion op={op} events={opEvents} now={now} gap={personGap}
+                                 fmtClock={fmtClock} fmtDur={fmtDur} fmtCron={fmtCron}
+                                 activities={activities}
+                                 onSelectEvent={onSelectEvent}/>
+              )}
+              </React.Fragment>
             );
           })}
         </div>
@@ -326,6 +369,65 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
              : `${fmtClock(drag.newStart)} → ${fmtClock(drag.newEnd)}`}
         </div>
       )}
+    </div>
+  );
+}
+
+/* E7 #5 — bloco de detalhes inline que abre embaixo da lane quando o
+   nome do operador é clicado. Lista todos os eventos do dia daquela
+   pessoa, com hora/duração + gaps entre eventos calculados client-side.
+   Read-only. */
+function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, activities, onSelectEvent }) {
+  // ordena por started_min crescente
+  const sorted = events.slice().sort((a, b) => a.started_min - b.started_min);
+  // intercala gaps entre eventos consecutivos
+  const items = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const ev = sorted[i];
+    items.push({ kind: 'event', ev });
+    const next = sorted[i + 1];
+    if (next) {
+      const evEnd = ev.ended_min == null ? now : ev.ended_min;
+      const gapMin = next.started_min - evEnd;
+      if (gapMin > 1) items.push({ kind: 'gap', start: evEnd, end: next.started_min, dur: gapMin });
+    }
+  }
+
+  return (
+    <div className="tl-row-expansion">
+      <div className="tl-expansion-name">
+        <div className="exp-title">Detalhes · {op.name}</div>
+        {gap && gap.idle_seconds + gap.unreported_seconds > 0 && (
+          <div className="exp-gaps">
+            {gap.idle_seconds > 0   && <span className="tag">idle: {fmtDur(Math.round(gap.idle_seconds / 60))}</span>}
+            {gap.unreported_seconds > 0 && <span className="tag tag-warn">não reportado: {fmtDur(Math.round(gap.unreported_seconds / 60))}</span>}
+          </div>
+        )}
+      </div>
+      <div className="tl-expansion-list">
+        {items.length === 0
+          ? <div className="exp-empty">sem eventos hoje</div>
+          : items.map((it, i) => it.kind === 'event' ? (
+            <button key={'ev-' + it.ev.id} className="exp-row exp-row-event"
+                    onClick={(e) => onSelectEvent && onSelectEvent(it.ev.id, { x: e.clientX, y: e.clientY })}
+                    title="Abrir painel do evento">
+              <span className="exp-time mono">{fmtClock(it.ev.started_min)} → {it.ev.ended_min == null ? 'agora' : fmtClock(it.ev.ended_min)}</span>
+              <span className={`exp-act flow-${activities[it.ev.activity]?.flow || 'support'}`}>
+                {activities[it.ev.activity]?.name || it.ev.activity}
+                {it.ev._is_background && <span className="exp-bg-pill"> · background</span>}
+              </span>
+              <span className="exp-dur mono">{it.ev.ended_min == null
+                ? fmtCron(now - it.ev.started_min)
+                : fmtDur(it.ev.ended_min - it.ev.started_min)}</span>
+            </button>
+          ) : (
+            <div key={'gap-' + i} className="exp-row exp-row-gap">
+              <span className="exp-time mono">{fmtClock(it.start)} → {fmtClock(it.end)}</span>
+              <span className="exp-act muted">gap {it.dur >= 60 ? 'longo' : 'curto'}</span>
+              <span className="exp-dur mono muted">{fmtDur(it.dur)}</span>
+            </div>
+          ))}
+      </div>
     </div>
   );
 }

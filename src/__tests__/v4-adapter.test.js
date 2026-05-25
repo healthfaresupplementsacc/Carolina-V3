@@ -77,44 +77,50 @@ describe('V4 adapter — adaptToHFData (payload vazio)', () => {
   });
 });
 
-describe('V4 adapter — operators', () => {
-  test('catálogo de persons vira lista ordenada por nome', () => {
+describe('V4 adapter — operators (E7: só quem postou hoje)', () => {
+  test('catalog.persons NÃO popula operators sozinho — admins filtrados', () => {
+    // Bruno Camp, Thassio = admins (nunca postam event). Aparecem no catálogo
+    // mas NÃO devem aparecer na timeline/lista de pessoas. Regra E7.
     const out = adaptToHFData({
       catalog: { persons: [
-        { id: 3, display_name: 'Vitor',          role: 'Linha',     active: true },
-        { id: 1, display_name: 'Ana',            role: 'Revisão',   active: true },
-        { id: 2, display_name: 'Bruno Sarmento', role: 'Formulação', active: true },
-        { id: 99, display_name: 'Inativa',       role: 'X',         active: false }, // descartada
+        { id: 10, display_name: 'Bruno Camp', role: 'Admin',          active: true },
+        { id: 11, display_name: 'Thassio',    role: 'Admin',          active: true },
+        { id: 1,  display_name: 'Ana',        role: 'Revisão',        active: true },
+      ] },
+      // sem timeline.people → ninguém postou → operators vazio mesmo com catálogo cheio
+    });
+    expect(out.operators).toEqual([]);
+  });
+
+  test('timeline.people é a fonte ÚNICA de operators (ordenado por nome PT)', () => {
+    const out = adaptToHFData({
+      timeline: { people: [
+        { person_id: 3, display_name: 'Vitor',          role: 'Linha',      events: [] },
+        { person_id: 1, display_name: 'Ana',            role: 'Revisão',    events: [] },
+        { person_id: 2, display_name: 'Bruno Sarmento', role: 'Formulação', events: [] },
       ] },
     });
     expect(out.operators.map((o) => o.name)).toEqual(['Ana', 'Bruno Sarmento', 'Vitor']);
     expect(out.operators[0].id).toBe('p1');
     expect(out.operators[1].short).toBe('BS');
-    // cores determinísticas
     expect(out.operators[0].c1).toBeDefined();
-    expect(out.operators[0].c2).toBeDefined();
   });
 
-  test('timeline.people preenche operators quando catalog está vazio', () => {
+  test('catalog + timeline juntos: só quem está em timeline aparece (admins do catálogo são descartados)', () => {
     const out = adaptToHFData({
-      timeline: { people: [
-        { person_id: 5, display_name: 'Simone', role: 'Etiquetagem', events: [] },
+      catalog: { persons: [
+        { id: 10, display_name: 'Bruno Camp',     role: 'Admin', active: true },  // admin → descartado
+        { id: 11, display_name: 'Thassio',        role: 'Admin', active: true },  // admin → descartado
+        { id: 1,  display_name: 'Ana',            role: 'Revisão', active: true }, // posta → fica
+        { id: 2,  display_name: 'Bruno Sarmento', role: 'Formulação', active: true }, // posta → fica
       ] },
-    });
-    expect(out.operators).toHaveLength(1);
-    expect(out.operators[0].id).toBe('p5');
-    expect(out.operators[0].name).toBe('Simone');
-  });
-
-  test('merge: catalog + timeline (timeline não duplica)', () => {
-    const out = adaptToHFData({
-      catalog: { persons: [{ id: 1, display_name: 'Ana', role: 'R', active: true }] },
       timeline: { people: [
-        { person_id: 1, display_name: 'Ana',  role: 'R', events: [] },
-        { person_id: 2, display_name: 'Novo', role: 'X', events: [] },
+        { person_id: 1, display_name: 'Ana',            role: 'Revisão',    events: [] },
+        { person_id: 2, display_name: 'Bruno Sarmento', role: 'Formulação', events: [] },
       ] },
     });
     expect(out.operators).toHaveLength(2);
+    expect(out.operators.map((o) => o.name).sort()).toEqual(['Ana', 'Bruno Sarmento']);
     expect(out.operators.map((o) => o.id).sort()).toEqual(['p1', 'p2']);
   });
 });

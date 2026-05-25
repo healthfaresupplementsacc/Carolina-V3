@@ -98,14 +98,14 @@ function adaptToHFData(input) {
   } = input || {};
 
   // ── 1. Operators ──────────────────────────────────────────
-  // catalog.persons = todos os ativos (preferido — mostra também quem não
-  // postou hoje). timeline.people = fallback. Merge por person_id.
+  // Regra E7: timeline.people é a fonte ÚNICA — quem postou evento HOJE.
+  // Isso filtra admins automaticamente (admins nunca autoram event, então
+  // nunca aparecem em v3.events → nunca em timeline.people). Bruno Camp e
+  // Thassio são admins; Vitor, Simone, Ana, Bruno Sarmento são operadores.
+  // catalog.persons foi removido daqui de propósito — antes adicionava TODO
+  // mundo do catálogo, incluindo admins. (Continua disponível pra dropdowns
+  // futuros via _meta.has_catalog se precisar.)
   const opMap = new Map();
-  for (const p of ((catalog && catalog.persons) || [])) {
-    if (p && p.id != null && p.active !== false) {
-      opMap.set(p.id, { id: p.id, name: p.display_name || ('Pessoa ' + p.id), role: p.role || '—' });
-    }
-  }
   for (const p of ((timeline && timeline.people) || [])) {
     if (!opMap.has(p.person_id)) {
       opMap.set(p.person_id, { id: p.person_id, name: p.display_name || ('Pessoa ' + p.person_id), role: p.role || '—' });
