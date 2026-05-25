@@ -107,20 +107,31 @@ async function start() {
       });
     }
 
-    // 4. Start Slack polling
-    startPolling();
+    // ── FAXINA V2 — feature flag pra silenciar os crons legados ───────
+    // Setar V2_DISABLED=1 no Railway (ProductionLineService) desliga os
+    // 5 crons do V2 que postam no Slack (polling, EOD, greeting, detect,
+    // activity-check). O V3 Observer (startWorker, mais abaixo) NÃO é
+    // afetado — fica FORA deste bloco e sempre liga. Reversível:
+    // V2_DISABLED=0 (ou unset) → redeploy → V2 volta. Código intacto.
+    if (process.env.V2_DISABLED === '1') {
+      console.log('[Boot] V2_DISABLED=1 — pulando crons V2 (polling, EOD, '
+        + 'greeting, detect, activity-check). V3 Observer segue normalmente.');
+    } else {
+      // 4. Start Slack polling
+      startPolling();
 
-    // 5. Start EOD cron (C6: time read from app_state)
-    await startEodJob();
+      // 5. Start EOD cron (C6: time read from app_state)
+      await startEodJob();
 
-    // 5a. Start the morning greeting cron (C6: time from app_state).
-    await startGreetingJob();
+      // 5a. Start the morning greeting cron (C6: time from app_state).
+      await startGreetingJob();
 
-    // 5a2. BLOCO C / P3 — autonomous detection cron (every 30min).
-    startDetectJob();
+      // 5a2. BLOCO C / P3 — autonomous detection cron (every 30min).
+      startDetectJob();
 
-    // 5a3. PARTE 4 — activity-freshness auto-check cron (hourly).
-    startActivityCheckJob();
+      // 5a3. PARTE 4 — activity-freshness auto-check cron (hourly).
+      startActivityCheckJob();
+    }
 
     // 5b. Warm the app_name + persona caches (App Home header + Carolina
     //     persona are built synchronously on hot paths).
