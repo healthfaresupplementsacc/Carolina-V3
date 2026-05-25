@@ -298,8 +298,8 @@ const ENDPOINTS = [
     handler: async (req, r, s) => ({ data: await s.senderProfile.softDelete(intParam(req.params.id)) }) },
   { method: 'post', path: '/api/v3/data/sender-profiles/:id/set-default',
     handler: async (req, r, s) => ({ data: await s.senderProfile.setDefault(intParam(req.params.id)) }) },
-  // porta de saída MANUAL — única rota que POSTA no Slack via dashboard.
-  // PIN obrigatório (middleware na borda); audit em manual_post.sent.
+  // porta de saída MANUAL — postar como persona.
+  // PIN obrigatório; audit em manual_post.sent.
   { method: 'post', path: '/api/v3/data/send',
     handler: async (req, r, s) => {
       const b = body(req);
@@ -311,7 +311,20 @@ const ENDPOINTS = [
         text: b.text || null,
         sender: { name: b.sender_name, icon: b.sender_icon || null },
         image: b.image || null,
+        thread_ts: b.thread_ts || null,
         actorType: 'admin',
+      });
+      return { data: out };
+    } },
+  // porta de saída MANUAL — reagir a msg (emoji).
+  { method: 'post', path: '/api/v3/data/react',
+    handler: async (req, r, s) => {
+      const b = body(req);
+      if (!b.channel) throw new Error('channel obrigatório');
+      if (!b.ts) throw new Error('ts obrigatório');
+      if (!b.emoji) throw new Error('emoji obrigatório');
+      const out = await s.sender.react({
+        channel: b.channel, ts: b.ts, emoji: b.emoji, actorType: 'admin',
       });
       return { data: out };
     } },

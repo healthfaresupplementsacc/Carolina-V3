@@ -1461,6 +1461,22 @@ const CH_OPTIONS = [
   { value: 'production', label: 'Produção (#orders-and-inventory)' },
   { value: 'admin',      label: 'Admin (#admin-orin)' },
 ];
+// Pessoas mencionáveis no canal (slack_user_id ↦ nome). Hardcoded por
+// enquanto — quando o catálogo expor slack_user_id no /catalog/persons
+// substituir por fetch.
+const MENTION_LIST = [
+  { id: 'U08JC85HMNE', name: 'Vitor' },
+  { id: 'U07FG34TMPF', name: 'Simone' },
+  { id: 'U0AU8N8FA00', name: 'Ana' },
+  { id: 'U085SDY3F4Z', name: 'Henrique' },
+];
+// Atalhos de mrkdwn (botões pra inserir formatação no textarea)
+const MRKDWN_BTNS = [
+  { label: 'B', wrap: '*', title: 'negrito (*texto*)' },
+  { label: 'I', wrap: '_', title: 'itálico (_texto_)' },
+  { label: '`', wrap: '`', title: 'código (`texto`)' },
+  { label: 'S', wrap: '~', title: 'tachado (~texto~)' },
+];
 
 export function Falar() {
   const [tick, setTick] = useState(0);
@@ -1473,10 +1489,12 @@ export function Falar() {
   const [channel, setChannel] = useState('production');
   const [senderId, setSenderId] = useState('');
   const [imageData, setImageData] = useState(null); // { dataUrl, filename, sizeKB }
+  const [threadTs, setThreadTs] = useState('');     // pode colar link ou ts cru
   const [confirming, setConfirming] = useState(false);
   const [sending, setSending] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null); // 'new' | profile
   const [err, setErr] = useState(null);
+  const textRef = React.useRef(null);
 
   const profileList = (profiles.data && profiles.data.profiles) || [];
   const selectedProfile = profileList.find((p) => String(p.id) === String(senderId))
@@ -1515,16 +1533,58 @@ export function Falar() {
         image: imageData ? {
           dataUrl: imageData.dataUrl, filename: imageData.filename,
         } : null,
+        thread_ts: threadTs.trim() || null,
       };
       const r = await apiPost('/send', payload);
+      const d = r.data || {};
+      let msg = `Enviado como "${selectedProfile.name}" em ${channel}. ts=${d.ts || '?'}`;
+      if (d.thread_ts) msg += ' (em thread)';
+      if (imageData && !d.image_inline) {
+        msg += ' ⚠ imagem como link (sem inline)';
+      }
       setToast({
-        message: `Enviado como "${selectedProfile.name}" em ${channel}. ts=${(r.data && r.data.ts) || '?'}`,
-        ttlMs: 6000,
+        message: msg, ttlMs: d.image_warning ? 12000 : 6000,
       });
-      setText(''); setImageData(null); setConfirming(false);
+      if (d.image_warning) console.warn('[falar]', d.image_warning);
+      setText(''); setImageData(null); setThreadTs(''); setConfirming(false);
       refresh();
     } catch (e) { setErr(e.message); setConfirming(false); }
     finally { setSending(false); }
+  }
+
+  function insertAtCursor(snippet) {
+    const ta = textRef.current;
+    if (!ta) { setText((t) => t + snippet); return; }
+    const start = ta.selectionStart || 0;
+    const end = ta.selectionEnd || 0;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    const next = before + snippet + after;
+    setText(next);
+    // recoloca cursor após o snippet
+    requestAnimationFrame(() => {
+      ta.focus();
+      const p = start + snippet.length;
+      try { ta.setSelectionRange(p, p); } catch (_) { /* ok */ }
+    });
+  }
+  function wrapSelection(wrap) {
+    const ta = textRef.current;
+    if (!ta) { insertAtCursor(wrap + wrap); return; }
+    const start = ta.selectionStart || 0;
+    const end = ta.selectionEnd || 0;
+    const sel = text.slice(start, end);
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    if (sel) {
+      setText(before + wrap + sel + wrap + after);
+      requestAnimationFrame(() => {
+        ta.focus();
+        try { ta.setSelectionRange(start + wrap.length, end + wrap.length); } catch (_) { /* ok */ }
+      });
+    } else {
+      insertAtCursor(wrap + wrap);
+    }
   }
 
   return (
@@ -1558,11 +1618,25 @@ export function Falar() {
               </label>
             </div>
 
-            <label className="cc-field">
-              <span>Texto</span>
-              <textarea rows="4" value={text} onChange={(e) => { setText(e.target.value); setConfirming(false); }}
-                placeholder="escreva a mensagem que vai sair no Slack" />
-            </label>
+            <div className="cc-field">
+              <span>Texto <span className="muted small" style={{ textTransform: 'none', letterSpacing: 0 }}>(mrkdwn: *negrito* _itálico_ `code`)</span></span>
+              <div className="falar-toolbar">
+                {MRKDWN_BTNS.map((b) => (
+                  <button key={b.label} type="button" className="cc-btn falar-fmt-btn"
+                    title={b.title} onClick={() => wrapSelection(b.wrap)}>{b.label}</button>
+                ))}
+                <span className="falar-toolbar-sep">·</span>
+                <span className="muted small">@:</span>
+                {MENTION_LIST.map((u) => (
+                  <button key={u.id} type="button" className="cc-btn falar-fmt-btn"
+                    title={'menciona ' + u.name + ' (insere <@' + u.id + '>)'}
+                    onClick={() => insertAtCursor('<@' + u.id + '> ')}>{u.name}</button>
+                ))}
+              </div>
+              <textarea ref={textRef} rows="4" value={text}
+                onChange={(e) => { setText(e.target.value); setConfirming(false); }}
+                placeholder="escreva a mensagem que vai sair no Slack — *bold* _itálico_ etc." />
+            </div>
 
             <label className="cc-field">
               <span>Imagem (opcional, max 8MB)</span>
@@ -1572,6 +1646,13 @@ export function Falar() {
                   {imageData.filename} · {imageData.sizeKB} KB · <a href="#" onClick={(e) => { e.preventDefault(); setImageData(null); }}>remover</a>
                 </div>
               ) : null}
+            </label>
+
+            <label className="cc-field">
+              <span>Responder em thread (opcional · cola o link da msg ou o ts cru)</span>
+              <input type="text" value={threadTs}
+                onChange={(e) => { setThreadTs(e.target.value); setConfirming(false); }}
+                placeholder="ex: https://workspace.slack.com/archives/C09…/p1748… ou 1748121234.567890" />
             </label>
 
             {/* PREVIEW */}
@@ -1639,25 +1720,34 @@ export function Falar() {
         </div>
       </div>
 
+      <h3 style={{ marginTop: 24 }}>Reagir a uma mensagem (emoji)</h3>
+      <ReactForm refresh={refresh} setToast={setToast} />
+
       <h3>Histórico (últimos 15)</h3>
       <View st={history}>{(d) => (
         !d.posts.length ? <Empty>nada enviado ainda.</Empty> : (
           <table className="falar-history">
             <thead>
-              <tr><th>quando</th><th>persona</th><th>canal</th><th>texto</th><th>img?</th><th>ts</th></tr>
+              <tr><th>quando</th><th>tipo</th><th>persona</th><th>canal</th><th>texto / emoji</th><th>img?</th><th>thread?</th><th>ts</th></tr>
             </thead>
             <tbody>
               {d.posts.map((p) => {
                 const m = p.metadata || {};
+                const isReact = p.action === 'manual_post.reacted';
                 return (
                   <tr key={p.id}>
                     <td className="muted small">{fmtDateTime(p.created_at)}</td>
-                    <td><strong>{m.sender_name || '?'}</strong></td>
+                    <td className="small">{isReact ? '⚛ reagiu' : '✉ post'}</td>
+                    <td><strong>{m.sender_name || (isReact ? '—' : '?')}</strong></td>
                     <td className="small">{(m.channel || '').slice(0, 11)}</td>
-                    <td className="small" title={m.text_preview || ''}>
-                      {(m.text_preview || '').slice(0, 60)}{(m.text_preview || '').length > 60 ? '…' : ''}
+                    <td className="small" title={m.text_preview || m.emoji || ''}>
+                      {isReact ? ':' + (m.emoji || '?') + ':'
+                        : ((m.text_preview || '').slice(0, 60) + ((m.text_preview || '').length > 60 ? '…' : ''))}
                     </td>
-                    <td>{m.has_image ? (m.image_permalink ? <a href={m.image_permalink} target="_blank" rel="noreferrer">📎</a> : '📎') : '—'}</td>
+                    <td>{m.has_image
+                      ? (m.image_inline ? '🖼' : (m.image_permalink ? <a href={m.image_permalink} target="_blank" rel="noreferrer">📎</a> : '📎'))
+                      : '—'}</td>
+                    <td>{m.thread_ts ? '🧵' : '—'}</td>
                     <td className="muted small">{m.slack_ts || '—'}</td>
                   </tr>
                 );
@@ -1674,6 +1764,66 @@ export function Falar() {
       ) : null}
       {toast ? <CCToast toast={toast} onClose={() => setToast(null)} onUndo={() => {}} /> : null}
     </>
+  );
+}
+
+function ReactForm({ refresh, setToast }) {
+  const [channel, setChannel] = useState('production');
+  const [ts, setTs] = useState('');
+  const [emoji, setEmoji] = useState('white_check_mark');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function go(e) {
+    e && e.preventDefault();
+    if (!ts.trim()) return setErr('cola o link da msg ou o ts cru.');
+    if (!emoji.trim()) return setErr('escolhe um emoji.');
+    setBusy(true); setErr(null);
+    try {
+      const r = await apiPost('/react', {
+        channel, ts: ts.trim(), emoji: emoji.replace(/^:|:$/g, '').trim(),
+      });
+      setToast({
+        message: `Reagiu com :${(r.data && r.data.emoji) || emoji}: em ${channel} (ts=${(r.data && r.data.ts) || '?'}).`,
+        ttlMs: 5000,
+      });
+      setTs(''); refresh();
+    } catch (e2) { setErr(e2.message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="card" style={{ maxWidth: 540 }}>
+      <form className="cc-form" style={{ padding: 0 }} onSubmit={go}>
+        <div className="cc-field-row">
+          <label className="cc-field">
+            <span>Canal</span>
+            <select value={channel} onChange={(e) => setChannel(e.target.value)}>
+              {CH_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </label>
+          <label className="cc-field">
+            <span>Emoji (sem dois-pontos)</span>
+            <input type="text" value={emoji} onChange={(e) => setEmoji(e.target.value)}
+              placeholder="ex: white_check_mark, eyes, thumbsup" />
+          </label>
+        </div>
+        <label className="cc-field">
+          <span>Mensagem alvo (link da msg ou ts)</span>
+          <input type="text" value={ts} onChange={(e) => setTs(e.target.value)}
+            placeholder="ex: https://workspace.slack.com/archives/C09…/p1748… ou 1748121234.567890" />
+        </label>
+        {err ? <div className="cc-err">erro: {err}</div> : null}
+        <div className="cc-form-actions">
+          <button type="submit" className="cc-btn cc-btn-primary" disabled={busy}>
+            {busy ? '…' : 'Reagir'}
+          </button>
+        </div>
+        <p className="muted small">
+          Nota: a reação aparece como vinda do bot real (HealthFare Tracker), não da persona —
+          Slack não permite override de username em <code>reactions.add</code>. Mesmo assim útil
+          pra "confirmar visto" sem postar texto.
+        </p>
+      </form>
+    </div>
   );
 }
 

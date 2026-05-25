@@ -493,6 +493,13 @@ th { background: var(--panel2); }
 .cc-link-danger { color: var(--bad); }
 .falar-history { font-size: 12px; }
 .falar-history td { vertical-align: middle; }
+.falar-toolbar {
+  display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-bottom: 4px;
+}
+.falar-fmt-btn {
+  padding: 3px 9px; font-size: 12px; font-weight: 700; min-width: 28px;
+}
+.falar-toolbar-sep { color: var(--border); margin: 0 2px; }
 
 @media (max-width: 900px) {
   /* mobile/tablet: reduz só um pouco a coluna de nomes; mantém horas
