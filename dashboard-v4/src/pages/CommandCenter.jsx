@@ -15,6 +15,7 @@ import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
+import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 
 const GAP_NOTIFY_THRESHOLD_MIN = 25;  // gaps maiores que isso viram notificação
@@ -76,6 +77,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         if (gap >= GAP_NOTIFY_THRESHOLD_MIN) {
           out.push({
             id: `gap-${op.id}-${i}`,
+            _type: 'gap',
             severity: gap >= 60 ? 'warn' : 'info',
             title: `Gap em ${op.name}`,
             en: `Gap for ${op.name}`,
@@ -226,13 +228,19 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              </div>}/>
       </div>
 
-      {/* ── Notificações (E7 #3 swap + #6 gaps) ─────────────── */}
+      {/* ── Notificações ──────────────────────────────────── */}
       <NotificationsCard
         notifs={allNotifs}
         gearOpen={gearOpen === 'notifs'}
         onGear={() => setGearOpen(gearOpen === 'notifs' ? null : 'notifs')}
         onCloseGear={() => setGearOpen(null)}
         ack={ack}
+        operators={operators}
+        events={state.events}
+        GearButton={GearButton}
+        EditPopover={EditPopover}
+        EditList={EditList}
+        V4_ALLOW_WRITES={V4_ALLOW_WRITES}
       />
 
       {/* ── Filters ─────────────────────────────────────────── */}
@@ -414,53 +422,6 @@ function CorreioBlock({ active, onToggleActive, time, onTime }) {
           ? <>Carolina avisa Simone <span title="envio real liga no Bloco 5">📝</span></>
           : '— desligado'}
       </span>
-    </div>
-  );
-}
-
-function NotificationsCard({ notifs, gearOpen, onGear, onCloseGear, ack }) {
-  return (
-    <div className="card" style={{ marginTop: 14, padding: 14, position: 'relative' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <Icon name="bell" size={14} color="var(--hf-leaf-500)"/>
-        <b style={{ fontSize: 13, letterSpacing: '-0.005em' }}>Notificações</b>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>· Notifications</span>
-        <span style={{ flex: 1 }}/>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{notifs.length} ativa{notifs.length === 1 ? '' : 's'}</span>
-        <GearButton onClick={onGear} active={gearOpen}/>
-        <EditPopover open={gearOpen} onClose={onCloseGear} title="Configurar notificações">
-          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
-            Limites e canais de notificação ficarão editáveis aqui.
-          </div>
-          <EditList items={[
-                       { id: 'gap', label: `Gap notificável (atual: ${GAP_NOTIFY_THRESHOLD_MIN}min)` },
-                       { id: 'unreported', label: 'Não-reportado (60min)' },
-                       { id: 'downtime', label: 'Downtime (qualquer)' },
-                     ]}
-                    emptyMsg=""
-                    onAdd={() => ack('preview · adicionar tipo de notif liga no E5')}
-                    onEdit={(it) => ack(`preview · editar ${it.id} liga no E5`)}
-                    onDelete={(it) => ack(`preview · desligar ${it.id} liga no E5`)}/>
-        </EditPopover>
-      </div>
-      <div>
-        {notifs.length === 0
-          ? <div style={{ padding: 12, fontSize: 13, color: 'var(--text-3)', textAlign: 'center' }}>
-              nenhuma notificação · all clear
-            </div>
-          : notifs.map((a) => (
-            <div key={a.id} className={`alert-row ${a.severity}`}>
-              <div className="ico"><Icon name="bell" size={14}/></div>
-              <div style={{ flex: 1 }}>
-                <div className="title">
-                  {a.title}
-                  {a.en && <span style={{ color: 'var(--text-3)', fontWeight: 500, fontSize: 11.5 }}> · {a.en}</span>}
-                </div>
-                <div className="sub">{a.detail}</div>
-              </div>
-            </div>
-          ))}
-      </div>
     </div>
   );
 }

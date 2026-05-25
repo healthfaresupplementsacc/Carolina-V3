@@ -267,7 +267,11 @@ function adaptToHFData(input) {
   // expedient_*_hour_ny do /api/v3/data/settings quando o endpoint existir.
   const DAY_START = 8 * 60;
   const DAY_END = 18 * 60;
-  const DEADLINE_MIN = primaryDeadlineMin != null ? primaryDeadlineMin : (16 * 60);
+  // E7 bugfix: NÃO fabrica deadline quando não há um real. Antes caía em
+  // 16:00 (4 PM) hardcoded → combinado com a linha .tl-deadline no template
+  // (label "📮 Correio · 4:00 PM" escrita à mão no CSS) renderizava uma faixa
+  // laranja FALSA na primeira lane (Ana). Correio agora é só do P&P card.
+  const DEADLINE_MIN = primaryDeadlineMin;  // pode ser null — Timeline ignora
   // NOW_MIN: snapshot inicial pra retro-compat. O componente tika via helpers.useNow().
   let NOW_MIN = 12 * 60;
   try {

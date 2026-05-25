@@ -57,7 +57,9 @@
   display: grid;
   grid-template-columns: var(--name-w) 1fr;
   border-bottom: 1px solid var(--border);
-  min-height: 72px;
+  /* E7 #1: row mais alta (96 vs 72) abrindo 22-24px no topo pra bg tab
+     encaixar SEM cobrir o texto do bloco. */
+  min-height: 96px;
   position: relative;
 }
 .tl-row:last-child { border-bottom: none; }
@@ -119,7 +121,8 @@
 /* ===== Event block ===== */
 .tl-block {
   position: absolute;
-  top: 6px; bottom: 6px;
+  /* E7 #1: top 28px deixa 22px no topo pra bg tab (que ocupa 6→24, 18px de altura). */
+  top: 28px; bottom: 8px;
   border-radius: 10px;
   background: var(--bk-color, var(--flow-prod));
   background: linear-gradient(180deg, var(--bk-color, var(--flow-prod)) 0%, var(--bk-color2, var(--flow-prod-2)) 130%);

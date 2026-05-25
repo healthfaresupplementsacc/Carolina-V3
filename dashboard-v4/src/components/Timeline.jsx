@@ -49,8 +49,8 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
         const dur = d.origEnd - d.origStart;
         newStart = snap(Math.max(DAY_START, Math.min(DAY_END - dur, d.origStart + deltaMin)));
         newEnd = newStart + dur;
-        // vertical row change: each row ~72px tall
-        const rowH = 72;
+        // vertical row change: cada row tem ~96px (E7 #1, antes 72)
+        const rowH = 96;
         const rowShift = Math.round(dy / rowH);
         newOpIdx = Math.max(0, Math.min(operators.length - 1, d.origOpIdx + rowShift));
       } else if (d.mode === "left") {
@@ -130,7 +130,9 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
   }
 
   const nowX = ((Math.max(DAY_START, Math.min(DAY_END, now)) - DAY_START) / 60) * hourPx;
-  const deadlineX = ((Math.max(DAY_START, Math.min(DAY_END, DEADLINE_MIN)) - DAY_START) / 60) * hourPx;
+  // E7 bugfix: Correio (deadline) saiu da Timeline. Linha vertical removida —
+  // o Correio agora vive APENAS dentro do card P&P (checkbox + horário).
+  // deadlineX e o render da .tl-deadline foram retirados.
 
   const NAME_W = 220;
 
@@ -231,10 +233,8 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                   {hoursMarks.slice(0, -1).map(h => (
                     <div key={h} className="halfhour" style={{ left: ((h - DAY_START + 30) / 60) * hourPx }}/>
                   ))}
-                  {/* Deadline */}
-                  {DEADLINE_MIN >= DAY_START && DEADLINE_MIN <= DAY_END && opIdx === 0 && (
-                    <div className="tl-deadline" style={{ left: deadlineX }}/>
-                  )}
+                  {/* (E7 bugfix) Linha de Correio removida da timeline.
+                       Correio vive só no card P&P. */}
                   {/* Now line */}
                   {now >= DAY_START && now <= DAY_END && <div className="tl-now" style={{ left: nowX }}/>}
 

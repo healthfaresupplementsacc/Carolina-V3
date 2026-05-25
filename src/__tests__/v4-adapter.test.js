@@ -72,7 +72,10 @@ describe('V4 adapter — adaptToHFData (payload vazio)', () => {
     expect(out.FLOWS).toHaveProperty('support');
     expect(out.DAY_START).toBe(8 * 60);
     expect(out.DAY_END).toBe(18 * 60);
-    expect(out.DEADLINE_MIN).toBe(16 * 60); // default 4PM quando não há deadline
+    // E7 bugfix: NÃO fabrica deadline quando vazio. Antes caía em 16:00 hardcoded,
+    // que combinado com a linha .tl-deadline do template renderizava um "Correio
+    // · 4:00 PM" laranja falso na primeira lane.
+    expect(out.DEADLINE_MIN).toBeNull();
     expect(out.pp.total_minutes).toBe(0);
   });
 });
@@ -292,9 +295,11 @@ describe('V4 adapter — DEADLINE_MIN', () => {
     expect(out.pp.deadline_min).toBe(11 * 60 + 30);
   });
 
-  test('sem deadlines → fallback 16:00', () => {
+  test('sem deadlines → DEADLINE_MIN null (não fabrica)', () => {
+    // E7 bugfix: o fallback 16:00 escondia bugs (renderizava um Correio falso
+    // na timeline). Agora o adapter assume null e quem consome decide o que mostrar.
     const out = adaptToHFData({});
-    expect(out.DEADLINE_MIN).toBe(16 * 60);
+    expect(out.DEADLINE_MIN).toBeNull();
     expect(out.pp.deadline_min).toBeNull();
   });
 });
