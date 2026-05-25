@@ -1,21 +1,23 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-/* E0: build local mock-only. `base: './'` deixa os caminhos relativos,
-   então o bundle funciona em qualquer mount (raiz, /dashboard-v4, file://).
-   No E8, quando o Express servir `build/` em /dashboard, mudamos pra
-   `/dashboard/` se preciso.
+/* Build sai pra `public/dashboard-v4/` (commitado — zero build no Railway,
+   zero risco pro worker shadow, igual ao dashboard atual). Express monta
+   `/dashboard-v4` apontando pra esse diretório em src/v3/wire.js.
 */
 export default defineConfig({
-  base: './',
+  base: '/dashboard-v4/',
   plugins: [react()],
   build: {
-    outDir: 'build',
+    outDir: '../public/dashboard-v4',
     emptyOutDir: true,
     sourcemap: true,
   },
   server: {
-    port: 5174, // não colide com o dashboard atual (5173)
-    strictPort: false,
+    port: 5174,
+    proxy: {
+      // dev: proxy /api/* pro Express local (port 3000 default)
+      '/api': 'http://localhost:3000',
+    },
   },
 });

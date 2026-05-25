@@ -89,7 +89,8 @@ const BrandH = () => (
   </svg>
 );
 
-const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent }) => {
+const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
+                  workerNode, readOnly, onLogout }) => {
   const page = findPage(pageId);
   return (
     <header className="topbar">
@@ -101,8 +102,15 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
             <span className="dot"/>ao vivo · live
           </span>
         )}
+        {readOnly && (
+          <span className="pill" style={{ marginLeft: 8, background: "var(--surface-2)", color: "var(--text-3)" }}
+                title="V4_ALLOW_WRITES=0 — edição/drag/criar são só preview até E5/E6">
+            <span className="dot" style={{ background: "var(--text-3)" }}/>leitura · read-only
+          </span>
+        )}
       </div>
       <div className="topbar-spacer"/>
+      {workerNode}
       <button className="icon-btn" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
       <button className="icon-btn" title="Notificações" aria-label="Notifications" style={{ position: "relative" }}>
         <Icon name="bell" size={17}/>
@@ -115,6 +123,11 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
       {pageId === "hoje" && (
         <button className="btn primary" onClick={onNewEvent}>
           <Icon name="plus" size={15}/> Novo registro
+        </button>
+      )}
+      {onLogout && (
+        <button className="icon-btn" title="Sair (limpar PIN)" aria-label="Logout" onClick={onLogout}>
+          <Icon name="config" size={17}/>
         </button>
       )}
     </header>

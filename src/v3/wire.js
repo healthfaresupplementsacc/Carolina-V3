@@ -75,7 +75,11 @@ function mount(app) {
   const express = require('express');
   const path = require('path');
   app.use('/dashboard', express.static(path.join(process.cwd(), 'public', 'dashboard')));
-  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /dashboard');
+  // V4 (redesign, E4) — SPA paralela em /dashboard-v4. Cliente puro do
+  // mesmo /api/v3/data/* (PIN-authed). dashboard/ atual segue intacto.
+  // Switch de URL (E8) só rola quando a lista de paridade estiver verde.
+  app.use('/dashboard-v4', express.static(path.join(process.cwd(), 'public', 'dashboard-v4')));
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /dashboard + /dashboard-v4');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */
