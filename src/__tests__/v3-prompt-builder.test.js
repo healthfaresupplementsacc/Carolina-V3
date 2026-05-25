@@ -85,6 +85,27 @@ describe('V3 §2.7 — buildContext estrutura', () => {
     expect(SYSTEM_PROMPT).toMatch(/EXCEÇÃO.*pausa/);
   });
 
+  test('Captura — UMA pessoa, DUAS tarefas (foreground + background) = 2 events', () => {
+    expect(SYSTEM_PROMPT).toMatch(/UMA PESSOA com DUAS TAREFAS/);
+    expect(SYSTEM_PROMPT).toMatch(/Formulação E Contagem\/FNSKU/);
+    expect(SYSTEM_PROMPT).toMatch(/Emita 2 open_event/);
+  });
+
+  test('Captura — FNSKU + contagem = marketplace_prep (regra 17)', () => {
+    expect(SYSTEM_PROMPT).toMatch(/FNSKU \+ CONTAGEM/);
+    expect(SYSTEM_PROMPT).toMatch(/slug=marketplace_prep/);
+    expect(SYSTEM_PROMPT).toMatch(/FNKSU.*typo/);
+    expect(SYSTEM_PROMPT).toMatch(/Amazon\/Walmart/);
+  });
+
+  test('Aprendizado — regra 18 INCERTO + uncertain no schema', () => {
+    expect(SYSTEM_PROMPT).toMatch(/INCERTO.*flag de aprendizado/);
+    expect(SYSTEM_PROMPT).toMatch(/uncertain:\s*true/);
+    expect(SYSTEM_PROMPT).toMatch(/uncertainty_reason/);
+    expect(SYSTEM_PROMPT).toMatch(/"uncertain":\s*true\|false/);
+    expect(SYSTEM_PROMPT).toMatch(/"uncertainty_reason":\s*"string\|null"/);
+  });
+
   test('Captura — TRÊS sentidos de envio (P&P cliente / DC produção / clínica injeções)', () => {
     expect(SYSTEM_PROMPT).toMatch(/TRÊS sentidos de "envio"/);
     expect(SYSTEM_PROMPT).toMatch(/PEDIDOS DE CLIENTE.*slug=shipping/s);

@@ -78,6 +78,11 @@ function normalizeResult(partial = {}, providerName = 'unknown') {
     react_emoji: partial.react_emoji || null,
     admin_question: partial.admin_question || null,
     new_vocabulary_terms: Array.isArray(partial.new_vocabulary_terms) ? partial.new_vocabulary_terms : [],
+    // Aprendizado (regra 18): o LLM pode marcar "decompus a estrutura
+    // duvidosamente" + frase curta do que ficou ambíguo. Propagado pro
+    // llm_result e exposto em /uncertain-cases.
+    uncertain: partial.uncertain === true,
+    uncertainty_reason: partial.uncertainty_reason || null,
     provider_used: partial.provider_used || providerName,
     model_used: partial.model_used || null,
     tokens_in: partial.tokens_in || 0,

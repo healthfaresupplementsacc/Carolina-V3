@@ -37,6 +37,12 @@ function shapeMessage(m) {
     skipped: lr.skipped || null,
     action_count: Array.isArray(lr.actions) ? lr.actions.length : 0,
     cost_estimate_usd: Number(lr.cost_estimate_usd || 0),
+    // Ciclo de aprendizado (Bloco 5 base): o LLM pode marcar a msg como
+    // "incerta" + a dúvida. Expõe pra UI dos casos incertos.
+    uncertain: lr.uncertain === true,
+    uncertainty_reason: lr.uncertainty_reason || null,
+    events_created: m.events_created || [],
+    events_updated: m.events_updated || [],
   };
 }
 
@@ -59,6 +65,38 @@ class MessagesRepo {
        ORDER BY m.created_at DESC
        LIMIT $2`, [d, limit]);
     return { date: d, count: r.rows.length, messages: (r.rows || []).map(shapeMessage) };
+  }
+
+  /**
+   * Casos incertos — pra futura tela "Cérebro/Aprendizado". Inclui:
+   *   - llm_result.uncertain = true (LLM marcou "não tive certeza")
+   *   - confidence low/unconfirmed (rede mais larga)
+   *   - processing_error não-null (falhou — caso a revisar também)
+   * Ordenado por mais recente. Limitado.
+   */
+  async uncertainCases(opts = {}) {
+    const limit = clampLimit(opts.limit);
+    const sinceDays = parseInt(opts.since_days, 10) || 7;
+    const r = await this.db.query(
+      `SELECT m.id, m.slack_ts, m.slack_user_id, m.raw_text, m.created_at,
+              m.llm_result, m.llm_processed_at, m.llm_provider_used,
+              m.processing_error, m.person_id, p.display_name AS person_name,
+              m.events_created, m.events_updated
+       FROM v3.messages m
+       LEFT JOIN v3.persons p ON p.id = m.person_id
+       WHERE m.created_at > NOW() - ($1::int || ' days')::interval
+         AND (
+           (m.llm_result->>'uncertain')::boolean = true
+           OR m.llm_result->>'confidence_overall' IN ('low', 'unconfirmed')
+           OR m.processing_error IS NOT NULL
+         )
+       ORDER BY m.created_at DESC
+       LIMIT $2`, [sinceDays, limit]);
+    return {
+      since_days: sinceDays,
+      count: r.rows.length,
+      cases: (r.rows || []).map(shapeMessage),
+    };
   }
 
   /** Uma mensagem por id. @returns {object|null} */

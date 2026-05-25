@@ -446,6 +446,8 @@ describe('V3 §2.8 — Captura Aprimorada (Parte A)', () => {
 
   test('A1 — close_event com activity_type_id é forwarded pro closeActivePersonEvent', async () => {
     // "F: encapsulação" — close nomeado fecha SÓ o event daquele tipo.
+    // Quando activity_type_id é dado, kind=any (filtro forte é o type)
+    // — antes era 'foreground', mas isso pulava events background.
     const m = msg({ slack_ts: '99.3', raw_text: 'F: encapsulação' });
     const { observer, eventService } = makeObserver({
       message: m,
@@ -457,7 +459,7 @@ describe('V3 §2.8 — Captura Aprimorada (Parte A)', () => {
     await observer.processMessage(m);
     expect(eventService.closeActivePersonEvent).toHaveBeenCalledTimes(1);
     const opts = eventService.closeActivePersonEvent.mock.calls[0][3];
-    expect(opts).toMatchObject({ kind: 'foreground', activityTypeId: 10 });
+    expect(opts).toMatchObject({ kind: 'any', activityTypeId: 10 });
   });
 
   test('A1 — break_end aciona closeActivePersonEvent com kind=meta', async () => {
@@ -472,6 +474,71 @@ describe('V3 §2.8 — Captura Aprimorada (Parte A)', () => {
     await observer.processMessage(m);
     const opts = eventService.closeActivePersonEvent.mock.calls[0][3];
     expect(opts.kind).toBe('meta');
+  });
+
+  test('A1 — N>1 open_event na MESMA msg suffixa source_message_ts (bug 25/mai ev 145)', async () => {
+    // Antes do fix: as 2 actions tinham mesmo source_message_ts → idempotência
+    // sobrescrevia o 1º com o 2º. Agora cada uma vira event distinto.
+    const m = msg({ slack_ts: '99.9', raw_text: 'S: Formulacao e Contagem/FNSKU (Vita B1 - 0148)' });
+    const { observer, eventService } = makeObserver({
+      message: m,
+      llmResult: {
+        categorization: 'activity_start', confidence: 'high',
+        actions: [
+          { type: 'open_event', person_id: 4, activity_type_id: 1, confidence: 'high' }, // formulação
+          { type: 'open_event', person_id: 4, activity_type_id: 3, confidence: 'high' }, // marketplace_prep / contagem
+        ],
+      },
+      dbOpts: { persons: [4], activityTypes: [1, 3] },
+    });
+    await observer.processMessage(m);
+    expect(eventService.upsert).toHaveBeenCalledTimes(2);
+    const ts1 = eventService.upsert.mock.calls[0][0].source_message_ts;
+    const ts2 = eventService.upsert.mock.calls[1][0].source_message_ts;
+    expect(ts1).not.toBe(ts2);                          // distintos
+    expect(ts1).toBe('99.9#a0');
+    expect(ts2).toBe('99.9#a1');
+  });
+
+  test('A1 — open_event ÚNICO mantém source_message_ts puro (retrocompat)', async () => {
+    const m = msg({ slack_ts: '88.8' });
+    const { observer, eventService } = makeObserver({ message: m, llmResult: OPEN });
+    await observer.processMessage(m);
+    expect(eventService.upsert).toHaveBeenCalledTimes(1);
+    expect(eventService.upsert.mock.calls[0][0].source_message_ts).toBe('88.8');
+  });
+
+  test('A1 — close_event com activity_type_id usa kind=any (bug 25/mai close de bg)', async () => {
+    // Antes: kind forçado a 'foreground' pulava encapsulação (background).
+    // Agora: ao especificar activity_type_id, kind=any (filtro forte é o type).
+    const m = msg({ slack_ts: '77.7', raw_text: 'F: encapsulação' });
+    const { observer, eventService } = makeObserver({
+      message: m,
+      llmResult: {
+        categorization: 'activity_end', confidence: 'high',
+        actions: [{ type: 'close_event', person_id: 6, activity_type_id: 3, confidence: 'high' }],
+      },
+      dbOpts: { activityTypes: [3, 10, 20] },
+    });
+    await observer.processMessage(m);
+    const opts = eventService.closeActivePersonEvent.mock.calls[0][3];
+    expect(opts.kind).toBe('any');
+    expect(opts.activityTypeId).toBe(3);
+  });
+
+  test('Aprendizado — uncertain do LLM é persistido no llm_result', async () => {
+    const m = msg({ slack_ts: '66.6' });
+    const { observer, db } = makeObserver({
+      message: m,
+      llmResult: Object.assign({}, OPEN, {
+        uncertain: true,
+        uncertainty_reason: 'duas tarefas paralelas ou sequenciais? não dá pra inferir',
+      }),
+    });
+    await observer.processMessage(m);
+    const result = JSON.parse(m.llm_result);
+    expect(result.uncertain).toBe(true);
+    expect(result.uncertainty_reason).toMatch(/duas tarefas paralelas/);
   });
 
   test('A7 — safetyAutoClose é chamado no 1º tick + rate-limited (5min)', async () => {

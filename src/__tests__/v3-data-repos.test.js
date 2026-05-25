@@ -197,6 +197,27 @@ describe('V3 data — MessagesRepo', () => {
     const out = await new MessagesRepo({ db: makeDb() }).messageById(999);
     expect(out).toBeNull();
   });
+
+  test('uncertainCases filtra por flag/low-conf/erro e respeita since_days', async () => {
+    const uncertainRoute = {
+      match: /\(m\.llm_result->>'uncertain'\)::boolean = true/, rows: [
+        { id: 1, slack_ts: 't1', slack_user_id: 'U_X', raw_text: 'duvidoso',
+          created_at: 'x', llm_processed_at: 'x', llm_provider_used: 'anthropic',
+          processing_error: null, person_id: 4, person_name: 'Vitor',
+          events_created: [10], events_updated: [],
+          llm_result: { uncertain: true, uncertainty_reason: 'foi 1 ou 2?',
+            interpretation: 'i', categorization: 'activity_start', confidence_overall: 'high' } },
+      ],
+    };
+    const db = makeDb([uncertainRoute]);
+    const out = await new MessagesRepo({ db }).uncertainCases({ limit: '5', since_days: '3' });
+    expect(out.since_days).toBe(3);
+    expect(out.count).toBe(1);
+    expect(out.cases[0]).toMatchObject({
+      id: 1, uncertain: true, uncertainty_reason: 'foi 1 ou 2?',
+    });
+    expect(db.calls[0].params).toEqual([3, 5]);
+  });
 });
 
 describe('V3 data — MetricsRepo', () => {

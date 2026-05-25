@@ -118,6 +118,15 @@ const ENDPOINTS = [
     } },
   { path: '/api/v3/data/messages/:id',
     handler: async (req, r) => ({ data: await r.messages.messageById(intParam(req.params.id)) }) },
+  // Ciclo de aprendizado base — lista as msgs que o LLM marcou como
+  // incertas, OU com confidence low/unconfirmed, OU com processing_error.
+  // Futura tela "Cérebro" usa isso.
+  { path: '/api/v3/data/uncertain-cases',
+    handler: async (req, r) => ({
+      data: await r.messages.uncertainCases({
+        limit: req.query.limit, since_days: req.query.since_days,
+      }),
+    }) },
   { path: '/api/v3/data/metrics',
     handler: async (req, r) => {
       const d = await r.metrics.metricsByDay(req.query.date);
@@ -321,6 +330,95 @@ const ENDPOINTS = [
 ];
 
 /**
+ * Snapshot completo do dia, JSON puro. AUTH POR TOKEN (query ?token=...)
+ * — independente do PIN. Pensado pro Claude (claude.ai) auditar o V3
+ * via fetch read-only.
+ *
+ * Quando V3_SNAPSHOT_TOKEN não está setada no env → 503 (feature desligada).
+ * Token inválido → 401. Match → JSON com timeline + cards + open events +
+ * uncertain cases + worker health.
+ */
+async function buildSnapshot(dateInput, repos) {
+  const date = resolveDate(dateInput);
+  const [timeline, production, pp, support, goals, counts, deadlines, metrics, health, uncertain]
+    = await Promise.all([
+      repos.timeline.eventsByDay(date),
+      repos.flowViews.productionByDay(date),
+      repos.flowViews.pnpByDay(date),
+      repos.flowViews.supportByDay(date),
+      repos.goals.goalsByDay(date),
+      repos.counts.countsByDay(date),
+      repos.deadlines.list(),
+      repos.metrics.metricsByDay(date),
+      repos.health.workerHealth(),
+      repos.messages.uncertainCases({ since_days: 3, limit: 50 }),
+    ]);
+
+  const openEvents = [];
+  for (const p of (timeline.people || [])) {
+    for (const e of (p.events || [])) {
+      if (!e.ended_at) {
+        openEvents.push({
+          event_id: e.event_id, person_id: p.person_id, person: p.display_name,
+          activity: e.activity, flow: e.flow,
+          started_at: e.started_at, source_message_ts: e.source_message_ts,
+        });
+      }
+    }
+  }
+
+  const batchById = {};
+  for (const l of (production.lotes || [])) {
+    if (l.batch_id != null) batchById[l.batch_id] = {
+      batch_number: l.batch_number, product: l.product,
+    };
+  }
+
+  const dupCount = (goals.goals || [])
+    .reduce((s, g) => s + ((g.duplicatas_suspeitas || []).length), 0);
+  const invalidCount = (production.lotes || []).reduce((s, l) => s + (l.invalid_event_count || 0), 0)
+    + (pp.invalid_event_count || 0);
+  const downtimeCount = (support.occurrences || []).filter((o) => o.is_downtime).length;
+
+  return {
+    date,
+    timeline,
+    cards: {
+      production: production.lotes,
+      pp: {
+        total_seconds: pp.total_seconds,
+        orders: pp.orders, seconds_per_order: pp.seconds_per_order,
+        sub_steps: pp.sub_steps, quantities: pp.quantities, people: pp.people,
+      },
+      support: support.occurrences,
+      goals: goals.goals,
+      counts: {
+        total: (counts.counts || []).length,
+        totals_by_product: counts.totals_by_product || {},
+        rows: counts.counts || [],
+      },
+      deadlines: deadlines.deadlines,
+      atencao: {
+        duplicatas_count: dupCount,
+        invalid_events: invalidCount,
+        downtime_events: downtimeCount,
+        open_events_count: openEvents.length,
+      },
+    },
+    open_events: openEvents,
+    uncertain_cases: uncertain.cases,
+    batch_by_id: batchById,
+    worker_health: health,
+    metrics_summary: {
+      msgs_processed: metrics.total_processed,
+      errors: metrics.errors,
+      cost_usd: metrics.cost_estimate_usd,
+      by_confidence: metrics.by_confidence,
+    },
+  };
+}
+
+/**
  * Router Express da API de dados. Montar com app.use('/', router).
  * deps.db = pool pg; deps.repos / deps.services injetáveis (teste).
  */
@@ -330,7 +428,28 @@ function createDataRouter(deps = {}) {
   const repos = deps.repos || buildRepos(deps.db);
   const services = deps.services || buildServices(deps.db);
 
-  // auth na borda — protege TODO o /api/v3/data/*
+  // Snapshot — registrada ANTES do middleware PIN: usa token próprio
+  // (env V3_SNAPSHOT_TOKEN) na query. Read-only puro; sem write.
+  router.get('/api/v3/data/snapshot', async (req, res) => {
+    const expected = deps.snapshotToken || process.env.V3_SNAPSHOT_TOKEN || null;
+    if (!expected) {
+      return res.status(503).json({ error: { code: 'disabled',
+        message: 'snapshot desligado (V3_SNAPSHOT_TOKEN não setada).' } });
+    }
+    if (req.query.token !== expected) {
+      return res.status(401).json({ error: { code: 'unauthorized', message: 'token inválido.' } });
+    }
+    try {
+      const data = await buildSnapshot(req.query.date, repos);
+      res.json(envelope(data, { date: data.date, snapshot: true }));
+    } catch (e) {
+      console.error('[v3-data] snapshot:', e.message);
+      const code = /obrigatóri|inválid/.test(e.message) ? 400 : 500;
+      res.status(code).json({ error: { code: code === 400 ? 'bad_request' : 'internal', message: e.message } });
+    }
+  });
+
+  // auth na borda — protege TODO o /api/v3/data/* (exceto o snapshot acima)
   router.use('/api/v3/data', makeAuthMiddleware(deps));
 
   for (const ep of ENDPOINTS) {
@@ -358,4 +477,4 @@ function createDataRouter(deps = {}) {
   return router;
 }
 
-module.exports = { createDataRouter, buildRepos, buildServices, envelope, ENDPOINTS, API_VERSION };
+module.exports = { createDataRouter, buildRepos, buildServices, envelope, ENDPOINTS, API_VERSION, buildSnapshot };

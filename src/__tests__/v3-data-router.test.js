@@ -115,10 +115,10 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
     expect(out.data.id).toBe(1);
   });
 
-  test('45 endpoints registrados, todos sob /api/v3/data/', () => {
-    expect(ENDPOINTS).toHaveLength(45);
+  test('46 endpoints registrados, todos sob /api/v3/data/', () => {
+    expect(ENDPOINTS).toHaveLength(46);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
-    expect(ENDPOINTS.filter((e) => (e.method || 'get') === 'get')).toHaveLength(23);
+    expect(ENDPOINTS.filter((e) => (e.method || 'get') === 'get')).toHaveLength(24);
     expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(10);
     expect(ENDPOINTS.filter((e) => e.method === 'patch')).toHaveLength(7);
     expect(ENDPOINTS.filter((e) => e.method === 'delete')).toHaveLength(5);
@@ -201,5 +201,79 @@ describe('V3 data API — createDataRouter', () => {
     const fakeDb = { query: jest.fn(async () => ({ rows: [] })) };
     const router = createDataRouter({ db: fakeDb });
     expect(typeof router).toBe('function'); // express.Router é uma função
+  });
+});
+
+describe('V3 data API — snapshot (auth por token)', () => {
+  const { buildSnapshot } = require('../v3/data/router');
+  function fakeRepos(date = '2026-05-25') {
+    return {
+      timeline:  { eventsByDay: jest.fn(async () => ({ date, people: [
+        { person_id: 4, display_name: 'Vitor', events: [
+          { event_id: 1, activity: { display_name: 'Linha' }, flow: 'production',
+            started_at: '2026-05-25T13:00:00-04:00', ended_at: null, source_message_ts: 't1' },
+        ] }] })) },
+      flowViews: {
+        productionByDay: jest.fn(async () => ({ lotes: [
+          { batch_id: 5, batch_number: 'BR-1', product: { canonical_name: 'X' }, invalid_event_count: 0 },
+        ] })),
+        pnpByDay: jest.fn(async () => ({ total_seconds: 100, orders: 50, seconds_per_order: 2,
+          sub_steps: [], quantities: [], people: [], invalid_event_count: 0 })),
+        supportByDay: jest.fn(async () => ({ occurrences: [{ is_downtime: true }] })),
+      },
+      goals: { goalsByDay: jest.fn(async () => ({ goals: [{ duplicatas_suspeitas: [{}, {}] }] })) },
+      counts: { countsByDay: jest.fn(async () => ({ counts: [], totals_by_product: {} })) },
+      deadlines: { list: jest.fn(async () => ({ deadlines: [] })) },
+      metrics: { metricsByDay: jest.fn(async () => ({ total_processed: 10, errors: 0, cost_estimate_usd: 0.1, by_confidence: {} })) },
+      health: { workerHealth: jest.fn(async () => ({ alive: true })) },
+      messages: { uncertainCases: jest.fn(async () => ({ cases: [] })) },
+    };
+  }
+
+  test('buildSnapshot agrega timeline + cards + open + uncertain', async () => {
+    const r = fakeRepos();
+    const out = await buildSnapshot('2026-05-25', r);
+    expect(out.date).toBe('2026-05-25');
+    expect(out.open_events).toHaveLength(1);
+    expect(out.open_events[0]).toMatchObject({ event_id: 1, person: 'Vitor' });
+    expect(out.cards.atencao).toMatchObject({
+      duplicatas_count: 2,       // 2 dups
+      downtime_events: 1,        // 1 ocurrence is_downtime
+      open_events_count: 1,
+    });
+    expect(out.batch_by_id[5]).toMatchObject({ batch_number: 'BR-1' });
+    expect(out.worker_health).toEqual({ alive: true });
+  });
+
+  test('snapshot route: 503 sem token configurado, 401 com token errado, 200 com token certo', async () => {
+    const express = require('express');
+    const oldEnv = process.env.V3_SNAPSHOT_TOKEN;
+
+    function callRoute(routerInstance, queryToken) {
+      return new Promise((resolve) => {
+        const req = { method: 'GET', url: `/api/v3/data/snapshot?token=${queryToken || ''}&date=2026-05-25`,
+          query: { token: queryToken, date: '2026-05-25' }, headers: {}, params: {} };
+        const res = { _status: 200, _body: null,
+          status(c) { this._status = c; return this; },
+          json(b)   { this._body = b; resolve({ status: this._status, body: b }); } };
+        // simulate router dispatch: find matching handler manually since we don't have HTTP
+        // simpler: call buildSnapshot logic by invoking the inner handler we stored.
+        routerInstance.handle(req, res, () => resolve({ status: 404, body: null }));
+      });
+    }
+
+    delete process.env.V3_SNAPSHOT_TOKEN;
+    const r503 = createDataRouter({ repos: fakeRepos(), services: {}, db: { query: async () => ({ rows: [] }) } });
+    const out503 = await callRoute(r503, 'anything');
+    expect(out503.status).toBe(503);
+
+    const r401 = createDataRouter({ repos: fakeRepos(), services: {}, db: { query: async () => ({ rows: [] }) }, snapshotToken: 'GOOD' });
+    expect((await callRoute(r401, 'BAD')).status).toBe(401);
+    const ok = await callRoute(r401, 'GOOD');
+    expect(ok.status).toBe(200);
+    expect(ok.body.meta.snapshot).toBe(true);
+    expect(ok.body.data.date).toBe('2026-05-25');
+
+    if (oldEnv != null) process.env.V3_SNAPSHOT_TOKEN = oldEnv;
   });
 });

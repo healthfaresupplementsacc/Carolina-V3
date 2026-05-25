@@ -146,10 +146,25 @@ class Observer {
     const created = [];
     const updated = [];
     const adminCtx = !!(author && author.is_admin_context);
+
+    // Bug-raiz "uma msg, N events": Se a decisão tem 2+ actions que
+    // criam event (open_event/break_start/cowork_join), TODOS teriam
+    // o mesmo source_message_ts → o EventService.upsert achava o 1º
+    // já inserido e fazia UPDATE em vez de INSERT do 2º (sobrescrevia).
+    // Conserto: sufixar com '#a<i>' quando há múltiplos open-style.
+    // Quando há só 1, mantém o ts puro (retrocompat com mensagens já
+    // processadas — re-processo continua idempotente).
+    const OPENS = new Set(['open_event', 'break_start', 'cowork_join']);
+    const openTotal = (decision.actions || []).filter((a) => a && OPENS.has(a.type)).length;
+    let openIdx = 0;
     for (const action of (decision.actions || [])) {
       // set_goal vale SEMPRE (admin DEFINE meta — Bloco 2). As demais
       // actions (events de trabalho) só fora de admin_context.
       if (adminCtx && (!action || action.type !== 'set_goal')) continue;
+      if (action && OPENS.has(action.type) && openTotal > 1) {
+        action._sourceSuffix = '#a' + openIdx;
+        openIdx += 1;
+      }
       const r = await this._applyAction(action, message);
       if (r.created) created.push(...r.created);
       if (r.updated) updated.push(...r.updated);
@@ -211,7 +226,12 @@ class Observer {
         started_at: action.started_at || message.created_at || this.now(),
         phase_label: action.phase_label || null,
         description: action.description || null,
-        source_message_ts: message.slack_ts,
+        // sufixo '#a<i>' aplicado pelo loop em _process quando há N>1
+        // actions open-style na mesma msg, pra cada um virar event distinto
+        // sem colidir na idempotência por source_message_ts.
+        source_message_ts: action._sourceSuffix
+          ? message.slack_ts + action._sourceSuffix
+          : message.slack_ts,
         confidence: action.confidence || 'high',
         cowork_with: action.cowork_with || [],
         // Captura Aprimorada A2 — P&P "142 ordens" / quantidades em events.
@@ -223,11 +243,18 @@ class Observer {
     }
     if (t === 'close_event' || t === 'break_end' || t === 'cowork_leave') {
       const reason = t === 'cowork_leave' ? 'cowork_pause' : 'manual';
-      // Captura Aprimorada A1 — close nomeado: se a action carregar
-      // activity_type_id, fecha SÓ o event aberto desse tipo (ex.: "F:
-      // encapsulação" fecha só a encapsulação, não o foreground). Sem
-      // activity_type_id, fecha o foreground ativo (regra antiga).
-      const kind = t === 'break_end' ? 'meta' : 'foreground';
+      // Captura Aprimorada A1 + bug-fix 25/mai: quando a action tem
+      // activity_type_id, o filtro forte é POR ATIVIDADE — kind=any (caso
+      // contrário, "F: encapsulação" não fecha porque encapsulação é
+      // background e o default kind=foreground filtrava ela fora).
+      let kind;
+      if (action.activity_type_id) {
+        kind = 'any';
+      } else if (t === 'break_end') {
+        kind = 'meta';
+      } else {
+        kind = 'foreground';
+      }
       const closed = await this.eventService.closeActivePersonEvent(
         action.person_id, action.ended_at || message.created_at || this.now(), reason,
         {
@@ -362,6 +389,12 @@ class Observer {
       is_off_hours: flags.isOffHours,
       admin_context: flags.adminCtx,
       coalesced_messages: flags.coalesced,
+      // Ciclo de aprendizado — tijolo base (Bloco 5): o LLM pode marcar
+      // "não tive certeza dessa decisão" + por quê. Persiste no
+      // llm_result; a tela de casos incertos lista isso pro admin
+      // revisar (e no futuro a Carolina pergunta).
+      uncertain: decision.uncertain === true,
+      uncertainty_reason: decision.uncertainty_reason || null,
     };
     await this.db.query(
       `UPDATE v3.messages
