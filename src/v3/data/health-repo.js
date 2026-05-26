@@ -63,6 +63,50 @@ class HealthRepo {
       mode: mode || null,
     };
   }
+
+  /**
+   * E7-cérebro #4 — Events auto-fechados pelo safetyAutoClose num dia NY.
+   * Cada um vira uma "notificação" pro card de Atenção do dashboard.
+   * Vasculha audit_log pelo metadata.reason='auto_closed_eod' + ny_date.
+   *
+   * @param {string} dateInput  YYYY-MM-DD NY
+   * @returns {Promise<{ date: string, events: Array }>}
+   */
+  async autoClosedEvents(dateInput) {
+    const { resolveDate } = require('./ny-date');
+    const d = resolveDate(dateInput);
+    const r = await this.db.query(
+      `SELECT a.target_id AS event_id,
+              a.created_at,
+              a.metadata,
+              e.person_id, e.activity_type_id, e.started_at, e.ended_at,
+              p.display_name AS person_name,
+              at.slug AS activity_slug, at.display_name AS activity_name
+       FROM v3.audit_log a
+       LEFT JOIN v3.events e         ON e.id = a.target_id
+       LEFT JOIN v3.persons p        ON p.id = e.person_id
+       LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+       WHERE a.action = 'event.closed'
+         AND a.target_type = 'event'
+         AND a.metadata->>'reason' = 'auto_closed_eod'
+         AND a.metadata->>'ny_date' = $1
+       ORDER BY a.created_at DESC`, [d]);
+    return {
+      date: d,
+      events: r.rows.map((row) => ({
+        event_id: row.event_id,
+        person_id: row.person_id,
+        person_name: row.person_name,
+        activity_slug: row.activity_slug,
+        activity_name: row.activity_name,
+        started_at: toNyIso(row.started_at),
+        ended_at: toNyIso(row.ended_at),
+        kind: row.metadata && row.metadata.kind,
+        end_hour: row.metadata && row.metadata.end_hour,
+        auto_closed_at: row.created_at,
+      })),
+    };
+  }
 }
 
 module.exports = { HealthRepo };

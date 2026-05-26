@@ -43,6 +43,18 @@ const KIND_FOREGROUND = 'foreground';
 
 const uniq = (arr) => [...new Set(arr)];
 
+/** Offset NY (EDT/EST) pra um YYYY-MM-DD. Usa Intl pra detectar DST.
+ *  Antes safetyAutoClose tinha '-04:00' hardcoded (errava 1h em EST). */
+function _nyOffsetForDate(ymd) {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  const noonUtc = Date.UTC(y, m - 1, d, 12);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', timeZoneName: 'short',
+  }).formatToParts(new Date(noonUtc));
+  const tz = (parts.find((p) => p.type === 'timeZoneName') || {}).value;
+  return tz === 'EDT' ? '-04:00' : '-05:00';
+}
+
 /**
  * Guard de duração negativa (achado pós-shadow 21/mai): true se
  * ended_at < started_at. Vem de mensagens processadas fora de ordem
@@ -282,6 +294,32 @@ class EventService {
     }));
   }
 
+  /** E7-cérebro #2 — fecha events BACKGROUND abertos do MESMO (pessoa, batch),
+   *  pra formulação ser sequencial (peneira→mix→formulação no mesmo produto).
+   *  Não toca foreground nem outros batches. Usa _patch + _audit como _closeActive. */
+  async _closeMatchingBgSamePB(c, personId, batchId, endedAt, reason, actorType, opts = {}) {
+    const r = await c.query(
+      `SELECT e.id, e.activity_type_id, e.product_batch_id, e.started_at
+       FROM v3.events e
+       LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+       WHERE e.person_id = $1
+         AND e.product_batch_id = $2
+         AND e.ended_at IS NULL AND e.deleted_at IS NULL
+         AND at.is_background = true`,
+      [personId, batchId]);
+    const closed = [];
+    for (const ev of r.rows) {
+      const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
+      await this._audit(c, {
+        actorType, actorPersonId: opts.actorPersonId, action: 'event.closed',
+        targetId: ev.id, before: ev, after,
+        metadata: { reason, kind: 'background', sequential: true, product_batch_id: batchId },
+      });
+      closed.push(after);
+    }
+    return closed;
+  }
+
   async _closeActive(c, personId, endedAt, reason, kind, actorType, opts = {}) {
     const rows = await this._activeByPerson(c, personId);
     // ordem FIFO (mais antigo primeiro) — relevante quando opts.activityTypeId
@@ -368,8 +406,17 @@ class EventService {
             await this._closeActive(c, p.person_id, p.started_at, 'paused_by_meta',
               KIND_FOREGROUND, actorType, { actorPersonId: p.actor_person_id });
           }
+        } else if (newKind === KIND_BACKGROUND && p.product_batch_id) {
+          // Regra E7-cérebro #2 — etapas SEQUENCIAIS do MESMO produto+batch+pessoa:
+          // peneira → mix → formulação. Uma nova etapa BACKGROUND do mesmo
+          // (person+product_batch_id) FECHA a anterior. Permite formulações
+          // PARALELAS de OUTROS produtos/batches (L-Carnitine no mix enquanto
+          // Graviola na linha = ok). Sem product_batch_id (formulação solta),
+          // mantém comportamento antigo (não fecha nada — N bg coexistem).
+          await this._closeMatchingBgSamePB(c, p.person_id, p.product_batch_id,
+            p.started_at, 'next_phase', actorType, { actorPersonId: p.actor_person_id });
         }
-        // background: nada a fechar. Múltiplos bg coexistem.
+        // background sem product_batch_id: nada a fechar. Múltiplos bg coexistem.
       }
 
       // 3 — insert
@@ -418,7 +465,10 @@ class EventService {
   async safetyAutoClose(refTimeArg) {
     const refTime = refTimeArg ? new Date(refTimeArg) : new Date();
     return this._withTx(async (c) => {
-      const endHour = await this._setting(c, 'expedient_end_hour_ny', 19);
+      // Default 21h (9PM NY) desde migration 010 — expediente real 8am–9pm.
+      // Era 19 (7PM) e fechava events que continuavam até 21h — Henrique
+      // tinha que cobrar "F" manualmente. Default fallback agora 21.
+      const endHour = await this._setting(c, 'expedient_end_hour_ny', 21);
       const r = await c.query(
         `SELECT e.id, e.person_id, e.activity_type_id, e.started_at, e.ended_at,
                 e.cowork_with, e.confidence,
@@ -429,12 +479,20 @@ class EventService {
       for (const ev of r.rows) {
         const kind = await this._kindOf(c, ev.activity_type_id);
         if (kind === KIND_META) continue;  // meta tem regra própria (45min)
-        // ended_at = data NY do started_at + endHour:00 NY
+        // ended_at = data NY do started_at + endHour:00 NY com offset DST-aware.
+        // Antes: hardcode '-04:00' (EDT) errava 1h em EST (Nov-Mar). Agora
+        // detecta EDT/EST via Intl pra cada ny_date.
         const nyDate = String(ev.ny_date instanceof Date
           ? ev.ny_date.toISOString().slice(0, 10) : ev.ny_date);
-        const eodIso = `${nyDate}T${String(endHour).padStart(2, '0')}:00:00-04:00`;
+        const offset = _nyOffsetForDate(nyDate);
+        const eodIso = `${nyDate}T${String(endHour).padStart(2, '0')}:00:00${offset}`;
         // só fecha se refTime já passou desse EOD
         if (refTime < new Date(eodIso)) continue;
+        // Guard contra duração negativa: se o event abriu APÓS o EOD (ex.: 21:25 NY,
+        // EOD 21:00 do mesmo dia), o ended_at calculado ficaria ANTES do started_at.
+        // Pula — esse event abre num "expediente esticado" e safetyAutoClose do
+        // PRÓXIMO dia (com ny_date+1) pega ele. (Não cria invalid_event.)
+        if (new Date(ev.started_at) >= new Date(eodIso)) continue;
         const after = await this._patch(c, ev.id, {
           ended_at: eodIso,
           closed_reason: 'auto_closed_eod',
@@ -442,7 +500,8 @@ class EventService {
         await this._audit(c, {
           actorType: 'system', action: 'event.closed', targetId: ev.id,
           before: ev, after,
-          metadata: { reason: 'auto_closed_eod', kind, ny_date: nyDate, end_hour: endHour },
+          // metadata.notify=true → atencao card no dashboard (parte 4)
+          metadata: { reason: 'auto_closed_eod', kind, ny_date: nyDate, end_hour: endHour, notify: true },
         });
         closed.push(after);
       }

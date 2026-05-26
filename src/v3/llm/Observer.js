@@ -255,14 +255,26 @@ class Observer {
       } else {
         kind = 'foreground';
       }
+      const closeTime = action.ended_at || message.created_at || this.now();
       const closed = await this.eventService.closeActivePersonEvent(
-        action.person_id, action.ended_at || message.created_at || this.now(), reason,
+        action.person_id, closeTime, reason,
         {
           kind,
           activityTypeId: action.activity_type_id || null,
           actorType: 'llm_observer',
         });
-      return { updated: (closed || []).map((e) => e.id) };
+      // E7-cérebro #3 — F ÓRFÃO: close_event sem match.
+      // Antes: closed=[] silenciosamente sumia. Agora marca a msg como
+      // precisa-atenção via processing_error (sem matar a captura — o ev
+      // não é criado fantasma; a próxima vez que a Carolina abrir o caso
+      // incerto, vê a flag e o admin decide).
+      if (t === 'close_event' && (!closed || closed.length === 0)) {
+        await this.db.query(
+          `UPDATE v3.messages SET processing_error = COALESCE(processing_error, $2)
+           WHERE id = $1 AND processing_error IS NULL`,
+          [message.id, 'orphan_close: F sem foreground/background aberto pra fechar']);
+      }
+      return { updated: (closed || []).map((e) => e.id), orphan: closed.length === 0 && t === 'close_event' };
     }
     if (t === 'eod_count' || t === 'partial_count') {
       if (!action.product_id || action.bottles == null) return {};

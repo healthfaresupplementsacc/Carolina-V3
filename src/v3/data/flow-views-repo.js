@@ -125,6 +125,10 @@ class FlowViewsRepo {
     const now = this._now();
     const bounds = nyDayBounds(d);
     const byBatch = new Map();
+    // E7-cérebro #6 — invalid_events detalhados (não esconde mais com count só).
+    // Cada event que falha clampedSeconds vira { event_id, person, activity, started_at,
+    // ended_at, reason } no card de Atenção pra Bruno conseguir corrigir.
+    const invalidEvents = [];
     for (const e of evs) {
       const key = e.product_batch_id || 0;
       if (!byBatch.has(key)) {
@@ -138,10 +142,22 @@ class FlowViewsRepo {
       }
       const b = byBatch.get(key);
       if (e.person_name) b._people.add(e.person_name);
-      // B.7 — clamp à janela NY do dia: event que cruzou meia-noite
-      // só contribui com a parte que cai dentro de [00:00, 24:00] NY.
       const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
-      if (secs == null) { b.invalid_event_count += 1; continue; }
+      if (secs == null) {
+        b.invalid_event_count += 1;
+        invalidEvents.push({
+          event_id: e.id, person: e.person_name || null,
+          activity: e.activity_name || null,
+          started_at: toNyIso(e.started_at), ended_at: toNyIso(e.ended_at),
+          batch_number: e.batch_number || null,
+          reason: e.ended_at == null
+            ? 'event aberto sem clamp possível (data inválida?)'
+            : (new Date(e.ended_at) <= new Date(e.started_at)
+              ? 'duração negativa ou zero (ended_at <= started_at)'
+              : 'event totalmente fora da janela NY do dia'),
+        });
+        continue;
+      }
       b.total_seconds += secs;
       const ph = e.activity_name || '(não classificado)';
       b._phases.set(ph, (b._phases.get(ph) || 0) + secs);
@@ -155,6 +171,7 @@ class FlowViewsRepo {
         people: [...b._people],
         phases: [...b._phases.entries()].map(([activity, s]) => ({ activity, seconds: Math.round(s) })),
       })),
+      invalid_events: invalidEvents,
     };
   }
 

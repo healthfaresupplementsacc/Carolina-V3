@@ -377,7 +377,7 @@ const ENDPOINTS = [
  */
 async function buildSnapshot(dateInput, repos) {
   const date = resolveDate(dateInput);
-  const [timeline, production, pp, support, goals, counts, deadlines, metrics, health, uncertain]
+  const [timeline, production, pp, support, goals, counts, deadlines, metrics, health, uncertain, autoClosed]
     = await Promise.all([
       repos.timeline.eventsByDay(date),
       repos.flowViews.productionByDay(date),
@@ -389,6 +389,12 @@ async function buildSnapshot(dateInput, repos) {
       repos.metrics.metricsByDay(date),
       repos.health.workerHealth(),
       repos.messages.uncertainCases({ since_days: 3, limit: 50 }),
+      // E7-cérebro #4 — events auto-fechados HOJE (NY) viram notificações.
+      // Tolerante a falta do método (fallback {events:[]}) pra não quebrar
+      // testes que mockam repos parcialmente.
+      repos.health.autoClosedEvents
+        ? repos.health.autoClosedEvents(date)
+        : Promise.resolve({ events: [] }),
     ]);
 
   const openEvents = [];
@@ -440,6 +446,10 @@ async function buildSnapshot(dateInput, repos) {
         invalid_events: invalidCount,
         downtime_events: downtimeCount,
         open_events_count: openEvents.length,
+        // E7-cérebro #4 — lista de auto-fechados de hoje pra render no card
+        // de notificações (ev X de pessoa Y fechado às 21:00 sem F manual).
+        auto_closed_events: autoClosed.events || [],
+        auto_closed_count: (autoClosed.events || []).length,
       },
     },
     open_events: openEvents,
