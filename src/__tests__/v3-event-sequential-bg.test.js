@@ -52,19 +52,24 @@ function makeFakeDb(settings = {}) {
       const r = events.find((e) => e.id === params[0]);
       return { rows: r ? [{ started_at: r.started_at }] : [] };
     }
+    if (/^SELECT \* FROM v3\.events WHERE id = \$1/.test(s)) {
+      const r = events.find((e) => e.id === params[0]);
+      return { rows: r ? [{ ...r }] : [] };
+    }
     if (/^SELECT \* FROM v3\.events WHERE person_id/.test(s)) {
       const r = events.filter((e) => e.person_id === params[0] && e.ended_at == null && e.deleted_at == null);
       return { rows: r.map((x) => ({ ...x })) };
     }
-    // safetyAutoClose query — lista TODOS os events abertos com ny_date derivada
+    // safetyAutoClose query — lista events abertos com ny_date derivada,
+    // PULA is_long_running=true (E7-write-5).
     if (/SELECT e\.id, e\.person_id, e\.activity_type_id, e\.started_at, e\.ended_at, e\.cowork_with, e\.confidence, \(e\.started_at AT TIME ZONE 'America\/New_York'\)::date AS ny_date FROM v3\.events e WHERE e\.ended_at IS NULL AND e\.deleted_at IS NULL/.test(s)) {
-      const r = events.filter((e) => e.ended_at == null && e.deleted_at == null);
+      const r = events.filter((e) =>
+        e.ended_at == null && e.deleted_at == null
+        && !e.is_long_running);   // filter da COALESCE(is_long_running, false) = false
       return { rows: r.map((x) => ({
         id: x.id, person_id: x.person_id, activity_type_id: x.activity_type_id,
         started_at: x.started_at, ended_at: x.ended_at,
         cowork_with: x.cowork_with || [], confidence: x.confidence,
-        // ny_date = parte de date do started_at no fuso NY. Approx: pega slice
-        // (em EDT, started_at ISO local NY já é YYYY-MM-DDTHH:MM…-04:00, slice 0,10 OK)
         ny_date: String(x.started_at).slice(0, 10),
       })) };
     }
@@ -205,6 +210,51 @@ describe('E7-cérebro #2 — formulação sequencial (mesmo prod+batch+pessoa)',
     const meta = JSON.parse(closed.metadata);
     expect(meta.reason).toBe('next_phase');
     expect(meta.sequential).toBe(true);
+  });
+});
+
+describe('E7-write-5 — is_long_running (Potassium/Chromium multi-dia)', () => {
+  test('markLongRunning audita e seta flag', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: FORM, product_batch_id: null,
+      started_at: T(15, 46), source_message_ts: 'pot1', actor_type: 'llm_observer',
+    });
+    const r = await s.markLongRunning(ev.id, true, { actorType: 'admin', reason: 'Potassium multi-dia' });
+    expect(r.is_long_running).toBe(true);
+    const audit = db.audit.find((a) => a.action === 'event.long_running_set');
+    expect(audit).toBeDefined();
+    expect(JSON.parse(audit.metadata).reason).toBe('Potassium multi-dia');
+  });
+
+  test('safetyAutoClose PULA events com is_long_running=true', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: LINE,
+      started_at: '2026-05-26T19:30:00-04:00', source_message_ts: 'long1',
+      actor_type: 'llm_observer',
+    });
+    // Marca como long-running
+    await s.markLongRunning(ev.id, true, { actorType: 'admin' });
+    // refTime depois do EOD 21h
+    const closed = await s.safetyAutoClose(new Date('2026-05-27T01:30:00.000Z'));
+    expect(closed).toHaveLength(0);   // skipped — não fechou
+    const evAfter = db.events.find((e) => e.id === ev.id);
+    expect(evAfter.ended_at).toBeFalsy();   // ainda aberto
+  });
+
+  test('safetyAutoClose AINDA fecha events normais (sem is_long_running)', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    await s.upsert({
+      person_id: 1, activity_type_id: LINE,
+      started_at: '2026-05-26T19:30:00-04:00', source_message_ts: 'normal1',
+      actor_type: 'llm_observer',
+    });
+    const closed = await s.safetyAutoClose(new Date('2026-05-27T01:30:00.000Z'));
+    expect(closed).toHaveLength(1);   // fechou normalmente
   });
 });
 

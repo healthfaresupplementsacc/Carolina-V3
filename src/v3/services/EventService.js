@@ -294,6 +294,32 @@ class EventService {
     }));
   }
 
+  /**
+   * Marca/desmarca evento como long-running (multi-dia). safetyAutoClose
+   * pula eventos com is_long_running=true. Audita a mudança.
+   * @param {number} eventId
+   * @param {boolean} flag
+   * @param {object} opts  { actorType, actorPersonId, reason }
+   */
+  async markLongRunning(eventId, flag, opts = {}) {
+    const actorType = this._actor(opts.actorType);
+    return this._withTx(async (c) => {
+      const before = await c.query('SELECT * FROM v3.events WHERE id = $1', [eventId]);
+      if (!before.rows[0]) throw new Error('event id=' + eventId + ' não existe');
+      const r = await c.query(
+        `UPDATE v3.events SET is_long_running = $2, updated_at = NOW()
+         WHERE id = $1 RETURNING *`,
+        [eventId, !!flag]);
+      await this._audit(c, {
+        actorType, actorPersonId: opts.actorPersonId,
+        action: 'event.long_running_set', targetId: eventId,
+        before: before.rows[0], after: r.rows[0],
+        metadata: { is_long_running: !!flag, reason: opts.reason || null },
+      });
+      return r.rows[0];
+    });
+  }
+
   /** E7-cérebro #2 — fecha events BACKGROUND abertos do MESMO (pessoa, batch),
    *  pra formulação ser sequencial (peneira→mix→formulação no mesmo produto).
    *  Não toca foreground nem outros batches. Usa _patch + _audit como _closeActive. */
@@ -469,12 +495,16 @@ class EventService {
       // Era 19 (7PM) e fechava events que continuavam até 21h — Henrique
       // tinha que cobrar "F" manualmente. Default fallback agora 21.
       const endHour = await this._setting(c, 'expedient_end_hour_ny', 21);
+      // is_long_running = true → evento multi-dia (Potassium/Chromium etc).
+      // safetyAutoClose IGNORA esses. Defesa contra coluna ausente: COALESCE.
+      // (Migration 011 adiciona; antes dela todos têm false implícito.)
       const r = await c.query(
         `SELECT e.id, e.person_id, e.activity_type_id, e.started_at, e.ended_at,
                 e.cowork_with, e.confidence,
                 (e.started_at AT TIME ZONE 'America/New_York')::date AS ny_date
          FROM v3.events e
-         WHERE e.ended_at IS NULL AND e.deleted_at IS NULL`);
+         WHERE e.ended_at IS NULL AND e.deleted_at IS NULL
+           AND COALESCE(e.is_long_running, false) = false`);
       const closed = [];
       for (const ev of r.rows) {
         const kind = await this._kindOf(c, ev.activity_type_id);
