@@ -120,15 +120,69 @@ function AuthedApp({ onLogout }) {
     });
   };
 
-  // Side panel — agora flutuante e posicionado perto do clique (E7 #1).
+  // Side panel — flutuante, ACIMA do cursor, toggle, ESC, click-outside,
+  // pending edits (E7-refine2 #1).
   const [panelEvent, setPanelEvent] = React.useState(null);
   const [panelPos, setPanelPos] = React.useState(null);
+  // pendingEdits = { [eventId]: formState }  — drafts não-salvos preservados
+  // entre close+reopen do painel. Local apenas (não persistido em sessionStorage —
+  // some no F5; livra do risco de "esqueci uma alteração velha guardada").
+  const [pendingEdits, setPendingEdits] = React.useState({});
+  const draftRef = React.useRef(null);    // forma atual aberta no painel
+
   const openPanel = (ev, coords) => {
+    // Toggle: clicar no mesmo evento de novo fecha o painel
+    if (ev && panelEvent && panelEvent.id === ev.id) {
+      closePanelInternal();
+      return;
+    }
     setPanelEvent(ev);
     setPanelPos(coords && coords.x != null ? coords : null);
     setState((s) => ({ ...s, selectedEventId: ev?.id || null }));
   };
-  const closePanel = () => { setPanelEvent(null); setPanelPos(null); setState((s) => ({ ...s, selectedEventId: null })); };
+
+  // Fecha — se há draft em edição diferente do original, salva como pending.
+  function closePanelInternal() {
+    const cur = panelEvent;
+    const draft = draftRef.current;
+    if (cur && draft && draft._dirty) {
+      setPendingEdits((p) => ({ ...p, [cur.id]: { ...draft, _dirty: false } }));
+    }
+    draftRef.current = null;
+    setPanelEvent(null);
+    setPanelPos(null);
+    setState((s) => ({ ...s, selectedEventId: null }));
+  }
+  const closePanel = closePanelInternal;
+
+  // Quando salvar, limpa o pending desse evento.
+  const clearPending = (eventId) => {
+    setPendingEdits((p) => {
+      if (!(eventId in p)) return p;
+      const c = { ...p }; delete c[eventId]; return c;
+    });
+  };
+
+  // ESC + click-outside fecham o painel.
+  React.useEffect(() => {
+    if (!panelEvent) return;
+    const onKey = (e) => { if (e.key === 'Escape') closePanelInternal(); };
+    const onMouseDown = (e) => {
+      // ignora clicks dentro do painel ou em blocos da timeline (toggle no openPanel)
+      if (e.target.closest('.float-panel')) return;
+      if (e.target.closest('[data-block-id]')) return;
+      if (e.target.closest('.tl-bg-tab')) return;
+      if (e.target.closest('.tl-correio-tab')) return;
+      if (e.target.closest('.exp-row-event')) return;
+      closePanelInternal();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onMouseDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [panelEvent?.id]);
 
   // Toast (one-shot)
   const [toast, setToast] = React.useState(null);
@@ -164,17 +218,25 @@ function AuthedApp({ onLogout }) {
         events: exists ? s.events.map((e) => e.id === next.id ? next : e) : [...s.events, next],
       };
     });
+    clearPending(next.id);
+    draftRef.current = null;
     setPanelEvent(null);
+    setPanelPos(null);
+    setState((s) => ({ ...s, selectedEventId: null }));
     ack(V4_ALLOW_WRITES
       ? `Evento ev${next.id} salvo`
-      : `preview ev${next.id} (não persistido — modo leitura)`);
+      : `preview ev${next.id} (não persistido — liga no E5)`);
   };
   const onDelete = (ev) => {
     setState((s) => ({ ...s, events: s.events.filter((e) => e.id !== ev.id) }));
+    clearPending(ev.id);
+    draftRef.current = null;
     setPanelEvent(null);
+    setPanelPos(null);
+    setState((s) => ({ ...s, selectedEventId: null }));
     ack(V4_ALLOW_WRITES
       ? `Evento ev${ev.id} apagado`
-      : `preview ev${ev.id} oculto (não persistido — modo leitura)`);
+      : `preview ev${ev.id} oculto (não persistido — liga no E5)`);
   };
 
   const toggleTheme = () => setTweak("theme", tweaks.theme === "dark" ? "light" : "dark");
@@ -185,6 +247,7 @@ function AuthedApp({ onLogout }) {
     state, setState, openPanel, ack,
     loading: snapshot.loading, error: snapshot.error,
     hfdata: snapshot.hfdata, refresh: snapshot.refresh,
+    raw: snapshot.raw,        // E7-refine2: usado pra acessar deadlines raw (correio)
     date,
   };
   switch (route) {
@@ -227,6 +290,8 @@ function AuthedApp({ onLogout }) {
           operators={snapshot.hfdata.operators || []}
           now={window.HFH.liveNowMin()}
           initialPos={panelPos}
+          pendingForm={pendingEdits[panelEvent.id] || null}
+          onDraftChange={(draft) => { draftRef.current = draft; }}
         />
       )}
 

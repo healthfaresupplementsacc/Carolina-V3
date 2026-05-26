@@ -8,7 +8,11 @@ export const HFData = (() => {
   const DAY_START = 8 * 60;       // 8:00 AM
   const DAY_END   = 18 * 60;      // 6:00 PM
   const NOW_MIN   = 14 * 60 + 34; // 2:34 PM fictional now
-  const DEADLINE_MIN = 16 * 60;   // 4:00 PM mailing/correio cutoff
+  // E7-refine2: mock ANTES era 16*60 (4PM) e contaminava o flash inicial pré-adapter.
+  // O deadline REAL (v3.deadlines.time_of_day) é 13:00 (1PM). Adapter sobrescreve
+  // window.HFData no 1º poll; aqui ficamos com null pra não exibir 4PM em nenhum
+  // frame intermediário.
+  const DEADLINE_MIN = null;      // populado pelo adapter (1PM real)
 
   const operators = [
     { id: "vitor",    short: "VI", name: "Vitor",    role: "Linha de Produção",      en_role: "Production Line", c1: "#1e3f8c", c2: "#3fc874" },

@@ -20,39 +20,55 @@ import { OperatorAvatar, FlowPill, ProductChip } from './Primitives.jsx';
 */
 
 const PANEL_W = 440;
-const PANEL_MIN_H = 200;
-const DEFAULT_W_PAD = 24;       // gap mínimo das bordas
+const PANEL_ESTIMATED_H = 540;   // altura aproximada — clampa pra caber acima
+const DEFAULT_W_PAD = 24;
 
 function clampPos(x, y) {
-  const W = PANEL_W;
-  const maxX = Math.max(0, (window.innerWidth || 1200) - W - 12);
-  const maxY = Math.max(0, (window.innerHeight || 800) - PANEL_MIN_H - 12);
+  const vh = window.innerHeight || 800;
+  const maxX = Math.max(0, (window.innerWidth || 1200) - PANEL_W - 12);
+  const maxY = Math.max(0, vh - 60);   // pelo menos o head visível
   return {
     x: Math.min(Math.max(12, x), maxX),
     y: Math.min(Math.max(12, y), maxY),
   };
 }
 
-function SidePanel({ event, onClose, onUpdate, onDelete, operators, now, initialPos }) {
-  const [mode, setMode] = React.useState(event?._new ? "edit" : "view");
-  React.useEffect(() => { setMode(event?._new ? "edit" : "view"); }, [event?.id]);
+/* E7-refine2 #1 — abre ACIMA do cursor (bottom do painel = cursor.y - gap).
+   Se não cabe acima (cursor muito perto do topo), encosta no topo da viewport
+   (12px do topo). Centro horizontal aproximado: cursor.x à esquerda do painel
+   ou descola um pouco pra direita pra não sumir atrás do mouse. */
+function positionAboveCursor(initialPos) {
+  const vh = window.innerHeight || 800;
+  const vw = window.innerWidth || 1200;
+  if (!initialPos || initialPos.x == null) {
+    return clampPos(vw - PANEL_W - DEFAULT_W_PAD, 80);
+  }
+  // y: bottom do painel imediatamente acima do clique (gap 12px)
+  const desiredH = Math.min(PANEL_ESTIMATED_H, vh - 24);
+  let y = initialPos.y - desiredH - 12;
+  if (y < 12) y = 12;                       // não cabe acima → encosta no topo
+  // x: encosta ligeiramente à direita do cursor; se passar do limite, à esquerda
+  let x = initialPos.x + 16;
+  if (x + PANEL_W > vw - 12) x = initialPos.x - PANEL_W - 16;
+  return clampPos(x, y);
+}
 
-  // ── posição inicial: perto do clique, clampada à viewport ──
-  const [pos, setPos] = React.useState(() => {
-    const ix = initialPos && initialPos.x != null ? initialPos.x + 12 : (window.innerWidth - PANEL_W - DEFAULT_W_PAD);
-    const iy = initialPos && initialPos.y != null ? initialPos.y - 20 : 100;
-    return clampPos(ix, iy);
-  });
-  // Re-clampa em resize
+function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
+                     initialPos, pendingForm, onDraftChange }) {
+  // Quando há pendente, abrimos JÁ em edit pra Bruno ver os campos.
+  const [mode, setMode] = React.useState(() => (event?._new || pendingForm) ? "edit" : "view");
+  React.useEffect(() => { setMode((event?._new || pendingForm) ? "edit" : "view"); }, [event?.id]);
+
+  // ── posição: ACIMA do cursor, clampada à viewport (E7-refine2 #1) ──
+  const [pos, setPos] = React.useState(() => positionAboveCursor(initialPos));
   React.useEffect(() => {
     const onResize = () => setPos((p) => clampPos(p.x, p.y));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  // Quando muda de evento (clica em outro bloco), reposiciona perto do novo clique.
   React.useEffect(() => {
     if (!initialPos) return;
-    setPos(clampPos(initialPos.x + 12, initialPos.y - 20));
+    setPos(positionAboveCursor(initialPos));
   }, [event?.id, initialPos?.x, initialPos?.y]);
 
   // ── drag pela barra de título ──
@@ -89,10 +105,14 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now, initial
   const op = operators.find(o => o.id === event.op);
   const cowork = (event.cowork || []).map(id => operators.find(o => o.id === id)).filter(Boolean);
 
-  // EDIT MODE form state
+  // EDIT MODE form state — começa do pendingForm se houver (draft preservado)
   const [form, setForm] = React.useState(null);
   React.useEffect(() => {
     if (mode !== "edit") return;
+    if (pendingForm) {
+      setForm({ ...pendingForm });
+      return;
+    }
     setForm({
       op: event.op,
       activity: event.activity,
@@ -106,6 +126,25 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now, initial
       confidence: event.confidence || "high",
     });
   }, [mode, event.id]);
+
+  // Bubbling do draft pro App.jsx (pra fechar mid-edit virar pending automático).
+  React.useEffect(() => {
+    if (!onDraftChange) return;
+    if (mode !== 'edit' || !form) { onDraftChange(null); return; }
+    const dirty = !!(
+      form.op !== event.op ||
+      form.activity !== event.activity ||
+      (form.product || null) !== (event.product || null) ||
+      form.started_min !== event.started_min ||
+      ((form.ended_min === '' || form.ended_min == null ? null : form.ended_min)) !== event.ended_min ||
+      JSON.stringify(form.cowork || []) !== JSON.stringify(event.cowork || []) ||
+      (form.qty || null) !== (event.qty || null) ||
+      (form.unit || null) !== (event.unit || null) ||
+      (form.description || '') !== (event.description || '') ||
+      form.confidence !== (event.confidence || 'high')
+    );
+    onDraftChange({ ...form, _dirty: dirty });
+  }, [form, mode, event, onDraftChange]);
 
   const minToInput = (min) => {
     if (min === "" || min == null) return "";
@@ -167,6 +206,11 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now, initial
             {flow && <FlowPill flow={flow}>{act?.name}</FlowPill>}
             {isLive && <span className="pill live"><span className="dot"/>ao vivo · {fmtCron(dur)}</span>}
             {event.overrun && <span className="pill warn">⏰ overrun</span>}
+            {pendingForm && (
+              <span className="pill warn" title="Rascunho não salvo — fecha sem salvar e mantém aqui pra terminar depois">
+                <span className="dot"/>pending
+              </span>
+            )}
           </div>
         </div>
         {/* TODO controles futuros — área reservada no canto direito.

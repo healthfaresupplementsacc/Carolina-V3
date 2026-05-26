@@ -1,5 +1,9 @@
 import React from 'react';
 import { Icon } from './Icons.jsx';
+// E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
+// wordmark). Substitui o SVG inline `BrandH` que era um esboço.
+// Vite resolve a URL no build (com base /dashboard-v4/...).
+import healthFareLogo from '../../assets/healthfare-logo.png';
 
 /* Shell: sidebar nav + top bar + page wrapper.
    Routing via simple hash. Theme from <html data-theme>.
@@ -36,15 +40,15 @@ function findPage(id) {
 const Sidebar = ({ route, onRoute, collapsed }) => {
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <div className="brand-mark">
-          <BrandH/>
-        </div>
-        {!collapsed && (
-          <div>
-            <div className="brand-name">HealthFare</div>
+      <div className="brand brand-with-logo">
+        {collapsed ? (
+          // Sidebar colapsada: só o H+leaf cortado da extremidade esquerda
+          <div className="brand-mark"><img src={healthFareLogo} alt="HealthFare" className="brand-logo-mini"/></div>
+        ) : (
+          <>
+            <img src={healthFareLogo} alt="HealthFare" className="brand-logo-full"/>
             <div className="brand-sub">Production · V4</div>
-          </div>
+          </>
         )}
       </div>
       <nav className="nav">
@@ -81,13 +85,7 @@ const Sidebar = ({ route, onRoute, collapsed }) => {
   );
 };
 
-// Hand-drawn "H + leaf" mark mimicking the logo, scaled small
-const BrandH = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M5 4v16M5 12h10M15 4v16" stroke="#fff" strokeWidth="2.6" strokeLinecap="round"/>
-    <path d="M19 6c-1 5-4 8-9 10 1-4 3-7 5-8a6 6 0 0 1 4-2z" fill="#3fc874"/>
-  </svg>
-);
+// (E7-refine2) BrandH SVG removido — agora usa healthfare-logo.png direto.
 
 const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
                   workerNode, readOnly, onLogout }) => {

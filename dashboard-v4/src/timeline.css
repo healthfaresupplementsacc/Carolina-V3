@@ -103,20 +103,10 @@
   animation: livepulse 1.8s ease-in-out infinite;
 }
 
-.tl-deadline {
-  position: absolute; top: 0; bottom: 0; width: 0;
-  border-left: 2px dashed rgba(217,119,6,0.6);
-  z-index: 4; pointer-events: none;
-}
-.tl-deadline::after {
-  content: "📮 Correio · 4:00 PM";
-  position: absolute; top: 4px; left: 6px;
-  font-size: 10.5px; font-weight: 700; color: #b45309;
-  background: #fff5e6; border: 1px solid rgba(217,119,6,0.32);
-  padding: 2px 7px; border-radius: 6px;
-  white-space: nowrap;
-}
-:root[data-theme="dark"] .tl-deadline::after { background: rgba(217,119,6,0.18); color: #fbbf24; }
+/* E7-refine2: .tl-deadline removido. O label hardcoded "Correio · 4:00 PM"
+   estava nesse ::after — virou o bug que perseguia a Ana. Correio agora é uma
+   tab anexada na timeline (.tl-correio-tab) com horário derivado do
+   pp.deadline_min real (13:00 NY) — ver extras.css. */
 
 /* ===== Event block ===== */
 .tl-block {

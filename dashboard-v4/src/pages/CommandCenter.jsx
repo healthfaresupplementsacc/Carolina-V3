@@ -1,15 +1,9 @@
-/* Command Center — a tela "Hoje". E7: redesign do template adaptado pra HF.
-   - Operadores reais (admins filtrados via adapter)
-   - SidePanel agora é flutuante (abre perto do clique, sem backdrop)
-   - Background events viram mini-tabs na timeline
-   - "Correio · 1PM" fica DENTRO do P&P (checkbox + horário)
-   - Painel "Notificações" no lugar do antigo CountdownCard, derivado de:
-       alerts do adapter + gaps grandes por pessoa (E7 #6)
-   - Engrenagem em Produção, Metas, Notificações abre popover de
-     edição em MODO PREVIEW — V4_ALLOW_WRITES=0 não persiste
-   - Click no nome do operador na timeline expande detalhes inline
-
-   Tudo leitura (com preview local pra edits). Liga writes no E5.
+/* Command Center — a tela "Hoje". E7-refine2:
+   - Correio agora é uma NOTIFICAÇÃO attached na timeline a 1PM (deadline real),
+     NÃO mais bloco dentro do P&P. Clicável/editável (preview).
+   - Notif card: toggle, pending edits preservados, max 5 + scroll.
+   - Person expand: gaps clicáveis pra preencher (preview).
+   - Painel evento: ACIMA do cursor, ESC/click-outside/toggle, pending edits.
 */
 import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
@@ -18,11 +12,10 @@ import { Timeline } from '../components/Timeline.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 
-const GAP_NOTIFY_THRESHOLD_MIN = 25;  // gaps maiores que isso viram notificação
-const CORREIO_KEY = 'hf-correio-active';
-const CORREIO_TIME_KEY = 'hf-correio-time';
+const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só editáveis via expand
+const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
 
-function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date }) {
+function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw }) {
   const now = window.HFH.useNow(true);
   const HFD = hfdata || window.HFData;
   const { operators = [], goals = [], alerts = [], pp = {}, _gaps = {} } = HFD;
@@ -36,35 +29,33 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const toggleExpand = (id) => setExpandedOpIds((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
-  // Engrenagens — qual popover está aberto
   const [gearOpen, setGearOpen] = React.useState(null);
-  // Correio (E7 #3) — checkbox + horário, persistido em sessionStorage
-  const [correioActive, setCorreioActive] = React.useState(() => {
-    try { return sessionStorage.getItem(CORREIO_KEY) === '1'; } catch { return false; }
-  });
-  const [correioTime, setCorreioTime] = React.useState(() => {
-    try { return sessionStorage.getItem(CORREIO_TIME_KEY) || '13:00'; } catch { return '13:00'; }
-  });
-  React.useEffect(() => { try { sessionStorage.setItem(CORREIO_KEY, correioActive ? '1' : '0'); } catch {} }, [correioActive]);
-  React.useEffect(() => { try { sessionStorage.setItem(CORREIO_TIME_KEY, correioTime); } catch {} }, [correioTime]);
+
+  // E7-refine2 #4: lift notif state pra cá (compartilha com Correio na timeline)
+  const [openNotifId, setOpenNotifId] = React.useState(null);
+  const [notifDrafts, setNotifDrafts] = React.useState({});
+  const onNotifClick = React.useCallback((id) => {
+    setOpenNotifId((prev) => (prev === id ? null : id));
+  }, []);
+  const onNotifDraftChange = React.useCallback((id, d) => {
+    setNotifDrafts((p) => ({ ...p, [id]: d }));
+  }, []);
+  const onNotifDraftClear = React.useCallback((id) => {
+    setNotifDrafts((p) => { if (!(id in p)) return p; const c = { ...p }; delete c[id]; return c; });
+  }, []);
 
   // ── Derivações reais ─────────────────────────────────────
-  // 1) Produção viva: soma qty de events de production com unit "bottle"
   const liveProd = state.events
     .filter((ev) => HFD.activities && HFD.activities[ev.activity] && HFD.activities[ev.activity].flow === 'production' && ev.qty)
     .reduce((s, ev) => s + (Number(ev.qty) || 0), 0);
-
-  // 2) Top goals
   const topLotes = goals.slice().sort((a, b) => (b.done || 0) - (a.done || 0)).slice(0, 3);
   const goalsActive = goals.filter((g) => !g.completed).length;
   const goalsHit = goals.filter((g) => g.completed).length;
-
-  // 3) Cowork chains ativos
   const coworkActive = state.events.filter((e) => e.cowork && e.cowork.length > 0 && e.ended_min == null).length;
 
-  // 4) Gap notifications — por pessoa, calcula gaps entre eventos consecutivos.
-  //    Threshold: GAP_NOTIFY_THRESHOLD_MIN minutos. (Distinto do limite de
-  //    "unreported" do backend — esse é só pra notificar visualmente.)
+  // Gap notifs — TODOS os gaps tracked (>=5min) entram em allNotifs pra Bruno
+  // poder clicar/editar via PersonExpansion. O card visivelmente mostra só os
+  // >=25min (filtrado client-side no NotificationsCard via `visibleThreshold`).
   const gapNotifs = React.useMemo(() => {
     const out = [];
     const byOp = {};
@@ -74,11 +65,12 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
       for (let i = 0; i < evs.length - 1; i++) {
         const evEnd = evs[i].ended_min == null ? now : evs[i].ended_min;
         const gap = evs[i + 1].started_min - evEnd;
-        if (gap >= GAP_NOTIFY_THRESHOLD_MIN) {
+        if (gap >= GAP_TRACKED_MIN) {
           out.push({
             id: `gap-${op.id}-${i}`,
             _type: 'gap',
-            severity: gap >= 60 ? 'warn' : 'info',
+            severity: gap >= 60 ? 'warn' : (gap >= GAP_VISIBLE_MIN ? 'info' : 'info'),
+            _dur_min: gap,
             title: `Gap em ${op.name}`,
             en: `Gap for ${op.name}`,
             detail: `${fmtClock(evEnd)} → ${fmtClock(evs[i + 1].started_min)} (${fmtDur(gap)})`,
@@ -90,7 +82,52 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     return out;
   }, [state.events, operators, now, fmtClock, fmtDur]);
 
-  const allNotifs = [...alerts, ...gapNotifs];
+  // E7-refine2 #2: Correio = notif sintético attached à timeline no horário do deadline real.
+  // O id é 'correio' fixo pra preservar pending entre re-renders. Pull do raw.deadlines
+  // pra ter o id do row (pra futuramente PATCH /deadlines/:id no E5).
+  const correioNotif = React.useMemo(() => {
+    const dlList = (raw && raw.deadlines && raw.deadlines.deadlines) || [];
+    const primary = dlList
+      .filter((d) => d.active !== false && d.time_of_day)
+      .sort((a, b) => String(a.time_of_day).localeCompare(String(b.time_of_day)))[0];
+    if (!primary) return null;
+    const [h, m] = String(primary.time_of_day).split(':').map(Number);
+    const minutes = h * 60 + m;
+    return {
+      id: 'correio',
+      _type: 'correio',
+      severity: 'info',
+      title: primary.label || 'Corte do correio',
+      en: 'Mailing cut-off',
+      detail: `Corte às ${fmtClock(minutes)} · ${minutes - Math.floor(now)}min até passar`,
+      _deadline_id: primary.id,
+      _deadline_hhmm: String(primary.time_of_day).slice(0, 5),
+      _minutes: minutes,
+      _label: primary.label || 'Corte do correio',
+    };
+  }, [raw, now, fmtClock]);
+
+  const allNotifs = [...alerts, ...(correioNotif ? [correioNotif] : []), ...gapNotifs];
+
+  // Gap click → abre a notif do gap (cria sintética se não tracked)
+  const onGapClick = React.useCallback((opId, gapItem, coords) => {
+    // tenta achar notif existente (same op + same start/end)
+    const existing = allNotifs.find((n) =>
+      n._type === 'gap' && n._op === opId && n._start === gapItem.start && n._end === gapItem.end);
+    if (existing) {
+      setOpenNotifId(existing.id);
+    } else {
+      // sintético — só pendurar o id e adicionar nos drafts pra NotifDetail
+      // funcionar mesmo sem estar em allNotifs. Mas o NotifDetail busca em
+      // allNotifs, então: pra simplicidade, ignora gaps abaixo do tracked
+      // threshold (5min) — abaixo disso é "ruído".
+      ack(`gap muito curto (${fmtDur(gapItem.dur)}) — sem notif pra editar`);
+    }
+  }, [allNotifs, ack, fmtDur]);
+
+  const onCorreioClick = React.useCallback(() => {
+    if (correioNotif) setOpenNotifId((p) => (p === 'correio' ? null : 'correio'));
+  }, [correioNotif]);
   const warnCount = allNotifs.filter((a) => a.severity === 'warn').length;
   const badCount = allNotifs.filter((a) => a.severity === 'bad').length;
   const infoCount = allNotifs.filter((a) => a.severity === 'info').length;
@@ -205,18 +242,20 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                </EditPopover>
              </>}/>
 
-        {/* P&P — com CORREIO embutido (E7 #3) */}
+        {/* P&P — Correio movido pra timeline (E7-refine2 #2). Só ordens+seg/ordem aqui. */}
         <KPI label="P&P do dia" en="Pick & Pack"
              value={pp.total_minutes ? fmtDur(pp.total_minutes) : '—'}
              headRight={<Icon name="pp" size={14}/>}
-             foot={<>
+             foot={
                <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
                  <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>ordens</div><b className="mono">{pp.orders || 0}</b></div>
                  <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
+                 {correioNotif && (
+                   <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>corte</div>
+                        <b className="mono" style={{ color: 'var(--hf-leaf-600)' }}>{fmtClock(correioNotif._minutes)}</b></div>
+                 )}
                </div>
-               <CorreioBlock active={correioActive} onToggleActive={setCorreioActive}
-                             time={correioTime} onTime={setCorreioTime}/>
-             </>}/>
+             }/>
 
         {/* ATENÇÃO — só contador (notif card está abaixo) */}
         <KPI label="Atenção" en="Attention"
@@ -228,9 +267,15 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              </div>}/>
       </div>
 
-      {/* ── Notificações ──────────────────────────────────── */}
+      {/* ── Notificações (controlado pelo CommandCenter) ──────────────────── */}
       <NotificationsCard
         notifs={allNotifs}
+        visibleThreshold={GAP_VISIBLE_MIN}
+        openNotifId={openNotifId}
+        onNotifClick={onNotifClick}
+        pendingDrafts={notifDrafts}
+        onDraftChange={onNotifDraftChange}
+        onDraftClear={onNotifDraftClear}
         gearOpen={gearOpen === 'notifs'}
         onGear={() => setGearOpen(gearOpen === 'notifs' ? null : 'notifs')}
         onCloseGear={() => setGearOpen(null)}
@@ -300,6 +345,9 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             expandedOpIds={expandedOpIds}
             onToggleExpand={toggleExpand}
             gaps={_gaps}
+            correio={correioNotif ? { minutes: correioNotif._minutes, label: correioNotif._label } : null}
+            onCorreioClick={onCorreioClick}
+            onGapClick={onGapClick}
           />
         )}
       </div>
@@ -318,7 +366,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         <Row label="Cowork ativos"       value={`${coworkActive}`}/>
         <Row label="Background ativos"   value={`${state.events.filter((e) => e._is_background && e.ended_min == null).length}`}/>
         <Row label="Tempo médio/ordem"   value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
-        <Row label="Correio configurado" value={correioActive ? `${correioTime} (Carolina avisa)` : '— desligado'}/>
+        <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : '— sem deadline'}/>
       </div>
     </div>
   );
@@ -400,31 +448,7 @@ function EditList({ items, emptyMsg, onAdd, onEdit, onDelete }) {
   );
 }
 
-function CorreioBlock({ active, onToggleActive, time, onTime }) {
-  return (
-    <div style={{
-      marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)',
-      display: 'flex', gap: 8, alignItems: 'center',
-    }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-        <input type="checkbox" checked={active} onChange={(e) => onToggleActive(e.target.checked)}/>
-        Correio
-      </label>
-      <input type="time" value={time} onChange={(e) => onTime(e.target.value)}
-             disabled={!active}
-             style={{
-               border: '1px solid var(--border)', borderRadius: 6, padding: '3px 6px',
-               fontFamily: 'monospace', fontSize: 12, background: 'var(--surface)',
-               color: active ? 'var(--text)' : 'var(--text-3)',
-             }}/>
-      <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic', flex: 1 }}>
-        {active
-          ? <>Carolina avisa Simone <span title="envio real liga no Bloco 5">📝</span></>
-          : '— desligado'}
-      </span>
-    </div>
-  );
-}
+// (E7-refine2) CorreioBlock removido — agora é notif attached na timeline.
 
 window.CommandCenter = CommandCenter;
 

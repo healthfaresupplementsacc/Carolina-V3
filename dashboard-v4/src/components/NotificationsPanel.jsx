@@ -46,16 +46,32 @@ function worstSeverity(items) {
 }
 
 export function NotificationsCard({
-  notifs, gearOpen, onGear, onCloseGear, ack, operators = [], events = [],
+  notifs,
+  visibleThreshold,                                       // gaps < isso ficam ocultos no card mas existem em allNotifs
+  openNotifId, onNotifClick,                              // controlled by parent (toggle/lift)
+  pendingDrafts, onDraftChange, onDraftClear,             // controlled by parent (pending edits)
+  gearOpen, onGear, onCloseGear, ack, operators = [], events = [],
   GearButton, EditPopover, EditList, V4_ALLOW_WRITES,
 }) {
-  const [expandedKey, setExpandedKey] = React.useState(null);   // chave do grupo aberto (#5)
-  const [openNotif, setOpenNotif] = React.useState(null);       // notif individual em detalhe (#4)
+  const [expandedKey, setExpandedKey] = React.useState(null);   // grupo aberto (#5)
 
-  // Agrupa por (pessoa + tipo)
+  // Filtragem de visibilidade: gaps < visibleThreshold são ocultos do card,
+  // mas continuam clicáveis via PersonExpansion (E7-refine2 #3).
+  const visibleNotifs = React.useMemo(() => {
+    if (visibleThreshold == null) return notifs;
+    return notifs.filter((n) => !(n._type === 'gap' && (n._dur_min || 0) < visibleThreshold));
+  }, [notifs, visibleThreshold]);
+
+  // Achata o notif a partir do id aberto (lookup em TODOS notifs, não só visíveis)
+  const openNotif = React.useMemo(() => {
+    if (!openNotifId) return null;
+    return notifs.find((n) => n.id === openNotifId) || null;
+  }, [openNotifId, notifs]);
+
+  // Agrupa por (pessoa + tipo) — só visíveis
   const groups = React.useMemo(() => {
     const m = new Map();
-    for (const n of notifs) {
+    for (const n of visibleNotifs) {
       const type = typeOf(n);
       const personKey = n._op || 'global';
       const key = `${personKey}::${type}`;
@@ -66,9 +82,9 @@ export function NotificationsCard({
       const order = { bad: 0, warn: 1, info: 2 };
       return order[worstSeverity(a.items)] - order[worstSeverity(b.items)];
     });
-  }, [notifs]);
+  }, [visibleNotifs]);
 
-  const totalNotifs = notifs.length;
+  const totalNotifs = visibleNotifs.length;
 
   return (
     <div className="card notif-card" style={{ marginTop: 14, padding: 14, position: 'relative' }}>
@@ -113,7 +129,9 @@ export function NotificationsCard({
             operators={operators}
             expanded={expandedKey === group.key}
             onToggleExpand={() => setExpandedKey(expandedKey === group.key ? null : group.key)}
-            onOpenSingle={setOpenNotif}
+            onOpenSingle={(n) => onNotifClick && onNotifClick(n.id)}
+            openNotifId={openNotifId}
+            pendingDrafts={pendingDrafts}
           />
         ))}
       </div>
@@ -124,7 +142,10 @@ export function NotificationsCard({
           notif={openNotif}
           operators={operators}
           events={events}
-          onClose={() => setOpenNotif(null)}
+          pending={(pendingDrafts && pendingDrafts[openNotif.id]) || null}
+          onDraftChange={(d) => onDraftChange && onDraftChange(openNotif.id, d)}
+          onClose={() => onNotifClick && onNotifClick(openNotif.id)}
+          onSaved={() => { if (onDraftClear) onDraftClear(openNotif.id); if (onNotifClick) onNotifClick(openNotif.id); }}
           ack={ack}
           V4_ALLOW_WRITES={V4_ALLOW_WRITES}
         />
@@ -134,15 +155,18 @@ export function NotificationsCard({
 }
 
 /* Linha de grupo: se tem >1 item, mostra como header com badge expansível.
-   Se tem só 1, mostra como notif normal clicável. */
-function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle }) {
+   Se tem só 1, mostra como notif normal clicável. Toggle: click no mesmo
+   item de novo fecha (E7-refine2 #4). Badge "pending" se há draft. */
+function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle, openNotifId, pendingDrafts }) {
   const isMulti = group.items.length > 1;
   const sev = worstSeverity(group.items);
 
   if (!isMulti) {
     const n = group.items[0];
+    const isOpen = openNotifId === n.id;
+    const hasPending = pendingDrafts && pendingDrafts[n.id];
     return (
-      <button className={`alert-row ${sev} notif-clickable`}
+      <button className={`alert-row ${sev} notif-clickable ${isOpen ? 'notif-open' : ''}`}
               onClick={() => onOpenSingle(n)}
               style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}>
         <div className="ico"><Icon name="bell" size={14}/></div>
@@ -150,15 +174,18 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle }) 
           <div className="title">
             {n.title}
             {n.en && <span style={{ color: 'var(--text-3)', fontWeight: 500, fontSize: 11.5 }}> · {n.en}</span>}
+            {hasPending && <span className="pill warn" style={{ marginLeft: 6, fontSize: 10 }}><span className="dot"/>pending</span>}
           </div>
           <div className="sub">{n.detail}</div>
         </div>
-        <Icon name="right" size={12}/>
+        <span style={{
+          display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+          transition: 'transform 0.16s ease', color: 'var(--text-3)', fontSize: 12,
+        }}>▶</span>
       </button>
     );
   }
 
-  // Grupo com badge
   const title = groupTitle(group, operators);
   return (
     <>
@@ -180,19 +207,29 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle }) 
       </button>
       {expanded && (
         <div className="notif-group-items">
-          {group.items.map((n) => (
-            <button key={n.id}
-                    className={`alert-row ${n.severity || 'info'} notif-clickable notif-child`}
-                    onClick={() => onOpenSingle(n)}
-                    style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}>
-              <div className="ico"><Icon name="bell" size={11}/></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="title" style={{ fontSize: 12 }}>{n.title}</div>
-                <div className="sub">{n.detail}</div>
-              </div>
-              <Icon name="right" size={11}/>
-            </button>
-          ))}
+          {group.items.map((n) => {
+            const isOpen = openNotifId === n.id;
+            const hasPending = pendingDrafts && pendingDrafts[n.id];
+            return (
+              <button key={n.id}
+                      className={`alert-row ${n.severity || 'info'} notif-clickable notif-child ${isOpen ? 'notif-open' : ''}`}
+                      onClick={() => onOpenSingle(n)}
+                      style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}>
+                <div className="ico"><Icon name="bell" size={11}/></div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="title" style={{ fontSize: 12 }}>
+                    {n.title}
+                    {hasPending && <span className="pill warn" style={{ marginLeft: 6, fontSize: 9 }}><span className="dot"/>pending</span>}
+                  </div>
+                  <div className="sub">{n.detail}</div>
+                </div>
+                <span style={{
+                  display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.16s ease', color: 'var(--text-3)', fontSize: 10,
+                }}>▶</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </>
@@ -200,8 +237,10 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle }) 
 }
 
 /* Detalhe inline de uma notificação (single). Pra gap, tem form de
-   justificar/ajustar adjacentes — preview-only enquanto V4_ALLOW_WRITES=0. */
-function NotifDetail({ notif, operators, events, onClose, ack, V4_ALLOW_WRITES }) {
+   justificar/ajustar adjacentes — preview-only enquanto V4_ALLOW_WRITES=0.
+   E7-refine2 #4: pending — recebe `pending` (draft anterior) e chama
+   onDraftChange a cada digitação. Se fechar mid-edit, parent guarda. */
+function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose, onSaved, ack, V4_ALLOW_WRITES }) {
   const type = typeOf(notif);
   const op = notif._op ? operators.find((o) => o.id === notif._op) : null;
   const { fmtClock, fmtDur } = window.HFH;
@@ -216,8 +255,33 @@ function NotifDetail({ notif, operators, events, onClose, ack, V4_ALLOW_WRITES }
     return { before, after };
   }, [type, notif._op, notif._start, notif._end, events]);
 
-  const [reason, setReason] = React.useState('');
-  const [reasonCat, setReasonCat] = React.useState('outro');
+  // Form state inicializado do pending (se existir) ou defaults.
+  // Para 'correio': time + label. Para 'gap': reason + reasonCat. Para outros:
+  // só um campo "nota" livre.
+  const [form, setForm] = React.useState(() => ({
+    reason: '',
+    reasonCat: 'outro',
+    correioTime: notif._deadline_hhmm || '13:00',
+    correioLabel: notif._label || 'Corte do correio',
+    note: '',
+    ...(pending || {}),
+  }));
+  // Quando muda de notif (mudou o id), reinicializa
+  React.useEffect(() => {
+    setForm({
+      reason: '',
+      reasonCat: 'outro',
+      correioTime: notif._deadline_hhmm || '13:00',
+      correioLabel: notif._label || 'Corte do correio',
+      note: '',
+      ...(pending || {}),
+    });
+  }, [notif.id]);   // eslint-disable-line
+  // Bubble do draft pro parent (cada change)
+  React.useEffect(() => {
+    if (!onDraftChange) return;
+    onDraftChange(form);
+  }, [form]);   // eslint-disable-line
 
   const reasonOptions = [
     { value: 'almoco',    label: 'Almoço (não registrou)' },
@@ -229,10 +293,13 @@ function NotifDetail({ notif, operators, events, onClose, ack, V4_ALLOW_WRITES }
 
   const onPreview = () => {
     if (type === 'gap') {
-      ack(`preview · justificar gap ${op?.name || '?'} (${reasonCat}) — POST /events/${linkedEvents?.before?.id}/justify liga no E5`);
+      ack(`preview · justificar gap ${op?.name || '?'} (${form.reasonCat}) — POST /events/${linkedEvents?.before?.id}/justify liga no E5`);
+    } else if (type === 'correio') {
+      ack(`preview · correio → ${form.correioLabel} ${form.correioTime} — PATCH /deadlines/${notif._deadline_id || '?'} liga no E5`);
     } else {
       ack(`preview · resolver ${notif.title} — liga no E5`);
     }
+    if (onSaved) onSaved();
   };
 
   return (
@@ -281,7 +348,7 @@ function NotifDetail({ notif, operators, events, onClose, ack, V4_ALLOW_WRITES }
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
               Motivo do gap
             </label>
-            <select value={reasonCat} onChange={(e) => setReasonCat(e.target.value)} className="input">
+            <select value={form.reasonCat} onChange={(e) => setForm((f) => ({ ...f, reasonCat: e.target.value }))} className="input">
               {reasonOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
@@ -289,27 +356,60 @@ function NotifDetail({ notif, operators, events, onClose, ack, V4_ALLOW_WRITES }
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
               Nota livre
             </label>
-            <textarea className="input" rows={2} value={reason} onChange={(e) => setReason(e.target.value)}
+            <textarea className="input" rows={2} value={form.reason}
+                      onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
                       placeholder="(opcional) ex: foi limpar a linha 2 depois do encapsulamento"/>
           </div>
         </>
       )}
 
-      {type !== 'gap' && (
+      {type === 'correio' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
+                Horário do corte
+              </label>
+              <input type="time" className="input" value={form.correioTime}
+                     onChange={(e) => setForm((f) => ({ ...f, correioTime: e.target.value }))}/>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
+                Etiqueta
+              </label>
+              <input type="text" className="input" value={form.correioLabel}
+                     onChange={(e) => setForm((f) => ({ ...f, correioLabel: e.target.value }))}
+                     placeholder="Corte do correio"/>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 10, fontStyle: 'italic' }}>
+            v3.deadlines tem 1 entrada ativa (id={notif._deadline_id || '?'}, flow=pnp). Salvar virará
+            <code> PATCH /api/v3/data/deadlines/{notif._deadline_id || '?'}</code> no E5.
+          </div>
+        </>
+      )}
+
+      {type !== 'gap' && type !== 'correio' && (
         <div style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 10px', background: 'var(--surface)', borderRadius: 6, marginBottom: 10 }}>
           Edição/resolução completa deste tipo de notificação fica pro E5.
-          Por enquanto, marcar como visto/resolvido só toasta preview.
+          <div style={{ marginTop: 6 }}>
+            <textarea className="input" rows={2} value={form.note}
+                      onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+                      placeholder="(opcional) nota sobre essa notificação"/>
+          </div>
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn primary" onClick={onPreview}>
-          {type === 'gap' ? 'Salvar justificativa' : 'Marcar como resolvido'}
+          {type === 'gap' ? 'Salvar justificativa'
+            : type === 'correio' ? 'Salvar correio'
+            : 'Marcar como resolvido'}
         </button>
-        <button className="btn ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn ghost" onClick={onClose}>Fechar</button>
         <span style={{ flex: 1 }}/>
         <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic', alignSelf: 'center' }}>
-          {V4_ALLOW_WRITES ? 'salvar persiste' : 'modo leitura · save liga no E5'}
+          {V4_ALLOW_WRITES ? 'salvar persiste' : 'modo leitura · save liga no E5 (fecha sem salvar → pending)'}
         </span>
       </div>
     </div>

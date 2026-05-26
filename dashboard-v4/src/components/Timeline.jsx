@@ -21,7 +21,11 @@ function snap(min) { return Math.round(min / 5) * 5; } // 5-min snap during drag
 function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     onUpdateEvent, onMergeRequest, onSelectEvent, selectedId,
                     expandedOpIds, onToggleExpand,
-                    gaps }) {
+                    gaps,
+                    correio,            // { minutes, label }  — E7-refine2 #2
+                    onCorreioClick,     // (coords) => void
+                    onGapClick,         // (op_id, gap, coords) — E7-refine2 #3
+}) {
   const { DAY_START, DAY_END, DEADLINE_MIN, activities, FLOWS } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
   const dayMin = DAY_END - DAY_START;
@@ -189,6 +193,27 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
             </div>
           </div>
 
+          {/* Correio row — tab attached na barra do tempo (E7-refine2 #2).
+              Mesma estética das bg tabs (mini-pill com flow accent). Atrelado ao
+              x do horário do deadline (1PM real do v3.deadlines). Click abre o
+              detalhe igual notificação. */}
+          {correio && correio.minutes != null && correio.minutes >= DAY_START && correio.minutes <= DAY_END && (
+            <div className="tl-correio-row">
+              <div className="tl-correio-name">
+                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>Notif.</span>
+              </div>
+              <div className="tl-correio-track" style={{ width: trackW }}>
+                <button className="tl-correio-tab"
+                        style={{ left: ((correio.minutes - DAY_START) / 60) * hourPx }}
+                        onClick={(e) => onCorreioClick && onCorreioClick({ x: e.clientX, y: e.clientY })}
+                        title={`Correio · ${fmtClock(correio.minutes)} · clique para editar`}>
+                  <span className="tl-correio-icon">📮</span>
+                  <span className="tl-correio-label">{correio.label || 'Correio'} · {fmtClock(correio.minutes)}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Rows */}
           {operators.map((op, opIdx) => {
             const opEvents = byOp[op.id] || [];
@@ -351,7 +376,8 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                 <PersonExpansion op={op} events={opEvents} now={now} gap={personGap}
                                  fmtClock={fmtClock} fmtDur={fmtDur} fmtCron={fmtCron}
                                  activities={activities}
-                                 onSelectEvent={onSelectEvent}/>
+                                 onSelectEvent={onSelectEvent}
+                                 onGapClick={onGapClick}/>
               )}
               </React.Fragment>
             );
@@ -377,7 +403,7 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
    nome do operador é clicado. Lista todos os eventos do dia daquela
    pessoa, com hora/duração + gaps entre eventos calculados client-side.
    Read-only. */
-function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, activities, onSelectEvent }) {
+function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, activities, onSelectEvent, onGapClick }) {
   // ordena por started_min crescente
   const sorted = events.slice().sort((a, b) => a.started_min - b.started_min);
   // intercala gaps entre eventos consecutivos
@@ -421,11 +447,15 @@ function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, acti
                 : fmtDur(it.ev.ended_min - it.ev.started_min)}</span>
             </button>
           ) : (
-            <div key={'gap-' + i} className="exp-row exp-row-gap">
+            // E7-refine2 #3: gap virou clicável — abre edição pra Bruno preencher
+            // o que a pessoa fez nesse intervalo (preview · liga no E5).
+            <button key={'gap-' + i} className="exp-row exp-row-gap exp-row-clickable"
+                    onClick={(e) => onGapClick && onGapClick(op.id, it, { x: e.clientX, y: e.clientY })}
+                    title="Clique pra preencher o que aconteceu nesse intervalo">
               <span className="exp-time mono">{fmtClock(it.start)} → {fmtClock(it.end)}</span>
-              <span className="exp-act muted">gap {it.dur >= 60 ? 'longo' : 'curto'}</span>
+              <span className="exp-act muted">+ preencher gap {it.dur >= 60 ? 'longo' : 'curto'}</span>
               <span className="exp-dur mono muted">{fmtDur(it.dur)}</span>
-            </div>
+            </button>
           ))}
       </div>
     </div>

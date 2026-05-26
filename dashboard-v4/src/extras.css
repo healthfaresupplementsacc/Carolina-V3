@@ -195,6 +195,109 @@
   font-size: 12.5px;
 }
 
+/* ============================================================
+   E7-refine2 — Logo HealthFare na sidebar
+   ============================================================ */
+.brand.brand-with-logo {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 18px 14px;
+}
+.brand-logo-full {
+  display: block;
+  max-width: 180px;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  /* mantém legibilidade no tema dark — logo já é multicolor, sem invert */
+}
+.brand-logo-mini {
+  width: 36px; height: 36px;
+  object-fit: cover;
+  object-position: 18% 50%;
+  border-radius: 8px;
+  background: var(--surface);
+}
+.brand.brand-with-logo .brand-sub {
+  margin-top: 0;
+}
+
+/* ============================================================
+   E7-refine2 — Correio tab attached na timeline
+   ============================================================ */
+.tl-correio-row {
+  display: grid;
+  grid-template-columns: var(--name-w) 1fr;
+  border-bottom: 1px dashed var(--border);
+  background: linear-gradient(180deg, rgba(217,119,6,0.04) 0%, transparent 100%);
+  min-height: 30px;
+  position: relative;
+}
+.tl-correio-name {
+  position: sticky; left: 0; z-index: 3;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 8px 14px;
+  display: flex; align-items: center;
+}
+.tl-correio-track {
+  position: relative;
+}
+.tl-correio-tab {
+  position: absolute;
+  top: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px 6px 4px 4px;
+  background: linear-gradient(180deg, #fff5e6 0%, #ffe9c8 100%);
+  border: 1px solid rgba(217,119,6,0.45);
+  border-bottom: 2px solid #b45309;
+  color: #b45309;
+  font-size: 10.5px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 5px;
+  cursor: pointer;
+  z-index: 6;                          /* acima das bg tabs */
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(217,119,6,0.18);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.tl-correio-tab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(217,119,6,0.28);
+}
+.tl-correio-tab .tl-correio-icon { font-size: 11px; }
+:root[data-theme="dark"] .tl-correio-tab {
+  background: rgba(217,119,6,0.22);
+  border-color: rgba(251,191,36,0.5);
+  color: #fbbf24;
+}
+
+/* ============================================================
+   E7-refine2 — Gap row clicável em PersonExpansion (#3)
+   ============================================================ */
+.exp-row-clickable {
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+}
+.exp-row-clickable:hover {
+  background: var(--surface-2);
+  border-color: var(--hf-navy-300, var(--text-3));
+  transform: translateX(2px);
+}
+.exp-row-gap.exp-row-clickable:hover .exp-act {
+  color: var(--hf-leaf-600);
+}
+
+/* Notif row aberta (toggle visual #4) */
+.alert-row.notif-open {
+  border-color: var(--hf-navy-500);
+  box-shadow: 0 0 0 1px var(--hf-navy-500);
+}
+
+
 
 
 
