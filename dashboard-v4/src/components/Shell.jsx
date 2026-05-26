@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './Icons.jsx';
+import nyTime from '../utils/ny-time.cjs';
 // E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
 // wordmark). Substitui o SVG inline `BrandH` que era um esboço.
 // Vite resolve a URL no build (com base /dashboard-v4/...).
@@ -133,15 +134,21 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
 };
 
 const DatePicker = ({ date, onDate }) => {
-  const d = new Date(date);
-  const today = new Date();
-  const isToday = d.toDateString() === today.toDateString();
+  // E7-refine3 — fix do bug "Ter 26 mostra como Seg":
+  //   ANTES: new Date('2026-05-26') → UTC midnight → getDay() em TZ negativa cai
+  //          no dia anterior (NY UTC-4 → Mon; BRT UTC-3 → Mon).
+  //   AGORA: parseYmdLocal cria Date(y,m-1,d,12,0,0) local-noon — getDay/getDate
+  //          retornam os valores certos pro YYYY-MM-DD em qualquer fuso do user.
+  const d = nyTime.parseYmdLocal(date);
+  const isToday = date === nyTime.nyToday();
   const ptMonths = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   const ptDays = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const shift = (n) => {
-    const nd = new Date(d); nd.setDate(nd.getDate() + n);
-    onDate(nd.toISOString().slice(0,10));
+    // shiftNyDate: aritmética em NY-noon-UTC → re-formata em NY date.
+    // Robusto contra DST (sem cair em ambiguidade de meia-noite).
+    onDate(nyTime.shiftNyDate(date, n));
   };
+  if (!d) return null;
   return (
     <div className="date-picker">
       <button onClick={() => shift(-1)} title="Dia anterior"><Icon name="left" size={15}/></button>

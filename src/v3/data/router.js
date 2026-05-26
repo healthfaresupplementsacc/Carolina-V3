@@ -467,7 +467,16 @@ function createDataRouter(deps = {}) {
 
   // Snapshot — registrada ANTES do middleware PIN: usa token próprio
   // (env V3_SNAPSHOT_TOKEN) na query. Read-only puro; sem write.
+  //
+  // E7-refine3: adiciona Cache-Control: no-store. O endpoint sempre retorna
+  // a data pedida (verificado: buildSnapshot('2026-05-26') → date='2026-05-26'),
+  // mas sem esse header navegadores e proxies podiam manter resp velha em
+  // cache — Bruno relatou ver date=2026-05-25 num refresh de URL que ele
+  // tinha aberto antes. Agora qualquer GET re-busca limpo.
   router.get('/api/v3/data/snapshot', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     const expected = deps.snapshotToken || process.env.V3_SNAPSHOT_TOKEN || null;
     if (!expected) {
       return res.status(503).json({ error: { code: 'disabled',

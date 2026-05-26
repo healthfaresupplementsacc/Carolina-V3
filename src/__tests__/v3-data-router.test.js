@@ -274,9 +274,10 @@ describe('V3 data API — snapshot (auth por token)', () => {
       return new Promise((resolve) => {
         const req = { method: 'GET', url: `/api/v3/data/snapshot?token=${queryToken || ''}&date=2026-05-25`,
           query: { token: queryToken, date: '2026-05-25' }, headers: {}, params: {} };
-        const res = { _status: 200, _body: null,
+        const res = { _status: 200, _body: null, _headers: {},
           status(c) { this._status = c; return this; },
-          json(b)   { this._body = b; resolve({ status: this._status, body: b }); } };
+          set(k, v) { this._headers[k] = v; return this; },     // E7-refine3 — Cache-Control no-store no /snapshot
+          json(b)   { this._body = b; resolve({ status: this._status, body: b, headers: this._headers }); } };
         // simulate router dispatch: find matching handler manually since we don't have HTTP
         // simpler: call buildSnapshot logic by invoking the inner handler we stored.
         routerInstance.handle(req, res, () => resolve({ status: 404, body: null }));

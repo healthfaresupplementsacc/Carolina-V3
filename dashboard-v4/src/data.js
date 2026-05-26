@@ -7,12 +7,13 @@
 export const HFData = (() => {
   const DAY_START = 8 * 60;       // 8:00 AM
   const DAY_END   = 18 * 60;      // 6:00 PM
-  const NOW_MIN   = 14 * 60 + 34; // 2:34 PM fictional now
-  // E7-refine2: mock ANTES era 16*60 (4PM) e contaminava o flash inicial pré-adapter.
-  // O deadline REAL (v3.deadlines.time_of_day) é 13:00 (1PM). Adapter sobrescreve
-  // window.HFData no 1º poll; aqui ficamos com null pra não exibir 4PM em nenhum
-  // frame intermediário.
-  const DEADLINE_MIN = null;      // populado pelo adapter (1PM real)
+  // E7-refine3: NOW_MIN era 14:34 (mock "fictional 2:34 PM") e o helpers.js
+  // capturava esse valor UMA vez como anchor → timeline mostrava "2:34 PM"
+  // em vez do horário NY real. Agora liveNowMin() lê wall clock NY dinamicamente
+  // — esse mock fica null pra não contaminar nada.
+  const NOW_MIN     = null;
+  // E7-refine2: DEADLINE_MIN — populado pelo adapter (1PM real do v3.deadlines).
+  const DEADLINE_MIN = null;
 
   const operators = [
     { id: "vitor",    short: "VI", name: "Vitor",    role: "Linha de Produção",      en_role: "Production Line", c1: "#1e3f8c", c2: "#3fc874" },

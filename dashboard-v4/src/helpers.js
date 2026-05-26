@@ -1,19 +1,16 @@
-/* Time + formatting helpers. Operates on minutes-from-midnight (NY) and a live
-   NOW value that ticks every second so live events update.
-   ESM (E0): importa React; exporta HFH e mantém window.HFH pra retro-compat
-   com componentes que ainda acessam pelo global durante a migração.
+/* Time + formatting helpers. Opera em minutos-desde-meia-noite NY com leitura
+   DINÂMICA do relógio (E7-refine3 — fix do bug "2:36 PM quando NY é 11:36 AM").
+   ESM (E0): importa React; exporta HFH e mantém window.HFH pra retro-compat.
 */
 import React from 'react';
+import nyTime from './utils/ny-time.cjs';
 
 export const HFH = (() => {
-  // Live anchor: real time of mount, plus fictional NOW base = 14:34
-  const ANCHOR_NOW = window.HFData.NOW_MIN;
-  const MOUNT_T = Date.now();
-
-  // Ticking now: minutes (float). Use Math.floor for whole-minute calls.
+  // Antes: anchor capturado UMA vez do mock window.HFData.NOW_MIN (14:34) +
+  // elapsed since module-load → off por horas. Agora: lê wall clock NY real
+  // do Date.now() absoluto via Intl. Independente da TZ do navegador do user.
   function liveNowMin() {
-    const elapsedSec = (Date.now() - MOUNT_T) / 1000;
-    return ANCHOR_NOW + elapsedSec / 60;
+    return nyTime.nyNowMinutes();
   }
 
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
