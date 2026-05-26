@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Foto HealthFare"/>
+  <meta name="theme-color" content="#1e3f8c"/>
+  <title>Foto · HealthFare</title>
+  <link rel="icon" type="image/png" href="/dashboard-v4/assets/healthfare-logo-oGIv6IQw.png"/>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; min-height: 100vh; min-height: 100dvh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #f4f6fb; color: #1a2236; overscroll-behavior-y: contain; }
+    .wrap { max-width: 480px; margin: 0 auto; padding: 18px 18px 80px;
+      min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; gap: 14px; }
+    .head { text-align: center; padding: 8px 4px 4px; }
+    .head .brand { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; font-size: 17px; letter-spacing: -0.01em; color: #1e3f8c; }
+    .head .brand .leaf { display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: #3fc874; }
+    .head .sub { font-size: 12px; color: #6c7488; margin-top: 4px; }
+    .err-banner { padding: 12px 14px; border-radius: 10px; background: #fdecea; color: #7f1d1d;
+      border: 1px solid #f5b5af; font-size: 13px; line-height: 1.4; }
+    button, .btn {
+      -webkit-appearance: none; appearance: none;
+      border: 1px solid #d8dce5; background: #fff; color: #1a2236;
+      padding: 18px 14px; font-size: 17px; font-weight: 600;
+      border-radius: 14px; cursor: pointer; width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      transition: transform 0.08s ease, background 0.12s ease;
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(0.985); }
+    button.primary { background: #1e3f8c; color: #fff; border-color: #1e3f8c; }
+    button.primary:disabled { background: #9ca3b8; border-color: #9ca3b8; cursor: not-allowed; }
+    button.send { background: #22b35d; color: #fff; border-color: #22b35d; font-size: 19px; padding: 22px 14px; }
+    button.send:disabled { background: #b4d4be; border-color: #b4d4be; cursor: not-allowed; }
+    button.send:active:not(:disabled) { background: #1c9b50; }
+    button .ic { font-size: 24px; }
+    input[type=file] { display: none; }
+    .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .thumb { position: relative; aspect-ratio: 1; background: #e8ecf3; border-radius: 10px; overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .thumb .rm { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px;
+      background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; font-size: 16px; font-weight: 700; cursor: pointer;
+      backdrop-filter: blur(8px); }
+    .thumb .rm:active { background: rgba(0,0,0,0.85); }
+    .meta { font-size: 11px; color: #6c7488; text-align: center; padding-top: 4px; }
+    .status { font-size: 14px; padding: 12px 14px; border-radius: 10px; text-align: center; font-weight: 600; }
+    .status.sending { background: #fff8e1; color: #b45309; border: 1px solid #ffd58a; }
+    .status.ok      { background: #e7f7ed; color: #166534; border: 1px solid #a8e0bd; }
+    .status.fail    { background: #fdecea; color: #7f1d1d; border: 1px solid #f5b5af; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 360px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <div class="brand"><span class="leaf"></span>HealthFare · Foto pro Slack</div>
+      <div class="sub">Envia fotos pro canal <b>#images</b></div>
+    </div>
+
+    <div id="auth-warn" class="err-banner" hidden>
+      URL precisa do parâmetro <code>?k=&lt;token&gt;</code>. Use o link que o Bruno enviou e <b>salve na tela inicial</b> do iPhone.
+    </div>
+
+    <div class="row">
+      <button id="btn-camera" class="primary">
+        <span class="ic">📷</span> Tirar foto
+      </button>
+      <button id="btn-album" class="primary">
+        <span class="ic">🖼️</span> Do álbum
+      </button>
+    </div>
+    <input type="file" id="file-camera" accept="image/*" capture="environment"/>
+    <input type="file" id="file-album"  accept="image/*" multiple/>
+
+    <div id="thumbs" class="thumbs"></div>
+    <div id="meta" class="meta" hidden></div>
+
+    <button id="btn-send" class="send" disabled>
+      <span class="ic">📨</span> Enviar pro Slack
+    </button>
+
+    <div id="status" class="status" hidden></div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  // Token vem da URL (?k=...). Salvado quando Bruno enviar o link inicial.
+  const url = new URL(location.href);
+  const TOKEN = url.searchParams.get('k') || '';
+  if (!TOKEN) {
+    document.getElementById('auth-warn').hidden = false;
+    document.getElementById('btn-camera').disabled = true;
+    document.getElementById('btn-album').disabled  = true;
+  }
+
+  const thumbsEl = document.getElementById('thumbs');
+  const metaEl   = document.getElementById('meta');
+  const sendBtn  = document.getElementById('btn-send');
+  const statusEl = document.getElementById('status');
+
+  /** in-memory: [{ id, filename, mime, dataUrl, size }] */
+  const pictures = [];
+
+  function bumpUi() {
+    thumbsEl.innerHTML = '';
+    for (const p of pictures) {
+      const div = document.createElement('div');
+      div.className = 'thumb';
+      const img = document.createElement('img');
+      img.src = p.dataUrl;
+      div.appendChild(img);
+      const rm = document.createElement('div');
+      rm.className = 'rm';
+      rm.textContent = '✕';
+      rm.title = 'Remover';
+      rm.onclick = () => { const i = pictures.findIndex((x) => x.id === p.id); if (i >= 0) pictures.splice(i, 1); bumpUi(); };
+      div.appendChild(rm);
+      thumbsEl.appendChild(div);
+    }
+    if (pictures.length) {
+      const totalMb = pictures.reduce((s, p) => s + p.size, 0) / (1024 * 1024);
+      metaEl.hidden = false;
+      metaEl.textContent = pictures.length + ' foto(s) · ' + totalMb.toFixed(1) + ' MB';
+    } else {
+      metaEl.hidden = true;
+    }
+    sendBtn.disabled = pictures.length === 0;
+  }
+
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve({
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2),
+        filename: file.name || ('foto-' + Date.now() + '.jpg'),
+        mime: file.type || 'image/jpeg',
+        dataUrl: fr.result,
+        size: file.size || 0,
+      });
+      fr.onerror = () => reject(new Error('falha ao ler ' + file.name));
+      fr.readAsDataURL(file);
+    });
+  }
+
+  async function handleFiles(files) {
+    const arr = Array.from(files || []);
+    if (!arr.length) return;
+    for (const f of arr) {
+      try { pictures.push(await readFile(f)); }
+      catch (e) { console.error(e); }
+    }
+    bumpUi();
+  }
+
+  document.getElementById('btn-camera').onclick = () => document.getElementById('file-camera').click();
+  document.getElementById('btn-album').onclick  = () => document.getElementById('file-album').click();
+  document.getElementById('file-camera').onchange = (e) => { handleFiles(e.target.files); e.target.value = ''; };
+  document.getElementById('file-album').onchange  = (e) => { handleFiles(e.target.files); e.target.value = ''; };
+
+  sendBtn.onclick = async () => {
+    if (!pictures.length) return;
+    sendBtn.disabled = true;
+    statusEl.hidden = false;
+    statusEl.className = 'status sending';
+    statusEl.textContent = 'Enviando ' + pictures.length + ' foto(s)…';
+    try {
+      const body = {
+        images: pictures.map((p) => ({ filename: p.filename, data_url: p.dataUrl })),
+      };
+      const r = await fetch('/api/images/upload?k=' + encodeURIComponent(TOKEN), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-images-token': TOKEN },
+        body: JSON.stringify(body),
+      });
+      let j = {};
+      try { j = await r.json(); } catch (_) {}
+      if (r.ok && j.ok_count === j.count) {
+        statusEl.className = 'status ok';
+        statusEl.textContent = '✓ Enviado · ' + j.ok_count + ' foto(s) no #images';
+        pictures.splice(0, pictures.length);
+        bumpUi();
+      } else if (r.ok && j.ok_count > 0) {
+        statusEl.className = 'status fail';
+        statusEl.textContent = '⚠ Parcial · ' + j.ok_count + '/' + j.count + ' enviadas. Falhas: '
+          + j.uploaded.filter((u) => !u.ok).map((u) => u.filename + ': ' + u.error).join('; ');
+      } else {
+        const msg = (j.error && j.error.message) || ('erro ' + r.status);
+        statusEl.className = 'status fail';
+        statusEl.textContent = '✗ ' + msg;
+      }
+    } catch (e) {
+      statusEl.className = 'status fail';
+      statusEl.textContent = '✗ Sem conexão · ' + e.message;
+    } finally {
+      sendBtn.disabled = pictures.length === 0;
+      // Some o status após 4s no caso de ok pra deixar a tela limpa pra próxima foto
+      if (statusEl.className.includes('ok')) {
+        setTimeout(() => { statusEl.hidden = true; }, 4000);
+      }
+    }
+  };
+})();
+</script>
+</body>
+</html>

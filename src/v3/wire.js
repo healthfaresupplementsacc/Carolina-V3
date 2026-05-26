@@ -24,6 +24,7 @@ const { Observer } = require('./llm/Observer');
 const { eventsV2Handler } = require('./slack/events-v2');
 const adminV3 = require('./admin-v3/routes');
 const dataApi = require('./data/router');
+const imagesApi = require('./images/router');
 
 let _pool = null;
 let _svc = null;
@@ -79,7 +80,13 @@ function mount(app) {
   // mesmo /api/v3/data/* (PIN-authed). dashboard/ atual segue intacto.
   // Switch de URL (E8) só rola quando a lista de paridade estiver verde.
   app.use('/dashboard-v4', express.static(path.join(process.cwd(), 'public', 'dashboard-v4')));
-  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /dashboard + /dashboard-v4');
+  // FOTO — page standalone pra Simone subir foto pro #images (C0B6AQX6LJV).
+  // SLACK_BOT_TOKEN no backend; cliente envia base64 com token leve `?k=`.
+  // 503 enquanto IMAGES_UPLOAD_TOKEN não tiver no env (Bruno seta no Railway).
+  // Lateral total — não toca v3.events/messages/Observer/dashboard.
+  app.use('/foto', express.static(path.join(process.cwd(), 'public', 'foto')));
+  app.use('/', imagesApi.createImagesRouter({}));
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */
