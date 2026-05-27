@@ -15,7 +15,10 @@
 const { resolveDate, toNyIso } = require('./ny-date');
 const { validSeconds } = require('./goals-repo');
 
-const DOWNTIME_SLUGS = new Set(['repair']); // conserto = parada (downtime)
+// Bloco 27/mai — machine_downtime explicitamente marca a linha parada.
+// 'repair' legado mantido (cobre eventos antigos onde os 2 conceitos não
+// estavam separados). facility_maintenance NÃO entra — não pára a linha.
+const DOWNTIME_SLUGS = new Set(['repair', 'machine_downtime']);
 
 /**
  * Bounds (UTC ms) do dia NY YYYY-MM-DD. Detecta EDT/EST via Intl.

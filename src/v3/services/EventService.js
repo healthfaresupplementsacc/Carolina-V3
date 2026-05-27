@@ -426,6 +426,12 @@ class EventService {
         if (newKind === KIND_FOREGROUND) {
           await this._closeActive(c, p.person_id, p.started_at, 'next_event',
             KIND_FOREGROUND, actorType, { actorPersonId: p.actor_person_id });
+          // E7-bloco-27 regra 27 — F IMPLÍCITO DE META: se há meta aberta
+          // (break/lunch) e a pessoa abre nova foreground sem F do break,
+          // fecha o break no started_at da nova fg. Estado "almoço + fg"
+          // simultâneo NÃO pode existir. closed_reason='meta_closed_by_fg'.
+          await this._closeActive(c, p.person_id, p.started_at, 'meta_closed_by_fg',
+            KIND_META, actorType, { actorPersonId: p.actor_person_id });
         } else if (newKind === KIND_META) {
           const metaPausesFg = await this._setting(c, 'meta_pauses_foreground', true);
           if (metaPausesFg) {

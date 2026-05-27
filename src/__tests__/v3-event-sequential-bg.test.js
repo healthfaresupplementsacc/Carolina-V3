@@ -10,6 +10,7 @@ const SIEVE = 10;   // peneira (bg)
 const MIX   = 11;   // mix (bg)
 const FORM  = 12;   // formulação (bg)
 const LINE  = 20;   // linha de produção (fg)
+const LUNCH = 30;   // almoço (meta) — pra regra 27 (F implícito de meta)
 
 function makeFakeDb(settings = {}) {
   let nextId = 1;
@@ -20,6 +21,7 @@ function makeFakeDb(settings = {}) {
     [MIX]:   { category: 'production_phase', is_background: true,  flow: 'production' },
     [FORM]:  { category: 'production_phase', is_background: true,  flow: 'production' },
     [LINE]:  { category: 'production_phase', is_background: false, flow: 'production' },
+    [LUNCH]: { category: 'meta',              is_background: false, flow: 'support' },
   };
 
   function run(sql, params = []) {
@@ -210,6 +212,48 @@ describe('E7-cérebro #2 — formulação sequencial (mesmo prod+batch+pessoa)',
     const meta = JSON.parse(closed.metadata);
     expect(meta.reason).toBe('next_phase');
     expect(meta.sequential).toBe(true);
+  });
+});
+
+describe('E7-bloco-27 regra 27 — F implícito de META (fg fecha break/lunch aberto)', () => {
+  test('abrir foreground fecha lunch aberto da mesma pessoa', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    // 1) Bruno abre lunch
+    const lunch = await s.upsert({
+      person_id: 7, activity_type_id: LUNCH,
+      started_at: '2026-05-27T17:40:00-04:00', source_message_ts: 'lunch1',
+      actor_type: 'llm_observer',
+    });
+    expect(lunch.ended_at).toBeNull();
+    // 2) Bruno posta NOVA foreground sem F do lunch
+    await s.upsert({
+      person_id: 7, activity_type_id: LINE,
+      started_at: '2026-05-27T18:27:00-04:00', source_message_ts: 'line1',
+      actor_type: 'llm_observer',
+    });
+    // 3) lunch deve estar FECHADO em 18:27 com closed_reason='meta_closed_by_fg'
+    const lunchAfter = db.events.find((e) => e.id === lunch.id);
+    expect(lunchAfter.ended_at).toBe('2026-05-27T18:27:00-04:00');
+    expect(lunchAfter.closed_reason).toBe('meta_closed_by_fg');
+  });
+
+  test('abrir BACKGROUND NÃO fecha lunch (só fg fecha meta)', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const lunch = await s.upsert({
+      person_id: 7, activity_type_id: LUNCH,
+      started_at: '2026-05-27T17:40:00-04:00', source_message_ts: 'lunch2',
+      actor_type: 'llm_observer',
+    });
+    // BG (formulação) — não fecha meta
+    await s.upsert({
+      person_id: 7, activity_type_id: FORM, product_batch_id: 50,
+      started_at: '2026-05-27T17:45:00-04:00', source_message_ts: 'form-during-lunch',
+      actor_type: 'llm_observer',
+    });
+    const lunchAfter = db.events.find((e) => e.id === lunch.id);
+    expect(lunchAfter.ended_at).toBeFalsy();   // lunch ainda OPEN
   });
 });
 

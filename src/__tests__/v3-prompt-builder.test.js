@@ -287,6 +287,45 @@ describe('E7-bloco — regras 23 e 24 no systemPrompt', () => {
   });
 });
 
+describe('E7-bloco-27 — regras 25-29 no systemPrompt', () => {
+  test('regra 25 — facility_maintenance (manutenção fábrica ≠ conserto linha)', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('facility_maintenance');
+    expect(r.systemPrompt).toContain('filtro do ar-condicionado');
+    expect(r.systemPrompt).toContain('Não pára a linha de produção');
+  });
+  test('regra 26 — machine_downtime (linha PAROU)', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('machine_downtime');
+    expect(r.systemPrompt).toContain('DOWNTIME CRÍTICO');
+    expect(r.systemPrompt).toContain('Máquina reajustada');
+  });
+  test('regra 27 — F implícito de meta', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('F IMPLÍCITO DE META');
+    expect(r.systemPrompt).toContain('break + trabalho simultâneo');
+    expect(r.systemPrompt).toContain('Bruno indo almoçar');
+  });
+  test('regra 28 — shipment FBA / DC', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('Criação do shipment');
+    expect(r.systemPrompt).toContain('dc_shipment');
+    expect(r.systemPrompt).toContain('NÃO separe em');
+  });
+  test('regra 29 — injeções / clinic_shipment (variações)', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('clinic_shipment');
+    expect(r.systemPrompt).toContain('Armazenando injeções');
+    expect(r.systemPrompt).toContain('resolvendo produto Clinic');
+  });
+  test('regras 19-29 TODAS presentes (regressão)', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    for (const n of ['19.', '20.', '21.', '22.', '23.', '24.', '25.', '26.', '27.', '28.', '29.']) {
+      expect(r.systemPrompt).toContain(n);
+    }
+  });
+});
+
 describe('V3 §2.7 — rankCorrections', () => {
   test('ordena por nº de keywords batendo e respeita o limite', () => {
     const corr = [
