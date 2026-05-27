@@ -434,18 +434,39 @@ function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, acti
         {items.length === 0
           ? <div className="exp-empty">sem eventos hoje</div>
           : items.map((it, i) => it.kind === 'event' ? (
-            <button key={'ev-' + it.ev.id} className="exp-row exp-row-event"
-                    onClick={(e) => onSelectEvent && onSelectEvent(it.ev.id, { x: e.clientX, y: e.clientY })}
-                    title="Abrir painel do evento">
-              <span className="exp-time mono">{fmtClock(it.ev.started_min)} → {it.ev.ended_min == null ? 'agora' : fmtClock(it.ev.ended_min)}</span>
-              <span className={`exp-act flow-${activities[it.ev.activity]?.flow || 'support'}`}>
-                {activities[it.ev.activity]?.name || it.ev.activity}
-                {it.ev._is_background && <span className="exp-bg-pill"> · background</span>}
-              </span>
-              <span className="exp-dur mono">{it.ev.ended_min == null
-                ? fmtCron(now - it.ev.started_min)
-                : fmtDur(it.ev.ended_min - it.ev.started_min)}</span>
-            </button>
+            // E7-resto Leva 1: mostra produto + batch ao lado da atividade,
+            // e se a pessoa deixou nota (description) renderiza embaixo.
+            // Ex: "Linha de Produção · Graviola · 0150" + "label deu problema 4x".
+            (() => {
+              const ev = it.ev;
+              const products = window.HFData.products || {};
+              const prod = ev.product ? products[ev.product] : null;
+              const note = (ev.description || ev._phase_label || '').trim();
+              return (
+                <button key={'ev-' + ev.id} className="exp-row exp-row-event"
+                        onClick={(e) => onSelectEvent && onSelectEvent(ev.id, { x: e.clientX, y: e.clientY })}
+                        title="Abrir painel do evento"
+                        style={note ? { gridTemplateColumns: '130px 1fr 70px', alignItems: 'start' } : undefined}>
+                  <span className="exp-time mono">{fmtClock(ev.started_min)} → {ev.ended_min == null ? 'agora' : fmtClock(ev.ended_min)}</span>
+                  <span className={`exp-act flow-${activities[ev.activity]?.flow || 'support'}`} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span>
+                      {activities[ev.activity]?.name || ev.activity}
+                      {prod && <span style={{ color: 'var(--text-2)', fontWeight: 500 }}> · {prod.name}</span>}
+                      {prod && prod.batch && <span className="mono" style={{ color: 'var(--text-3)', fontSize: 10.5, marginLeft: 4 }}>{prod.batch}</span>}
+                      {ev._is_background && <span className="exp-bg-pill"> · background</span>}
+                    </span>
+                    {note && (
+                      <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic', fontWeight: 400 }}>
+                        📝 {note.length > 90 ? note.slice(0, 90) + '…' : note}
+                      </span>
+                    )}
+                  </span>
+                  <span className="exp-dur mono">{ev.ended_min == null
+                    ? fmtCron(now - ev.started_min)
+                    : fmtDur(ev.ended_min - ev.started_min)}</span>
+                </button>
+              );
+            })()
           ) : (
             // E7-refine2 #3: gap virou clicável — abre edição pra Bruno preencher
             // o que a pessoa fez nesse intervalo (preview · liga no E5).

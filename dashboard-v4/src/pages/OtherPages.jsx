@@ -146,11 +146,24 @@ function GoalsPage({ state }) {
 }
 
 // ============ People ============
-function PeoplePage({ state }) {
-  const { operators, activities, products, DAY_START, DAY_END } = window.HFData;
+// E7-resto Leva 1: ligada em hfdata real (operators só dos que postaram —
+// admins filtrados no adapter). Cada lane mini-tl mostra todos os events
+// do dia da pessoa; o título de cada person-card destaca a atividade ATUAL
+// (live) com produto+batch resolvidos.
+function PeoplePage({ state, hfdata, openPanel, ack, loading, error, date }) {
+  const HFD = hfdata || window.HFData;
+  const { operators = [], activities = {}, products = {}, DAY_START = 480, DAY_END = 1260, _gaps = {} } = HFD;
   const now = window.HFH.useNow(true);
-  const { fmtCron, fmtDur } = window.HFH;
+  const { fmtCron, fmtDur, fmtClock } = window.HFH;
   const dayMin = DAY_END - DAY_START;
+  if (loading) {
+    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando equipe…</div>;
+  }
+  if (operators.length === 0) {
+    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>
+      Sem operadores postando em {date || 'hoje'} · (admins filtrados)
+    </div>;
+  }
 
   return (
     <div>
@@ -161,16 +174,19 @@ function PeoplePage({ state }) {
       </div>
       <div className="people-grid">
         {operators.map(op => {
-          const opEvents = state.events.filter(e => e.op === op.id);
-          const live = opEvents.find(e => e.ended_min == null);
+          const opEvents = (state.events || []).filter(e => e.op === op.id)
+            .sort((a, b) => a.started_min - b.started_min);
+          const live = opEvents.find(e => e.ended_min == null && !e._is_background);
+          const liveBg = opEvents.filter(e => e.ended_min == null && e._is_background);
           const closed = opEvents.filter(e => e.ended_min != null);
-          const totalActive = closed.reduce((s,e) => s + (e.ended_min - e.started_min), 0)
-                            + (live ? (now - live.started_min) : 0);
-          const products_count = new Set(opEvents.filter(e => e.product).map(e => e.product)).size;
-
-          const cur = live;
+          const totalActive = closed.reduce((s, e) => s + (e.ended_min - e.started_min), 0)
+            + (live ? (now - live.started_min) : 0);
+          const productsCount = new Set(opEvents.filter(e => e.product).map(e => e.product)).size;
+          const last = opEvents[opEvents.length - 1];
+          const cur = live || last;
           const curAct = cur ? activities[cur.activity] : null;
           const curProd = cur?.product ? products[cur.product] : null;
+          const gap = _gaps[op.id] || {};
 
           return (
             <div key={op.id} className="card person-card">
@@ -178,9 +194,11 @@ function PeoplePage({ state }) {
                 <OperatorAvatar op={op} size="lg"/>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>{op.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-3)" }}>{op.role} · {op.en_role}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-3)" }}>{op.role}</div>
                 </div>
-                {live ? <span className="pill live"><span className="dot"/>ao vivo</span> : <span className="pill"><span className="dot"/>parado</span>}
+                {live
+                  ? <span className="pill live"><span className="dot"/>ao vivo</span>
+                  : <span className="pill"><span className="dot"/>parado</span>}
               </div>
               <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10 }}>
                 <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.08, color: "var(--text-3)", fontWeight: 700 }}>
@@ -189,29 +207,47 @@ function PeoplePage({ state }) {
                 {curAct ? (
                   <>
                     <div style={{ fontWeight: 700, fontSize: 14, marginTop: 3 }}>{curAct.name}</div>
-                    {curProd && <div style={{ fontSize: 12, color: "var(--text-3)" }}>{curProd.name}</div>}
+                    {curProd && <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                      {curProd.name}{curProd.batch && <span className="mono" style={{ marginLeft: 6, color: 'var(--text-3)' }}>· {curProd.batch}</span>}
+                    </div>}
                     <div className="mono" style={{ fontSize: 13, color: "var(--hf-navy-600)", marginTop: 5 }}>
-                      {live ? `⏱ ${fmtCron(now - cur.started_min)}` : `${fmtDur((opEvents.slice(-1)[0]?.ended_min || 0) - (opEvents.slice(-1)[0]?.started_min || 0))}`}
+                      {live
+                        ? `⏱ ${fmtCron(now - cur.started_min)}`
+                        : `${fmtDur((cur.ended_min || 0) - (cur.started_min || 0))} (encerrou ${fmtClock(cur.ended_min)})`}
                     </div>
                   </>
                 ) : <div style={{ fontSize: 13, color: "var(--text-3)" }}>sem registros</div>}
+                {liveBg.length > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                    + {liveBg.length} background ativo(s): {liveBg.map(e => activities[e.activity]?.name || e.activity).join(', ')}
+                  </div>
+                )}
               </div>
               <div className="stats">
                 <div className="stat"><div className="label">Eventos</div><div className="value">{opEvents.length}</div></div>
                 <div className="stat"><div className="label">Tempo ativo</div><div className="value mono">{fmtDur(totalActive)}</div></div>
-                <div className="stat"><div className="label">Produtos</div><div className="value">{products_count}</div></div>
+                <div className="stat"><div className="label">Produtos</div><div className="value">{productsCount}</div></div>
               </div>
-              <div className="mini-tl">
+              {(gap.idle_seconds || gap.unreported_seconds) ? (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', display: 'flex', gap: 8 }}>
+                  {gap.idle_seconds > 0 && <span>idle {fmtDur(Math.round(gap.idle_seconds / 60))}</span>}
+                  {gap.unreported_seconds > 0 && <span style={{ color: 'var(--warn)' }}>não reportado {fmtDur(Math.round(gap.unreported_seconds / 60))}</span>}
+                </div>
+              ) : null}
+              <div className="mini-tl" style={{ marginTop: 8 }}>
                 {opEvents.map(ev => {
                   const a = activities[ev.activity]; if (!a) return null;
                   const end = ev.ended_min == null ? now : ev.ended_min;
                   const left = ((ev.started_min - DAY_START) / dayMin) * 100;
                   const width = Math.max(0.5, ((end - ev.started_min) / dayMin) * 100);
+                  const productName = ev.product ? (products[ev.product]?.name || '') : '';
                   return (
-                    <div key={ev.id} className="mini-bk"
-                         style={{ left: `${left}%`, width: `${width}%`,
-                                  background: `linear-gradient(180deg, var(--flow-${a.flow}), var(--flow-${a.flow}-2))` }}
-                         title={`${a.name} · ${window.HFH.fmtClock(ev.started_min)}`}/>
+                    <button key={ev.id} className="mini-bk"
+                            style={{ left: `${left}%`, width: `${width}%`,
+                                     background: `linear-gradient(180deg, var(--flow-${a.flow}), var(--flow-${a.flow}-2))`,
+                                     border: 'none', cursor: 'pointer', padding: 0 }}
+                            onClick={(e) => openPanel && openPanel(ev, { x: e.clientX, y: e.clientY })}
+                            title={`${a.name}${productName ? ' · ' + productName : ''} · ${fmtClock(ev.started_min)}`}/>
                   );
                 })}
                 <div className="mini-now" style={{ left: `${((now - DAY_START) / dayMin) * 100}%` }}/>
@@ -236,10 +272,34 @@ function PlaceholderPage({ icon, pt, en, subtitle, body }) {
   );
 }
 
-function PickPackPage({ state }) {
-  const { pp, DEADLINE_MIN } = window.HFData;
+function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
+  // E7-resto Leva 1: ligada em hfdata real.
+  // Sub-passos reais do /api/v3/data/pp:
+  //   pp.sub_steps = [{activity, seconds (pessoa-hora soma), wall_seconds (união)}]
+  //   pp.person_seconds = [{person, seconds}]
+  //   pp.total_seconds = união do tempo de parede (sem dupla contagem cowork)
+  // ANTES estava com 4 sub-passos HARDCODED ("Impressão 20m feito, Etiquetagem
+  // 105m feito…") — agora vem do backend.
+  const HFD = hfdata || window.HFData;
+  const { pp = {}, activities = {}, products = {} } = HFD;
+  const ppRaw = (raw && raw.pp) || pp._raw || {};
   const now = window.HFH.useNow(true);
   const { fmtDur, fmtClock } = window.HFH;
+  const events = state.events || [];
+
+  if (loading) {
+    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando P&P…</div>;
+  }
+
+  // Sub-passos: usa wall_seconds (união) — Bruno pediu específico "não soma".
+  const subSteps = (ppRaw.sub_steps || []).slice().sort((a, b) => (b.wall_seconds || 0) - (a.wall_seconds || 0));
+  const personSeconds = ppRaw.person_seconds || [];
+  // Cowork: events de P&P (flow=pnp) com cowork.length > 0
+  const ppEvents = events.filter((e) => (activities[e.activity] || {}).flow === 'pnp');
+  const coworkEvents = ppEvents.filter((e) => e.cowork && e.cowork.length > 0);
+  const liveCount = ppEvents.filter((e) => e.ended_min == null).length;
+  // Correio: do pp.deadline_min real
+  const correioMin = pp.deadline_min;
   return (
     <div>
       <div className="section-title">
@@ -248,33 +308,70 @@ function PickPackPage({ state }) {
         <div className="rule"/>
       </div>
       <div className="card" style={{ padding: 22 }}>
-        <CountdownCard deadlineMin={DEADLINE_MIN} now={now}
-                       label="Correio" en="Mailing cut-off" title="Próxima retirada de pedidos"/>
+        {correioMin != null && (
+          <CountdownCard deadlineMin={correioMin} now={now}
+                         label="Correio" en="Mailing cut-off"
+                         title={`Próximo corte às ${fmtClock(correioMin)}`}/>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginTop: 18 }}>
-          <KPI label="Tempo total" en="Total time" value={fmtDur(pp.total_minutes)}/>
-          <KPI label="Pacotes" en="Packages" value={pp.orders}/>
-          <KPI label="Tempo/pacote" en="Per package" value={`${pp.seconds_per_order}s`}/>
+          <KPI label="Tempo total (união)" en="Wall time"
+               value={pp.total_minutes ? fmtDur(pp.total_minutes) : '—'}
+               foot={<div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                 {liveCount > 0 ? `${liveCount} live` : 'sem live'}
+               </div>}/>
+          <KPI label="Ordens" en="Orders"
+               value={pp.orders ? pp.orders.toLocaleString() : '—'}/>
+          <KPI label="Tempo/ordem" en="Per order"
+               value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
         </div>
         <div className="section-title" style={{ marginTop: 14 }}>
-          <h2>Sub-passos</h2><span className="en">· Steps</span><div className="rule"/>
+          <h2>Sub-passos</h2><span className="en">· Steps (union wall-time)</span><div className="rule"/>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {[
-            { name: "Impressão de Ordens", en: "Order printing", dur: 20, done: true },
-            { name: "Etiquetagem", en: "Labeling", dur: 105, done: true },
-            { name: "Empacotamento", en: "Packaging", dur: 65, done: false },
-            { name: "Picking final", en: "Final picking", dur: 20, done: false },
-          ].map(s => (
-            <div key={s.name} className="alert-row" style={{ background: "var(--surface-2)" }}>
-              <div className="ico">{s.done ? <span style={{ color: "var(--hf-leaf-500)" }}>✓</span> : <Icon name="clock" size={14}/>}</div>
-              <div>
-                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name} <span style={{ color: "var(--text-3)", fontSize: 11, fontWeight: 500 }}>· {s.en}</span></div>
-                <div style={{ fontSize: 11.5, color: "var(--text-3)" }} className="mono">{fmtDur(s.dur)}</div>
-              </div>
-              <span className={`pill ${s.done ? "ok" : "prod"}`}><span className="dot"/>{s.done ? "feito" : "em curso"}</span>
+          {subSteps.length === 0 ? (
+            <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 13 }}>
+              Nenhum sub-passo de P&P registrado em {date || 'hoje'}.
             </div>
-          ))}
+          ) : subSteps.map((s) => {
+            const wallMin = Math.round((s.wall_seconds || 0) / 60);
+            const sumMin = Math.round((s.seconds || 0) / 60);
+            const cowork = sumMin > wallMin;   // pessoa-hora > parede → houve cowork
+            return (
+              <div key={s.activity} className="alert-row" style={{ background: "var(--surface-2)" }}>
+                <div className="ico"><Icon name="clock" size={14}/></div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.activity}</div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-3)" }} className="mono">
+                    parede {fmtDur(wallMin)}{cowork && <> · pessoa-hora {fmtDur(sumMin)} <span style={{ color: 'var(--hf-leaf-600)' }}>(cowork)</span></>}
+                  </div>
+                </div>
+                <span className="pill prod"><span className="dot"/>{fmtDur(wallMin)}</span>
+              </div>
+            );
+          })}
         </div>
+        {personSeconds.length > 0 && (
+          <>
+            <div className="section-title" style={{ marginTop: 14 }}>
+              <h2>Carga por pessoa</h2><span className="en">· Person-hour load</span><div className="rule"/>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+              {personSeconds.sort((a, b) => b.seconds - a.seconds).map((ps) => (
+                <div key={ps.person} className="alert-row" style={{ background: 'var(--surface-2)' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{ps.person}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)' }} className="mono">{fmtDur(Math.round(ps.seconds / 60))}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {coworkEvents.length > 0 && (
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
+            🔗 {coworkEvents.length} event(s) com cowork ativo no P&P
+          </div>
+        )}
       </div>
     </div>
   );

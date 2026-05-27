@@ -252,17 +252,19 @@ function AuthedApp({ onLogout }) {
   };
   switch (route) {
     case "hoje":          pageNode = <CommandCenter {...pageProps}/>; break;
-    case "producao":      pageNode = <ProductionPage state={state}/>; break;
-    case "metas":         pageNode = <GoalsPage state={state}/>; break;
-    case "pessoas":       pageNode = <PeoplePage state={state}/>; break;
-    case "floor":         pageNode = <FloorDisplay state={state}/>; break;
-    case "pp":            pageNode = <PickPackPage state={state}/>; break;
-    case "suporte":       pageNode = <SupportPage state={state}/>; break;
-    case "produto":       pageNode = <ProductPage/>; break;
+    // E7-resto: todas as páginas operacionais recebem pageProps (hfdata real,
+    // raw snapshot, openPanel, ack). Antes só `state` era passado → mock-only.
+    case "producao":      pageNode = <ProductionPage {...pageProps}/>; break;
+    case "metas":         pageNode = <GoalsPage {...pageProps}/>; break;
+    case "pessoas":       pageNode = <PeoplePage {...pageProps}/>; break;
+    case "floor":         pageNode = <FloorDisplay {...pageProps}/>; break;
+    case "pp":            pageNode = <PickPackPage {...pageProps}/>; break;
+    case "suporte":       pageNode = <SupportPage {...pageProps}/>; break;
+    case "produto":       pageNode = <ProductPage {...pageProps}/>; break;
     case "falar":         pageNode = <FalarPage/>; break;
     case "planejamento":  pageNode = <PlanPage/>; break;
     case "carolina":      pageNode = <CarolinaPage/>; break;
-    case "config":        pageNode = <ConfigPage/>; break;
+    case "config":        pageNode = <ConfigPage {...pageProps}/>; break;
     default:              pageNode = <CommandCenter {...pageProps}/>;
   }
 
