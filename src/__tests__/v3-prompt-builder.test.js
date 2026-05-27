@@ -324,6 +324,15 @@ describe('E7-bloco-27 — regras 25-29 no systemPrompt', () => {
       expect(r.systemPrompt).toContain(n);
     }
   });
+
+  test('regra 30 — material_handling (carga/descarga de caminhão)', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('30.');
+    expect(r.systemPrompt).toContain('material_handling');
+    expect(r.systemPrompt).toContain('ajudando encher caminhão');
+    expect(r.systemPrompt).toContain('descarregando caminhão');
+    expect(r.systemPrompt).toContain('DIFERENTE de "dc_shipment"');
+  });
 });
 
 describe('V3 §2.7 — rankCorrections', () => {
