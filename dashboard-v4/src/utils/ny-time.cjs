@@ -60,4 +60,26 @@ function ymdDayOfWeek(ymd) {
   return d ? d.getDay() : null;
 }
 
-module.exports = { TZ, nyNowMinutes, nyToday, parseYmdLocal, shiftNyDate, ymdDayOfWeek };
+/** Offset NY pro dado dia ('-04:00' EDT ou '-05:00' EST). */
+function nyOffsetFor(ymd) {
+  if (typeof ymd !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return '-05:00';
+  // noon UTC do dia → cai sempre dentro do dia NY do mesmo y-m-d
+  const [y, m, d] = ymd.split('-').map(Number);
+  const noonUtc = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const tzName = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, timeZoneName: 'short',
+  }).formatToParts(noonUtc).find((p) => p.type === 'timeZoneName').value;
+  return tzName === 'EDT' ? '-04:00' : '-05:00';
+}
+
+/** Converte minuto-do-dia + YMD → ISO com offset NY: '2026-05-27T15:30:00-04:00'.
+ *  Usado pra construir started_at/ended_at no client antes de PATCH/POST. */
+function minutesToNyIso(ymd, minutes) {
+  if (minutes == null) return null;
+  const m = Math.max(0, Math.round(minutes));
+  const hh = String(Math.floor(m / 60) % 24).padStart(2, '0');
+  const mm = String(m % 60).padStart(2, '0');
+  return `${ymd}T${hh}:${mm}:00${nyOffsetFor(ymd)}`;
+}
+
+module.exports = { TZ, nyNowMinutes, nyToday, parseYmdLocal, shiftNyDate, ymdDayOfWeek, nyOffsetFor, minutesToNyIso };

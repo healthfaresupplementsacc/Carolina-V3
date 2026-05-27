@@ -101,10 +101,15 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
             <span className="dot"/>ao vivo · live
           </span>
         )}
-        {readOnly && (
+        {readOnly ? (
           <span className="pill" style={{ marginLeft: 8, background: "var(--surface-2)", color: "var(--text-3)" }}
-                title="V4_ALLOW_WRITES=0 — edição/drag/criar são só preview até E5/E6">
+                title="V4_ALLOW_WRITES=0 — edição/drag/criar são só preview">
             <span className="dot" style={{ background: "var(--text-3)" }}/>leitura · read-only
+          </span>
+        ) : (
+          <span className="pill" style={{ marginLeft: 8, background: "rgba(34,179,93,0.12)", color: "var(--hf-leaf-700)", borderColor: "rgba(34,179,93,0.32)" }}
+                title="V4_ALLOW_WRITES=1 — edits/drag/criar persistem em prod via PIN (auditados em v3.audit_log)">
+            <span className="dot" style={{ background: "var(--hf-leaf-500)" }}/>edição ativa · write
           </span>
         )}
       </div>

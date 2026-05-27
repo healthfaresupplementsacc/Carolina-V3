@@ -109,7 +109,7 @@ function ProductionPage({ state, hfdata, raw, openPanel, loading, error, date })
 // E7-resto Leva 2: ligada em hfdata.goals (adapted) + raw.goals.goals (cru).
 // hfdata.goals já tem pct/done/target/unit/completed/_product_name/_batch_number.
 // Edição preview: V4_ALLOW_WRITES=0 → save toasta liga-no-E5.
-function GoalsPage({ state, hfdata, ack, loading, error, date }) {
+function GoalsPage({ state, hfdata, ack, loading, error, date, writes, V4_ALLOW_WRITES, refresh }) {
   const HFD = hfdata || window.HFData;
   const { goals = [] } = HFD;
   const { fmtDur } = window.HFH;
@@ -161,7 +161,17 @@ function GoalsPage({ state, hfdata, ack, loading, error, date }) {
                   <span style={{ color: 'var(--warn)' }}>⚠ {dupCount} contagem(ns) duplicata(s) suspeita(s)</span>
                 )}
                 <span style={{ flex: 1 }}/>
-                <button className="btn sm ghost" onClick={() => ack && ack(`preview · PATCH /goals/${g.id} liga no E5`)}>
+                <button className="btn sm ghost" onClick={async () => {
+                  const v = window.prompt(`Nova meta pra ${g._product_name || '?'} (em ${g.unit || 'bottles'}):`, String(g.target || 500));
+                  if (v == null) return;
+                  const n = Number(v);
+                  if (!Number.isFinite(n) || n <= 0) { ack && ack('Valor inválido'); return; }
+                  if (!V4_ALLOW_WRITES || !writes) { ack && ack('preview · sem writes'); return; }
+                  const res = await writes.patchGoal(g.id, { expected_quantity: n });
+                  if (!res.ok) { ack && ack(`Erro: ${res.error.message || res.error}`); return; }
+                  if (refresh) refresh();
+                  ack && ack(`Salvo ✓ — meta ${g.id} = ${n}`);
+                }}>
                   <Icon name="edit" size={12}/>Editar
                 </button>
               </div>
@@ -649,7 +659,7 @@ function PlanPage()     { return <PlaceholderPage icon="plan"    pt="Planejament
 
 // ============ Config (E7-resto Leva 3) ============
 // CRUD de deadlines (preview · liga no E5). Lista os reais do backend.
-function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES }) {
+function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES, writes, refresh }) {
   const deadlines = (raw && raw.deadlines && raw.deadlines.deadlines) || [];
   const { fmtMinutes } = window.HFH || {};
   if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando configurações…</div>;
@@ -667,7 +677,21 @@ function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES }) {
           <b style={{ fontSize: 13 }}>Deadlines (cortes)</b>
           <span style={{ fontSize: 11, color: 'var(--text-3)' }}>· {deadlines.length} ativo(s)</span>
           <span style={{ flex: 1 }}/>
-          <button className="btn sm primary" onClick={() => ackPreview('preview · POST /api/v3/data/deadlines liga no E5')}>
+          <button className="btn sm primary" onClick={async () => {
+            const label = window.prompt('Label do deadline (ex.: "Corte do correio"):');
+            if (!label) return;
+            const time = window.prompt('Horário HH:MM (24h NY):', '13:00');
+            if (!time || !/^\d{1,2}:\d{2}$/.test(time)) { ack('Horário inválido'); return; }
+            const flow = window.prompt('Flow (pnp | production | support | vazio):', 'pnp') || null;
+            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+            const res = await writes.createDeadline({
+              label, time_of_day: time + ':00', flow: flow || null,
+              kind: 'recurring', weekdays: [1, 2, 3, 4, 5], active: true,
+            });
+            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+            if (refresh) refresh();
+            ack(`Deadline criado ✓ — ${label} ${time}`);
+          }}>
             + Adicionar
           </button>
         </div>
@@ -690,10 +714,25 @@ function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES }) {
                     {!d.active && <span style={{ color: 'var(--bad)', marginLeft: 6 }}>(inativo)</span>}
                   </div>
                 </div>
-                <button className="icon-btn" onClick={() => ackPreview(`preview · PATCH /deadlines/${d.id} liga no E5`)} title="Editar">
+                <button className="icon-btn" onClick={async () => {
+                  const time = window.prompt(`Novo horário HH:MM (24h NY) pra "${d.label}":`, (d.time_of_day || '').slice(0, 5));
+                  if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return;
+                  if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                  const res = await writes.patchDeadline(d.id, { time_of_day: time + ':00' });
+                  if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                  if (refresh) refresh();
+                  ack(`Salvo ✓ — ${d.label} ${time}`);
+                }} title="Editar horário">
                   <Icon name="edit" size={12}/>
                 </button>
-                <button className="icon-btn" onClick={() => ackPreview(`preview · DELETE /deadlines/${d.id} liga no E5`)} title="Apagar">
+                <button className="icon-btn" onClick={async () => {
+                  if (!window.confirm(`Apagar deadline "${d.label}"?`)) return;
+                  if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                  const res = await writes.deleteDeadline(d.id);
+                  if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                  if (refresh) refresh();
+                  ack(`Apagado ✓ — deadline ${d.id}`);
+                }} title="Apagar">
                   <Icon name="trash" size={12}/>
                 </button>
               </div>

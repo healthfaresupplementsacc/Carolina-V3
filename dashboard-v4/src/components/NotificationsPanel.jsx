@@ -47,11 +47,13 @@ function worstSeverity(items) {
 
 export function NotificationsCard({
   notifs,
-  visibleThreshold,                                       // gaps < isso ficam ocultos no card mas existem em allNotifs
-  openNotifId, onNotifClick,                              // controlled by parent (toggle/lift)
-  pendingDrafts, onDraftChange, onDraftClear,             // controlled by parent (pending edits)
+  visibleThreshold,
+  openNotifId, onNotifClick,
+  pendingDrafts, onDraftChange, onDraftClear,
   gearOpen, onGear, onCloseGear, ack, operators = [], events = [],
   GearButton, EditPopover, EditList, V4_ALLOW_WRITES,
+  onCreateInGap,                  // (E5) cria event retroativo no gap
+  writes,                         // (E5) wrapper de write helpers (correio PATCH)
 }) {
   const [expandedKey, setExpandedKey] = React.useState(null);   // grupo aberto (#5)
 
@@ -148,6 +150,8 @@ export function NotificationsCard({
           onSaved={() => { if (onDraftClear) onDraftClear(openNotif.id); if (onNotifClick) onNotifClick(openNotif.id); }}
           ack={ack}
           V4_ALLOW_WRITES={V4_ALLOW_WRITES}
+          onCreateInGap={onCreateInGap}
+          writes={writes}
         />
       )}
     </div>
@@ -240,7 +244,7 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle, op
    justificar/ajustar adjacentes — preview-only enquanto V4_ALLOW_WRITES=0.
    E7-refine2 #4: pending — recebe `pending` (draft anterior) e chama
    onDraftChange a cada digitação. Se fechar mid-edit, parent guarda. */
-function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose, onSaved, ack, V4_ALLOW_WRITES }) {
+function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose, onSaved, ack, V4_ALLOW_WRITES, onCreateInGap, writes }) {
   const type = typeOf(notif);
   const op = notif._op ? operators.find((o) => o.id === notif._op) : null;
   const { fmtClock, fmtDur } = window.HFH;
@@ -291,14 +295,28 @@ function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose
     { value: 'outro',     label: 'Outro motivo' },
   ];
 
-  const onPreview = () => {
-    if (type === 'gap') {
-      ack(`preview · justificar gap ${op?.name || '?'} (${form.reasonCat}) — POST /events/${linkedEvents?.before?.id}/justify liga no E5`);
-    } else if (type === 'correio') {
-      ack(`preview · correio → ${form.correioLabel} ${form.correioTime} — PATCH /deadlines/${notif._deadline_id || '?'} liga no E5`);
-    } else {
-      ack(`preview · resolver ${notif.title} — liga no E5`);
+  const onPreview = async () => {
+    // E5 — chamadas reais. V4_ALLOW_WRITES=0 cai no fallback preview-only.
+    if (type === 'gap' && onCreateInGap && V4_ALLOW_WRITES) {
+      const gap = { start: notif._start, end: notif._end, dur: notif._dur_min || (notif._end - notif._start) };
+      await onCreateInGap(notif._op, gap, { reasonCat: form.reasonCat, note: form.reason });
+      if (onSaved) onSaved();
+      return;
     }
+    if (type === 'correio' && writes && V4_ALLOW_WRITES) {
+      // PATCH /deadlines/:id
+      const [h, m] = String(form.correioTime).split(':').map(Number);
+      const time_of_day = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+      const res = await writes.patchDeadline(notif._deadline_id, { time_of_day, label: form.correioLabel });
+      if (!res.ok) { ack(`Erro correio: ${res.error.message || res.error}`); return; }
+      ack(`Correio atualizado ✓ ${form.correioTime}`);
+      if (onSaved) onSaved();
+      return;
+    }
+    // Fallback (read-only OU outros tipos sem ação ainda)
+    if (type === 'gap') ack(`preview · justificar gap ${op?.name || '?'} (V4_ALLOW_WRITES=0)`);
+    else if (type === 'correio') ack(`preview · correio (V4_ALLOW_WRITES=0)`);
+    else ack(`preview · resolver ${notif.title}`);
     if (onSaved) onSaved();
   };
 

@@ -19,6 +19,8 @@ import { V4_ALLOW_WRITES } from './flags.js';
 
 // adapter API → HFData
 import { useSnapshotAsHFData, getPin, clearPin, useFetch, nyToday } from './adapters/from-api.js';
+// E5 — wrapper de writes (PATCH/POST/DELETE) auditados via PIN
+import * as writes from './adapters/writes.js';
 
 // PIN gate
 import { PinGate } from './components/PinGate.jsx';
@@ -184,12 +186,18 @@ function AuthedApp({ onLogout }) {
     };
   }, [panelEvent?.id]);
 
-  // Toast (one-shot)
+  // Toast — pode ser string (one-shot 2.6s) OU objeto { message, undo, ttlMs }.
   const [toast, setToast] = React.useState(null);
-  const ack = (msg) => {
+  const toastTimerRef = React.useRef(null);
+  const ack = React.useCallback((msg) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(msg);
-    setTimeout(() => setToast(null), 2600);
-  };
+    const isObj = msg && typeof msg === 'object';
+    const ttl = isObj && msg.ttlMs ? msg.ttlMs : 2600;
+    toastTimerRef.current = setTimeout(() => setToast(null), ttl);
+  }, []);
+  // Expoõe ack como global pra componentes profundos (ex: Timeline drag cancel)
+  React.useEffect(() => { window.HFV4_ack = ack; }, [ack]);
 
   // New event creator (preview até E5)
   const newEvent = () => {
@@ -209,34 +217,99 @@ function AuthedApp({ onLogout }) {
     if (!V4_ALLOW_WRITES) ack("modo leitura — novo registro é só preview");
   };
 
-  // Handlers (preview-only enquanto V4_ALLOW_WRITES=0)
-  const onUpdate = (next) => {
-    setState((s) => {
-      const exists = s.events.some((e) => e.id === next.id);
-      return {
-        ...s,
-        events: exists ? s.events.map((e) => e.id === next.id ? next : e) : [...s.events, next],
-      };
-    });
-    clearPending(next.id);
-    draftRef.current = null;
-    setPanelEvent(null);
-    setPanelPos(null);
+  // E5 — handlers que CHAMAM API REAL (PATCH/POST/DELETE).
+  // Auditado via PIN. Reversível (restore pra delete; reverter PATCH usa
+  // before_data do v3.audit_log; undo do toast usa restore endpoint).
+  const onUpdate = async (next) => {
+    if (!V4_ALLOW_WRITES) {
+      // Fallback: preview local (caso a flag seja revertida)
+      setState((s) => ({ ...s, events: s.events.map((e) => e.id === next.id ? next : e) }));
+      clearPending(next.id); draftRef.current = null;
+      setPanelEvent(null); setPanelPos(null);
+      ack(`preview ev${next.id} (V4_ALLOW_WRITES=0)`);
+      return;
+    }
+    // CREATE (id começa com "new-")
+    if (typeof next.id === 'string' && next.id.startsWith('new-')) {
+      const res = await writes.createEventFromV4(next, snapshot.hfdata, date);
+      if (!res.ok) { ack(`Erro ao criar: ${res.error.message || res.error}`); return; }
+      clearPending(next.id); draftRef.current = null;
+      setPanelEvent(null); setPanelPos(null);
+      setState((s) => ({ ...s, selectedEventId: null }));
+      snapshot.refresh();
+      ack(`Salvo ✓ — ev${res.data.id} criado`);
+      return;
+    }
+    // PATCH
+    const original = state.events.find((e) => e.id === next.id);
+    if (!original) { ack(`Evento ev${next.id} sumiu do estado — refresh`); snapshot.refresh(); return; }
+    const res = await writes.patchEventFromV4(next, original, snapshot.hfdata, date);
+    if (!res.ok) { ack(`Erro ao salvar: ${res.error.message || res.error}`); return; }
+    clearPending(next.id); draftRef.current = null;
+    setPanelEvent(null); setPanelPos(null);
     setState((s) => ({ ...s, selectedEventId: null }));
-    ack(V4_ALLOW_WRITES
-      ? `Evento ev${next.id} salvo`
-      : `preview ev${next.id} (não persistido — liga no E5)`);
+    if (res.data && res.data._noop) {
+      ack(`Sem mudanças em ev${next.id}`);
+    } else {
+      snapshot.refresh();
+      ack(`Salvo ✓ — ev${next.id}`);
+    }
   };
-  const onDelete = (ev) => {
-    setState((s) => ({ ...s, events: s.events.filter((e) => e.id !== ev.id) }));
-    clearPending(ev.id);
-    draftRef.current = null;
-    setPanelEvent(null);
-    setPanelPos(null);
+
+  const onDelete = async (ev) => {
+    if (!V4_ALLOW_WRITES) {
+      setState((s) => ({ ...s, events: s.events.filter((e) => e.id !== ev.id) }));
+      clearPending(ev.id); draftRef.current = null;
+      setPanelEvent(null); setPanelPos(null);
+      ack(`preview ev${ev.id} oculto (V4_ALLOW_WRITES=0)`);
+      return;
+    }
+    if (!window.confirm(`Apagar ev${ev.id}? (reversível pelo botão Desfazer no toast)`)) return;
+    const res = await writes.deleteEvent(ev.id, 'apagado pelo admin via /dashboard-v4', null);
+    if (!res.ok) { ack(`Erro ao apagar: ${res.error.message || res.error}`); return; }
+    clearPending(ev.id); draftRef.current = null;
+    setPanelEvent(null); setPanelPos(null);
     setState((s) => ({ ...s, selectedEventId: null }));
-    ack(V4_ALLOW_WRITES
-      ? `Evento ev${ev.id} apagado`
-      : `preview ev${ev.id} oculto (não persistido — liga no E5)`);
+    snapshot.refresh();
+    // Toast com Desfazer (6s) — POST /events/:id/restore
+    ack({
+      message: `Apagado ev${ev.id}`,
+      undo: async () => {
+        const r = await writes.restoreEvent(ev.id, null);
+        if (r.ok) { snapshot.refresh(); ack(`Restaurado ev${ev.id} ✓`); }
+        else ack(`Erro ao restaurar: ${r.error.message || r.error}`);
+      },
+      ttlMs: 6000,
+    });
+  };
+
+  // Merge — chamado pelo CommandCenter (drag-on-block ou ação manual)
+  const onMerge = async (eventIds) => {
+    if (!V4_ALLOW_WRITES) { ack('merge preview (V4_ALLOW_WRITES=0)'); return; }
+    if (!Array.isArray(eventIds) || eventIds.length < 2) { ack('merge: precisa de ≥ 2 events'); return; }
+    if (!window.confirm(`Juntar events [${eventIds.join(', ')}]? Permanente após confirmação (audit grava).`)) return;
+    const res = await writes.mergeEvents(eventIds, null);
+    if (!res.ok) { ack(`Erro merge: ${res.error.message || res.error}`); return; }
+    snapshot.refresh();
+    ack(`Merge ✓ — events [${eventIds.join(', ')}] fundidos`);
+  };
+
+  // Split — chamado pelo CommandCenter (modal datetime-local)
+  const onSplit = async (id, splitAtIso) => {
+    if (!V4_ALLOW_WRITES) { ack('split preview (V4_ALLOW_WRITES=0)'); return; }
+    const res = await writes.splitEvent(id, splitAtIso, null);
+    if (!res.ok) { ack(`Erro split: ${res.error.message || res.error}`); return; }
+    snapshot.refresh();
+    ack(`Split ✓ — ev${id} dividido em ${splitAtIso}`);
+  };
+
+  // Cria event num gap (regra E5 #4: justificar gap = criar tarefa retroativa)
+  const onCreateInGap = async (opId, gap, formOpts) => {
+    if (!V4_ALLOW_WRITES) { ack('gap preview (V4_ALLOW_WRITES=0)'); return; }
+    const res = await writes.createEventInGap(gap, opId, snapshot.hfdata, date, formOpts || {});
+    if (!res.ok) { ack(`Erro criar event no gap: ${res.error.message || res.error}`); return; }
+    snapshot.refresh();
+    ack(`Salvo ✓ — gap virou ev${res.data.id}`);
   };
 
   const toggleTheme = () => setTweak("theme", tweaks.theme === "dark" ? "light" : "dark");
@@ -250,6 +323,9 @@ function AuthedApp({ onLogout }) {
     raw: snapshot.raw,        // E7-refine2: usado pra acessar deadlines raw (correio)
     date,
     V4_ALLOW_WRITES,          // E7-resto Leva 3: ConfigPage usa pra disclaimer
+    // E5 — writes reais (todos auditados via PIN, reversíveis)
+    onMerge, onSplit, onCreateInGap,
+    writes,                   // exposição direta pra pages com edição (Goals, Config, Counts)
   };
   switch (route) {
     case "hoje":          pageNode = <CommandCenter {...pageProps}/>; break;
@@ -320,9 +396,17 @@ function AuthedApp({ onLogout }) {
         <div style={{ position: "fixed", bottom: 22, right: 22, padding: "10px 16px", borderRadius: 12,
           background: "var(--hf-navy-700)", color: "#fff", boxShadow: "var(--shadow-lg)",
           fontSize: 13, fontWeight: 600, zIndex: 200,
-          display: "flex", alignItems: "center", gap: 8, animation: "slidein 0.18s ease" }}>
+          display: "flex", alignItems: "center", gap: 10, animation: "slidein 0.18s ease" }}>
           <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--hf-leaf-400)" }}/>
-          {toast}
+          <span>{typeof toast === 'string' ? toast : toast.message}</span>
+          {typeof toast === 'object' && toast.undo && (
+            <button onClick={() => { const u = toast.undo; setToast(null); u(); }}
+                    style={{ marginLeft: 4, padding: '4px 10px', borderRadius: 8,
+                             background: 'var(--hf-leaf-500)', color: '#fff', border: 'none',
+                             fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
+              Desfazer
+            </button>
+          )}
         </div>
       )}
     </div>

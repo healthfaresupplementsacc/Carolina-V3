@@ -11,11 +11,13 @@ import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import nyTime from '../utils/ny-time.cjs';
 
 const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só editáveis via expand
 const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
 
-function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw }) {
+function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw,
+                          onMerge, onSplit, onCreateInGap, writes }) {
   const now = window.HFH.useNow(true);
   const HFD = hfdata || window.HFData;
   const { operators = [], goals = [], alerts = [], pp = {}, _gaps = {} } = HFD;
@@ -132,19 +134,30 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const badCount = allNotifs.filter((a) => a.severity === 'bad').length;
   const infoCount = allNotifs.filter((a) => a.severity === 'info').length;
 
-  // ── Handlers preview ─────────────────────────────────────
-  const updateEvent = (id, patch) => {
+  // ── Handlers — E5: API real ──────────────────────────────
+  // Drag horizontal/resize → PATCH /events/:id (started_at e/ou ended_at).
+  // Drag vertical (mudar lane) já foi BLOQUEADO no Timeline.
+  const updateEvent = async (id, patch) => {
+    // Feedback otimista local (UI move imediato, refresh confirma)
     setState((s) => ({ ...s, events: s.events.map((e) => e.id === id ? { ...e, ...patch } : e) }));
+    if (!V4_ALLOW_WRITES || !writes) return;
+    const changes = {};
+    if (patch.started_min != null) changes.started_at = nyTime.minutesToNyIso(date, patch.started_min);
+    if ('ended_min' in patch) changes.ended_at = patch.ended_min == null ? null : nyTime.minutesToNyIso(date, patch.ended_min);
+    if (Object.keys(changes).length === 0) return;
+    const res = await writes.patchEvent(id, changes, 'drag/resize via /dashboard-v4');
+    if (!res.ok) {
+      ack(`Erro ao salvar: ${res.error.message || res.error}`);
+      if (refresh) refresh();   // reverte UI pro estado do servidor
+      return;
+    }
+    if (refresh) refresh();
+    ack(`Salvo ✓ — ev${id} horário ajustado`);
   };
+  // Merge-on-drop: confirmação + chamada onMerge real
   const mergeRequest = (idA, idB) => {
-    const evA = state.events.find((e) => e.id === idA);
-    const evB = state.events.find((e) => e.id === idB);
-    if (!evA || !evB) return;
-    if (!window.confirm(`Juntar ev${idA} com ev${idB}? (preview — não persiste)`)) return;
-    const start = Math.min(evA.started_min, evB.started_min);
-    const end = (evA.ended_min == null || evB.ended_min == null) ? null : Math.max(evA.ended_min, evB.ended_min);
-    setState((s) => ({ ...s, events: s.events.filter((e) => e.id !== idB).map((e) => e.id === idA ? { ...e, started_min: start, ended_min: end } : e) }));
-    ack(`merge preview ev${idA}+${idB}`);
+    if (!onMerge) return;
+    onMerge([idA, idB]);
   };
 
   // ── Loading / erro fatal ─────────────────────────────────
@@ -203,9 +216,27 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                               label: `${g._product_name || '(?)'} · ${g.done} ${g.unit}`,
                             }))}
                           emptyMsg="Sem contagens registradas hoje"
-                          onAdd={() => ack('preview · POST /counts liga no E5')}
-                          onEdit={(it) => ack(`preview · PATCH /counts/${it.id} liga no E5`)}
-                          onDelete={(it) => ack(`preview · DELETE /counts/${it.id} liga no E5`)}/>
+                          onAdd={() => ack('Counts são geradas pela captura; não é possível adicionar manualmente')}
+                          onEdit={async (it) => {
+                            const cur = topLotes.find((g) => g.id === it.id);
+                            const v = window.prompt(`Novo total de garrafas pra ${cur?._product_name || '?'}:`, String(cur?.done || 0));
+                            if (v == null) return;
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n < 0) { ack('Valor inválido'); return; }
+                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                            const res = await writes.patchCount(it.id, n);
+                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                            if (refresh) refresh();
+                            ack(`Salvo ✓ — contagem ev${it.id} = ${n}`);
+                          }}
+                          onDelete={async (it) => {
+                            if (!window.confirm(`Apagar contagem ${it.label}?`)) return;
+                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                            const res = await writes.deleteCount(it.id, 'apagado via /dashboard-v4');
+                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                            if (refresh) refresh();
+                            ack(`Apagado ✓ — contagem ${it.id}`);
+                          }}/>
                </EditPopover>
              </>}/>
 
@@ -236,9 +267,37 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                               label: `${g._product_name || '(?)'} · ${g.target} ${g.unit} (feito ${g.done})`,
                             }))}
                           emptyMsg="Sem metas registradas"
-                          onAdd={() => ack('preview · POST /goals liga no E5')}
-                          onEdit={(it) => ack(`preview · PATCH /goals/${it.id} liga no E5`)}
-                          onDelete={(it) => ack(`preview · DELETE /goals/${it.id} liga no E5`)}/>
+                          onAdd={async () => {
+                            const product = window.prompt('Nome do produto (será resolvido pelo catálogo):');
+                            if (!product) return;
+                            const qty = Number(window.prompt('Meta (garrafas):', '500'));
+                            if (!Number.isFinite(qty) || qty <= 0) { ack('Quantidade inválida'); return; }
+                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                            const res = await writes.createGoal({ product_id: null, batch_number: null, expected_quantity: qty, unit: 'bottle' });
+                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error} — passa product_id direto via terminal se preciso`); return; }
+                            if (refresh) refresh();
+                            ack(`Meta criada ✓ — id ${res.data.id}`);
+                          }}
+                          onEdit={async (it) => {
+                            const cur = goals.find((g) => g.id === it.id);
+                            const v = window.prompt(`Nova meta pra ${cur?._product_name || '?'} (em garrafas):`, String(cur?.target || 500));
+                            if (v == null) return;
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n <= 0) { ack('Valor inválido'); return; }
+                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                            const res = await writes.patchGoal(it.id, { expected_quantity: n });
+                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                            if (refresh) refresh();
+                            ack(`Salvo ✓ — meta ${it.id} = ${n}`);
+                          }}
+                          onDelete={async (it) => {
+                            if (!window.confirm(`Apagar meta ${it.label}?`)) return;
+                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                            const res = await writes.deleteGoal(it.id, 'apagado via /dashboard-v4');
+                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                            if (refresh) refresh();
+                            ack(`Apagado ✓ — meta ${it.id}`);
+                          }}/>
                </EditPopover>
              </>}/>
 
@@ -286,6 +345,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         EditPopover={EditPopover}
         EditList={EditList}
         V4_ALLOW_WRITES={V4_ALLOW_WRITES}
+        onCreateInGap={onCreateInGap}
+        writes={writes}
       />
 
       {/* ── Filters ─────────────────────────────────────────── */}

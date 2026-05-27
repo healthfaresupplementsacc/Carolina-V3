@@ -93,15 +93,22 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
         setDrag(null);
         return;
       }
-      // Apply update.
-      // E0 (mock): onUpdateEvent só mexe em state local — sem fetch, sem risco.
-      // E5/E6: este callsite vira PATCH /events/:id e DEVE checar V4_ALLOW_WRITES
-      // (./flags.js) — quando 0, drag só atualiza preview sem persistir.
-      const newOp = operators[d.newOpIdx ?? d.origOpIdx].id;
+      // E5 — drag vertical (trocar pessoa) está BLOQUEADO. Se o drag mudou
+      // de lane SEM ser merge, cancela com aviso. Admin troca pessoa via
+      // drawer (painel flutuante), não por gesto. Horário e resize ficam OK.
+      const newOpIdx = d.newOpIdx ?? d.origOpIdx;
+      if (newOpIdx !== d.origOpIdx && d.mode === 'body') {
+        // Tava arrastando pra outra lane — cancela
+        if (typeof window !== 'undefined' && window.HFV4_ack) {
+          window.HFV4_ack('Trocar pessoa: use o painel de edição (clique no bloco). Drag entre lanes desativado.');
+        }
+        setDrag(null);
+        return;
+      }
+      // OK: aplica horário/resize na mesma lane (mantém op)
       onUpdateEvent && onUpdateEvent(d.id, {
         started_min: d.newStart,
         ended_min: d.newEnd,
-        op: newOp,
       });
       setDrag(null);
     }
