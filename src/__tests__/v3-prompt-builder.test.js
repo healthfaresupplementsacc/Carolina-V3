@@ -259,6 +259,34 @@ describe('V3 §2.7 — autor', () => {
   });
 });
 
+describe('E7-bloco — regras 23 e 24 no systemPrompt', () => {
+  test('regra 23 — troca de linha = manutenção/setup + cowork', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('TROCA DE LINHA');
+    expect(r.systemPrompt).toContain('line_changeover');
+    expect(r.systemPrompt).toContain('NÃO classifique como "organization"');
+    expect(r.systemPrompt).toContain('NÃO crie evento separado');
+    expect(r.systemPrompt).toContain('cowork_with=[Bruno]');
+  });
+
+  test('regra 24 — atividade não reconhecida registra com uncertain=true', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    expect(r.systemPrompt).toContain('ATIVIDADE NÃO RECONHECIDA');
+    expect(r.systemPrompt).toContain('activity_type_id = null');
+    expect(r.systemPrompt).toContain('uncertain = true');
+    expect(r.systemPrompt).toContain('atividade nova');
+    expect(r.systemPrompt).toContain('NUNCA descarte trabalho');
+    expect(r.systemPrompt).toContain('descarregou os caminhões');
+  });
+
+  test('regras 19-24 estão TODAS presentes (regressão)', async () => {
+    const r = await new PromptBuilder({ db: makeFakeDb() }).buildContext(MSG, { author: AUTHOR });
+    for (const n of ['19.', '20.', '21.', '22.', '23.', '24.']) {
+      expect(r.systemPrompt).toContain(n);
+    }
+  });
+});
+
 describe('V3 §2.7 — rankCorrections', () => {
   test('ordena por nº de keywords batendo e respeita o limite', () => {
     const corr = [
