@@ -11,21 +11,35 @@ import { OperatorAvatar } from '../components/Primitives.jsx';
    Footer with day summary + clock + deadline.
 */
 
-function FloorDisplay({ state }) {
+// E7-resto Leva 3: ligada em hfdata + state real. Admins filtrados pelo adapter.
+// TV mode — cards grandes, dado real, sem mocks (totals hardcoded REMOVIDOS).
+function FloorDisplay({ state, hfdata, raw, loading, date }) {
   const now = window.HFH.useNow(true);
-  const { operators, activities, products, DEADLINE_MIN } = window.HFData;
+  const HFD = hfdata || window.HFData;
+  const { operators = [], activities = {}, products = {}, pp = {} } = HFD;
   const { fmtClock, fmtCron, fmtDur, fmtClockShort } = window.HFH;
   const events = state.events;
 
   const byOp = {};
   for (const ev of events) (byOp[ev.op] = byOp[ev.op] || []).push(ev);
 
-  const totalOrdersToday = 475;
-  const totalBottlesToday = 1230;
+  // Totais REAIS — totalBottles via raw.counts.totals_by_product; totalOrders via pp.orders
+  const countsRaw = (raw && raw.counts) || {};
+  const totalsByProduct = countsRaw.totals_by_product || {};
+  const totalBottlesToday = Object.values(totalsByProduct).reduce((s, n) => s + (Number(n) || 0), 0);
+  const totalOrdersToday = pp.orders || 0;
+  const deadlineMin = pp.deadline_min;
 
-  // Real clock
-  const realTime = new Date();
-  const realClock = realTime.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  // Real clock (wall clock NY)
+  const realClock = (function () {
+    try {
+      return new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+    } catch { return '--:--'; }
+  })();
+
+  if (loading) {
+    return <div className="fd-shell"><div className="card" style={{ padding: 60, textAlign: 'center', color: '#d2f5e0' }}>Carregando…</div></div>;
+  }
 
   return (
     <div className="fd-shell">
@@ -39,7 +53,7 @@ function FloorDisplay({ state }) {
           </div>
           <div>
             <div className="fd-brand-name">HealthFare · Painel da Fábrica</div>
-            <div className="fd-brand-sub">Floor Display · Live · {operators.length} operadores</div>
+            <div className="fd-brand-sub">Floor Display · Live · {operators.length} operador(es) · {date || 'hoje'}</div>
           </div>
         </div>
         <div style={{ flex: 1 }}/>
@@ -52,9 +66,17 @@ function FloorDisplay({ state }) {
       </div>
 
       <div className="fd-grid">
+        {operators.length === 0 && (
+          <div className="card" style={{ padding: 30, textAlign: 'center', color: '#d2f5e0', gridColumn: '1 / -1' }}>
+            Sem operadores postando em {date || 'hoje'}.
+          </div>
+        )}
         {operators.map(op => {
           const opEvents = (byOp[op.id] || []).slice().sort((a,b) => a.started_min - b.started_min);
-          const live = opEvents.find(e => e.ended_min == null);
+          // Live: prefere foreground sobre background pra "agora"
+          const liveFg = opEvents.find(e => e.ended_min == null && !e._is_background);
+          const liveBg = opEvents.find(e => e.ended_min == null && e._is_background);
+          const live = liveFg || liveBg;
           const past = opEvents.filter(e => e.ended_min != null).slice(-3).reverse();
           const current = live || opEvents[opEvents.length - 1];
           const isLive = !!live;
@@ -82,7 +104,14 @@ function FloorDisplay({ state }) {
                 {prod && (
                   <div className="product">
                     <Leaf size={10} color="var(--hf-leaf-400)" style={{ marginRight: 4, verticalAlign: "middle" }}/>
-                    {prod.name} <span style={{ opacity: 0.55, fontFamily: "JetBrains Mono, monospace" }}>· {prod.batch}</span>
+                    {prod.name} {prod.batch && <span style={{ opacity: 0.55, fontFamily: "JetBrains Mono, monospace" }}>· {prod.batch}</span>}
+                  </div>
+                )}
+                {/* Background paralelo — se a pessoa tem fg E bg, mostra o bg como secondary */}
+                {liveFg && liveBg && (
+                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.7 }}>
+                    + bg: {activities[liveBg.activity]?.name || liveBg.activity}
+                    {liveBg.product && products[liveBg.product] && ` · ${products[liveBg.product].name}`}
                   </div>
                 )}
                 {current && current.cowork && current.cowork.length > 0 && (
@@ -105,11 +134,12 @@ function FloorDisplay({ state }) {
                 )}
                 {past.map(ev => {
                   const a = activities[ev.activity];
+                  const pName = ev.product ? products[ev.product]?.name : null;   // safe
                   return (
                     <div key={ev.id} className={`row flow-${a?.flow || "support"}`}>
                       <span className="clk">{fmtClockShort(ev.started_min)}</span>
                       <span className="bullet"/>
-                      <span className="ac">{a?.name}{ev.product ? ` · ${products[ev.product].name}` : ""}</span>
+                      <span className="ac">{a?.name || '?'}{pName ? ` · ${pName}` : ""}</span>
                       <span className="d">{fmtDur(ev.ended_min - ev.started_min)}</span>
                     </div>
                   );
@@ -125,7 +155,9 @@ function FloorDisplay({ state }) {
         <span className="pill"><Icon name="pp" size={11}/>Ordens · Orders: <b style={{ marginLeft: 4 }}>{totalOrdersToday}</b></span>
         <span className="pill live"><span className="dot"/>{operators.filter(o => (byOp[o.id] || []).some(e => e.ended_min == null)).length} ao vivo · live</span>
         <span style={{ flex: 1 }}/>
-        <span className="pill"><Icon name="clock" size={11}/>Correio em <b style={{ marginLeft: 4 }} className="mono">{fmtDur(Math.max(0, DEADLINE_MIN - now))}</b></span>
+        {deadlineMin != null && (
+          <span className="pill"><Icon name="clock" size={11}/>Correio em <b style={{ marginLeft: 4 }} className="mono">{fmtDur(Math.max(0, deadlineMin - now))}</b></span>
+        )}
       </div>
     </div>
   );

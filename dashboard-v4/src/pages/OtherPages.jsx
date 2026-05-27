@@ -502,10 +502,219 @@ function SupportPage({ state, hfdata, raw, openPanel, loading, date }) {
 const th = { padding: "10px 14px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--text-3)", fontWeight: 700 };
 const td = { padding: "12px 14px", fontSize: 13 };
 
-function ProductPage()  { return <PlaceholderPage icon="product" pt="Produto" en="Product" subtitle="Histórico por produto + contagens. Em construção nesta versão do mockup — Claude Code pode editar baseado nas necessidades."/>; }
+// ============ Produto (E7-resto Leva 3) ============
+// Lista produtos do catálogo + agrega events do dia por produto.
+// Counts do dia: raw.counts (vem do production_counts).
+function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
+  const HFD = hfdata || window.HFData;
+  const { products = {}, activities = {}, operators = [] } = HFD;
+  const catalogProducts = (raw && raw.products) || [];
+  const countsRaw = (raw && raw.counts) || {};
+  const { fmtDur, fmtClock } = window.HFH;
+  const now = window.HFH.useNow(true);
+  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando produtos…</div>;
+
+  // Agrega events por product key (b<batch_id>)
+  const eventsByProduct = {};
+  for (const ev of state.events) {
+    if (!ev.product) continue;
+    (eventsByProduct[ev.product] = eventsByProduct[ev.product] || []).push(ev);
+  }
+  // Produtos com atividade hoje
+  const activeProductKeys = Object.keys(eventsByProduct);
+  const activeProducts = activeProductKeys.map((k) => {
+    const p = products[k] || {};
+    const evs = eventsByProduct[k].slice().sort((a, b) => a.started_min - b.started_min);
+    const totalMin = evs.reduce((s, e) => {
+      const end = e.ended_min == null ? now : e.ended_min;
+      return s + (end - e.started_min);
+    }, 0);
+    const phases = Array.from(new Set(evs.map((e) => activities[e.activity]?.name || e.activity)));
+    const crew = Array.from(new Set([
+      ...evs.map((e) => e.op),
+      ...evs.flatMap((e) => e.cowork || []),
+    ]));
+    const liveCount = evs.filter((e) => e.ended_min == null).length;
+    return { key: k, product: p, events: evs, totalMin: Math.round(totalMin), phases, crew, liveCount };
+  }).sort((a, b) => b.totalMin - a.totalMin);
+
+  // Counts totals (totals_by_product do backend)
+  const totalsByProduct = countsRaw.totals_by_product || {};
+  const countsRows = countsRaw.counts || countsRaw.rows || [];
+
+  return (
+    <div>
+      <div className="section-title">
+        <Leaf size={14} color="var(--hf-leaf-500)"/>
+        <h2>Produtos do dia</h2><span className="en">· Today's products</span>
+        <div className="rule"/>
+      </div>
+      {activeProducts.length === 0 && (
+        <div className="card" style={{ padding: 30, color: 'var(--text-3)', textAlign: 'center' }}>
+          Nenhum produto com atividade em {date || 'hoje'}.
+        </div>
+      )}
+      {activeProducts.map((ap) => (
+        <div key={ap.key} className="card lote-card" style={{ marginBottom: 12 }}>
+          <div className="head">
+            <Leaf size={16} color="var(--hf-leaf-500)"/>
+            <h3>{ap.product.name || '(?)'}</h3>
+            {ap.product.batch && <span className="batch mono">{ap.product.batch}</span>}
+            {ap.liveCount > 0 && <span className="pill live" style={{ marginLeft: 6 }}><span className="dot"/>{ap.liveCount} live</span>}
+            <span style={{ flex: 1 }}/>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {ap.crew.slice(0, 5).map((cwId) => {
+                const o = operators.find((x) => x.id === cwId);
+                return o ? <OperatorAvatar key={cwId} op={o} size="md"/> : null;
+              })}
+            </div>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-3)', flexWrap: 'wrap' }}>
+            <span>Tempo total · <b className="mono" style={{ color: 'var(--text-2)' }}>{fmtDur(ap.totalMin)}</b></span>
+            <span>Eventos · <b style={{ color: 'var(--text-2)' }}>{ap.events.length}</b></span>
+            <span>Fases · <b style={{ color: 'var(--text-2)' }}>{ap.phases.length}</b></span>
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {ap.phases.map((ph) => (
+              <span key={ph} className="pill prod" style={{ fontSize: 11 }}><span className="dot"/>{ph}</span>
+            ))}
+          </div>
+          {ap.events.length > 0 && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+              <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.08, color: 'var(--text-3)', fontWeight: 700, marginBottom: 6 }}>
+                Eventos do dia
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {ap.events.map((ev) => {
+                  const op = operators.find((o) => o.id === ev.op);
+                  const act = activities[ev.activity];
+                  const end = ev.ended_min == null ? now : ev.ended_min;
+                  return (
+                    <button key={ev.id} onClick={(e) => openPanel && openPanel(ev, { x: e.clientX, y: e.clientY })}
+                            style={{
+                              display: 'grid', gridTemplateColumns: '110px 80px 1fr 60px', gap: 8,
+                              alignItems: 'center', padding: '6px 8px', borderRadius: 6,
+                              border: '1px solid var(--border)', background: 'var(--surface)',
+                              cursor: 'pointer', font: 'inherit', fontSize: 12, textAlign: 'left',
+                            }}>
+                      <span className="mono" style={{ color: 'var(--text-3)' }}>
+                        {fmtClock(ev.started_min)} → {ev.ended_min == null ? 'live' : fmtClock(ev.ended_min)}
+                      </span>
+                      <span>{op?.short || '?'}</span>
+                      <span style={{ color: 'var(--text-2)' }}>
+                        {act?.name || ev.activity}
+                        {ev._is_background && <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 6 }}>· bg</span>}
+                      </span>
+                      <span className="mono" style={{ color: 'var(--text-3)', textAlign: 'right' }}>{fmtDur(end - ev.started_min)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {ap.product._product_id && totalsByProduct[ap.product._product_id] != null && (
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
+              📦 Contagens registradas (today) · <b className="mono" style={{ color: 'var(--text-2)' }}>{totalsByProduct[ap.product._product_id]}</b>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Catálogo expandido: produtos sem atividade hoje */}
+      {catalogProducts.length > 0 && (
+        <>
+          <div className="section-title" style={{ marginTop: 24 }}>
+            <Leaf size={14} color="var(--hf-leaf-500)"/>
+            <h2>Catálogo</h2><span className="en">· All products</span>
+            <div className="rule"/>
+          </div>
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>
+              {catalogProducts.length} produtos ativos no catálogo
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {catalogProducts.filter((p) => p.active !== false).map((p) => (
+                <span key={p.id} className="pill" style={{ fontSize: 11 }}>{p.canonical_name}</span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FalarPage()    { return <PlaceholderPage icon="chat"    pt="Falar"   en="Speak"   subtitle="Porta de saída manual (postar como Carolina). Em construção."/>; }
 function PlanPage()     { return <PlaceholderPage icon="plan"    pt="Planejamento" en="Planning" subtitle="Tasks futuras, o que vem pela frente, notificação opcional por task. Em construção."/>; }
-function ConfigPage()   { return <PlaceholderPage icon="config"  pt="Config"  en="Settings" subtitle="CRUD de Deadlines, thresholds, expedient_end, expected_seconds dos backgrounds. Em construção."/>; }
+
+// ============ Config (E7-resto Leva 3) ============
+// CRUD de deadlines (preview · liga no E5). Lista os reais do backend.
+function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES }) {
+  const deadlines = (raw && raw.deadlines && raw.deadlines.deadlines) || [];
+  const { fmtMinutes } = window.HFH || {};
+  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando configurações…</div>;
+  const ackPreview = (msg) => ack && ack(msg);
+  return (
+    <div>
+      <div className="section-title">
+        <Leaf size={14} color="var(--hf-leaf-500)"/>
+        <h2>Configurações</h2><span className="en">· Settings</span>
+        <div className="rule"/>
+      </div>
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <Icon name="clock" size={14}/>
+          <b style={{ fontSize: 13 }}>Deadlines (cortes)</b>
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>· {deadlines.length} ativo(s)</span>
+          <span style={{ flex: 1 }}/>
+          <button className="btn sm primary" onClick={() => ackPreview('preview · POST /api/v3/data/deadlines liga no E5')}>
+            + Adicionar
+          </button>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {deadlines.length === 0 && <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 13 }}>Sem deadlines configurados.</div>}
+          {deadlines.map((d) => {
+            const wd = (d.weekdays && d.weekdays.length === 7) ? 'todo dia'
+              : (d.weekdays && d.weekdays.length === 5) ? 'seg-sex'
+              : (d.weekdays && d.weekdays.length > 0) ? d.weekdays.map((n) => 'DSTQQSS'[n] || '?').join(',')
+              : '—';
+            return (
+              <div key={d.id} className="alert-row" style={{ background: 'var(--surface-2)' }}>
+                <div className="ico"><Icon name="clock" size={14}/></div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{d.label || '(sem label)'}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                    {d.flow ? <span className={`pill ${d.flow}`} style={{ marginRight: 6, fontSize: 10 }}><span className="dot"/>{d.flow}</span> : null}
+                    <span className="mono">{d.time_of_day || d.due_date || '—'}</span>
+                    {' · '}{d.kind} · {wd}
+                    {!d.active && <span style={{ color: 'var(--bad)', marginLeft: 6 }}>(inativo)</span>}
+                  </div>
+                </div>
+                <button className="icon-btn" onClick={() => ackPreview(`preview · PATCH /deadlines/${d.id} liga no E5`)} title="Editar">
+                  <Icon name="edit" size={12}/>
+                </button>
+                <button className="icon-btn" onClick={() => ackPreview(`preview · DELETE /deadlines/${d.id} liga no E5`)} title="Apagar">
+                  <Icon name="trash" size={12}/>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
+          {V4_ALLOW_WRITES ? 'Edições persistem.' : 'V4_ALLOW_WRITES=0 — edições toastam preview, persistem no E5.'}
+        </div>
+      </div>
+      {/* outras configs ficam pro E5+ — threshold de gap notif, expediente, etc */}
+      <div className="card" style={{ padding: 14, marginTop: 12, opacity: 0.7 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          📋 Outras configs (threshold de gap notificável, expediente NY, expected_seconds dos backgrounds)
+          ficam pro E5+. Configurável via SQL em <span className="mono">v3.settings</span> por ora.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CarolinaPage() { return <PlaceholderPage icon="chat"    pt="Carolina" en="Carolina" subtitle="Chat de aprendizado da Carolina (Bloco 5). Placeholder no E0 — UI desenhada depois."/>; }
 
 Object.assign(window, { ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage, ProductPage, FalarPage, PlanPage, ConfigPage, CarolinaPage });

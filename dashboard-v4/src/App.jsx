@@ -249,6 +249,7 @@ function AuthedApp({ onLogout }) {
     hfdata: snapshot.hfdata, refresh: snapshot.refresh,
     raw: snapshot.raw,        // E7-refine2: usado pra acessar deadlines raw (correio)
     date,
+    V4_ALLOW_WRITES,          // E7-resto Leva 3: ConfigPage usa pra disclaimer
   };
   switch (route) {
     case "hoje":          pageNode = <CommandCenter {...pageProps}/>; break;
