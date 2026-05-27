@@ -352,6 +352,36 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     );
                   })}
 
+                  {/* Gap zones — entre fg events consecutivos com gap >= 15min.
+                      Click abre o detalhe (mesmo onGapClick que o expand usa).
+                      Bot 27/mai #2: gap visível também na timeline principal,
+                      não só no expand. */}
+                  {(() => {
+                    if (!onGapClick) return null;
+                    const sorted = fgEvents.slice()
+                      .filter((e) => e.started_min != null)
+                      .sort((a, b) => a.started_min - b.started_min);
+                    const zones = [];
+                    for (let i = 0; i < sorted.length - 1; i++) {
+                      const evEnd = sorted[i].ended_min == null ? now : sorted[i].ended_min;
+                      const gap = sorted[i + 1].started_min - evEnd;
+                      if (gap < 15) continue;   // ignora micro-gaps
+                      zones.push({ start: evEnd, end: sorted[i + 1].started_min, dur: gap, key: 'gz-' + i });
+                    }
+                    return zones.map((z) => {
+                      const left = ((z.start - DAY_START) / 60) * hourPx;
+                      const width = Math.max(20, ((z.end - z.start) / 60) * hourPx);
+                      return (
+                        <button key={z.key} className="tl-gap-zone"
+                                style={{ left, width }}
+                                onClick={(e) => { e.stopPropagation(); onGapClick(op.id, z, { x: e.clientX, y: e.clientY }); }}
+                                title={`Gap ${fmtClock(z.start)} → ${fmtClock(z.end)} (${fmtDur(z.dur)}) — clique pra preencher`}>
+                          <span className="tl-gap-zone-label">{fmtDur(z.dur)}</span>
+                        </button>
+                      );
+                    });
+                  })()}
+
                   {/* Render the dragged event in the destination row if cross-row */}
                   {drag && drag.mode === "body" && drag.newOpIdx === opIdx && drag.origOpIdx !== opIdx && (() => {
                     const ev = events.find(e => e.id === drag.id);
@@ -468,18 +498,55 @@ function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, acti
               );
             })()
           ) : (
-            // E7-refine2 #3: gap virou clicável — abre edição pra Bruno preencher
-            // o que a pessoa fez nesse intervalo (preview · liga no E5).
-            <button key={'gap-' + i} className="exp-row exp-row-gap exp-row-clickable"
-                    onClick={(e) => onGapClick && onGapClick(op.id, it, { x: e.clientX, y: e.clientY })}
-                    title="Clique pra preencher o que aconteceu nesse intervalo">
-              <span className="exp-time mono">{fmtClock(it.start)} → {fmtClock(it.end)}</span>
-              <span className="exp-act muted">+ preencher gap {it.dur >= 60 ? 'longo' : 'curto'}</span>
-              <span className="exp-dur mono muted">{fmtDur(it.dur)}</span>
-            </button>
+            // E7-bloco-27 #1+#3: tira "curto/longo" (53min sendo "curto" era absurdo)
+            // e adiciona botão copy pra Bruno mandar o gap pro Slack da pessoa.
+            <div key={'gap-' + i} className="exp-row exp-row-gap" style={{ position: 'relative' }}>
+              <button className="exp-row-gap-main exp-row-clickable"
+                      onClick={(e) => onGapClick && onGapClick(op.id, it, { x: e.clientX, y: e.clientY })}
+                      title="Clique pra preencher o que aconteceu nesse intervalo"
+                      style={{ display: 'contents', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0, font: 'inherit', textAlign: 'left' }}>
+                <span className="exp-time mono">{fmtClock(it.start)} → {fmtClock(it.end)}</span>
+                <span className="exp-act muted">+ preencher gap</span>
+                <span className="exp-dur mono muted">{fmtDur(it.dur)}</span>
+              </button>
+              <CopyGapButton start={it.start} end={it.end} dur={it.dur} fmtClock={fmtClock} fmtDur={fmtDur}
+                             personName={op.name}/>
+            </div>
           ))}
       </div>
     </div>
+  );
+}
+
+/* CopyGapButton — botão lateral nos rows de gap (expand). Copia pro clipboard
+   texto formatado pra Bruno mandar pro Slack da pessoa.
+   Formato: "11:52 AM → 12:45 PM (53min) — o que aconteceu?"
+   Bloco 27/mai #3. */
+function CopyGapButton({ start, end, dur, fmtClock, fmtDur, personName }) {
+  const [copied, setCopied] = React.useState(false);
+  const text = `${fmtClock(start)} → ${fmtClock(end)} (${fmtDur(dur)}) — o que aconteceu?`;
+  const onCopy = (e) => {
+    e.stopPropagation();
+    try {
+      navigator.clipboard.writeText(text).then(
+        () => { setCopied(true); setTimeout(() => setCopied(false), 1400); },
+        () => { setCopied(false); }
+      );
+    } catch {
+      // fallback p/ browsers sem clipboard API (rara)
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch {}
+      document.body.removeChild(ta);
+    }
+  };
+  return (
+    <button className="gap-copy-btn"
+            onClick={onCopy}
+            title={copied ? 'Copiado!' : `Copiar "${text}" pro clipboard`}
+            aria-label="Copiar texto do gap">
+      {copied ? '✓' : '⎘'}
+    </button>
   );
 }
 

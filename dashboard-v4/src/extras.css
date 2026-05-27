@@ -118,6 +118,83 @@
 .float-panel .input { background: var(--surface); }
 
 /* ============================================================
+   E7-bloco 27/mai — gaps clicáveis (timeline + expand) + copy
+   ============================================================ */
+
+/* Gap zone na timeline principal — botão tracejado sutil entre eventos
+   foreground com gap >= 15min. Click abre o detalhe. */
+.tl-gap-zone {
+  position: absolute;
+  top: 28px; bottom: 8px;          /* alinhado com .tl-block */
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 4px,
+    rgba(120, 120, 120, 0.06) 4px 8px);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  z-index: 2;       /* fica abaixo do .tl-block (z=3) — não cobre eventos */
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.tl-gap-zone:hover {
+  border-color: var(--hf-leaf-500, #22b35d);
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(34, 179, 93, 0.04) 0 4px,
+    rgba(34, 179, 93, 0.12) 4px 8px);
+  color: var(--hf-leaf-700, #18934c);
+}
+.tl-gap-zone-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+.tl-gap-zone:hover .tl-gap-zone-label::before {
+  content: '+ ';
+}
+
+/* Botão copy ao lado de cada gap row no expand */
+.exp-row-gap {
+  display: grid !important;
+  grid-template-columns: 130px 1fr 70px auto !important;
+  gap: 10px;
+  align-items: center;
+}
+.gap-copy-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 26px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-3);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  padding: 0;
+  line-height: 1;
+}
+.gap-copy-btn:hover {
+  background: var(--hf-leaf-50, rgba(34, 179, 93, 0.1));
+  color: var(--hf-leaf-700, #18934c);
+  border-color: var(--hf-leaf-500, #22b35d);
+}
+.gap-copy-btn:active { transform: scale(0.95); }
+
+/* ============================================================
    E7 — Notifications panel (#3 max5+scroll, #4 click, #5 badge, #6 form)
    ============================================================ */
 
