@@ -25,6 +25,10 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     correio,            // { minutes, label }  — E7-refine2 #2
                     onCorreioClick,     // (coords) => void
                     onGapClick,         // (op_id, gap, coords) — E7-refine2 #3
+                    pendingDrags,       // E6 #7: array de drags pendentes
+                    onConfirmDrags,     // E6 #7: () => void  (faz dupla confirmação interna)
+                    onCancelDrags,      // E6 #7: () => void
+                    fmtClock: fmtClockProp,
 }) {
   const { DAY_START, DAY_END, DEADLINE_MIN, activities, FLOWS } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
@@ -172,6 +176,44 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
           arraste para mover · resize nas bordas · solte em cima para juntar
         </div>
       </div>
+
+      {/* E6 #7 — banner de confirmação dupla pra drags pendentes. */}
+      {pendingDrags && pendingDrags.length > 0 && (
+        <div className="tl-pending-bar" style={{
+          margin: '0 10px 8px', padding: '10px 14px', borderRadius: 10,
+          background: 'linear-gradient(90deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04))',
+          border: '1px solid var(--warn, #f59e0b)',
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--warn, #b45309)' }}>
+              {pendingDrags.length} mudança(s) pendente(s) na linha do tempo
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+              {pendingDrags.slice(0, 3).map((pd) => {
+                const ev = events.find((e) => e.id === pd.id);
+                const act = ev && ev.activity && window.HFData.activities[ev.activity];
+                const fmt = fmtClockProp || fmtClock;
+                const fromRange = `${fmt(pd.origStart)}→${pd.origEnd == null ? 'live' : fmt(pd.origEnd)}`;
+                const toRange   = `${fmt(pd.started_min)}→${pd.ended_min == null ? 'live' : fmt(pd.ended_min)}`;
+                return (
+                  <span key={pd.id} style={{ marginRight: 10 }}>
+                    ev{pd.id} {act ? `(${act.name})` : ''}: <b className="mono">{fromRange}</b> → <b className="mono">{toRange}</b>
+                  </span>
+                );
+              })}
+              {pendingDrags.length > 3 && <span> · +{pendingDrags.length - 3} outro(s)</span>}
+            </div>
+          </div>
+          <button className="btn sm primary" onClick={onConfirmDrags}
+                  style={{ background: 'var(--warn, #f59e0b)', borderColor: 'var(--warn, #f59e0b)' }}>
+            ✓ Aplicar mudanças
+          </button>
+          <button className="btn sm ghost" onClick={onCancelDrags}>
+            ✕ Cancelar
+          </button>
+        </div>
+      )}
 
       <div className="tl-scroller">
         <div className="tl-grid" style={{ width: NAME_W + trackW }}>

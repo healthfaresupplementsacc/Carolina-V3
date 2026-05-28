@@ -131,21 +131,23 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
 
   const allNotifs = [...alerts, ...(correioNotif ? [correioNotif] : []), ...gapNotifs];
 
-  // Gap click → abre a notif do gap (cria sintética se não tracked)
+  // E6 #6: gap click abre form flutuante pra preencher (não só notif lookup)
+  const [gapFill, setGapFill] = React.useState(null);  // { opId, gap, coords, form }
+  const openGapFill = (opId, gap, coords) => {
+    setGapFill({ opId, gap, coords, form: { reasonCat: 'outro', note: '' } });
+  };
+  const closeGapFill = () => setGapFill(null);
+  const saveGapFill = async () => {
+    if (!gapFill) return;
+    if (!V4_ALLOW_WRITES || !onCreateInGap) { ack('preview · V4_ALLOW_WRITES=0'); closeGapFill(); return; }
+    await onCreateInGap(gapFill.opId, gapFill.gap, gapFill.form);
+    closeGapFill();
+  };
+
+  // E6 #6: gap click → abre form flutuante pra registrar evento naquele intervalo.
   const onGapClick = React.useCallback((opId, gapItem, coords) => {
-    // tenta achar notif existente (same op + same start/end)
-    const existing = allNotifs.find((n) =>
-      n._type === 'gap' && n._op === opId && n._start === gapItem.start && n._end === gapItem.end);
-    if (existing) {
-      setOpenNotifId(existing.id);
-    } else {
-      // sintético — só pendurar o id e adicionar nos drafts pra NotifDetail
-      // funcionar mesmo sem estar em allNotifs. Mas o NotifDetail busca em
-      // allNotifs, então: pra simplicidade, ignora gaps abaixo do tracked
-      // threshold (5min) — abaixo disso é "ruído".
-      ack(`gap muito curto (${fmtDur(gapItem.dur)}) — sem notif pra editar`);
-    }
-  }, [allNotifs, ack, fmtDur]);
+    openGapFill(opId, gapItem, coords);
+  }, []);
 
   const onCorreioClick = React.useCallback(() => {
     if (correioNotif) setOpenNotifId((p) => (p === 'correio' ? null : 'correio'));
@@ -154,25 +156,63 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const badCount = allNotifs.filter((a) => a.severity === 'bad').length;
   const infoCount = allNotifs.filter((a) => a.severity === 'info').length;
 
-  // ── Handlers — E5: API real ──────────────────────────────
-  // Drag horizontal/resize → PATCH /events/:id (started_at e/ou ended_at).
+  // ── Handlers — E5/E6 #7: drag com CONFIRMAÇÃO DUPLA ──────
+  // Drag horizontal/resize NÃO bate mais no banco direto. Acumula em
+  // pendingDrags + UI otimista, e só PATCH /events após Bruno confirmar duas
+  // vezes via banner no topo da timeline. Cancelar → refresh reverte UI.
   // Drag vertical (mudar lane) já foi BLOQUEADO no Timeline.
-  const updateEvent = async (id, patch) => {
-    // Feedback otimista local (UI move imediato, refresh confirma)
+  const [pendingDrags, setPendingDrags] = React.useState([]);
+  // pendingDrags: [{ id, started_min, ended_min, origStart, origEnd }]
+
+  const updateEvent = (id, patch) => {
+    // 1) captura original ANTES da otimista, pra saber o "from" do diff
+    const cur = state.events.find((e) => e.id === id);
+    const origStart = cur ? cur.started_min : null;
+    const origEnd   = cur ? cur.ended_min   : null;
+    // 2) atualização otimista local pra UI mostrar onde caiu
     setState((s) => ({ ...s, events: s.events.map((e) => e.id === id ? { ...e, ...patch } : e) }));
+    // 3) sem writes ligados → preview puro, não enfileira
     if (!V4_ALLOW_WRITES || !writes) return;
-    const changes = {};
-    if (patch.started_min != null) changes.started_at = nyTime.minutesToNyIso(date, patch.started_min);
-    if ('ended_min' in patch) changes.ended_at = patch.ended_min == null ? null : nyTime.minutesToNyIso(date, patch.ended_min);
-    if (Object.keys(changes).length === 0) return;
-    const res = await writes.patchEvent(id, changes, 'drag/resize via /dashboard-v4');
-    if (!res.ok) {
-      ack(`Erro ao salvar: ${res.error.message || res.error}`);
-      if (refresh) refresh();   // reverte UI pro estado do servidor
-      return;
+    // 4) enfileira no lote pendente; se já existia, mantém o origStart/origEnd
+    setPendingDrags((prev) => {
+      const exists = prev.find((p) => p.id === id);
+      if (exists) {
+        return prev.map((p) => p.id === id ? { ...p, ...patch } : p);
+      }
+      return [...prev, {
+        id,
+        origStart, origEnd,
+        started_min: patch.started_min != null ? patch.started_min : origStart,
+        ended_min:   ('ended_min' in patch) ? patch.ended_min : origEnd,
+      }];
+    });
+  };
+
+  const confirmDrags = async () => {
+    if (pendingDrags.length === 0) return;
+    const n = pendingDrags.length;
+    if (!window.confirm(`Tem certeza que quer aplicar ${n} mudança(s) na linha do tempo? Sim/Não`)) return;
+    if (!window.confirm(`Confirme — isso vai mudar a linha do tempo de verdade. Sim/Não`)) return;
+    let okCount = 0, errCount = 0;
+    for (const pd of pendingDrags) {
+      const changes = {
+        started_at: nyTime.minutesToNyIso(date, pd.started_min),
+        ended_at:   pd.ended_min == null ? null : nyTime.minutesToNyIso(date, pd.ended_min),
+      };
+      const res = await writes.patchEvent(pd.id, changes, 'drag/resize batch via /dashboard-v4');
+      if (res.ok) okCount++;
+      else { errCount++; ack(`ev${pd.id} erro: ${res.error.message || res.error}`); }
     }
+    setPendingDrags([]);
     if (refresh) refresh();
-    ack(`Salvo ✓ — ev${id} horário ajustado`);
+    ack(`Aplicado ✓ — ${okCount} mudança(s)${errCount > 0 ? ` · ${errCount} falha(s)` : ''}`);
+  };
+
+  const cancelDrags = () => {
+    if (pendingDrags.length === 0) return;
+    if (!window.confirm(`Descartar ${pendingDrags.length} mudança(s) pendente(s)? A linha do tempo volta ao estado original.`)) return;
+    setPendingDrags([]);
+    if (refresh) refresh();   // servidor reverte UI
   };
   // Merge-on-drop: confirmação + chamada onMerge real
   const mergeRequest = (idA, idB) => {
@@ -471,6 +511,69 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         )}
       </div>
 
+      {/* E6 #5 — TOTAIS calculados pelos filtros ativos */}
+      {(filterFlows.size > 0 || filterOps.size > 0) && (() => {
+        // Filtra eventos pelo cruzamento (interseção) dos chips ativos
+        let filtered = state.events;
+        if (filterFlows.size > 0) {
+          filtered = filtered.filter((e) => {
+            const a = HFD.activities && HFD.activities[e.activity];
+            return a && filterFlows.has(a.flow);
+          });
+        }
+        if (filterOps.size > 0) {
+          filtered = filtered.filter((e) => filterOps.has(e.op));
+        }
+        // Total time wall (não soma duplicada cowork — usa union nas mesmas pessoas)
+        // Simples por enquanto: soma cada event individualmente (pessoa-hora).
+        let totalMin = 0;
+        const byFlow = {};
+        const byPerson = {};
+        for (const e of filtered) {
+          const end = e.ended_min == null ? now : e.ended_min;
+          const dur = Math.max(0, end - e.started_min);
+          totalMin += dur;
+          const a = HFD.activities && HFD.activities[e.activity];
+          const f = a ? a.flow : 'unknown';
+          byFlow[f] = (byFlow[f] || 0) + dur;
+          byPerson[e.op] = (byPerson[e.op] || 0) + dur;
+        }
+        return (
+          <div className="card" style={{ marginTop: 8, padding: 12, background: 'var(--surface-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700 }}>
+                  Tempo total filtrado
+                </div>
+                <b className="mono" style={{ fontSize: 18, color: 'var(--hf-navy-700)' }}>{fmtDur(totalMin)}</b>
+              </div>
+              <div style={{ flex: 1, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+                <span style={{ color: 'var(--text-3)' }}>{filtered.length} event(s)</span>
+                {Object.entries(byFlow).sort((a, b) => b[1] - a[1]).map(([f, mins]) => (
+                  <span key={f} className={`pill ${f}`}>
+                    <span className="dot"/>{(HFD.FLOWS && HFD.FLOWS[f] && HFD.FLOWS[f].label) || f}: {fmtDur(mins)}
+                  </span>
+                ))}
+                {filterOps.size > 0 && Object.entries(byPerson).sort((a, b) => b[1] - a[1]).map(([opId, mins]) => {
+                  const o = operators.find((x) => x.id === opId);
+                  if (!o) return null;
+                  return (
+                    <span key={opId} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      fontSize: 11, padding: '2px 8px', borderRadius: 999,
+                      background: 'var(--surface)', border: '1px solid var(--border)',
+                    }}>
+                      <span style={{ width: 5, height: 5, borderRadius: '50%', background: o.c1, display: 'inline-block' }}/>
+                      {o.short}: <b className="mono">{fmtDur(mins)}</b>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Timeline ────────────────────────────────────────── */}
       <div style={{ marginTop: 12 }}>
         {operators.length === 0 ? (
@@ -495,6 +598,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             correio={correioNotif ? { minutes: correioNotif._minutes, label: correioNotif._label } : null}
             onCorreioClick={onCorreioClick}
             onGapClick={onGapClick}
+            pendingDrags={pendingDrags}
+            onConfirmDrags={confirmDrags}
+            onCancelDrags={cancelDrags}
+            fmtClock={fmtClock}
           />
         )}
       </div>
@@ -505,15 +612,174 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         <h2>Resumo do dia</h2><span className="en">· Day summary</span>
         <div className="rule"/>
       </div>
-      <div className="card" style={{ padding: 16, maxWidth: 540 }}>
-        <Row label="Data"                value={date}/>
-        <Row label="Operadores hoje"     value={`${operators.length} pessoa(s)`}/>
-        <Row label="Eventos hoje"        value={`${state.events.length}`}/>
-        <Row label="Em andamento (live)" value={`${state.events.filter((e) => e.ended_min == null).length}`}/>
-        <Row label="Cowork ativos"       value={`${coworkActive}`}/>
-        <Row label="Background ativos"   value={`${state.events.filter((e) => e._is_background && e.ended_min == null).length}`}/>
-        <Row label="Tempo médio/ordem"   value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
-        <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : '— sem deadline'}/>
+      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12 }}>
+        <div className="card" style={{ padding: 16 }}>
+          <Row label="Data"                value={date}/>
+          <Row label="Operadores hoje"     value={`${operators.length} pessoa(s)`}/>
+          <Row label="Eventos hoje"        value={`${state.events.length}`}/>
+          <Row label="Em andamento (live)" value={`${state.events.filter((e) => e.ended_min == null).length}`}/>
+          <Row label="Cowork ativos"       value={`${coworkActive}`}/>
+          <Row label="Background ativos"   value={`${state.events.filter((e) => e._is_background && e.ended_min == null).length}`}/>
+          <Row label="Tempo médio/ordem"   value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
+          <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : '— sem deadline'}/>
+        </div>
+
+        {/* E6 #8 — barras scrolláveis */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+          {/* Pessoas por tempo total ativo */}
+          <ScrollStrip title="Pessoas · tempo ativo" en="People · active time">
+            {(() => {
+              const byOp = {};
+              for (const e of state.events) {
+                const end = e.ended_min == null ? now : e.ended_min;
+                byOp[e.op] = (byOp[e.op] || 0) + Math.max(0, end - e.started_min);
+              }
+              const sorted = Object.entries(byOp).sort((a, b) => b[1] - a[1]);
+              return sorted.map(([opId, mins]) => {
+                const op = operators.find((x) => x.id === opId);
+                if (!op) return null;
+                return (
+                  <div key={opId} className="strip-item" style={{
+                    minWidth: 130, padding: 10, borderRadius: 8,
+                    background: 'var(--surface-2)', border: '1px solid var(--border)',
+                    flex: '0 0 auto',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: op.c1 }}/>
+                      <b style={{ fontSize: 12.5 }}>{op.name}</b>
+                    </div>
+                    <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 4 }}>{fmtDur(mins)}</div>
+                  </div>
+                );
+              });
+            })()}
+          </ScrollStrip>
+
+          {/* Lotes em produção do dia */}
+          <ScrollStrip title="Lotes em produção" en="Batches in production">
+            {(() => {
+              const lotes = (raw && raw.production && raw.production.lotes) || [];
+              return lotes.slice().sort((a, b) => (b.total_seconds || 0) - (a.total_seconds || 0)).map((lote) => {
+                const pname = (lote.product && lote.product.canonical_name) || '(produto)';
+                const dur = Math.round((lote.total_seconds || 0) / 60);
+                return (
+                  <div key={lote.batch_id || pname} className="strip-item" style={{
+                    minWidth: 180, padding: 10, borderRadius: 8,
+                    background: 'var(--surface-2)', border: '1px solid var(--border)',
+                    flex: '0 0 auto',
+                  }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {pname}
+                    </div>
+                    <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{lote.batch_number || '—'}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                      <b className="mono" style={{ fontSize: 14, color: 'var(--flow-prod)' }}>{fmtDur(dur)}</b>
+                      <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{(lote.people || []).length}p · {(lote.phases || []).length}f</span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </ScrollStrip>
+
+          {/* Fluxos com tempo */}
+          <ScrollStrip title="Fluxos · totais" en="Flows · totals">
+            {(() => {
+              const byFlow = {};
+              for (const e of state.events) {
+                const a = HFD.activities && HFD.activities[e.activity];
+                const f = a ? a.flow : 'unknown';
+                const end = e.ended_min == null ? now : e.ended_min;
+                byFlow[f] = (byFlow[f] || 0) + Math.max(0, end - e.started_min);
+              }
+              return Object.entries(byFlow).sort((a, b) => b[1] - a[1]).map(([f, mins]) => (
+                <div key={f} className="strip-item" style={{
+                  minWidth: 140, padding: 10, borderRadius: 8,
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  flex: '0 0 auto',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className={`pill ${f}`} style={{ fontSize: 10 }}><span className="dot"/>{(HFD.FLOWS && HFD.FLOWS[f] && HFD.FLOWS[f].label) || f}</span>
+                  </div>
+                  <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 4 }}>{fmtDur(mins)}</div>
+                </div>
+              ));
+            })()}
+          </ScrollStrip>
+        </div>
+      </div>
+
+      {/* E6 #6 — FloatingPopover pra preencher gap */}
+      <FloatingPopover
+        open={!!gapFill}
+        anchor={gapFill?.coords}
+        width={400}
+        draggable={true}
+        onClose={closeGapFill}
+        anchorSelector=".tl-gap-zone, .exp-row-gap"
+        header={gapFill && (() => {
+          const op = operators.find((x) => x.id === gapFill.opId);
+          return (
+            <>
+              <span style={{ color: 'var(--text-3)', fontSize: 14, fontWeight: 700 }}>⋮⋮</span>
+              <Icon name="plus" size={14}/>
+              <b style={{ fontSize: 13, flex: 1 }}>
+                Preencher gap · {op?.name || '?'} · {fmtClock(gapFill.gap.start)}→{fmtClock(gapFill.gap.end)} ({fmtDur(gapFill.gap.dur)})
+              </b>
+              <button className="icon-btn" onClick={closeGapFill} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
+            </>
+          );
+        })()}>
+        {gapFill && (
+          <>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
+                Tipo de atividade
+              </label>
+              <select className="input" value={gapFill.form.reasonCat}
+                      onChange={(e) => setGapFill((g) => ({ ...g, form: { ...g.form, reasonCat: e.target.value } }))}>
+                <option value="almoco">Almoço (lunch)</option>
+                <option value="pausa">Pausa curta (break)</option>
+                <option value="limpeza">Limpeza (cleaning)</option>
+                <option value="transicao">Transição/organização</option>
+                <option value="outro">Outro motivo</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
+                Descrição livre
+              </label>
+              <textarea className="input" rows={3} value={gapFill.form.note}
+                        onChange={(e) => setGapFill((g) => ({ ...g, form: { ...g.form, note: e.target.value } }))}
+                        placeholder="ex.: foi limpar a linha 2 depois do encapsulamento"/>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn primary" onClick={saveGapFill}>Criar event no gap</button>
+              <button className="btn ghost" onClick={closeGapFill}>Cancelar</button>
+              <span style={{ flex: 1 }}/>
+              <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic', alignSelf: 'center' }}>
+                {V4_ALLOW_WRITES ? 'persiste em prod (audit)' : 'preview · V4_ALLOW_WRITES=0'}
+              </span>
+            </div>
+          </>
+        )}
+      </FloatingPopover>
+    </div>
+  );
+}
+
+/* E6 #8 — barra horizontal scrollável p/ tirinhas de info. */
+function ScrollStrip({ title, en, children }) {
+  return (
+    <div className="card" style={{ padding: 10 }}>
+      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700, marginBottom: 6 }}>
+        {title}{en && <span style={{ marginLeft: 6, opacity: 0.7, textTransform: 'none', fontWeight: 500 }}>· {en}</span>}
+      </div>
+      <div style={{
+        display: 'flex', gap: 8, overflowX: 'auto', overflowY: 'hidden',
+        paddingBottom: 4,
+      }}>
+        {children}
       </div>
     </div>
   );
