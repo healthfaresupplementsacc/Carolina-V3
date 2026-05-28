@@ -10,8 +10,11 @@ import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
+import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import nyTime from '../utils/ny-time.cjs';
+
+const NOTIFS_VISIBLE_KEY = 'hf-notifs-visible';
 
 const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só editáveis via expand
 const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
@@ -31,7 +34,24 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const toggleExpand = (id) => setExpandedOpIds((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
-  const [gearOpen, setGearOpen] = React.useState(null);
+  // gear = { which: 'producao'|'metas'|'pp'|'notifs'|'attention', anchor: {x,y} } | null
+  const [gear, setGear] = React.useState(null);
+  const gearOpen = gear ? gear.which : null;
+  // Helper pra gear buttons: passa o evento do click pra capturar coords.
+  const onGearToggle = (which) => (e) => {
+    if (gear && gear.which === which) { setGear(null); return; }
+    setGear({ which, anchor: { x: e.clientX, y: e.clientY } });
+  };
+  const closeGear = () => setGear(null);
+
+  // E6 Leva A #3 — toggle do card de notificações (bell icon).
+  const [notifsVisible, setNotifsVisible] = React.useState(() => {
+    try { return sessionStorage.getItem(NOTIFS_VISIBLE_KEY) !== '0'; }
+    catch { return true; }
+  });
+  React.useEffect(() => {
+    try { sessionStorage.setItem(NOTIFS_VISIBLE_KEY, notifsVisible ? '1' : '0'); } catch {}
+  }, [notifsVisible]);
 
   // E7-refine2 #4: lift notif state pra cá (compartilha com Correio na timeline)
   const [openNotifId, setOpenNotifId] = React.useState(null);
@@ -197,7 +217,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              value={liveProd.toLocaleString()} suffix="garrafas"
              headRight={<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                <FlowDot flow="production"/>
-               <GearButton onClick={() => setGearOpen(gearOpen === 'producao' ? null : 'producao')} active={gearOpen === 'producao'}/>
+               <GearButton onClick={onGearToggle('producao')} active={gearOpen === 'producao'}/>
              </div>}
              foot={<>
                {topLotes.length ? (
@@ -209,7 +229,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                    ))}
                  </div>
                ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem contagens hoje</div>}
-               <EditPopover open={gearOpen === 'producao'} onClose={() => setGearOpen(null)}
+               <EditPopover open={gearOpen === 'producao'} anchor={gear?.anchor} onClose={closeGear}
                             title="Editar produção · contagens">
                  <EditList items={topLotes.map((g) => ({
                               id: g.id,
@@ -245,7 +265,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              value={goalsActive} suffix={`/ ${goalsActive + goalsHit}`}
              headRight={<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                <Icon name="target" size={14}/>
-               <GearButton onClick={() => setGearOpen(gearOpen === 'metas' ? null : 'metas')} active={gearOpen === 'metas'}/>
+               <GearButton onClick={onGearToggle('metas')} active={gearOpen === 'metas'}/>
              </div>}
              foot={<>
                {goals.length ? (
@@ -260,7 +280,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                    ))}
                  </>
                ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem metas registradas</div>}
-               <EditPopover open={gearOpen === 'metas'} onClose={() => setGearOpen(null)}
+               <EditPopover open={gearOpen === 'metas'} anchor={gear?.anchor} onClose={closeGear}
                             title="Editar metas do dia">
                  <EditList items={goals.map((g) => ({
                               id: g.id,
@@ -301,11 +321,14 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                </EditPopover>
              </>}/>
 
-        {/* P&P — Correio movido pra timeline (E7-refine2 #2). Só ordens+seg/ordem aqui. */}
+        {/* P&P — engrenagem (E6 #2: edita correio) */}
         <KPI label="P&P do dia" en="Pick & Pack"
              value={pp.total_minutes ? fmtDur(pp.total_minutes) : '—'}
-             headRight={<Icon name="pp" size={14}/>}
-             foot={
+             headRight={<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+               <Icon name="pp" size={14}/>
+               <GearButton onClick={onGearToggle('pp')} active={gearOpen === 'pp'}/>
+             </div>}
+             foot={<>
                <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
                  <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>ordens</div><b className="mono">{pp.orders || 0}</b></div>
                  <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
@@ -314,40 +337,103 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                         <b className="mono" style={{ color: 'var(--hf-leaf-600)' }}>{fmtClock(correioNotif._minutes)}</b></div>
                  )}
                </div>
-             }/>
+               <EditPopover open={gearOpen === 'pp'} anchor={gear?.anchor} onClose={closeGear}
+                            title="Editar P&P · correio">
+                 {correioNotif ? (
+                   <div>
+                     <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
+                       Corte do correio atual: <b>{fmtClock(correioNotif._minutes)}</b> · deadline #{correioNotif._deadline_id}
+                     </div>
+                     <button className="btn sm primary" style={{ width: '100%' }}
+                             onClick={async () => {
+                               const t = window.prompt('Novo horário do corte (HH:MM 24h NY):', correioNotif._deadline_hhmm || '13:00');
+                               if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return;
+                               if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                               const res = await writes.patchDeadline(correioNotif._deadline_id, { time_of_day: t + ':00' });
+                               if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                               if (refresh) refresh();
+                               ack(`Correio atualizado ✓ ${t}`);
+                               closeGear();
+                             }}>
+                       Editar horário do corte
+                     </button>
+                   </div>
+                 ) : (
+                   <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                     Sem deadline ativa configurada. Vai em Config pra criar um deadline novo.
+                   </div>
+                 )}
+               </EditPopover>
+             </>}/>
 
-        {/* ATENÇÃO — só contador (notif card está abaixo) */}
+        {/* ATENÇÃO — engrenagem + bell toggle (E6 #3) */}
         <KPI label="Atenção" en="Attention"
              value={allNotifs.length}
              attn={badCount > 0}
-             headRight={<Icon name="bell" size={14}/>}
-             foot={<div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
-               {badCount} crítico · {warnCount} warning · {infoCount} info
-             </div>}/>
+             headRight={<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+               <button
+                 onClick={() => setNotifsVisible((v) => !v)}
+                 className="icon-btn"
+                 title={notifsVisible ? 'Esconder barra de notificações' : 'Mostrar barra de notificações'}
+                 style={{
+                   width: 22, height: 22, padding: 0,
+                   background: notifsVisible ? 'transparent' : 'var(--surface-2)',
+                   border: 'none', cursor: 'pointer',
+                   color: notifsVisible ? 'var(--hf-leaf-600)' : 'var(--text-3)',
+                 }}>
+                 <Icon name="bell" size={14}/>
+               </button>
+               <GearButton onClick={onGearToggle('attention')} active={gearOpen === 'attention'}/>
+             </div>}
+             foot={<>
+               <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                 {badCount} crítico · {warnCount} warning · {infoCount} info
+                 {!notifsVisible && <span style={{ marginLeft: 8, color: 'var(--text-3)', fontStyle: 'italic' }}>(barra oculta)</span>}
+               </div>
+               <EditPopover open={gearOpen === 'attention'} anchor={gear?.anchor} onClose={closeGear}
+                            title="Configurar atenção">
+                 <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                   <p style={{ margin: '0 0 8px' }}>
+                     Bell toggle (cima): <b>{notifsVisible ? 'ON — barra visível' : 'OFF — barra oculta'}</b>
+                   </p>
+                   <p style={{ margin: '0 0 8px' }}>
+                     Thresholds (gap min, downtime, etc) ficam editáveis aqui no futuro — por ora hardcoded:
+                   </p>
+                   <ul style={{ fontSize: 11, color: 'var(--text-3)', margin: '0 0 0 16px', padding: 0 }}>
+                     <li>Gap notificável: ≥ 25 min</li>
+                     <li>Não-reportado: ≥ 60 min</li>
+                     <li>Downtime: qualquer repair</li>
+                   </ul>
+                 </div>
+               </EditPopover>
+             </>}/>
       </div>
 
-      {/* ── Notificações (controlado pelo CommandCenter) ──────────────────── */}
-      <NotificationsCard
-        notifs={allNotifs}
-        visibleThreshold={GAP_VISIBLE_MIN}
-        openNotifId={openNotifId}
-        onNotifClick={onNotifClick}
-        pendingDrafts={notifDrafts}
-        onDraftChange={onNotifDraftChange}
-        onDraftClear={onNotifDraftClear}
-        gearOpen={gearOpen === 'notifs'}
-        onGear={() => setGearOpen(gearOpen === 'notifs' ? null : 'notifs')}
-        onCloseGear={() => setGearOpen(null)}
-        ack={ack}
-        operators={operators}
-        events={state.events}
-        GearButton={GearButton}
-        EditPopover={EditPopover}
-        EditList={EditList}
-        V4_ALLOW_WRITES={V4_ALLOW_WRITES}
-        onCreateInGap={onCreateInGap}
-        writes={writes}
-      />
+      {/* ── Notificações (E6 #3: oculta quando bell toggle OFF) ───────────── */}
+      {notifsVisible && (
+        <NotificationsCard
+          notifs={allNotifs}
+          visibleThreshold={GAP_VISIBLE_MIN}
+          openNotifId={openNotifId}
+          onNotifClick={onNotifClick}
+          pendingDrafts={notifDrafts}
+          onDraftChange={onNotifDraftChange}
+          onDraftClear={onNotifDraftClear}
+          gearOpen={gearOpen === 'notifs'}
+          gearAnchor={gear?.anchor}
+          onGear={onGearToggle('notifs')}
+          onCloseGear={closeGear}
+          ack={ack}
+          operators={operators}
+          events={state.events}
+          GearButton={GearButton}
+          EditPopover={EditPopover}
+          EditList={EditList}
+          V4_ALLOW_WRITES={V4_ALLOW_WRITES}
+          onCreateInGap={onCreateInGap}
+          writes={writes}
+        />
+      )}
 
       {/* ── Filters ─────────────────────────────────────────── */}
       <div className="section-title">
@@ -447,39 +533,42 @@ const Row = ({ label, value }) => (
 function GearButton({ onClick, active }) {
   return (
     <button onClick={onClick}
-            className="icon-btn"
+            className="icon-btn gear-btn"
             style={{
               width: 22, height: 22, fontSize: 14, padding: 0,
               background: active ? 'var(--surface-2)' : 'transparent',
               border: 'none', cursor: 'pointer', color: 'var(--text-3)',
             }}
-            title="Editar (preview · liga no E5)">
+            title="Editar">
       ⚙
     </button>
   );
 }
 
-function EditPopover({ open, onClose, title, children }) {
-  if (!open) return null;
+/* E6 #1 — EditPopover usa FloatingPopover (position:fixed → não corta no
+   overflow do card). Coords vêm do clique na engrenagem. */
+function EditPopover({ open, anchor, onClose, title, children }) {
   return (
-    <div className="card" style={{
-      position: 'absolute', top: 'calc(100% + 6px)', right: 8,
-      minWidth: 320, maxWidth: 380, padding: 12, zIndex: 50,
-      boxShadow: 'var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.18))',
-      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <b style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)' }}>{title}</b>
-        <button className="icon-btn" onClick={onClose} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
-      </div>
+    <FloatingPopover
+      open={open}
+      anchor={anchor}
+      width={360}
+      onClose={onClose}
+      anchorSelector=".gear-btn"
+      header={
+        <>
+          <b style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', flex: 1 }}>{title}</b>
+          <button className="icon-btn" onClick={onClose} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
+        </>
+      }>
       {children}
       <div style={{
         fontSize: 10.5, color: 'var(--text-3)', marginTop: 10, padding: '6px 8px',
         background: 'var(--surface-2)', borderRadius: 6, fontStyle: 'italic',
       }}>
-        {V4_ALLOW_WRITES ? 'salvar persiste' : 'modo leitura · save liga no E5'}
+        {V4_ALLOW_WRITES ? 'Edits persistem em prod (auditados via PIN)' : 'V4_ALLOW_WRITES=0 — save toasta preview'}
       </div>
-    </div>
+    </FloatingPopover>
   );
 }
 

@@ -14,6 +14,7 @@
 */
 import React from 'react';
 import { Icon } from './Icons.jsx';
+import { FloatingPopover } from './FloatingPopover.jsx';
 
 const GAP_NOTIFY_THRESHOLD_MIN = 25;        // mantém consistente com CommandCenter
 const MAX_VISIBLE = 5;
@@ -50,12 +51,15 @@ export function NotificationsCard({
   visibleThreshold,
   openNotifId, onNotifClick,
   pendingDrafts, onDraftChange, onDraftClear,
-  gearOpen, onGear, onCloseGear, ack, operators = [], events = [],
+  // E6 #4: anchor captura click coords pra abrir caixa flutuante perto
+  gearOpen, gearAnchor, onGear, onCloseGear, ack, operators = [], events = [],
   GearButton, EditPopover, EditList, V4_ALLOW_WRITES,
   onCreateInGap,                  // (E5) cria event retroativo no gap
   writes,                         // (E5) wrapper de write helpers (correio PATCH)
 }) {
   const [expandedKey, setExpandedKey] = React.useState(null);   // grupo aberto (#5)
+  // E6 #4: anchor (x,y) do clique que abriu o detalhe atual
+  const [notifAnchor, setNotifAnchor] = React.useState(null);
 
   // Filtragem de visibilidade: gaps < visibleThreshold são ocultos do card,
   // mas continuam clicáveis via PersonExpansion (E7-refine2 #3).
@@ -100,7 +104,7 @@ export function NotificationsCard({
           {totalNotifs > MAX_VISIBLE && <span style={{ marginLeft: 4, opacity: 0.7 }}>(role pra ver mais)</span>}
         </span>
         <GearButton onClick={onGear} active={gearOpen}/>
-        <EditPopover open={gearOpen} onClose={onCloseGear} title="Configurar notificações">
+        <EditPopover open={gearOpen} anchor={gearAnchor} onClose={onCloseGear} title="Configurar notificações">
           <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
             Limites e canais de notificação ficarão editáveis aqui.
           </div>
@@ -131,29 +135,52 @@ export function NotificationsCard({
             operators={operators}
             expanded={expandedKey === group.key}
             onToggleExpand={() => setExpandedKey(expandedKey === group.key ? null : group.key)}
-            onOpenSingle={(n) => onNotifClick && onNotifClick(n.id)}
+            onOpenSingle={(n, coords) => { setNotifAnchor(coords); onNotifClick && onNotifClick(n.id); }}
             openNotifId={openNotifId}
             pendingDrafts={pendingDrafts}
           />
         ))}
       </div>
 
-      {/* Detalhe inline aparece abaixo da lista quando uma notif é clicada (#4 / #6) */}
-      {openNotif && (
-        <NotifDetail
-          notif={openNotif}
-          operators={operators}
-          events={events}
-          pending={(pendingDrafts && pendingDrafts[openNotif.id]) || null}
-          onDraftChange={(d) => onDraftChange && onDraftChange(openNotif.id, d)}
-          onClose={() => onNotifClick && onNotifClick(openNotif.id)}
-          onSaved={() => { if (onDraftClear) onDraftClear(openNotif.id); if (onNotifClick) onNotifClick(openNotif.id); }}
-          ack={ack}
-          V4_ALLOW_WRITES={V4_ALLOW_WRITES}
-          onCreateInGap={onCreateInGap}
-          writes={writes}
-        />
-      )}
+      {/* E6 #4 — Detalhe agora abre como FloatingPopover perto do clique
+            (mesma caixa do SidePanel — fica POR CIMA, sem ser cortada pelo card). */}
+      <FloatingPopover
+        open={!!openNotif}
+        anchor={notifAnchor}
+        width={420}
+        above={false}
+        draggable={true}
+        onClose={() => onNotifClick && onNotifClick(openNotif && openNotif.id)}
+        anchorSelector=".notif-clickable"
+        header={openNotif && (
+          <>
+            <span style={{ color: 'var(--text-3)', fontSize: 14, fontWeight: 700 }}>⋮⋮</span>
+            <Icon name="bell" size={14}/>
+            <b style={{ fontSize: 13, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {openNotif.title}
+            </b>
+            <button className="icon-btn" onClick={() => onNotifClick && onNotifClick(openNotif.id)} style={{ padding: 4 }}>
+              <Icon name="x" size={11}/>
+            </button>
+          </>
+        )}>
+        {openNotif && (
+          <NotifDetail
+            notif={openNotif}
+            operators={operators}
+            events={events}
+            pending={(pendingDrafts && pendingDrafts[openNotif.id]) || null}
+            onDraftChange={(d) => onDraftChange && onDraftChange(openNotif.id, d)}
+            onClose={() => onNotifClick && onNotifClick(openNotif.id)}
+            onSaved={() => { if (onDraftClear) onDraftClear(openNotif.id); if (onNotifClick) onNotifClick(openNotif.id); }}
+            ack={ack}
+            V4_ALLOW_WRITES={V4_ALLOW_WRITES}
+            onCreateInGap={onCreateInGap}
+            writes={writes}
+            embeddedInFloating={true}
+          />
+        )}
+      </FloatingPopover>
     </div>
   );
 }
@@ -171,7 +198,7 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle, op
     const hasPending = pendingDrafts && pendingDrafts[n.id];
     return (
       <button className={`alert-row ${sev} notif-clickable ${isOpen ? 'notif-open' : ''}`}
-              onClick={() => onOpenSingle(n)}
+              onClick={(e) => onOpenSingle(n, { x: e.clientX, y: e.clientY })}
               style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}>
         <div className="ico"><Icon name="bell" size={14}/></div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -217,7 +244,7 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle, op
             return (
               <button key={n.id}
                       className={`alert-row ${n.severity || 'info'} notif-clickable notif-child ${isOpen ? 'notif-open' : ''}`}
-                      onClick={() => onOpenSingle(n)}
+                      onClick={(e) => onOpenSingle(n, { x: e.clientX, y: e.clientY })}
                       style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}>
                 <div className="ico"><Icon name="bell" size={11}/></div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -244,7 +271,7 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle, op
    justificar/ajustar adjacentes — preview-only enquanto V4_ALLOW_WRITES=0.
    E7-refine2 #4: pending — recebe `pending` (draft anterior) e chama
    onDraftChange a cada digitação. Se fechar mid-edit, parent guarda. */
-function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose, onSaved, ack, V4_ALLOW_WRITES, onCreateInGap, writes }) {
+function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose, onSaved, ack, V4_ALLOW_WRITES, onCreateInGap, writes, embeddedInFloating = false }) {
   const type = typeOf(notif);
   const op = notif._op ? operators.find((o) => o.id === notif._op) : null;
   const { fmtClock, fmtDur } = window.HFH;
@@ -320,22 +347,29 @@ function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose
     if (onSaved) onSaved();
   };
 
-  return (
-    <div className="notif-detail" style={{
-      marginTop: 10, padding: 12,
-      background: 'var(--surface-2)', border: '1px solid var(--border)',
-      borderRadius: 8, position: 'relative',
-    }}>
-      <button className="icon-btn" onClick={onClose}
-              style={{ position: 'absolute', top: 8, right: 8, padding: 4 }}
-              aria-label="Fechar detalhe">
-        <Icon name="x" size={12}/>
-      </button>
+  // E6 #4: quando embedded em FloatingPopover, dispensa wrapper/header próprios
+  const Wrapper = embeddedInFloating
+    ? ({ children: c }) => <div>{c}</div>
+    : ({ children: c }) => (
+      <div className="notif-detail" style={{
+        marginTop: 10, padding: 12, background: 'var(--surface-2)',
+        border: '1px solid var(--border)', borderRadius: 8, position: 'relative',
+      }}>
+        <button className="icon-btn" onClick={onClose}
+                style={{ position: 'absolute', top: 8, right: 8, padding: 4 }}
+                aria-label="Fechar detalhe">
+          <Icon name="x" size={12}/>
+        </button>
+        {c}
+      </div>
+    );
 
+  return (
+    <Wrapper>
       <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, marginBottom: 6 }}>
         Detalhe · {type}
       </div>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{notif.title}</div>
+      {!embeddedInFloating && <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{notif.title}</div>}
       <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 12 }}>{notif.detail}</div>
 
       {type === 'gap' && linkedEvents && (
@@ -427,9 +461,9 @@ function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose
         <button className="btn ghost" onClick={onClose}>Fechar</button>
         <span style={{ flex: 1 }}/>
         <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic', alignSelf: 'center' }}>
-          {V4_ALLOW_WRITES ? 'salvar persiste' : 'modo leitura · save liga no E5 (fecha sem salvar → pending)'}
+          {V4_ALLOW_WRITES ? 'salvar persiste em prod' : 'modo leitura · fecha sem salvar → pending'}
         </span>
       </div>
-    </div>
+    </Wrapper>
   );
 }
