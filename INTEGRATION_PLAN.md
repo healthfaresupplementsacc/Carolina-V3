@@ -233,10 +233,27 @@ erro. **Não implementado ainda** — apenas documentado aqui pra próximo bloco
    classificação bate com o que o admin escolheu.
 
 ### Bugs candidatos a alimentar primeiro pulse
-- **PersonResolver não força adminCtx por role direta** (caso ev302 Thassio
-  28/mai: msg "to em reuniao" virou meeting/support porque LLM classificou
-  como activity_start; PersonResolver depende do LLM dizer que é
-  admin_intervention em vez de hard-skip pelo slack_user_id mapping).
+- **🔴 PRIORIDADE ALTA — PersonResolver não atribui pessoa pela assinatura
+  da mensagem** (custou duas vezes em 2 dias):
+  - 28/mai ev302 Thassio: msg "to em reuniao" do slack do Thassio
+    (admin) virou event de meeting normal — PersonResolver não marcou
+    como `admin_intervention` (LLM precisou decidir).
+  - 29/mai msg695 "F- Caixas fechadas-Bruno" enviada do slack do
+    Vitor (U08JC85HMNE) ASSINADA "-Bruno" — PersonResolver atribuiu
+    pra Vitor; F virou GAP (não fechou dc_shipment do Bruno) e foi a
+    causa raiz do ev318 ficar até 14:37 em vez de 12:16 PM.
+  - **Causa raiz comum**: PersonResolver depende do LLM detectar
+    contexto (admin/assinatura), em vez de processar deterministicamente
+    o slack_user_id + assinatura "-Nome" no texto. Quando o LLM erra,
+    o sistema também erra.
+  - **Fix**: 1) hard-skip por role IN ('owner','manager') quando
+    `personsBySlack[slack_user_id].role` é admin; 2) parser de
+    assinatura "-NomePropio" no fim da msg ANTES do LLM, sobrescrevendo
+    `person_id` se a assinatura mapeia a outro person no catálogo
+    (mantém slack_user_id pra audit).
+  - **Próximo bloco grande**: sobe pra prioridade #1 depois de
+    terminar bloco 29/mai noite + comandos admin slack (que dependem
+    do mesmo fix).
 - **Batches sem product_batch_id** (caso Potassium 28/mai: 6 events
   production_line sem batch atribuído porque LLM não tinha batch ativo no
   catálogo).

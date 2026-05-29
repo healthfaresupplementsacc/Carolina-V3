@@ -239,6 +239,11 @@ class Observer {
         quantity_unit: action.quantity_unit || null,
         actor_type: 'llm_observer',
       });
+      // Bloco 29/mai-noite #3: upsert pode retornar null quando o insert
+      // guard bloqueia dur=0 non-eod (caso ev316/317 — 2 open_event com
+      // mesmo started_at). Audit do bloqueio já foi gravado; só pula essa
+      // action.
+      if (!ev) return { created: [] };
       return { created: [ev.id] };
     }
     if (t === 'close_event' || t === 'break_end' || t === 'cowork_leave') {

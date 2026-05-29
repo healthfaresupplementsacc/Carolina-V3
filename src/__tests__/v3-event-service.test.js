@@ -60,6 +60,10 @@ function makeFakeDb(settings = {}) {
       const r = events.find((e) => e.id === params[0]);
       return { rows: r ? [{ started_at: r.started_at }] : [] };
     }
+    if (/^SELECT started_at, activity_type_id FROM v3\.events WHERE id = \$1/.test(s)) {
+      const r = events.find((e) => e.id === params[0]);
+      return { rows: r ? [{ started_at: r.started_at, activity_type_id: r.activity_type_id }] : [] };
+    }
     if (/^SELECT \* FROM v3\.events WHERE person_id/.test(s)) {
       const r = events.filter((e) => e.person_id === params[0] && e.ended_at == null && e.deleted_at == null)
         .sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
@@ -420,18 +424,21 @@ describe('V3 §2.4 — findBySource + audit', () => {
 });
 
 describe('V3 §2.4 — guard de duração negativa (achado pós-shadow)', () => {
-  test('close com ended_at < started_at → clampa pro started_at, nunca grava negativo', async () => {
+  test('close com ended_at < started_at → clamp ativo, daí o guard dur=0 BLOQUEIA o close', async () => {
+    // Comportamento pós-bloco 29/mai-noite #3: o clamp empurra ended_at → started_at,
+    // mas o guard dur=0 rejeita o patch resultante (slug WORK != end_of_day).
+    // Net: event permanece LIVE. Ambos audits gravados (clamp + close blocked).
     const db = makeFakeDb();
     const s = svc(db);
     const ev = await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(14), actor_type: 'llm_observer' });
     // mensagem fora de ordem: fecha às 11h um event que abriu às 14h
     const closed = await s.closeActivePersonEvent(1, T(11), 'manual');
     const row = db.events.find((e) => e.id === ev.id);
-    expect(row.ended_at).toBe(T(14));               // clampado pro started_at, não T(11)
-    expect(new Date(row.ended_at) >= new Date(row.started_at)).toBe(true); // nunca negativo
-    expect(closed[0].ended_at).toBe(T(14));
-    expect(actions(db)).toContain('event.negative_duration_clamped');
-    expect(active(db, 1)).toHaveLength(0);          // invariante: event fechou (não ficou aberto)
+    expect(row.ended_at).toBeNull();                // close foi rejeitado pelo guard dur=0
+    expect(closed).toEqual([]);                     // nada de fato fechado
+    expect(actions(db)).toContain('event.negative_duration_clamped'); // clamp tentou
+    expect(actions(db)).toContain('event.close_blocked_dur_zero');    // guard bloqueou
+    expect(active(db, 1)).toHaveLength(1);          // event continua LIVE
   });
 
   test('close normal (ended_at > started_at) NÃO clampa nem audita anomalia', async () => {
@@ -515,5 +522,110 @@ describe('V3 §2.4 — end_of_day instantâneo (bloco 28/mai noite #32)', () => 
     });
     const after = db.events.find((e) => e.id === fgOther.id);
     expect(after.ended_at).toBeNull();   // outra pessoa não afetada
+  });
+});
+
+describe('V3 §2.4 — guard dur=0 non-eod (bloco 29/mai-noite #3)', () => {
+  test('INSERT bloqueia ended_at == started_at em foreground; audit gravado', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: WORK,
+      started_at: T(10), ended_at: T(10),     // dur=0
+      actor_type: 'llm_observer',
+    });
+    expect(ev).toBeNull();
+    expect(db.events).toHaveLength(0);
+    expect(actions(db)).toContain('event.insert_blocked_dur_zero');
+  });
+
+  test('INSERT bloqueia dur=0 em background também (qualquer non-eod)', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: BG,
+      started_at: T(11), ended_at: T(11),
+      actor_type: 'llm_observer',
+    });
+    expect(ev).toBeNull();
+    expect(actions(db)).toContain('event.insert_blocked_dur_zero');
+  });
+
+  test('INSERT PERMITE ended_at == started_at quando slug=end_of_day', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: EOD,
+      started_at: T(18),                       // sem ended_at — upsert preenche com end_of_day rule
+      actor_type: 'llm_observer',
+    });
+    expect(ev).not.toBeNull();
+    expect(ev.ended_at).toBe(T(18));          // dur=0 LEGÍTIMO pra eod
+    expect(ev.closed_reason).toBe('end_of_day');
+  });
+
+  test('PATCH (via _closeActive) bloqueia quando 2 opens têm mesmo started_at', async () => {
+    // Reproduz o caso ev316/ev317 29/mai: 1ª open cria event LIVE; 2ª open
+    // com mesmo started_at dispararia _closeActive que zeraria a duração.
+    // Com guard: PRIMEIRO event permanece LIVE, segundo entra normalmente.
+    const db = makeFakeDb();
+    const s = svc(db);
+    const first = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(11),
+      actor_type: 'llm_observer', source_message_ts: 'm1',
+    });
+    expect(first.ended_at).toBeNull();
+    const second = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(11),
+      actor_type: 'llm_observer', source_message_ts: 'm1#a1',
+    });
+    expect(second).not.toBeNull();
+    // first deve continuar LIVE (não fechado em dur=0)
+    const firstAfter = db.events.find((e) => e.id === first.id);
+    expect(firstAfter.ended_at).toBeNull();
+    expect(actions(db)).toContain('event.close_blocked_dur_zero');
+  });
+
+  test('correct(ended_at=started_at) lança erro claro em non-eod', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(9),
+      actor_type: 'llm_observer',
+    });
+    await expect(s.correct(ev.id, { ended_at: T(9) }, null, 'tentativa', 'admin'))
+      .rejects.toThrow(/dur=0/);
+  });
+
+  test('correct(ended_at=started_at) PERMITE em end_of_day', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: EOD, started_at: T(18),
+      actor_type: 'llm_observer',
+    });
+    // já é dur=0; outro correct igual deve passar (idempotente)
+    const after = await s.correct(ev.id, { ended_at: T(18) }, null, 'reapply', 'admin');
+    expect(after).not.toBeNull();
+    expect(after.ended_at).toBe(T(18));
+  });
+
+  test('PATCH negative-duration clamp ainda funciona (não é o mesmo do guard)', async () => {
+    // Quando ended_at < started_at, clamp pro started_at = dur=0.
+    // Pré-fix, isso ficava como dur=0 (ruim). Pós-fix, AINDA clampa (preserva
+    // semântica antiga), MAS o guard dur=0 vai bloquear se o resultado é
+    // exact match.  Net result: ended_at ainda fica NULL (caller pega null).
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(11),
+      actor_type: 'llm_observer',
+    });
+    // tenta close em T(10) (antes do started T(11)) → clamp pra T(11)
+    // → vai bater no guard dur=0 → patch rejected
+    await s.closeActivePersonEvent(1, T(10), 'manual', 'foreground', 'admin');
+    const after = db.events.find((e) => e.id === ev.id);
+    // event AINDA está LIVE porque o clamp+guard bloqueou o close
+    expect(after.ended_at).toBeNull();
   });
 });

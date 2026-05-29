@@ -113,7 +113,8 @@ class EventService {
         metadata ? JSON.stringify(metadata) : null]);
   }
 
-  /** UPDATE uniforme de 1 event por id. fields = {col:value}. */
+  /** UPDATE uniforme de 1 event por id. fields = {col:value}.
+   *  Pode retornar null se o guard dur=0 bloquear o patch (bloco 29/mai-noite #3). */
   async _patch(c, id, fields) {
     // GUARD duração negativa: se este patch grava ended_at < started_at,
     // clampa pro started_at (duração zero) e audita a anomalia. Preserva
@@ -121,9 +122,15 @@ class EventService {
     // deixaria 2 events abertos). Em shadow ao vivo nunca dispara.
     if (Object.prototype.hasOwnProperty.call(fields, 'ended_at') && fields.ended_at != null) {
       let startedAt = fields.started_at;
-      if (startedAt == null) {
-        const cur = await c.query('SELECT started_at FROM v3.events WHERE id = $1', [id]);
-        startedAt = cur.rows[0] ? cur.rows[0].started_at : null;
+      let activityTypeId;
+      if (startedAt == null || Object.prototype.hasOwnProperty.call(fields, 'activity_type_id') === false) {
+        const cur = await c.query('SELECT started_at, activity_type_id FROM v3.events WHERE id = $1', [id]);
+        if (cur.rows[0]) {
+          if (startedAt == null) startedAt = cur.rows[0].started_at;
+          activityTypeId = cur.rows[0].activity_type_id;
+        }
+      } else {
+        activityTypeId = fields.activity_type_id;
       }
       if (isNegativeDuration(startedAt, fields.ended_at)) {
         const attempted = fields.ended_at;
@@ -134,6 +141,31 @@ class EventService {
           after: { ended_at: startedAt },
           metadata: { guard: 'ended_at >= started_at', clamped_to: 'started_at', started_at: startedAt },
         });
+      }
+      // GUARD bloco 29/mai-noite #3 — dur=0 BLOQUEADO em non-eod.
+      // Quando o patch resultaria em ended_at == started_at (exato match) E
+      // o slug não é end_of_day (carimbo instantâneo legítimo), REJEITA o
+      // patch inteiro e loga warning. Caller checa null e trata.
+      // Caso real ev316/ev317 29/mai: _closeActive disparado por 2 opens
+      // com mesmo started_at fechou o primeiro em ended_at = started_at,
+      // gerando events fantasmas dur=0 inválidos.
+      if (startedAt && fields.ended_at
+          && new Date(fields.ended_at).getTime() === new Date(startedAt).getTime()) {
+        const isEod = await this._isEndOfDay(c, activityTypeId);
+        if (!isEod) {
+          await this._audit(c, {
+            actorType: 'system', action: 'event.close_blocked_dur_zero', targetId: id,
+            before: null, after: null,
+            metadata: {
+              guard: 'ended_at == started_at e slug != end_of_day',
+              attempted_fields: Object.keys(fields),
+              started_at: startedAt,
+              attempted_ended_at: fields.ended_at,
+              activity_type_id: activityTypeId,
+            },
+          });
+          return null;   // patch rejected; caller deve checar e tratar
+        }
       }
     }
     const keys = Object.keys(fields);
@@ -149,6 +181,30 @@ class EventService {
     let endedAt = p.ended_at || null;
     const clampedInsert = isNegativeDuration(p.started_at, endedAt);
     if (clampedInsert) endedAt = p.started_at;
+
+    // GUARD bloco 29/mai-noite #3 — dur=0 BLOQUEADO em non-eod no INSERT.
+    // Defesa contra caller passar ended_at == started_at em slug não-eod.
+    // (end_of_day é exceção legítima: já é instantâneo por design.)
+    if (endedAt && p.started_at
+        && new Date(endedAt).getTime() === new Date(p.started_at).getTime()) {
+      const isEod = await this._isEndOfDay(c, p.activity_type_id);
+      if (!isEod) {
+        await this._audit(c, {
+          actorType: 'system', action: 'event.insert_blocked_dur_zero', targetId: null,
+          before: null, after: null,
+          metadata: {
+            guard: 'ended_at == started_at e slug != end_of_day',
+            person_id: p.person_id,
+            started_at: p.started_at,
+            attempted_ended_at: endedAt,
+            activity_type_id: p.activity_type_id || null,
+            source_message_ts: p.source_message_ts || null,
+            description: p.description || null,
+          },
+        });
+        return null;   // insert rejected; upsert deve checar e tratar
+      }
+    }
 
     const cols = ['person_id', 'activity_type_id', 'product_batch_id', 'started_at',
       'ended_at', 'phase_label', 'description', 'source_message_ts', 'confidence',
@@ -352,6 +408,9 @@ class EventService {
     const closed = [];
     for (const ev of r.rows) {
       const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
+      // Bloco 29/mai-noite #3: _patch retorna null se bloqueou (dur=0 non-eod).
+      // Audit do bloqueio já foi feito; pula o audit de event.closed.
+      if (!after) continue;
       await this._audit(c, {
         actorType, actorPersonId: opts.actorPersonId, action: 'event.closed',
         targetId: ev.id, before: ev, after,
@@ -376,6 +435,10 @@ class EventService {
       const matches = kind === 'any' || evKind === kind;
       if (!matches) continue;
       const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
+      // Bloco 29/mai-noite #3: _patch retorna null quando bloquearia dur=0
+      // em non-eod. Audit do bloqueio já foi feito. Pula audit de closed
+      // e segue pro próximo event (event original permanece LIVE).
+      if (!after) continue;
       await this._audit(c, {
         actorType, actorPersonId: opts.actorPersonId, action: 'event.closed', targetId: ev.id,
         before: ev, after, metadata: { reason, kind, activityTypeId: opts.activityTypeId || null },
@@ -484,6 +547,9 @@ class EventService {
 
       // 3 — insert
       const ev = await this._insert(c, p);
+      // Bloco 29/mai-noite #3: _insert retorna null se bloqueou dur=0 non-eod.
+      // Audit do bloqueio já foi gravado; retornamos null pro caller checar.
+      if (!ev) return null;
       await this._audit(c, {
         actorType, actorPersonId: p.actor_person_id, action: 'event.created',
         targetId: ev.id, before: null, after: ev,
@@ -641,6 +707,11 @@ class EventService {
       const before = await this._getById(c, eventId);
       if (!before) throw new Error('correct: event ' + eventId + ' não existe');
       const after = await this._patch(c, eventId, fields);
+      // Bloco 29/mai-noite #3: _patch retorna null se guard bloqueou dur=0 non-eod.
+      // Em correct (admin-driven), lança erro claro pra admin saber.
+      if (!after) {
+        throw new Error('correct: bloqueado pelo guard dur=0 — ended_at == started_at requer slug=end_of_day. Veja audit_log action=event.close_blocked_dur_zero.');
+      }
       await this._audit(c, {
         actorType, actorPersonId: byPersonId, action: 'event.corrected',
         targetId: eventId, before, after, metadata: { note: note || null, fields: Object.keys(fields) },
