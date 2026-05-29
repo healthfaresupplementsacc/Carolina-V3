@@ -197,3 +197,54 @@ Cada item DEVE estar funcionando no v4 antes do switch:
 - Branch `dashboard-v4` continua existindo pra retomar.
 - Express continua servindo `dashboard/` em `/dashboard` até o E8.
 - Nenhuma migration de DB, nenhuma mudança de schema.
+
+---
+
+## TODO futuro — aprendizado contínuo da Carolina (bloco 28/mai noite #11)
+
+A cada ajuste/correção feita pelo admin no `/dashboard-v4`, o sistema grava
+audit_log. Esses audits são **lições** pro LLM aprender a evitar o mesmo
+erro. **Não implementado ainda** — apenas documentado aqui pra próximo bloco.
+
+### Sinais já capturados em `v3.audit_log`
+| `action`                | significado pro LLM                                          |
+|-------------------------|-------------------------------------------------------------|
+| `event.corrected`       | admin corrigiu campo (product, cowork, person, etc) → o LLM errou nesse padrão |
+| `event.deleted`         | admin apagou event criado pelo LLM → false-positive (não devia ter criado) |
+| `event.merged`          | dois events viraram um → LLM segmentou demais |
+| `event.split`           | um event virou dois → LLM agregou demais |
+| `event.reassigned`      | mudou person_id → atribuição errada (msg sem assinatura, multi-author) |
+| `event.long_running_set`| admin marcou multi-dia → LLM não detectou continuidade |
+| `manual_post.sent` (Carolina) | admin perguntou via Carolina → texto vira exemplo de coaching |
+
+### Pipeline futuro
+1. **Coleta semanal** — script puxa `audit_log` da semana com `actor_type='admin'`
+   E `action IN ('event.corrected', 'event.deleted', 'event.merged', 'event.reassigned')`.
+2. **Diff** — pra cada audit, monta o "antes/depois" do payload (já temos
+   `before_data` em audit) + texto da msg origem.
+3. **Síntese** — agrupa por padrão (ex.: "msgs sem assinatura sendo
+   atribuídas pro Vitor quando deveriam ser pro Bruno"; "events sem batch_id
+   pra Potassium"; "admin fala 'to em reuniao' e vira event de meeting").
+4. **Enriquecimento do prompt** — adiciona como **novas regras** no
+   `prompt-builder.js` ou como **exemplos few-shot** na seção `EQUIPE`/contexto.
+   Versionado: cada enriquecimento gera commit com link pro audit que
+   originou.
+5. **Validação** — re-roda o LLM nas msgs corrigidas e confere se a nova
+   classificação bate com o que o admin escolheu.
+
+### Bugs candidatos a alimentar primeiro pulse
+- **PersonResolver não força adminCtx por role direta** (caso ev302 Thassio
+  28/mai: msg "to em reuniao" virou meeting/support porque LLM classificou
+  como activity_start; PersonResolver depende do LLM dizer que é
+  admin_intervention em vez de hard-skip pelo slack_user_id mapping).
+- **Batches sem product_batch_id** (caso Potassium 28/mai: 6 events
+  production_line sem batch atribuído porque LLM não tinha batch ativo no
+  catálogo).
+- **Cowork errado por timing** (caso ev281 28/mai: cw=[5,4] mas Simone só
+  começou 13min depois — LLM antecipou cowork futuro).
+
+### Não implementar agora
+Esse pipeline é E9+ (após estabilizar V4 + Falar como Carolina). Antes disso,
+correções continuam manuais (admin via /dashboard-v4 + scripts/v3-apply-fix-*.js)
+e cada bloco diário gera audits que ficam no histórico esperando o pipeline
+nascer.
