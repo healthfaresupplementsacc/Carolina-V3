@@ -190,6 +190,22 @@ class EventService {
     return KIND_FOREGROUND;
   }
 
+  /**
+   * Bloco 28/mai noite #32 — END_OF_DAY é instantâneo (carimbo de momento).
+   * Retorna true se o activity_type é slug='end_of_day'. Usado no upsert pra
+   * (a) forçar ended_at = started_at se não vier; (b) fechar foreground LIVE
+   * da pessoa nesse horário com closed_reason='end_of_day'. Background
+   * (long_running ou não) NÃO é fechado — quem está rodando continua
+   * (long_running cruza noite; bg single-day fecha via safetyAutoClose).
+   */
+  async _isEndOfDay(c, activityTypeId) {
+    if (!activityTypeId) return false;
+    const r = await c.query(
+      "SELECT 1 FROM v3.activity_types WHERE id = $1 AND slug = 'end_of_day'",
+      [activityTypeId]);
+    return r.rows.length > 0;
+  }
+
   /** Lê uma setting JSONB. Retorna fallback se a tabela/setting não existir. */
   async _setting(c, key, fallback) {
     try {
@@ -403,7 +419,22 @@ class EventService {
         return after;
       }
 
-      // 2 — auto-close baseado no KIND do novo event (invariante nova):
+      // 2a — END_OF_DAY (bloco 28/mai noite #32). Marca instantânea de
+      // saída. Força ended_at = started_at e fecha foreground LIVE da
+      // pessoa com closed_reason='end_of_day'. Background (long_running
+      // OU single-day) NÃO é fechado aqui — long_running cruza noite;
+      // bg single-day fecha via _closeMatchingBgSamePB do próximo turno
+      // ou safetyAutoClose ao 21h. Aplicado ANTES do switch de KIND
+      // porque end_of_day é categoria=meta mas tem semântica própria.
+      const isEod = await this._isEndOfDay(c, p.activity_type_id);
+      if (isEod) {
+        if (!p.ended_at) p.ended_at = p.started_at;
+        if (!p.closed_reason) p.closed_reason = 'end_of_day';
+        await this._closeActive(c, p.person_id, p.started_at, 'end_of_day',
+          KIND_FOREGROUND, actorType, { actorPersonId: p.actor_person_id });
+      }
+
+      // 2b — auto-close baseado no KIND do novo event (invariante nova):
       //
       //   foreground  → fecha o foreground ativo anterior em p.started_at
       //                 (emenda contígua). NÃO toca background nem meta.

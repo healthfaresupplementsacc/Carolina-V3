@@ -8,6 +8,7 @@ const BREAK = 20;  // meta
 const LUNCH = 21;  // meta
 const BG = 30;     // is_background=true (formulação/mix/encapsulação)
 const BG2 = 31;    // outro background tipo (pra testes de FIFO de mesmo tipo)
+const EOD = 22;    // meta · slug='end_of_day' (bloco 28/mai noite #32)
 
 /** Fake in-memory de v3.events / v3.activity_types / v3.audit_log / v3.settings. */
 function makeFakeDb(settings = {}) {
@@ -16,11 +17,12 @@ function makeFakeDb(settings = {}) {
   const audit = [];
   // { category, is_background } por activity_type_id
   const ATS = {
-    [WORK]: { category: 'production_phase', is_background: false },
-    [BREAK]: { category: 'meta', is_background: false },
-    [LUNCH]: { category: 'meta', is_background: false },
-    [BG]: { category: 'production_phase', is_background: true },
-    [BG2]: { category: 'production_phase', is_background: true },
+    [WORK]: { category: 'production_phase', is_background: false, slug: 'production_line' },
+    [BREAK]: { category: 'meta', is_background: false, slug: 'break' },
+    [LUNCH]: { category: 'meta', is_background: false, slug: 'lunch' },
+    [BG]: { category: 'production_phase', is_background: true, slug: 'mixing' },
+    [BG2]: { category: 'production_phase', is_background: true, slug: 'formulation' },
+    [EOD]: { category: 'meta', is_background: false, slug: 'end_of_day' },
   };
 
   function run(sql, params = []) {
@@ -66,6 +68,10 @@ function makeFakeDb(settings = {}) {
     if (/^SELECT category, is_background FROM v3\.activity_types/.test(s)) {
       const a = ATS[params[0]];
       return { rows: a != null ? [{ category: a.category, is_background: a.is_background }] : [] };
+    }
+    if (/^SELECT 1 FROM v3\.activity_types WHERE id = \$1 AND slug = 'end_of_day'/.test(s)) {
+      const a = ATS[params[0]];
+      return { rows: (a && a.slug === 'end_of_day') ? [{}] : [] };
     }
     if (/^SELECT category FROM v3\.activity_types/.test(s)) {
       // legacy: alguns callers antigos ainda pedem só category
@@ -444,5 +450,70 @@ describe('V3 §2.4 — guard de duração negativa (achado pós-shadow)', () => 
     expect(isNegativeDuration(T(9), null)).toBe(false);
     expect(isNegativeDuration(null, T(9))).toBe(false);
     expect(isNegativeDuration('lixo', T(9))).toBe(false);
+  });
+});
+
+describe('V3 §2.4 — end_of_day instantâneo (bloco 28/mai noite #32)', () => {
+  test('end_of_day fecha o próprio event imediatamente: ended_at = started_at', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: EOD, started_at: T(18),
+      actor_type: 'llm_observer',
+    });
+    expect(ev.ended_at).toBe(T(18));
+    expect(ev.closed_reason).toBe('end_of_day');
+  });
+
+  test('end_of_day fecha foreground LIVE da mesma pessoa com closed_reason=end_of_day', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    // FG live aberto desde 14h
+    const fg = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(14),
+      actor_type: 'llm_observer',
+    });
+    expect(fg.ended_at).toBeNull();
+    // EOD às 18h
+    await s.upsert({
+      person_id: 1, activity_type_id: EOD, started_at: T(18),
+      actor_type: 'llm_observer',
+    });
+    const fgAfter = db.events.find((e) => e.id === fg.id);
+    expect(fgAfter.ended_at).toBe(T(18));
+    expect(fgAfter.closed_reason).toBe('end_of_day');
+  });
+
+  test('end_of_day NÃO fecha background LIVE (long_running ou single-day)', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    // BG live aberto desde 12h
+    const bg = await s.upsert({
+      person_id: 1, activity_type_id: BG, started_at: T(12),
+      actor_type: 'llm_observer',
+    });
+    expect(bg.ended_at).toBeNull();
+    // EOD às 18h
+    await s.upsert({
+      person_id: 1, activity_type_id: EOD, started_at: T(18),
+      actor_type: 'llm_observer',
+    });
+    const bgAfter = db.events.find((e) => e.id === bg.id);
+    expect(bgAfter.ended_at).toBeNull();   // bg continua LIVE
+  });
+
+  test('end_of_day NÃO afeta foreground de OUTRA pessoa', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const fgOther = await s.upsert({
+      person_id: 2, activity_type_id: WORK, started_at: T(14),
+      actor_type: 'llm_observer',
+    });
+    await s.upsert({
+      person_id: 1, activity_type_id: EOD, started_at: T(18),
+      actor_type: 'llm_observer',
+    });
+    const after = db.events.find((e) => e.id === fgOther.id);
+    expect(after.ended_at).toBeNull();   // outra pessoa não afetada
   });
 });

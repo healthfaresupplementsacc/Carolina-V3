@@ -23,6 +23,9 @@
 const BREAK_SLUGS = new Set(['lunch', 'break']);
 const STOPPAGE_SLUGS = new Set(['machine_downtime', 'line_changeover', 'facility_maintenance', 'repair']);
 const EOD_SLUG = 'end_of_day';
+// Bloco 28/mai noite #32 — slugs que não contam pra "ainda na empresa" no
+// cálculo de presença. end_of_day é carimbo de saída.
+const PRESENCE_TERMINAL_SLUGS = new Set(['end_of_day']);
 
 /** Helper interno: clamps a duração de um evento na janela [0, 1440]. Eventos
  *  com end <= start retornam null. */
@@ -89,23 +92,54 @@ function subtractIntervals(base, sub) {
  * Presença = última atividade − primeira atividade (wall-clock).
  * Break = união de eventos com slug lunch/break (não soma dobrada).
  * Ativo = presença − break.
+ *
+ * Bloco 28/mai noite #32: se a pessoa tem evento `end_of_day` no dia, o
+ * `lastMin` usa o started_min desse end_of_day (carimbo de saída) em vez
+ * de NOW. Sem o end_of_day, eventos LIVE caem em NOW como antes.
  */
 function personPresence(opId, events, now) {
   const evs = (events || []).filter((e) => e.op === opId && e.started_min != null);
   if (evs.length === 0) {
-    return { firstMin: null, lastMin: null, presenceMin: 0, breakMin: 0, activeMin: 0, breakEvents: [] };
+    return { firstMin: null, lastMin: null, presenceMin: 0, breakMin: 0, activeMin: 0, breakEvents: [], endOfDayMin: null };
+  }
+  // Marca de saída — primeiro end_of_day do dia, se houver. (Geralmente
+  // um só por pessoa; pegamos o primeiro pra robustez.)
+  let endOfDayMin = null;
+  for (const e of evs) {
+    if (PRESENCE_TERMINAL_SLUGS.has(e.activity)) {
+      if (endOfDayMin == null || e.started_min < endOfDayMin) endOfDayMin = e.started_min;
+    }
   }
   let firstMin = Infinity;
   let lastMin = -Infinity;
   for (const e of evs) {
     if (e.started_min < firstMin) firstMin = e.started_min;
-    const end = e.ended_min == null ? now : e.ended_min;
+    // Quando há end_of_day, eventos LIVE (e qualquer end > endOfDayMin)
+    // são clampados ao horário do end_of_day. Sem end_of_day, LIVE = now.
+    let end = e.ended_min == null
+      ? (endOfDayMin != null ? endOfDayMin : now)
+      : e.ended_min;
+    if (endOfDayMin != null && end > endOfDayMin) end = endOfDayMin;
     if (end > lastMin) lastMin = end;
   }
   const presenceMin = Math.max(0, lastMin - firstMin);
   const breakEvents = evs.filter((e) => BREAK_SLUGS.has(e.activity));
-  const { total: breakMin } = mergeIntervals(breakEvents.map((e) => evIv(e, now)).filter(Boolean));
-  return { firstMin, lastMin, presenceMin, breakMin, activeMin: Math.max(0, presenceMin - breakMin), breakEvents };
+  // Breaks também respeitam endOfDayMin no clamp do end LIVE
+  const breakIvs = breakEvents.map((e) => {
+    if (e.started_min == null) return null;
+    let end = e.ended_min == null
+      ? (endOfDayMin != null ? endOfDayMin : now)
+      : e.ended_min;
+    if (endOfDayMin != null && end > endOfDayMin) end = endOfDayMin;
+    if (!Number.isFinite(end) || end <= e.started_min) return null;
+    return [e.started_min, end];
+  }).filter(Boolean);
+  const { total: breakMin } = mergeIntervals(breakIvs);
+  return {
+    firstMin, lastMin, presenceMin, breakMin,
+    activeMin: Math.max(0, presenceMin - breakMin),
+    breakEvents, endOfDayMin,
+  };
 }
 
 /**

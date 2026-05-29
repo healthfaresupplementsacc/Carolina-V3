@@ -93,9 +93,10 @@ describe('subtractIntervals', () => {
   });
 });
 
-describe('personPresence — Bruno Sarmento 28/mai', () => {
+describe('personPresence — Bruno Sarmento 28/mai (com end_of_day clamp)', () => {
   // Dados resumidos do diag: primeira fg 9:49, última fg 18:46 = 6:46 PM,
-  // lunch 13:55→16:44 (2h49). Também tem bg paralelos e LIVE end_of_day.
+  // lunch 13:55→16:44 (2h49). end_of_day 18:46 instantâneo (pós-fix
+  // bloco 28/mai noite #32 — antes era LIVE).
   const NOW = 20 * 60 + 54;  // 8:54 PM
   const events = [
     { op: 'p7', activity: 'production_line',     started_min: 9 * 60 + 49,  ended_min: 9 * 60 + 52,  _flow: 'production' },
@@ -104,25 +105,89 @@ describe('personPresence — Bruno Sarmento 28/mai', () => {
     { op: 'p7', activity: 'encapsulation',       started_min: 13 * 60 + 23, ended_min: 16 * 60 + 42, _flow: 'production', _is_background: true },
     { op: 'p7', activity: 'lunch',               started_min: 13 * 60 + 55, ended_min: 16 * 60 + 44, _flow: 'support' },
     { op: 'p7', activity: 'production_line',     started_min: 17 * 60 + 31, ended_min: 18 * 60 + 46, _flow: 'production' },
-    { op: 'p7', activity: 'end_of_day',          started_min: 18 * 60 + 46, ended_min: null,         _flow: 'support' },
+    { op: 'p7', activity: 'end_of_day',          started_min: 18 * 60 + 46, ended_min: 18 * 60 + 46, _flow: 'support' },
   ];
-  test('first/last/presence', () => {
+  test('first/last/presence — lastMin é o end_of_day, não NOW', () => {
     const r = personPresence('p7', events, NOW);
     expect(r.firstMin).toBe(9 * 60 + 49);
-    expect(r.lastMin).toBe(NOW);    // LIVE end_of_day usa now
-    expect(r.presenceMin).toBe(NOW - (9 * 60 + 49));
+    expect(r.endOfDayMin).toBe(18 * 60 + 46);
+    expect(r.lastMin).toBe(18 * 60 + 46);    // 6:46 PM, não 8:54 PM (NOW)
+    expect(r.presenceMin).toBe((18 * 60 + 46) - (9 * 60 + 49));  // 8h57
   });
   test('break extraído do lunch', () => {
     const r = personPresence('p7', events, NOW);
     expect(r.breakMin).toBe((16 * 60 + 44) - (13 * 60 + 55));   // 2h49 = 169
   });
-  test('active = presence − break', () => {
+  test('active = presence − break (caso real Bruno = 6h08)', () => {
     const r = personPresence('p7', events, NOW);
     expect(r.activeMin).toBe(r.presenceMin - r.breakMin);
+    expect(r.activeMin).toBe((18 * 60 + 46) - (9 * 60 + 49) - ((16 * 60 + 44) - (13 * 60 + 55)));
   });
   test('sem eventos: tudo zero', () => {
     const r = personPresence('p99', [], NOW);
-    expect(r).toEqual({ firstMin: null, lastMin: null, presenceMin: 0, breakMin: 0, activeMin: 0, breakEvents: [] });
+    expect(r).toEqual({ firstMin: null, lastMin: null, presenceMin: 0, breakMin: 0, activeMin: 0, breakEvents: [], endOfDayMin: null });
+  });
+});
+
+describe('personPresence — end_of_day clamp (bloco 28/mai noite #32)', () => {
+  // Caso real Bruno Sarmento: 9:49 AM → 6:46 PM end_of_day. Sem o clamp,
+  // ev305 LIVE empurra lastMin pra NOW e infla presença.
+  test('com end_of_day, lastMin = horário do end_of_day, não NOW', () => {
+    const NOW = 22 * 60;  // 10 PM
+    const events = [
+      { op: 'p7', activity: 'production_line', started_min: 9 * 60 + 49,  ended_min: 18 * 60 + 46, _flow: 'production' },
+      { op: 'p7', activity: 'end_of_day',      started_min: 18 * 60 + 46, ended_min: 18 * 60 + 46, _flow: 'support' },
+    ];
+    const r = personPresence('p7', events, NOW);
+    expect(r.endOfDayMin).toBe(18 * 60 + 46);
+    expect(r.lastMin).toBe(18 * 60 + 46);   // não NOW
+    expect(r.presenceMin).toBe((18 * 60 + 46) - (9 * 60 + 49));  // 8h57
+  });
+
+  test('end_of_day LIVE (ended_at=null bug histórico) também clampa pelo started', () => {
+    const NOW = 22 * 60;
+    const events = [
+      { op: 'p7', activity: 'production_line', started_min: 9 * 60 + 49, ended_min: 18 * 60 + 46, _flow: 'production' },
+      { op: 'p7', activity: 'end_of_day',      started_min: 18 * 60 + 46, ended_min: null,        _flow: 'support' },
+    ];
+    const r = personPresence('p7', events, NOW);
+    expect(r.endOfDayMin).toBe(18 * 60 + 46);
+    expect(r.lastMin).toBe(18 * 60 + 46);
+  });
+
+  test('outro event LIVE após end_of_day NÃO empurra a presença pra NOW', () => {
+    const NOW = 22 * 60;
+    const events = [
+      { op: 'p7', activity: 'production_line', started_min: 9 * 60,  ended_min: null,        _flow: 'production' },  // bug histórico: fg LIVE não fechado
+      { op: 'p7', activity: 'end_of_day',      started_min: 18 * 60, ended_min: 18 * 60,     _flow: 'support' },
+    ];
+    const r = personPresence('p7', events, NOW);
+    expect(r.endOfDayMin).toBe(18 * 60);
+    expect(r.lastMin).toBe(18 * 60);  // o fg LIVE foi clampado pelo end_of_day
+  });
+
+  test('break LIVE também clampa pelo end_of_day', () => {
+    const NOW = 22 * 60;
+    const events = [
+      { op: 'p7', activity: 'production_line', started_min: 9 * 60,  ended_min: 12 * 60,         _flow: 'production' },
+      { op: 'p7', activity: 'lunch',           started_min: 12 * 60, ended_min: null,            _flow: 'support' },  // lunch sem F
+      { op: 'p7', activity: 'end_of_day',      started_min: 18 * 60, ended_min: 18 * 60,         _flow: 'support' },
+    ];
+    const r = personPresence('p7', events, NOW);
+    // lunch clampado em 18h: lunch = 12→18 = 360 min
+    expect(r.breakMin).toBe(6 * 60);
+    expect(r.lastMin).toBe(18 * 60);
+    expect(r.activeMin).toBe((18 * 60 - 9 * 60) - (6 * 60));  // 9h - 6h = 3h
+  });
+
+  test('sem end_of_day, comportamento antigo: LIVE usa NOW', () => {
+    const NOW = 16 * 60;  // 4 PM
+    const events = [
+      { op: 'p7', activity: 'production_line', started_min: 9 * 60, ended_min: null, _flow: 'production' },
+    ];
+    const r = personPresence('p7', events, NOW);
+    expect(r.endOfDayMin).toBeNull();
+    expect(r.lastMin).toBe(NOW);
   });
 });
 
