@@ -87,6 +87,54 @@ Se você não postar nada e a linha estava parada, vai aparecer no admin como
 "gap não-justificado durante manutenção" — Bruno/Henrique vão te perguntar
 o quê fez.
 
+### 5a-bis. Problema na máquina — REPORTA SEMPRE (instrução Bruno Camp 29/mai)
+
+Quando o maquinário der problema (parar, falhar, dar pressão errada,
+quebrar uma peça, qualquer coisa), **reporta NO CANAL imediatamente**.
+Mesmo que pareça pequeno. Mesmo que vá voltar logo. Reporta.
+
+Por quê:
+- Fica registrado no sistema (vira evento `machine_downtime`).
+- Bruno/Henrique veem em tempo real e podem ajudar.
+- Histórico fica pra entender padrões de falha do equipamento.
+
+**Formato**:
+```
+S: maquinario sem funcionar - [linha qual]
+ou
+S: máquina X com problema - [descrição curta]
+```
+
+Quando voltar:
+```
+F: maquinario voltou
+ou
+F: máquina X consertada
+```
+
+**Quem está na máquina parada também tem que reportar a próxima atividade**:
+Enquanto a máquina não funciona, posta o que vai fazer no meio tempo:
+```
+S: enquanto máquina para, vou cortar silica
+S: enquanto linha parada, vou organizar prateleira
+```
+
+Sem isso, o sistema acha que você sumiu durante a parada. Cada minuto que
+passa sem report vira "não reportado" no admin.
+
+**Quem reporta a próxima função enquanto a máquina parada**:
+- Já era a pessoa que estava na máquina → ela reporta.
+- Outras pessoas que estavam em cowork na linha → cada uma reporta sua
+  próxima função.
+- Quem não estava na linha → não precisa reportar (continua na atividade
+  normal).
+
+Esse padrão liga com:
+- Regra 26 do sistema: `machine_downtime` é parada crítica — linha
+  inteira pausa.
+- Regra 31 do sistema: parada da linha afeta TODA a equipe que estava
+  na linha — sistema marca cowork automaticamente em quem estava lá.
+
 ### 5b. Cowork (ajudando alguém)
 Se você se junta a uma tarefa que **outra pessoa já começou**, o jeito mais
 simples é mencionar a pessoa no seu start:
@@ -156,4 +204,4 @@ parte do treinamento futuro da Carolina autônoma — então quanto mais claro
 ficar pra vocês, mais ela aprende a ser claro pra todo mundo.
 
 ---
-*Última atualização: 2026-05-28 · bloco 28/mai noite (item 9).*
+*Última atualização: 2026-05-29 noite · adicionado seção 5a-bis (máquina parada — instrução Bruno Camp msg721 16:59 PM).*

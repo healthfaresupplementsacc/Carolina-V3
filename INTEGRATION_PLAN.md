@@ -232,6 +232,32 @@ erro. **Não implementado ainda** — apenas documentado aqui pra próximo bloco
 5. **Validação** — re-roda o LLM nas msgs corrigidas e confere se a nova
    classificação bate com o que o admin escolheu.
 
+### Bloco grande pendente — Carolina ATUA em @ menção (caso motivador real)
+
+**Status**: documentado, NÃO implementado.
+**Caso motivador**: 29/mai msg722 16:00 — Bruno Camp postou
+`@Carolina maquinario sem funcionar de 4:18pm as 4:52pm`. Carolina
+respondeu **"Anotado"** (msg723) mas **nenhum event criado no banco**.
+A intenção do Bruno era criar um `machine_downtime` retroativo
+4:18-4:52 PM.
+
+**Outro caso que JÁ funciona** (referência): msg700 13:14 Bruno Camp
+`@Carolina Simone saiu pro almoco as 1:01pm, por favor registrar` →
+Carolina **atualizou ev320** (fechou lunch da Simone retroativo).
+
+**Diferença**: msg700 era sobre lunch + lookup de event existente
+(close); msg722 era criar event novo (`machine_downtime`) sem event
+pré-existente. Aparentemente Carolina sabe FECHAR mas não sabe CRIAR
+retroativo via comando admin.
+
+**Conecta com**: [Comandos admin via Slack](memory/bloco-pendente-admin-slack-commands.md)
+— quando esse bloco grande for implementado, Carolina vai criar o
+event de verdade ao receber comando. Hoje ela responde "Anotado"
+mas não age (false-positive perigoso — admin acha que ficou registrado).
+
+**Workaround atual**: admin precisa criar event retroativo via /admin
+ou script ad-hoc até bloco de comandos ser feito.
+
 ### Bugs candidatos a alimentar primeiro pulse
 - **🔴 PRIORIDADE ALTA — PersonResolver não atribui pessoa pela assinatura
   da mensagem** (custou duas vezes em 2 dias):
