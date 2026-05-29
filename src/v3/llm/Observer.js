@@ -171,6 +171,36 @@ class Observer {
     }
     await this._upsertVocabulary(decision.new_vocabulary_terms);
 
+    // 7.5 ── GUARD msg.no_event_created (bloco 29/mai-noite auditoria #36).
+    // Quando msg tem prefixo S:/F:/S-/F- explícito MAS nenhum event foi
+    // criado nem atualizado, loga warning audit pra admin investigar.
+    // Sem isso, falha do classifier passa silenciosa (caso real Akkermansia
+    // manual da Simone msgs676/678 — LLM viu mas não emitiu actions).
+    if (!adminCtx && created.length === 0 && updated.length === 0) {
+      const raw = String(message.raw_text || '').trim();
+      const sfMatch = raw.match(/^([SsFf])\s*[:\-;]\s*/);
+      if (sfMatch) {
+        try {
+          await this.db.query(
+            `INSERT INTO v3.audit_log
+               (actor_type, actor_person_id, action, target_type, target_id, before_data, after_data, metadata)
+             VALUES ('system', NULL, 'msg.no_event_created', 'message', $1, NULL, NULL, $2::jsonb)`,
+            [message.id, JSON.stringify({
+              guard: 'msg com prefixo S:/F: mas zero events criados/atualizados',
+              prefix: sfMatch[1].toUpperCase(),
+              slack_user_id: message.slack_user_id,
+              slack_ts: message.slack_ts,
+              raw_preview: raw.slice(0, 200),
+              llm_category: decision.categorization || null,
+              llm_actions_count: (decision.actions || []).length,
+            })]);
+        } catch (e) {
+          // não bloqueia o fluxo principal
+          console.error('[Observer] falha ao registrar msg.no_event_created:', e.message);
+        }
+      }
+    }
+
     // 8 ── REAÇÃO — ÚLTIMO passo, pós-persist (§6.6). SHADOW: skip.
     if (this.mode !== 'shadow' && this.slack && decision.react_emoji) {
       await this.slack.addReaction(message.slack_ts, decision.react_emoji);

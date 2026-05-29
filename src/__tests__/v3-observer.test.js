@@ -555,3 +555,56 @@ describe('V3 §2.8 — Captura Aprimorada (Parte A)', () => {
     expect(eventService.safetyAutoClose).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('V3 §2.8 — guard msg.no_event_created (bloco 29/mai-noite #36)', () => {
+  const guardCalls = (db) => db.query.mock.calls.filter(([sql]) =>
+    String(sql).replace(/\s+/g, ' ').includes("'msg.no_event_created'"));
+
+  test('msg com prefixo S: que LLM emitiu actions=[] → guard dispara audit', async () => {
+    const m = msg({ raw_text: 'S:fazendo 02 Akkermansia manualmente' });
+    const { observer, db } = makeObserver({
+      message: m,
+      llmResult: { actions: [], categorization: 'activity_start', confidence: 'high' },
+    });
+    await observer.processMessage(m);
+    expect(guardCalls(db).length).toBe(1);
+  });
+
+  test('msg com prefixo F: que LLM emitiu actions=[] → guard dispara', async () => {
+    const m = msg({ raw_text: 'F: Finalizado Almoco' });
+    const { observer, db } = makeObserver({
+      message: m,
+      llmResult: { actions: [], categorization: 'activity_end', confidence: 'high' },
+    });
+    await observer.processMessage(m);
+    expect(guardCalls(db).length).toBe(1);
+  });
+
+  test('msg SEM prefixo S:/F: → guard NÃO dispara', async () => {
+    const m = msg({ raw_text: 'feito 200 garrafas' });
+    const { observer, db } = makeObserver({
+      message: m,
+      llmResult: { actions: [], categorization: 'note', confidence: 'high' },
+    });
+    await observer.processMessage(m);
+    expect(guardCalls(db).length).toBe(0);
+  });
+
+  test('msg com S: que GEROU event → guard NÃO dispara', async () => {
+    const m = msg({ raw_text: 'S: iniciando linha' });
+    const { observer, db } = makeObserver({ message: m, llmResult: OPEN });
+    await observer.processMessage(m);
+    expect(guardCalls(db).length).toBe(0);
+  });
+
+  test('msg de admin com S: → guard NÃO dispara (admin context, actions skipadas é esperado)', async () => {
+    const m = msg({ raw_text: 'S: começar isso' });
+    const { observer, db } = makeObserver({
+      message: m,
+      author: { person_id: 1, resolution_method: 'admin_directive', is_admin_context: true, confidence: 'high' },
+      llmResult: { actions: [{ type: 'open_event', person_id: 1, activity_type_id: 10, confidence: 'high' }], categorization: 'admin_intervention', confidence: 'high' },
+    });
+    await observer.processMessage(m);
+    expect(guardCalls(db).length).toBe(0);
+  });
+});
