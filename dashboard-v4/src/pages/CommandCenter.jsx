@@ -13,6 +13,7 @@ import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import nyTime from '../utils/ny-time.cjs';
+import dayStats from '../utils/day-stats.cjs';
 
 const NOTIFS_VISIBLE_KEY = 'hf-notifs-visible';
 
@@ -606,108 +607,232 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         )}
       </div>
 
-      {/* ── Resumo do dia ───────────────────────────────────── */}
+      {/* ── Resumo do dia ─ Bloco 28/mai noite (Leva A): refatorado pra
+           conceitos do negócio. Tudo derivado via util/day-stats.cjs com
+           UNIÃO de intervalos (wall-clock), sem dupla-contagem. ──────── */}
       <div className="section-title" style={{ marginTop: 24 }}>
         <Leaf size={14} color="var(--hf-leaf-500)"/>
         <h2>Resumo do dia</h2><span className="en">· Day summary</span>
         <div className="rule"/>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12 }}>
-        <div className="card" style={{ padding: 16 }}>
-          <Row label="Data"                value={date}/>
-          <Row label="Operadores hoje"     value={`${operators.length} pessoa(s)`}/>
-          <Row label="Eventos hoje"        value={`${state.events.length}`}/>
-          <Row label="Em andamento (live)" value={`${state.events.filter((e) => e.ended_min == null).length}`}/>
-          <Row label="Cowork ativos"       value={`${coworkActive}`}/>
-          <Row label="Background ativos"   value={`${state.events.filter((e) => e._is_background && e.ended_min == null).length}`}/>
-          <Row label="Tempo médio/ordem"   value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
-          <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : '— sem deadline'}/>
-        </div>
+      {(() => {
+        const prodT = dayStats.productionTime(state.events, now, HFD.activities || {});
+        const supB  = dayStats.supportBreakdown(state.events, now, HFD.activities || {});
+        const idleR = dayStats.idleRanking(state.events, now, operators, GAP_VISIBLE_MIN);
+        const openT = dayStats.openTasksByOp(state.events, operators);
+        const cowS  = dayStats.coworkStats(state.events);
+        const lotes = dayStats.lotesEnriched((raw && raw.production && raw.production.lotes) || [], state.events);
+        const goalsDone = goals.filter((g) => g.completed).length;
+        return (
+        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12 }}>
+          <div className="card" style={{ padding: 16 }}>
+            <Row label="Data"                value={date}/>
+            <Row label="Operadores hoje"     value={`${operators.length} pessoa(s)`}/>
+            <Row label="Eventos hoje"        value={`${state.events.length}`}/>
+            <Row label="Produção efetiva"    value={fmtDur(prodT.effectiveMin)}/>
+            <Row label="Tempo parado"        value={fmtDur(prodT.stoppageMin)}/>
+            <Row label="Suporte (limpeza)"   value={fmtDur(supB.cleaningTotal)}/>
+            <Row label="Tempo médio/ordem"   value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
+            <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : '— sem deadline'}/>
+          </div>
 
-        {/* E6 #8 — barras scrolláveis */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-          {/* Pessoas por tempo total ativo */}
-          <ScrollStrip title="Pessoas · tempo ativo" en="People · active time">
-            {(() => {
-              const byOp = {};
-              for (const e of state.events) {
-                const end = e.ended_min == null ? now : e.ended_min;
-                byOp[e.op] = (byOp[e.op] || 0) + Math.max(0, end - e.started_min);
-              }
-              const sorted = Object.entries(byOp).sort((a, b) => b[1] - a[1]);
-              return sorted.map(([opId, mins]) => {
-                const op = operators.find((x) => x.id === opId);
-                if (!op) return null;
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+            {/* 1. PESSOAS · presença / ativo / break — wall-clock real */}
+            <ScrollStrip title="Pessoas · presença e ativo" en="People · presence & active">
+              {operators.slice().map((op) => {
+                const p = dayStats.personPresence(op.id, state.events, now);
+                if (p.firstMin == null) return null;
                 return (
-                  <div key={opId} className="strip-item" style={{
-                    minWidth: 130, padding: 10, borderRadius: 8,
-                    background: 'var(--surface-2)', border: '1px solid var(--border)',
-                    flex: '0 0 auto',
+                  <div key={op.id} className="strip-item" style={{
+                    minWidth: 200, padding: 10, borderRadius: 8,
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: op.c1 }}/>
                       <b style={{ fontSize: 12.5 }}>{op.name}</b>
                     </div>
-                    <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 4 }}>{fmtDur(mins)}</div>
-                  </div>
-                );
-              });
-            })()}
-          </ScrollStrip>
-
-          {/* Lotes em produção do dia */}
-          <ScrollStrip title="Lotes em produção" en="Batches in production">
-            {(() => {
-              const lotes = (raw && raw.production && raw.production.lotes) || [];
-              return lotes.slice().sort((a, b) => (b.total_seconds || 0) - (a.total_seconds || 0)).map((lote) => {
-                const pname = (lote.product && lote.product.canonical_name) || '(produto)';
-                const dur = Math.round((lote.total_seconds || 0) / 60);
-                return (
-                  <div key={lote.batch_id || pname} className="strip-item" style={{
-                    minWidth: 180, padding: 10, borderRadius: 8,
-                    background: 'var(--surface-2)', border: '1px solid var(--border)',
-                    flex: '0 0 auto',
-                  }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {pname}
+                    <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 4 }}>
+                      {fmtDur(p.activeMin)} <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>ativo</span>
                     </div>
-                    <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{lote.batch_number || '—'}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
-                      <b className="mono" style={{ fontSize: 14, color: 'var(--flow-prod)' }}>{fmtDur(dur)}</b>
-                      <span style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{(lote.people || []).length}p · {(lote.phases || []).length}f</span>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2 }}>
+                      <span title="janela primeira→última atividade">presente {fmtDur(p.presenceMin)}</span>
+                      {p.breakMin > 0 && <span title="lunch/break"> · break {fmtDur(p.breakMin)}</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
+                      {fmtClock(p.firstMin)} → {p.lastMin >= now - 1 ? 'agora' : fmtClock(p.lastMin)}
                     </div>
                   </div>
                 );
-              });
-            })()}
-          </ScrollStrip>
+              }).filter(Boolean)}
+            </ScrollStrip>
 
-          {/* Fluxos com tempo */}
-          <ScrollStrip title="Fluxos · totais" en="Flows · totals">
-            {(() => {
-              const byFlow = {};
-              for (const e of state.events) {
-                const a = HFD.activities && HFD.activities[e.activity];
-                const f = a ? a.flow : 'unknown';
-                const end = e.ended_min == null ? now : e.ended_min;
-                byFlow[f] = (byFlow[f] || 0) + Math.max(0, end - e.started_min);
-              }
-              return Object.entries(byFlow).sort((a, b) => b[1] - a[1]).map(([f, mins]) => (
-                <div key={f} className="strip-item" style={{
-                  minWidth: 140, padding: 10, borderRadius: 8,
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  flex: '0 0 auto',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className={`pill ${f}`} style={{ fontSize: 10 }}><span className="dot"/>{(HFD.FLOWS && HFD.FLOWS[f] && HFD.FLOWS[f].label) || f}</span>
-                  </div>
-                  <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 4 }}>{fmtDur(mins)}</div>
+            {/* 2. LOTES — produto, fase atual, qty, cowork */}
+            <ScrollStrip title="Lotes em produção" en="Batches in production">
+              {lotes.length === 0
+                ? <EmptyStrip msg="Sem lotes produzidos hoje"/>
+                : lotes.slice().sort((a, b) => (b.total_seconds || 0) - (a.total_seconds || 0)).map((lote) => {
+                  const dur = Math.round((lote.total_seconds || 0) / 60);
+                  const phaseName = lote.current_phase_slug && HFD.activities && HFD.activities[lote.current_phase_slug]
+                    ? HFD.activities[lote.current_phase_slug].name : (lote.current_phase_slug || '');
+                  return (
+                    <div key={lote.batch_id} className="strip-item" style={{
+                      minWidth: 230, padding: 10, borderRadius: 8,
+                      background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <b style={{ fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {lote.product_name}
+                        </b>
+                        {lote.is_live && <span title="rodando" style={{ color: 'var(--hf-leaf-600)', fontSize: 11 }}>●</span>}
+                      </div>
+                      <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{lote.batch_number || '—'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>
+                        {phaseName || <span style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>—</span>}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                        <b className="mono" style={{ fontSize: 14, color: 'var(--flow-prod)' }}>{fmtDur(dur)}</b>
+                        {lote.qty > 0 && (
+                          <span className="mono" style={{ fontSize: 11, fontWeight: 700 }}>{lote.qty}</span>
+                        )}
+                      </div>
+                      {lote.people_ops.length > 0 && (
+                        <div style={{ display: 'flex', gap: 2, marginTop: 4, flexWrap: 'wrap' }}>
+                          {lote.people_ops.map((opId) => {
+                            const o = operators.find((x) => x.id === opId);
+                            if (!o) return null;
+                            return (
+                              <span key={opId} title={o.name} style={{
+                                fontSize: 9, padding: '1px 5px', borderRadius: 999, fontWeight: 700,
+                                background: o.c1, color: 'white',
+                              }}>{o.short}</span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </ScrollStrip>
+
+            {/* 3. PRODUÇÃO real vs paradas */}
+            <div className="card" style={{ padding: 12, background: 'var(--surface-2)' }}>
+              <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700 }}>
+                Produção · efetivo vs parado <span style={{ marginLeft: 4, opacity: 0.7, textTransform: 'none', fontWeight: 500 }}>· Production effective vs stoppage</span>
+              </div>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', marginTop: 6, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>efetivo</div>
+                  <b className="mono" style={{ fontSize: 20, color: 'var(--flow-prod)' }}>{fmtDur(prodT.effectiveMin)}</b>
                 </div>
-              ));
-            })()}
-          </ScrollStrip>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>wall-clock total</div>
+                  <b className="mono" style={{ fontSize: 14 }}>{fmtDur(prodT.wallClockMin)}</b>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>parado (sobre prod)</div>
+                  <b className="mono" style={{ fontSize: 14, color: 'var(--warn, #d97706)' }}>{fmtDur(prodT.stoppageMin)}</b>
+                </div>
+                {Object.entries(prodT.stoppageBySlug).length > 0 && (
+                  <div style={{ flex: 1, minWidth: 200, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {Object.entries(prodT.stoppageBySlug).sort((a, b) => b[1] - a[1]).map(([slug, mins]) => (
+                      <span key={slug} style={{
+                        fontSize: 10.5, padding: '2px 8px', borderRadius: 999,
+                        background: 'var(--surface)', border: '1px solid var(--border)',
+                      }}>
+                        {HFD.activities && HFD.activities[slug] ? HFD.activities[slug].name : slug}: <b className="mono">{fmtDur(mins)}</b>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 4. SUPORTE breakdown */}
+            <ScrollStrip title="Suporte · breakdown" en="Support breakdown">
+              {(() => {
+                const cards = [
+                  { key: 'cleaning_day',  label: 'Limpeza · dia',       val: supB.cleaningDay,    color: '#3b82f6' },
+                  { key: 'cleaning_eod',  label: 'Limpeza · fim do dia', val: supB.cleaningEod,    color: '#1e40af' },
+                  { key: 'cleaning_tot',  label: 'Limpeza · total',     val: supB.cleaningTotal,  color: '#2563eb' },
+                  { key: 'organization',  label: 'Organização',         val: supB.organization,   color: '#0ea5e9' },
+                  { key: 'maintenance',   label: 'Manutenção',          val: supB.maintenance,    color: '#d97706' },
+                  { key: 'downtime',      label: 'Downtime (máquina)',  val: supB.downtime,       color: '#dc2626' },
+                  { key: 'material',      label: 'Recebimento/Entrega', val: supB.materialHandling, color: '#7c5cd6' },
+                  { key: 'clinic',        label: 'Clínica · injeções',  val: supB.clinic,         color: '#16a34a' },
+                  { key: 'meeting',       label: 'Reuniões',            val: supB.meeting,        color: '#64748b' },
+                  { key: 'training',      label: 'Treinamento',         val: supB.training,       color: '#475569' },
+                ].filter((c) => c.val > 0);
+                if (cards.length === 0) return <EmptyStrip msg="Sem suporte registrado hoje"/>;
+                return cards.map((c) => (
+                  <div key={c.key} className="strip-item" style={{
+                    minWidth: 130, padding: 10, borderRadius: 8,
+                    background: 'var(--surface-2)', border: `1px solid var(--border)`, flex: '0 0 auto',
+                    borderLeft: `4px solid ${c.color}`,
+                  }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{c.label}</div>
+                    <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 2 }}>{fmtDur(c.val)}</div>
+                  </div>
+                ));
+              })()}
+            </ScrollStrip>
+
+            {/* 5. IDLE ranking — quem ficou mais parado */}
+            <ScrollStrip title={`Idle ranking · gaps ≥${GAP_VISIBLE_MIN}min`} en="Most idle">
+              {idleR.filter((r) => r.idleMin > 0).length === 0
+                ? <EmptyStrip msg="Sem gaps significativos"/>
+                : idleR.filter((r) => r.idleMin > 0).map((r, i) => (
+                  <div key={r.opId} className="strip-item" style={{
+                    minWidth: 160, padding: 10, borderRadius: 8,
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>{i + 1}.</span>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.opC1 }}/>
+                      <b style={{ fontSize: 12.5 }}>{r.opName}</b>
+                    </div>
+                    <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--warn, #d97706)', marginTop: 4 }}>{fmtDur(r.idleMin)}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.gapsCount} gap(s)</div>
+                  </div>
+                ))}
+            </ScrollStrip>
+
+            {/* 6a. TAREFAS ABERTAS (LIVE sem F, exceto end_of_day) */}
+            <ScrollStrip title="Tarefas abertas (LIVE sem F)" en="Open tasks">
+              {openT.length === 0
+                ? <EmptyStrip msg="Tudo fechado ✓"/>
+                : openT.map((t) => (
+                  <div key={t.opId} className="strip-item" style={{
+                    minWidth: 140, padding: 10, borderRadius: 8,
+                    background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.opC1 }}/>
+                      <b style={{ fontSize: 12.5 }}>{t.opName}</b>
+                    </div>
+                    <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--warn, #d97706)', marginTop: 4 }}>{t.count}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)' }}>aberta(s)</div>
+                  </div>
+                ))}
+            </ScrollStrip>
+
+            {/* 6c+d+f. COWORK / PRODUTOS / ALERTAS — strip resumida */}
+            <ScrollStrip title="Métricas do dia" en="Day metrics">
+              <MetricCard label="Cowork" value={cowS.total} sub="event(s) colaborativo(s)" color="#7c5cd6"/>
+              <MetricCard label="Lotes completados" value={goalsDone} sub={`/ ${goals.length} meta(s)`} color="#22b35d"/>
+              <MetricCard label="Alertas" value={allNotifs.length}
+                          sub={`${badCount} crítico · ${warnCount} warn · ${infoCount} info`}
+                          color={badCount > 0 ? '#dc2626' : warnCount > 0 ? '#d97706' : '#64748b'}/>
+              <MetricCard label="Backgrounds ativos"
+                          value={state.events.filter((e) => e._is_background && e.ended_min == null).length}
+                          sub="rodando agora" color="#0ea5e9"/>
+              <MetricCard label="Eventos em andamento"
+                          value={state.events.filter((e) => e.ended_min == null).length}
+                          sub="LIVE total" color="#16a34a"/>
+            </ScrollStrip>
+          </div>
         </div>
-      </div>
+        );
+      })()}
 
       {/* E6 #6 — FloatingPopover pra preencher gap */}
       <FloatingPopover
@@ -764,6 +889,34 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           </>
         )}
       </FloatingPopover>
+    </div>
+  );
+}
+
+/* Bloco 28/mai noite — placeholder pra strip sem dados. */
+function EmptyStrip({ msg }) {
+  return (
+    <div className="strip-item" style={{
+      minWidth: 200, padding: 12, borderRadius: 8,
+      background: 'var(--surface-2)', border: '1px dashed var(--border)', flex: '0 0 auto',
+      color: 'var(--text-3)', fontSize: 11, fontStyle: 'italic',
+    }}>{msg}</div>
+  );
+}
+
+/* Bloco 28/mai noite — card genérico pra strip "Métricas do dia". */
+function MetricCard({ label, value, sub, color = '#64748b' }) {
+  return (
+    <div className="strip-item" style={{
+      minWidth: 150, padding: 10, borderRadius: 8,
+      background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
+      borderLeft: `4px solid ${color}`,
+    }}>
+      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700 }}>
+        {label}
+      </div>
+      <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 2 }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
