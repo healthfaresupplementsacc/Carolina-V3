@@ -27,6 +27,28 @@ const ADMIN_ROLES = ['owner', 'manager'];
 const DIR_TTL_MS = 30000;          // cache de diretório (§6.9)
 const RECENT_WINDOW = "30 minutes"; // contexto recente da conta
 
+// Bloco 29/mai-noite — palavras curtas que NÃO são primeiro nome de pessoa.
+// Evita falso-positivo do parser de assinatura ("S-", "F-", "e", "ou", etc).
+const SIGNATURE_NOISE = new Set([
+  's', 'f', 'p', 'n', 'r', 'e', 'ou', 'o', 'a', 'pra', 'para', 'por', 'com',
+  'e/ou', 'da', 'do', 'de', 'na', 'no',
+]);
+
+// Padrões de assinatura procurados pelo parser. Cada um devolve o primeiro
+// nome no grupo 1; o caller verifica se o nome bate com algum primeiro
+// nome do catálogo de persons. Ordem importa — assinatura no fim é mais
+// forte que no começo.
+//   /-\s*Nome\s*$/         → "...-Bruno" / "...- Bruno"  (clássico)
+//   /\(\s*Nome\s*\)\s*$/   → "...(Bruno)" no fim
+//   /\bpor\s+Nome\s*$/     → "feito por Bruno" no fim
+//   /^\s*Nome\s*-/         → "Bruno- voltei..." (variação que Bruno usa)
+const SIGNATURE_PATTERNS = [
+  { re: /-\s*([A-Za-zÀ-ÿ]{2,})\s*$/u, kind: 'suffix_dash' },
+  { re: /\(\s*([A-Za-zÀ-ÿ]{2,})\s*\)\s*$/u, kind: 'suffix_paren' },
+  { re: /\bpor\s+([A-Za-zÀ-ÿ]{2,})\s*$/iu, kind: 'suffix_por' },
+  { re: /^\s*([A-Za-zÀ-ÿ]{2,})\s*-/u, kind: 'prefix_dash' },
+];
+
 class PersonResolver {
   /**
    * @param {object} deps
@@ -43,6 +65,50 @@ class PersonResolver {
     this._dir = null;
     this._dirAt = 0;
     this._llmCache = new Map(); // slack_ts → result (mesma msg nunca re-resolve)
+  }
+
+  /**
+   * Bloco 29/mai-noite — parser de assinatura "-Nome" ANTES do LLM.
+   * Deterministic, sem LLM. Tenta padrões em ordem; retorna o person row
+   * do catálogo OU null. Preferência por OPERADOR quando o primeiro nome
+   * existe tanto em admin quanto em operador (caso "Bruno" = Bruno Camp
+   * owner OU Bruno Sarmento operator → opera).
+   *
+   * @param {string} messageText
+   * @param {object} dir   diretório (de _loadDirectory)
+   * @returns {{ person, matchedName, kind } | null}
+   */
+  _parseSignature(messageText, dir) {
+    if (!messageText) return null;
+    const text = String(messageText).trim();
+    if (text.length === 0) return null;
+
+    // Constrói índice firstName(lowercase) → [person rows].
+    const firstNameMap = new Map();
+    for (const p of dir.personsById.values()) {
+      if (!p.display_name) continue;
+      const first = p.display_name.split(/\s+/)[0].toLowerCase();
+      if (!firstNameMap.has(first)) firstNameMap.set(first, []);
+      firstNameMap.get(first).push(p);
+    }
+
+    for (const { re, kind } of SIGNATURE_PATTERNS) {
+      const m = text.match(re);
+      if (!m) continue;
+      const name = m[1].toLowerCase();
+      if (SIGNATURE_NOISE.has(name)) continue;
+      const candidates = firstNameMap.get(name);
+      if (!candidates || candidates.length === 0) continue;
+      // Preferir operador quando há ambiguidade (caso real "Bruno": Bruno
+      // Camp owner OU Bruno Sarmento operator → operator).
+      let person = candidates.find((p) => !ADMIN_ROLES.includes(p.role));
+      if (!person && candidates.length === 1) person = candidates[0];
+      // Múltiplos admins com mesmo primeiro nome E nenhum operador:
+      // não decide — deixa pro LLM resolver (raro).
+      if (!person) continue;
+      return { person, matchedName: m[0], kind };
+    }
+    return null;
   }
 
   /** Cache de shared_accounts + shared_account_users + persons (TTL 30s). */
@@ -192,7 +258,19 @@ class PersonResolver {
   }
 
   /**
-   * Resolve o autor.
+   * Resolve o autor. Pipeline reformulado (bloco 29/mai-noite):
+   *   1. Parser de assinatura — "-Bruno", "Bruno-", "(Bruno)", "por Bruno"
+   *      detectado deterministicamente ANTES do LLM. Se admin assinou,
+   *      ainda marca is_admin_context=true.
+   *   2. Hard-skip por slack_user_id de admin (Bruno Camp/Thassio/Henrique
+   *      postando da própria conta sem assinatura → admin_directive,
+   *      zero events de produção).
+   *   3. Conta própria de operador → direct (igual antes).
+   *   4. Conta compartilhada SEM assinatura → primary_owner direto
+   *      (sem LLM). Evita LLM contaminar com contexto recente.
+   *   5. Conta compartilhada SEM primary_owner_id (raro) → LLM como
+   *      último recurso.
+   *
    * @param {object} context  { message_id, isAdminDM }
    */
   async resolve(slackUserId, messageText, messageTs, context = {}) {
@@ -203,15 +281,40 @@ class PersonResolver {
     const account = dir.sharedAccounts.get(slackUserId);
     let result;
 
-    if (!account) {
-      // ── conta própria — lookup direto, sem LLM ──
+    // ── PHASE 1 — parser de assinatura (deterministic, sem LLM) ──
+    const sig = this._parseSignature(messageText, dir);
+    if (sig) {
+      const isAdmin = ADMIN_ROLES.includes(sig.person.role);
+      result = {
+        person_id: sig.person.id,
+        resolution_method: isAdmin ? 'admin_signature' : 'signature_match',
+        detected_identification: sig.matchedName,
+        confidence: 'high',
+        is_admin_context: isAdmin,
+        llm_reasoning: `assinatura "${sig.matchedName}" (${sig.kind}) → person=${sig.person.display_name}${isAdmin ? ' (admin)' : ''}`,
+        cost_estimate_usd: 0,
+      };
+    } else if (!account) {
+      // ── PHASE 2/3 — conta própria (não-shared) ──
       const person = dir.personsBySlack.get(slackUserId);
       if (person) {
-        result = {
-          person_id: person.id, resolution_method: 'direct',
-          detected_identification: null, confidence: 'high',
-          llm_reasoning: 'conta própria — lookup direto', cost_estimate_usd: 0,
-        };
+        const isAdmin = ADMIN_ROLES.includes(person.role);
+        result = isAdmin
+          ? {
+            // PHASE 2 — admin postando da própria conta = admin_directive.
+            // Não cria event de produção (mesma semântica de admin_intervention).
+            person_id: person.id, resolution_method: 'admin_directive',
+            detected_identification: null, confidence: 'high',
+            is_admin_context: true,
+            llm_reasoning: `slack_user_id é admin (${person.role} ${person.display_name}) — não cria event`,
+            cost_estimate_usd: 0,
+          }
+          : {
+            // PHASE 3 — operador com conta própria.
+            person_id: person.id, resolution_method: 'direct',
+            detected_identification: null, confidence: 'high',
+            llm_reasoning: 'conta própria — lookup direto', cost_estimate_usd: 0,
+          };
       } else {
         result = {
           person_id: null, resolution_method: 'unknown_account',
@@ -219,8 +322,36 @@ class PersonResolver {
           llm_reasoning: 'slack_user_id não é conta própria nem compartilhada', cost_estimate_usd: 0,
         };
       }
+    } else if (account.primary_owner_id != null) {
+      // ── PHASE 4 — conta compartilhada SEM assinatura mas com primary_owner.
+      //   Owner-default determinístico. Antes esse caso ia pro LLM e
+      //   sofria contaminação de contexto (msg do Vitor sem assinatura
+      //   após Bruno postar → LLM atribuía pro Bruno). Agora vai direto
+      //   pro owner. Admin pode corrigir via dashboard quando errar.
+      const owner = dir.personsById.get(account.primary_owner_id);
+      if (owner) {
+        const isAdmin = ADMIN_ROLES.includes(owner.role);
+        result = isAdmin
+          ? {
+            person_id: owner.id, resolution_method: 'admin_directive',
+            detected_identification: null, confidence: 'high',
+            is_admin_context: true,
+            llm_reasoning: `primary_owner da conta é admin (${owner.display_name}) — não cria event`,
+            cost_estimate_usd: 0,
+          }
+          : {
+            person_id: owner.id, resolution_method: 'owner_default',
+            detected_identification: null, confidence: 'high',
+            llm_reasoning: `conta compartilhada sem assinatura — primary_owner ${owner.display_name}`,
+            cost_estimate_usd: 0,
+          };
+      } else {
+        // primary_owner_id aponta pra person inexistente (catálogo inconsistente)
+        result = await this._resolveShared(account, dir, slackUserId, messageText, messageTs, context);
+      }
     } else {
-      // ── conta compartilhada — LLM ──
+      // ── PHASE 5 — conta compartilhada SEM primary_owner (raro: Production
+      //   Line genérica). Único caso que ainda chama LLM. ──
       result = await this._resolveShared(account, dir, slackUserId, messageText, messageTs, context);
     }
 

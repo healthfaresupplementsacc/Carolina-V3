@@ -5,9 +5,9 @@ const MockProvider = require('../v3/llm/providers/MockProvider');
 
 // ── fixtures ──
 const PERSONS = [
-  { id: 1, display_name: 'Bruno Camp', role: 'owner', slack_user_id: null },
-  { id: 2, display_name: 'Thassio', role: 'owner', slack_user_id: null },
-  { id: 3, display_name: 'Henrique', role: 'manager', slack_user_id: null },
+  { id: 1, display_name: 'Bruno Camp', role: 'owner', slack_user_id: 'U_BRUNO_CAMP' },
+  { id: 2, display_name: 'Thassio', role: 'owner', slack_user_id: 'U_THASSIO' },
+  { id: 3, display_name: 'Henrique', role: 'manager', slack_user_id: 'U_HENRIQUE' },
   { id: 4, display_name: 'Vitor', role: 'operator', slack_user_id: 'U_VITOR' },
   { id: 5, display_name: 'Simone', role: 'operator', slack_user_id: 'U_SIMONE' },
   { id: 6, display_name: 'Ana', role: 'operator', slack_user_id: null },
@@ -81,17 +81,18 @@ describe('V3 §2.3 — lookup direto (conta própria, sem LLM)', () => {
   });
 });
 
-describe('V3 §2.3 — conta compartilhada (LLM)', () => {
-  test('nome identificado (qualquer posição) → llm_identified, high', async () => {
+describe('V3 §2.3 — conta compartilhada (LLM só pra contas SEM primary_owner)', () => {
+  // Bloco 29/mai-noite: contas COM primary_owner agora resolvem direto
+  // sem LLM. LLM só roda em contas tipo Production Line (sem owner).
+  test('Production Line (sem owner) — LLM identifica → llm_identified, high', async () => {
     const { resolver, provider } = makeResolver({
       db: makeDb(),
-      llmJson: { person_id: 7, identification_evidence: 'Bruno -', confidence: 'high', reasoning: 'nome no começo' },
+      llmJson: { person_id: 6, identification_evidence: 'Ana', confidence: 'high', reasoning: 'nome no texto' },
     });
-    const r = await resolver.resolve('U_VITOR', 'Bruno - terminei a linha', '222.1', { message_id: 102 });
-    expect(r.person_id).toBe(7);
+    const r = await resolver.resolve('U_PL', 'Ana feita 200', '222.1', { message_id: 102 });
+    expect(r.person_id).toBe(6);
     expect(r.resolution_method).toBe('llm_identified');
     expect(r.confidence).toBe('high');
-    expect(r.detected_identification).toBe('Bruno -');
     expect(provider.rawCalls).toHaveLength(1);
   });
 
@@ -102,16 +103,6 @@ describe('V3 §2.3 — conta compartilhada (LLM)', () => {
     const r = await resolver.resolve('U_PL', 'mais 200 feitas', '333.1', { message_id: 103 });
     expect(r.person_id).toBe(6);
     expect(r.resolution_method).toBe('llm_context');
-    expect(r.confidence).toBe('medium');
-  });
-
-  test('LLM sem palpite + primary_owner presente → fallback_owner, medium', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(), llmJson: { person_id: null, confidence: 'unconfirmed', reasoning: 'sem nome' },
-    });
-    const r = await resolver.resolve('U_VITOR', 'continuando', '444.1', { message_id: 104 });
-    expect(r.resolution_method).toBe('fallback_owner');
-    expect(r.person_id).toBe(4); // Vitor é primary_owner da conta U_VITOR
     expect(r.confidence).toBe('medium');
   });
 
@@ -137,36 +128,64 @@ describe('V3 §2.3 — conta compartilhada (LLM)', () => {
   });
 });
 
-describe('V3 §2.3 — admin no canal de produção (ajuste 1)', () => {
-  test('LLM identifica admin → admin_intervention, high, is_admin_context, SEM proposal', async () => {
-    const { resolver, db } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 1, confidence: 'high', reasoning: 'Bruno Camp supervisionando' },
-    });
-    const r = await resolver.resolve('U_VITOR', 'Bruno Camp aqui, parem a linha', '777.1', { message_id: 107 });
-    expect(r.resolution_method).toBe('admin_intervention');
-    expect(r.confidence).toBe('high');
-    expect(r.person_id).toBe(1);           // resolve pro admin (audit/contexto)
+describe('V3 §2.3 — admin no canal de produção (bloco 29/mai-noite hard-skip)', () => {
+  // ANTES: admin postava de conta compartilhada com texto "Bruno Camp aqui"
+  // e o LLM detectava como admin_intervention. AGORA: detecção é por
+  // slack_user_id (admin com conta própria) OU assinatura "-Bruno Camp".
+  test('admin postando da própria conta sem assinatura → admin_directive', async () => {
+    const { resolver, provider, db } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_BRUNO_CAMP', 'parem a linha agora', 'adm.1', { message_id: 107 });
+    expect(r.resolution_method).toBe('admin_directive');
+    expect(r.person_id).toBe(1);                  // Bruno Camp
     expect(r.is_admin_context).toBe(true);
-    expect(db.inserts.proposals).toHaveLength(0); // NÃO spamma proposta
+    expect(r.confidence).toBe('high');
+    expect(provider.rawCalls).toHaveLength(0);    // zero LLM
+    expect(db.inserts.proposals).toHaveLength(0);
   });
 
-  test('admin_intervention é registrado em prefix_resolution_log', async () => {
-    const { resolver, db } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 3, confidence: 'high', reasoning: 'Henrique' },
-    });
-    await resolver.resolve('U_PL', 'Henrique: parem tudo agora', '777.2', { message_id: 108 });
+  test('Thassio da conta própria → admin_directive (mesmo caso ev302 28/mai)', async () => {
+    const { resolver, provider } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_THASSIO', 'to em reuniao', 'adm.2', { message_id: 108 });
+    expect(r.resolution_method).toBe('admin_directive');
+    expect(r.is_admin_context).toBe(true);
+    expect(r.person_id).toBe(2);
+    expect(provider.rawCalls).toHaveLength(0);
+  });
+
+  test('Henrique da conta própria → admin_directive (manager)', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_HENRIQUE', '@Vitor faz X', 'adm.3', { message_id: 109 });
+    expect(r.resolution_method).toBe('admin_directive');
+    expect(r.is_admin_context).toBe(true);
+    expect(r.person_id).toBe(3);
+  });
+
+  test('admin_directive grava em prefix_resolution_log', async () => {
+    const { resolver, db } = makeResolver({ db: makeDb() });
+    await resolver.resolve('U_THASSIO', 'supervisão', 'adm.4', { message_id: 110 });
     expect(db.inserts.prefix_log).toHaveLength(1);
-    expect(db.inserts.prefix_log[0][3]).toBe(3);                    // resolved_person_id
-    expect(db.inserts.prefix_log[0][4]).toBe('admin_intervention'); // resolution_method
+    expect(db.inserts.prefix_log[0][3]).toBe(2);                  // Thassio
+    expect(db.inserts.prefix_log[0][4]).toBe('admin_directive');
+  });
+
+  test('assinatura ambígua "-Bruno" via conta compartilhada → prefere operador Sarmento, NÃO admin Camp', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'parem a linha -Bruno', 'adm.5', { message_id: 111 });
+    // "Bruno" pode ser Bruno Camp (owner) ou Bruno Sarmento (operator).
+    // Preferência por operador — msgs operacionais com "Bruno" referem
+    // ao operador, nunca ao owner. Documentado na regra do _parseSignature.
+    expect(r.person_id).toBe(7);                  // Bruno Sarmento
+    expect(r.resolution_method).toBe('signature_match');
+    expect(r.is_admin_context).toBe(false);
   });
 });
 
-describe('V3 §2.3 — defesa contra resposta inválida do LLM', () => {
+describe('V3 §2.3 — defesa contra resposta inválida do LLM (em U_PL sem owner)', () => {
   test('person_id inexistente → llm_invalid_person, unconfirmed', async () => {
     const { resolver, db } = makeResolver({
       db: makeDb(), llmJson: { person_id: 999, confidence: 'high', reasoning: 'alucinou' },
     });
-    const r = await resolver.resolve('U_VITOR', 'x', '888.1', { message_id: 109 });
+    const r = await resolver.resolve('U_PL', 'x', '888.1', { message_id: 109 });
     expect(r.resolution_method).toBe('llm_invalid_person');
     expect(r.confidence).toBe('unconfirmed');
     expect(db.inserts.proposals).toHaveLength(1);
@@ -176,20 +195,20 @@ describe('V3 §2.3 — defesa contra resposta inválida do LLM', () => {
     const { resolver } = makeResolver({
       db: makeDb(), llmJson: { person_id: 8, confidence: 'high', reasoning: 'Solo não usa essa conta' },
     });
-    const r = await resolver.resolve('U_VITOR', 'x', '888.2', { message_id: 110 });
+    const r = await resolver.resolve('U_PL', 'x', '888.2', { message_id: 110 });
     expect(r.resolution_method).toBe('llm_invalid_person');
   });
 
   test('JSON inválido do LLM → unconfirmed (llm_invalid_json)', async () => {
     const { resolver } = makeResolver({ db: makeDb(), llmJson: 'isso não é json' });
-    const r = await resolver.resolve('U_VITOR', 'x', '888.3', { message_id: 111 });
+    const r = await resolver.resolve('U_PL', 'x', '888.3', { message_id: 111 });
     expect(r.resolution_method).toBe('llm_invalid_json');
     expect(r.confidence).toBe('unconfirmed');
   });
 
   test('LLM lança (rate limit/erro) → unconfirmed + retryable', async () => {
     const { resolver } = makeResolver({ db: makeDb(), llmError: new Error('anthropic 529 overloaded') });
-    const r = await resolver.resolve('U_VITOR', 'x', '888.4', { message_id: 112 });
+    const r = await resolver.resolve('U_PL', 'x', '888.4', { message_id: 112 });
     expect(r.resolution_method).toBe('llm_error');
     expect(r.confidence).toBe('unconfirmed');
     expect(r.retryable).toBe(true);
@@ -206,144 +225,169 @@ describe('V3 §2.3 — defesa contra resposta inválida do LLM', () => {
   });
 });
 
-describe('V3 FIX E — cross-account "Bruno" (nome no texto vence dono da conta)', () => {
-  test('prompt de resolução reforça as duas regras de FIX E', async () => {
-    const { resolver, provider } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 7, confidence: 'high', identification_evidence: '-Bruno' },
-    });
-    await resolver.resolve('U_VITOR', 'S-Vitamin B2 -0142 para capsulas-Bruno', 'fe.0', { message_id: 200 });
-    const sys = provider.rawCalls[0].systemPrompt;
-    expect(sys).toMatch(/NOME NO TEXTO VENCE O DONO DA CONTA/);
-    expect(sys).toMatch(/DESAMBIGUAÇÃO DE NOME/);
-  });
-
+describe('V3 — parser de assinatura (bloco 29/mai-noite #1b) — zero LLM', () => {
   // Caso real do backfill §2.13 — mensagem da conta do Vitor assinada -Bruno.
-  test('caso real 1: "S-Linha de producao ( PLANT 0136)-Bruno" da conta do Vitor → Bruno Sarmento', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(),
-      llmJson: {
-        person_id: 7, confidence: 'high', identification_evidence: 'assinado "-Bruno"',
-        reasoning: 'nome no fim da mensagem vence o dono da conta',
-      },
-    });
-    const r = await resolver.resolve(
-      'U_VITOR', 'S-Linha de producao ( PLANT 0136)-Bruno', 'fe.1', { message_id: 201 });
+  test('"S-Linha de producao ( PLANT 0136)-Bruno" da conta do Vitor → Bruno Sarmento (parser)', async () => {
+    const { resolver, provider } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S-Linha de producao ( PLANT 0136)-Bruno', 'fe.1', { message_id: 201 });
     expect(r.person_id).toBe(7);            // Bruno Sarmento (operador)
-    expect(r.person_id).not.toBe(4);        // NÃO Vitor (dono da conta)
-    expect(r.resolution_method).toBe('llm_identified');
+    expect(r.person_id).not.toBe(4);        // NÃO Vitor (dono)
+    expect(r.resolution_method).toBe('signature_match');
     expect(r.confidence).toBe('high');
+    expect(r.detected_identification).toMatch(/-Bruno/);
+    expect(provider.rawCalls).toHaveLength(0);   // zero LLM — parser deterministic
   });
 
-  // Caso real do backfill §2.13 — conta Production Line, "Bruno" no início.
-  test('caso real 2: "Bruno voltei do almoco, estou na linha" (Production Line) → Bruno Sarmento, nunca Bruno Camp', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(),
-      llmJson: {
-        person_id: 7, confidence: 'high', identification_evidence: 'Bruno',
-        reasoning: 'mensagem operacional → operador Bruno Sarmento, não o owner Bruno Camp',
-      },
-    });
-    const r = await resolver.resolve(
-      'U_PL', 'Bruno voltei do almoco, estou na linha de producao', 'fe.2', { message_id: 202 });
-    expect(r.person_id).toBe(7);            // Bruno Sarmento (operador, id 7)
-    expect(r.person_id).not.toBe(1);        // NUNCA Bruno Camp (owner, id 1)
-    expect(r.resolution_method).toBe('llm_identified');
+  test('"Bruno-voltei do almoco" (prefixo Bruno-) da conta do Vitor → Bruno Sarmento', async () => {
+    // Caso real 29/mai 3:19 PM.
+    const { resolver, provider } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'Bruno-voltei do almoco', 'fe.3', { message_id: 203 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+    expect(provider.rawCalls).toHaveLength(0);
+  });
+
+  test('"feito (Bruno)" no fim → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'F: linha terminada (Bruno)', 'fe.4', { message_id: 204 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+  });
+
+  test('"feito por Bruno" no fim → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'Linha completada por Bruno', 'fe.5', { message_id: 205 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+  });
+
+  test('assinatura "Bruno" no texto operacional prefere OPERADOR (Sarmento) sobre owner Camp', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_PL', 'Bruno-voltei do almoco', 'fe.6', { message_id: 206 });
+    expect(r.person_id).toBe(7);          // Bruno Sarmento (operador, id 7)
+    expect(r.person_id).not.toBe(1);      // NUNCA Bruno Camp (owner, id 1)
+    expect(r.resolution_method).toBe('signature_match');
+  });
+
+  test('"S:" / "F:" sozinhos não são assinatura (ruído filtrado)', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S: Iniciando linha', 'fe.7', { message_id: 207 });
+    // S: não bate parser (curto demais, ruído). Cai em owner_default → Vitor.
+    expect(r.person_id).toBe(4);
+    expect(r.resolution_method).toBe('owner_default');
+  });
+
+  test('nome no texto que NÃO é assinatura ("ajudando Bruno") → owner_default, NÃO parser', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'estou ajudando Bruno na linha', 'fe.8', { message_id: 208 });
+    // "Bruno" no meio, sem padrão de assinatura — autor é o dono da conta.
+    expect(r.person_id).toBe(4);            // Vitor
+    expect(r.resolution_method).toBe('owner_default');
   });
 });
 
-describe('V3 FIX — "S:"/"F:" não são inicial de pessoa', () => {
-  test('prompt de resolução reforça S:/F: marcador + regra de ouro + dono da conta', async () => {
-    const { resolver, provider } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 4, confidence: 'high' },
-    });
-    await resolver.resolve('U_VITOR', 'S: Iniciando revisao VitaB2 (0151)', 'sf.0', { message_id: 300 });
-    const sys = provider.rawCalls[0].systemPrompt;
-    const usr = provider.rawCalls[0].userContent;
-    expect(sys).toMatch(/"S:"\/"F:" NÃO SÃO NOMES/);
-    expect(sys).toMatch(/marcadores LEGADOS de código/);
-    expect(sys).toMatch(/REGRA DE OURO/);
-    expect(usr).toMatch(/Dono da conta.*"Vitor"/); // owner explícito no contexto
+describe('V3 — owner_default sem contaminação (bloco 29/mai-noite #1c)', () => {
+  // ANTES (causa do bug duplo-almoço 29/mai 3:22 PM): msgs do Vitor sem
+  // assinatura iam pro LLM, que herdava contexto da msg anterior assinada
+  // por Bruno → atribuía pro Bruno. AGORA: owner-default, sem LLM.
+  test('msg do Vitor sem assinatura → Vitor (não herda Bruno do contexto)', async () => {
+    const recent = [
+      { raw_text: 'Bruno-voltei do almoco', created_at: new Date(Date.now() - 3 * 60 * 1000), person_id: 7, person_name: 'Bruno Sarmento' },
+    ];
+    const { resolver, provider } = makeResolver({ db: makeDb({ recent }) });
+    const r = await resolver.resolve('U_VITOR', 'F: Finalizando ajuda na linha para almocar', '3.22.1', { message_id: 250 });
+    expect(r.person_id).toBe(4);              // Vitor (owner), não Bruno
+    expect(r.resolution_method).toBe('owner_default');
+    expect(provider.rawCalls).toHaveLength(0);
   });
 
-  // Caso real do shadow 21/mai — conta do Vitor, "S:" no início.
-  test('caso real: "S: Iniciando revisao" da conta do Vitor → Vitor (NÃO Simone)', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(),
-      llmJson: {
-        person_id: 4, confidence: 'high', identification_evidence: 'dono da conta, sem outro nome',
-        reasoning: '"S:" é marcador de start, não Simone; autor = dono da conta',
-      },
-    });
+  test('msg seguinte sem assinatura → ainda Vitor (sem bleed do contexto)', async () => {
+    const recent = [
+      { raw_text: 'Bruno-voltei do almoco', created_at: new Date(Date.now() - 4 * 60 * 1000), person_id: 7, person_name: 'Bruno Sarmento' },
+      { raw_text: 'F: Finalizando ajuda', created_at: new Date(Date.now() - 1 * 60 * 1000), person_id: 4, person_name: 'Vitor' },
+    ];
+    const { resolver } = makeResolver({ db: makeDb({ recent }) });
+    const r = await resolver.resolve('U_VITOR', 'S: Inicio Almoco', '3.22.2', { message_id: 251 });
+    expect(r.person_id).toBe(4);
+    expect(r.resolution_method).toBe('owner_default');
+  });
+
+  test('"S: Iniciando revisao" da conta do Vitor → Vitor (NÃO Simone)', async () => {
+    const { resolver, provider } = makeResolver({ db: makeDb() });
     const r = await resolver.resolve('U_VITOR', 'S: Iniciando revisao VitaB2 (0151)', 'sf.1', { message_id: 301 });
-    expect(r.person_id).toBe(4);       // Vitor (dono da conta)
+    expect(r.person_id).toBe(4);       // Vitor (dono)
     expect(r.person_id).not.toBe(5);   // NÃO Simone
+    expect(r.resolution_method).toBe('owner_default');
+    expect(provider.rawCalls).toHaveLength(0);
   });
 
-  test('caso real: "F: Limpeza Maquinario" da conta do Vitor → Vitor', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(),
-      llmJson: { person_id: 4, confidence: 'high', reasoning: '"F:" é marcador finish; autor = dono' },
-    });
+  test('"F: Limpeza Maquinario" da conta do Vitor → Vitor', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
     const r = await resolver.resolve('U_VITOR', 'F: Limpeza Maquinario Formulacao', 'sf.2', { message_id: 302 });
     expect(r.person_id).toBe(4);
+    expect(r.resolution_method).toBe('owner_default');
   });
 
-  test('nome explícito ainda vence: conta do Vitor + "Bruno" no texto → Bruno Sarmento', async () => {
-    const { resolver } = makeResolver({
-      db: makeDb(),
-      llmJson: { person_id: 7, confidence: 'high', identification_evidence: 'assinado -Bruno' },
-    });
+  test('nome explícito ainda vence: "S-Potassium rodando-Bruno" → Bruno Sarmento (parser)', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
     const r = await resolver.resolve('U_VITOR', 'S-Potassium rodando-Bruno', 'sf.3', { message_id: 303 });
-    expect(r.person_id).toBe(7);       // Bruno Sarmento — nome explícito vence o dono
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
   });
 });
 
 describe('V3 §2.3 — audit + cache', () => {
-  test('toda resolução grava em prefix_resolution_log', async () => {
-    const { resolver, db } = makeResolver({
-      db: makeDb(), llmJson: { person_id: 7, confidence: 'high', identification_evidence: 'Bruno' },
-    });
-    await resolver.resolve('U_VITOR', 'Bruno fechou', '999.1', { message_id: 114 });
+  test('toda resolução grava em prefix_resolution_log (parser path)', async () => {
+    const { resolver, db } = makeResolver({ db: makeDb() });
+    await resolver.resolve('U_VITOR', '-Bruno', '999.1', { message_id: 114 });
     expect(db.inserts.prefix_log).toHaveLength(1);
     expect(db.inserts.prefix_log[0][0]).toBe(114);          // message_id
-    expect(db.inserts.prefix_log[0][3]).toBe(7);            // resolved_person_id
+    expect(db.inserts.prefix_log[0][3]).toBe(7);            // resolved_person_id Bruno Sarmento
+    expect(db.inserts.prefix_log[0][4]).toBe('signature_match');
+  });
+
+  test('toda resolução grava em prefix_resolution_log (owner_default path)', async () => {
+    const { resolver, db } = makeResolver({ db: makeDb() });
+    await resolver.resolve('U_VITOR', 'continuando', '999.2', { message_id: 115 });
+    expect(db.inserts.prefix_log).toHaveLength(1);
+    expect(db.inserts.prefix_log[0][3]).toBe(4);            // Vitor
+    expect(db.inserts.prefix_log[0][4]).toBe('owner_default');
   });
 
   test('cache por slack_ts — mesma msg não re-resolve (zero LLM, zero re-log)', async () => {
+    // Use U_PL pra forçar caminho LLM e exercitar o cache.
     const { resolver, provider, db } = makeResolver({
       db: makeDb(), llmJson: { person_id: 7, confidence: 'high' },
     });
-    await resolver.resolve('U_VITOR', 'Bruno', 'SAME_TS', { message_id: 115 });
-    await resolver.resolve('U_VITOR', 'Bruno', 'SAME_TS', { message_id: 115 });
+    await resolver.resolve('U_PL', 'msg ambígua', 'SAME_TS', { message_id: 115 });
+    await resolver.resolve('U_PL', 'msg ambígua', 'SAME_TS', { message_id: 115 });
     expect(provider.rawCalls).toHaveLength(1);
     expect(db.inserts.prefix_log).toHaveLength(1);
   });
 
   test('falha transitória (llm_error) NÃO é cacheada — re-resolve na próxima', async () => {
-    // erro de crédito/429 não pode envenenar o cache do processo.
     const { resolver, provider } = makeResolver({
       db: makeDb(), llmError: new Error('credit balance is too low'),
     });
-    const r1 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_ERR', { message_id: 130 });
-    const r2 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_ERR', { message_id: 130 });
+    const r1 = await resolver.resolve('U_PL', 'msg ambígua', 'TS_ERR', { message_id: 130 });
+    const r2 = await resolver.resolve('U_PL', 'msg ambígua', 'TS_ERR', { message_id: 130 });
     expect(r1.resolution_method).toBe('llm_error');
     expect(r2.resolution_method).toBe('llm_error');
-    expect(provider.rawCalls).toHaveLength(2); // re-resolveu — não veio do cache
+    expect(provider.rawCalls).toHaveLength(2);
   });
 
   test('resolução bem-sucedida APÓS um llm_error transitório é cacheada', async () => {
     const { resolver, provider } = makeResolver({
       db: makeDb(), llmError: new Error('429 rate limit'),
     });
-    const r1 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_RECOVER', { message_id: 131 });
+    const r1 = await resolver.resolve('U_PL', 'msg ambígua', 'TS_RECOVER', { message_id: 131 });
     expect(r1.resolution_method).toBe('llm_error');
-    // crédito volta — próxima resolução tem sucesso e ENTRA no cache
     provider.setRawResult({ json_parsed: { person_id: 7, confidence: 'high' }, cost_estimate_usd: 0.001 });
-    const r2 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_RECOVER', { message_id: 131 });
-    const r3 = await resolver.resolve('U_VITOR', 'Bruno', 'TS_RECOVER', { message_id: 131 });
+    const r2 = await resolver.resolve('U_PL', 'msg ambígua', 'TS_RECOVER', { message_id: 131 });
+    const r3 = await resolver.resolve('U_PL', 'msg ambígua', 'TS_RECOVER', { message_id: 131 });
     expect(r2.person_id).toBe(7);
     expect(r3.person_id).toBe(7);
-    expect(provider.rawCalls).toHaveLength(2); // r1 erro + r2 sucesso; r3 veio do cache
+    expect(provider.rawCalls).toHaveLength(2);
   });
 
   test('cache de diretório expira após o TTL (30s)', async () => {
