@@ -242,6 +242,13 @@ erro. **Não implementado ainda** — apenas documentado aqui pra próximo bloco
   catálogo).
 - **Cowork errado por timing** (caso ev281 28/mai: cw=[5,4] mas Simone só
   começou 13min depois — LLM antecipou cowork futuro).
+- **end_of_day intocável após criação** (caso ev305 28/mai: dia seguinte,
+  Bruno Sarmento postou primeiro foreground 29/mai e o auto-close
+  `meta_closed_by_fg` em EventService.upsert pegou o end_of_day também e
+  fechou em 29/mai 11:29 AM — quebrou invariant "carimbo instantâneo" do
+  end_of_day. Fix: em `_closeActive`, pular events com slug='end_of_day'
+  (já são instantâneos, não devem ser fechados/movidos pelo auto-close
+  de outro turno). Bloco 28/mai noite documentou; pendente).
 
 ### Não implementar agora
 Esse pipeline é E9+ (após estabilizar V4 + Falar como Carolina). Antes disso,

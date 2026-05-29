@@ -191,6 +191,9 @@ class FlowViewsRepo {
     const now = this._now();
     const bounds = nyDayBounds(d);
     let invalid = 0;
+    // Bug #1 bloco 29/mai: array detalhado de invalid events pra notif
+    // V4 listar (não só count). Mesmo shape do productionByDay.
+    const invalidEvents = [];
     const subSteps = new Map();      // activity → soma de seconds (pessoa-hora; mantém)
     const people = new Set();
     const allIntervals = [];          // [[s,e],...] pra união do total
@@ -201,7 +204,20 @@ class FlowViewsRepo {
     for (const e of evs) {
       if (e.person_name) people.add(e.person_name);
       const iv = clampedInterval(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
-      if (!iv) { invalid += 1; continue; }
+      if (!iv) {
+        invalid += 1;
+        invalidEvents.push({
+          event_id: e.id, person: e.person_name || null,
+          activity: e.activity_name || null,
+          started_at: toNyIso(e.started_at), ended_at: toNyIso(e.ended_at),
+          reason: e.ended_at == null
+            ? 'event aberto sem clamp possível (data inválida?)'
+            : (new Date(e.ended_at) <= new Date(e.started_at)
+              ? 'duração negativa ou zero (ended_at <= started_at)'
+              : 'event totalmente fora da janela NY do dia'),
+        });
+        continue;
+      }
       const secs = (iv[1] - iv[0]) / 1000;
       allIntervals.push(iv);
       const ss = e.activity_name || '(?)';
@@ -232,6 +248,7 @@ class FlowViewsRepo {
       person_seconds_total: Math.round([...personSeconds.values()].reduce((s, v) => s + v, 0)),
       person_seconds: [...personSeconds.entries()].map(([person, s]) => ({ person, seconds: Math.round(s) })),
       invalid_event_count: invalid,
+      invalid_events: invalidEvents,
       event_count: evs.length,
       people: [...people],
       sub_steps: subStepsOut,

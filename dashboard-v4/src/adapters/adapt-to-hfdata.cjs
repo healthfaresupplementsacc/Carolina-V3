@@ -228,13 +228,24 @@ function adaptToHFData(input) {
   const dupCount = goalsList.reduce((s, g) => s + ((g.duplicatas_suspeitas || []).length), 0);
   const invalidCount = lotes.reduce((s, l) => s + (l.invalid_event_count || 0), 0)
     + ((pp && pp.invalid_event_count) || 0);
+  // Bug #1 bloco 29/mai: agora coletamos o array detalhado (production +
+  // pp), não só o count agregado. Permite listar por id/pessoa/hora/razão
+  // na notif e destacar na timeline.
+  const invalidEvents = [
+    ...(((production && production.invalid_events) || [])),
+    ...(((pp && pp.invalid_events) || [])),
+  ];
   const supOccurrences = (support && support.occurrences) || [];
   const downtimeCount = supOccurrences.filter((o) => o.is_downtime).length;
   const openCount = events.filter((e) => e.ended_min == null).length;
 
   const alerts = [];
   if (dupCount)      alerts.push({ id: 'dup',  severity: 'warn', title: 'Duplicatas suspeitas', en: 'Suspected duplicates', detail: dupCount + ' contagem(ns) marcadas pelo LLM' });
-  if (invalidCount)  alerts.push({ id: 'inv',  severity: 'warn', title: 'Eventos inválidos',    en: 'Invalid events',       detail: invalidCount + ' event(s) com duração ruim' });
+  if (invalidCount)  alerts.push({
+    id: 'inv',  severity: 'warn', title: 'Eventos inválidos', en: 'Invalid events',
+    detail: invalidCount + ' event(s) com duração ruim',
+    _invalid_events: invalidEvents,   // lista detalhada pra notif renderizar
+  });
   if (downtimeCount) alerts.push({ id: 'down', severity: 'bad',  title: 'Downtime',              en: 'Downtime',             detail: downtimeCount + ' parada(s) registrada(s)' });
   if (openCount)     alerts.push({ id: 'open', severity: 'info', title: 'Eventos em andamento', en: 'Open events',          detail: openCount + ' em curso' });
 

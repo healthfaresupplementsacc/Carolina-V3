@@ -29,6 +29,7 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     onConfirmDrags,     // E6 #7: () => void  (faz dupla confirmação interna)
                     onCancelDrags,      // E6 #7: () => void
                     fmtClock: fmtClockProp,
+                    invalidIds,         // Bug #1 bloco 29/mai: Set<eventId> com duração ruim
 }) {
   const { DAY_START, DAY_END, DEADLINE_MIN, activities, FLOWS } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
@@ -359,13 +360,14 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     const width = Math.max(28, ((end - start) / 60) * hourPx);
                     const isSelected = selectedId === ev.id;
                     const isMergeTarget = drag && drag.hoveredEventId === ev.id;
+                    const isInvalid = invalidIds && invalidIds.has(ev.id);
                     const productName = ev.product ? window.HFData.products[ev.product]?.name : null;
                     const flowDimmed = filterFlows && filterFlows.size > 0 && !filterFlows.has(flow);
 
                     return (
                       <div key={ev.id}
                            data-block-id={ev.id}
-                           className={`tl-block ${isLiveEv ? "live" : ""} ${ev.overrun ? "overrun" : ""} ${isDragging ? "dragging" : ""} ${isSelected ? "selected" : ""} ${isMergeTarget ? "merge-target" : ""} ${flowDimmed ? "dim" : ""}`}
+                           className={`tl-block ${isLiveEv ? "live" : ""} ${ev.overrun ? "overrun" : ""} ${isDragging ? "dragging" : ""} ${isSelected ? "selected" : ""} ${isMergeTarget ? "merge-target" : ""} ${flowDimmed ? "dim" : ""} ${isInvalid ? "tl-block-invalid" : ""}`}
                            style={{
                              left, width,
                              "--bk-color": flowColor,

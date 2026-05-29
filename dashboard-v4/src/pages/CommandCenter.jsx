@@ -130,7 +130,28 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     };
   }, [raw, now, fmtClock]);
 
-  const allNotifs = [...alerts, ...(correioNotif ? [correioNotif] : []), ...gapNotifs];
+  // Bug #1 bloco 29/mai: anexa _onOpenInvalid no alert 'inv' pra clicar nos
+  // events listados abrir o painel flutuante padrão. Tem que vir DEPOIS do
+  // openPanel estar disponível (vem como prop), então criamos uma cópia do
+  // alerts enriquecida.
+  const enrichedAlerts = React.useMemo(() => alerts.map((a) => {
+    if (a.id === 'inv') {
+      return { ...a, _onOpenInvalid: (ev, coords) => openPanel(ev, coords) };
+    }
+    return a;
+  }), [alerts, openPanel]);
+  const allNotifs = [...enrichedAlerts, ...(correioNotif ? [correioNotif] : []), ...gapNotifs];
+
+  // Bug #1 bloco 29/mai: Set de event ids inválidos pra Timeline marcar.
+  const invalidEventIds = React.useMemo(() => {
+    const set = new Set();
+    for (const a of alerts) {
+      if (a.id === 'inv' && Array.isArray(a._invalid_events)) {
+        for (const ie of a._invalid_events) if (ie.event_id != null) set.add(ie.event_id);
+      }
+    }
+    return set;
+  }, [alerts]);
 
   // E6 #6: gap click abre form flutuante pra preencher (não só notif lookup)
   const [gapFill, setGapFill] = React.useState(null);  // { opId, gap, coords, form }
@@ -603,6 +624,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             onConfirmDrags={confirmDrags}
             onCancelDrags={cancelDrags}
             fmtClock={fmtClock}
+            invalidIds={invalidEventIds}
           />
         )}
       </div>

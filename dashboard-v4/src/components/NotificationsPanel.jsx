@@ -271,6 +271,15 @@ function GroupRow({ group, operators, expanded, onToggleExpand, onOpenSingle, op
    justificar/ajustar adjacentes — preview-only enquanto V4_ALLOW_WRITES=0.
    E7-refine2 #4: pending — recebe `pending` (draft anterior) e chama
    onDraftChange a cada digitação. Se fechar mid-edit, parent guarda. */
+// Bug #1 bloco 29/mai: extrai HH:MM do ISO "2026-05-29T14:44:39-04:00" → minutos do dia.
+function toMinFromIso(iso) {
+  if (!iso) return null;
+  const s = String(iso);
+  const h = Number(s.slice(11, 13)), m = Number(s.slice(14, 16));
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
 function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose, onSaved, ack, V4_ALLOW_WRITES, onCreateInGap, writes, embeddedInFloating = false }) {
   const type = typeOf(notif);
   const op = notif._op ? operators.find((o) => o.id === notif._op) : null;
@@ -441,7 +450,44 @@ function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose
         </>
       )}
 
-      {type !== 'gap' && type !== 'correio' && (
+      {/* Bug #1 bloco 29/mai: lista detalhada dos events inválidos clicável. */}
+      {notif.id === 'inv' && (notif._invalid_events || []).length > 0 && (
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, marginBottom: 6 }}>
+            Events afetados — clique pra abrir
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflow: 'auto' }}>
+            {(notif._invalid_events || []).map((ie) => {
+              const ev = events.find((e) => e.id === ie.event_id);
+              return (
+                <button key={ie.event_id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (ev && notif._onOpenInvalid) notif._onOpenInvalid(ev, { x: e.clientX, y: e.clientY });
+                        }}
+                        style={{
+                          textAlign: 'left', padding: '6px 8px', borderRadius: 6,
+                          background: 'var(--surface)', border: '1px solid var(--bad, #dc2626)',
+                          cursor: ev ? 'pointer' : 'default', fontSize: 11.5,
+                          color: 'var(--text-1)',
+                        }}>
+                  <b className="mono">ev{ie.event_id}</b>
+                  {ie.person && <> · {ie.person}</>}
+                  {ie.activity && <> · {ie.activity}</>}
+                  {ie.started_at && (
+                    <> · <span className="mono">{fmtClock(toMinFromIso(ie.started_at))}{ie.ended_at ? `→${fmtClock(toMinFromIso(ie.ended_at))}` : '→?'}</span></>
+                  )}
+                  <div style={{ fontSize: 10.5, color: 'var(--bad, #dc2626)', marginTop: 2, fontWeight: 600 }}>
+                    {ie.reason || 'duração inválida'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {type !== 'gap' && type !== 'correio' && notif.id !== 'inv' && (
         <div style={{ fontSize: 12, color: 'var(--text-2)', padding: '8px 10px', background: 'var(--surface)', borderRadius: 6, marginBottom: 10 }}>
           Edição/resolução completa deste tipo de notificação fica pro E5.
           <div style={{ marginTop: 6 }}>
