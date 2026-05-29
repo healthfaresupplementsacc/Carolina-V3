@@ -338,7 +338,7 @@ function AuthedApp({ onLogout }) {
     case "pp":            pageNode = <PickPackPage {...pageProps}/>; break;
     case "suporte":       pageNode = <SupportPage {...pageProps}/>; break;
     case "produto":       pageNode = <ProductPage {...pageProps}/>; break;
-    case "falar":         pageNode = <FalarPage/>; break;
+    case "falar":         pageNode = <FalarPage ack={ack}/>; break;
     case "planejamento":  pageNode = <PlanPage/>; break;
     case "carolina":      pageNode = <CarolinaPage/>; break;
     case "config":        pageNode = <ConfigPage {...pageProps}/>; break;
@@ -355,6 +355,7 @@ function AuthedApp({ onLogout }) {
         workerNode={<WorkerPill/>}
         readOnly={!V4_ALLOW_WRITES}
         onLogout={onLogout}
+        ack={ack}
       />
       <main className="main">
         <div className="main-inner">{pageNode}</div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from './Icons.jsx';
 import nyTime from '../utils/ny-time.cjs';
+import { FalarCarolinaButton } from '../pages/CarolinaFalar.jsx';
 // E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
 // wordmark). Substitui o SVG inline `BrandH` que era um esboço.
 // Vite resolve a URL no build (com base /dashboard-v4/...).
@@ -89,7 +90,7 @@ const Sidebar = ({ route, onRoute, collapsed }) => {
 // (E7-refine2) BrandH SVG removido — agora usa healthfare-logo.png direto.
 
 const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
-                  workerNode, readOnly, onLogout }) => {
+                  workerNode, readOnly, onLogout, ack }) => {
   const page = findPage(pageId);
   return (
     <header className="topbar">
@@ -115,6 +116,7 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
       </div>
       <div className="topbar-spacer"/>
       {workerNode}
+      <FalarCarolinaButton ack={ack}/>
       <button className="icon-btn" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
       <button className="icon-btn" title="Notificações" aria-label="Notifications" style={{ position: "relative" }}>
         <Icon name="bell" size={17}/>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, CountdownCard, OperatorAvatar } from '../components/Primitives.jsx';
+import { FalarCarolina } from './CarolinaFalar.jsx';
 
 /* Production, Goals, People + light placeholders for the rest. */
 
@@ -654,7 +655,25 @@ function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
   );
 }
 
-function FalarPage()    { return <PlaceholderPage icon="chat"    pt="Falar"   en="Speak"   subtitle="Porta de saída manual (postar como Carolina). Em construção."/>; }
+function FalarPage({ ack }) {
+  // Bloco 28/mai noite Leva B — porta completa do /dashboard atual.
+  return (
+    <div>
+      <div className="section-title">
+        <Leaf size={14} color="var(--hf-leaf-500)"/>
+        <h2>Falar como Carolina</h2><span className="en">· Speak as Carolina</span>
+        <div className="rule"/>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 12px' }}>
+        Porta de saída <b>manual</b>: posta no Slack só quando você clica Enviar. Auditado em <code>audit_log</code>.
+        Independente do Observer (que continua shadow — não posta sozinho).
+      </p>
+      <div className="card" style={{ padding: 16 }}>
+        <FalarCarolina ack={ack}/>
+      </div>
+    </div>
+  );
+}
 function PlanPage()     { return <PlaceholderPage icon="plan"    pt="Planejamento" en="Planning" subtitle="Tasks futuras, o que vem pela frente, notificação opcional por task. Em construção."/>; }
 
 // ============ Config (E7-resto Leva 3) ============
