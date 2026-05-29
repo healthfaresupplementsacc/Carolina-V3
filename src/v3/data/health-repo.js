@@ -20,12 +20,24 @@ class HealthRepo {
 
   /** @returns {Promise<object>} estado de saúde do V3 */
   async workerHealth() {
-    const [queue, last, errs, settings] = await Promise.all([
+    const [queue, last, errs, settings, billingErrs] = await Promise.all([
       this.db.query('SELECT COUNT(*) c FROM v3.messages WHERE llm_processed_at IS NULL'),
       this.db.query('SELECT MAX(llm_processed_at) mx FROM v3.messages'),
       this.db.query('SELECT COUNT(*) c FROM v3.messages WHERE processing_error IS NOT NULL'),
       this.db.query(
         "SELECT key, value FROM v3.settings WHERE key IN ('llm_provider','llm_observer_mode','observer_last_tick_at')"),
+      // Bloco 29/mai-noite #3 — erros billing/rate-limit nos últimos 5min,
+      // pra V4 mostrar banner vermelho no header.
+      this.db.query(`
+        SELECT processing_error, MAX(slack_ts::numeric) AS latest_ts, COUNT(*)::int AS c
+        FROM v3.messages
+        WHERE processing_error IS NOT NULL
+          AND (processing_error ILIKE '%credit_balance%' OR processing_error ILIKE '%credit%'
+            OR processing_error ~* '\\b(429|529)\\b' OR processing_error ILIKE '%overloaded%'
+            OR processing_error ILIKE '%rate%limit%')
+          AND created_at >= NOW() - interval '5 minutes'
+        GROUP BY processing_error
+        ORDER BY latest_ts DESC LIMIT 3`),
     ]);
 
     let provider = null;
@@ -50,6 +62,25 @@ class HealthRepo {
       ? tickAge < TICK_ALIVE_SEC
       : (lastProcessed != null && (this._now() - new Date(lastProcessed).getTime()) < FALLBACK_ALIVE_MS);
 
+    // Bloco 29/mai-noite #3 — billing alert pra V4 banner.
+    const billingRows = (billingErrs.rows || []);
+    let alertKind = null;
+    let alertText = null;
+    for (const row of billingRows) {
+      const err = String(row.processing_error || '');
+      if (/credit_balance|invalid_request_error.*credit/i.test(err)) {
+        alertKind = 'credit_balance';
+        alertText = 'Crédito Anthropic esgotou — topar em console.anthropic.com';
+        break;
+      }
+      if (/\b(429|529)\b|overloaded|rate.?limit/i.test(err)) {
+        if (!alertKind) {
+          alertKind = 'rate_limit';
+          alertText = 'Worker batendo em rate limit (transitório)';
+        }
+      }
+    }
+
     return {
       worker: {
         alive,
@@ -61,6 +92,9 @@ class HealthRepo {
       last_processed_at: toNyIso(lastProcessed),
       provider: provider || null,
       mode: mode || null,
+      // null se nenhum erro de billing/rate nos últimos 5min;
+      // { kind: 'credit_balance'|'rate_limit', text } caso contrário.
+      worker_alert: alertKind ? { kind: alertKind, text: alertText, error_count: billingRows.reduce((s, r) => s + r.c, 0) } : null,
     };
   }
 

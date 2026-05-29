@@ -51,25 +51,51 @@ const DEFAULT_TWEAKS = /*EDITMODE-BEGIN*/{
   "language": "bilingual"
 }/*EDITMODE-END*/;
 
-/** Worker status pill — polla /api/v3/data/health a cada 12s. */
+/** Worker status pill + banner de billing alert.
+ *  Polla /api/v3/data/health a cada 12s. Quando worker tem worker_alert
+ *  (billing/rate-limit nos últimos 5min), renderiza banner vermelho fixo
+ *  no header com link pro console.anthropic.com.  (bloco 29/mai-noite #3) */
 function WorkerPill() {
   const { data } = useFetch('/health', []);
   if (!data) return null;
   const w = data.worker || {};
   const ok = !!w.alive;
+  const alert = data.worker_alert || null;
   return (
-    <span title={`fila: ${data.queue || 0} · ${data.mode || '?'}`} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6,
-      padding: '4px 10px', borderRadius: 999,
-      background: 'var(--surface-2)', border: '1px solid var(--border)',
-      fontSize: 11, fontWeight: 600, color: 'var(--text-2)',
-    }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: '50%',
-        background: ok ? 'var(--hf-leaf-500, #22b35d)' : 'var(--bad, #d9534f)',
-      }}/>
-      worker {ok ? 'ativo' : 'sem tick'}
-    </span>
+    <>
+      {alert && (
+        <div title={alert.text} style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+          background: 'var(--bad, #dc2626)', color: '#fff',
+          padding: '8px 14px', fontSize: 12.5, fontWeight: 700,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+        }}>
+          <span>⚠ {alert.text}</span>
+          {alert.kind === 'credit_balance' && (
+            <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noreferrer"
+               style={{ color: '#fff', textDecoration: 'underline', marginLeft: 6 }}>
+              Topar agora →
+            </a>
+          )}
+          <span style={{ marginLeft: 12, fontSize: 11, opacity: 0.85 }}>
+            ({alert.error_count} erros nos últimos 5min)
+          </span>
+        </div>
+      )}
+      <span title={`fila: ${data.queue || 0} · ${data.mode || '?'}`} style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '4px 10px', borderRadius: 999,
+        background: 'var(--surface-2)', border: '1px solid var(--border)',
+        fontSize: 11, fontWeight: 600, color: 'var(--text-2)',
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: ok ? 'var(--hf-leaf-500, #22b35d)' : 'var(--bad, #d9534f)',
+        }}/>
+        worker {ok ? 'ativo' : 'sem tick'}
+      </span>
+    </>
   );
 }
 

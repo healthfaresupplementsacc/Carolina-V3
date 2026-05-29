@@ -104,6 +104,10 @@ async function startWorker() {
   }
   _observer = new Observer(Object.assign({
     db: _pool, botUserId, mode: 'shadow',
+    // Bloco 29/mai-noite #3 — alertas Slack quando worker bate em
+    // billing/rate-limit. Default ON em prod. Pode desligar via env
+    // WORKER_ALERTS_DISABLED=1.
+    enableWorkerAlerts: process.env.WORKER_ALERTS_DISABLED !== '1',
   }, _svc));
   _observer.start(5000);
   console.log('[V3] Observer worker SHADOW ligado (tick 5s, bot=' + (botUserId || '?') + ')');

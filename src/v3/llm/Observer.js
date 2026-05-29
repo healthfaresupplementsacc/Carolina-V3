@@ -58,6 +58,13 @@ class Observer {
     this.botUserId = deps.botUserId || null;
     this.mode = deps.mode || 'shadow';
     this.now = deps.now || (() => new Date());
+    // Bloco 29/mai-noite #3 — alertas Slack pra falhas persistentes do
+    // worker (billing/rate-limit). Bypassa mode=shadow porque é admin,
+    // não auto-resposta operacional.
+    this.enableWorkerAlerts = deps.enableWorkerAlerts === true;
+    this.alertAdminChannelId = deps.alertAdminChannelId || 'C0B36DR5MP1';
+    this.alertBrunoCampDmId = deps.alertBrunoCampDmId || 'D03UL80GDRB';
+    this.alertCooldownMs = deps.alertCooldownMs || (60 * 60 * 1000);   // 1h
     // FIX C: concorrência reduzida p/ 2 durante backfill (env), 3 em
     // tempo-real — deixa headroom de rate-limit pra Carolina legada.
     this.concurrency = deps.concurrency
@@ -465,9 +472,71 @@ class Observer {
 
   async _markError(message, error) {
     // llm_processed_at fica NULL → o worker re-tenta.
+    const errStr = String(error);
     await this.db.query(
       'UPDATE v3.messages SET processing_error = $2 WHERE id = $1',
-      [message.id, String(error).slice(0, 500)]);
+      [message.id, errStr.slice(0, 500)]);
+    // Bloco 29/mai-noite #3 — alerta admin pra falhas persistentes.
+    const kind = this._classifyWorkerError(errStr);
+    if (kind) await this._maybeSendBillingAlert(kind, errStr);
+  }
+
+  /** Bloco 29/mai-noite #3 — classifica erros do worker pra triggear alerta.
+   *  'credit_balance' → conta sem crédito (gravíssimo, sistema parado).
+   *  'rate_limit'     → 429/529 transitório (alerta se persistir).
+   *  null             → erro normal (validation, parse, etc — sem alerta). */
+  _classifyWorkerError(errStr) {
+    if (!errStr) return null;
+    if (/credit_balance.*too low|invalid_request_error.*credit/i.test(errStr)) return 'credit_balance';
+    if (/\b(429|529)\b|rate.?limit|overloaded/i.test(errStr)) return 'rate_limit';
+    return null;
+  }
+
+  /** Bloco 29/mai-noite #3 — envia alerta pra DM Bruno Camp + canal admin
+   *  quando worker bate em billing/rate-limit. Cooldown 1h pra não spammar.
+   *  Bypassa mode=shadow porque é alerta de incidente admin, não auto-post. */
+  async _maybeSendBillingAlert(kind, errStr) {
+    if (!this.enableWorkerAlerts) return;
+    try {
+      // Cooldown — checa último alerta do mesmo kind em settings
+      const key = `worker_last_alert_${kind}`;
+      const r = await this.db.query("SELECT value FROM v3.settings WHERE key = $1", [key]);
+      let last = r.rows[0]?.value;
+      if (typeof last === 'string') { try { last = JSON.parse(last); } catch (_) { /* leave */ } }
+      const lastMs = last ? new Date(last).getTime() : 0;
+      if (Date.now() - lastMs < this.alertCooldownMs) return;
+
+      const text = kind === 'credit_balance'
+        ? '⚠ *Sistema parado: crédito Anthropic esgotou.*\n'
+          + 'Topar em https://console.anthropic.com/settings/billing\n'
+          + 'Fila parada — msgs Slack não estão virando events. Depois de topar, fila reprocessa sozinha.'
+        : `⚠ Worker hitting rate limit: ${errStr.slice(0, 200)}`;
+
+      if (this.slack) {
+        try {
+          if (typeof this.slack.sendDM === 'function') await this.slack.sendDM(this.alertBrunoCampDmId, text);
+          else if (typeof this.slack.postMessage === 'function') await this.slack.postMessage(this.alertBrunoCampDmId, text);
+        } catch (e) { console.error('[Observer] alert DM fail:', e.message); }
+        try {
+          if (typeof this.slack.postMessage === 'function') await this.slack.postMessage(this.alertAdminChannelId, text);
+        } catch (e) { console.error('[Observer] alert channel fail:', e.message); }
+      }
+
+      // Audit
+      try {
+        await this.db.query(`
+          INSERT INTO v3.audit_log (actor_type, action, target_type, target_id, after_data)
+          VALUES ('system', 'worker.alert_sent', NULL, NULL, $1::jsonb)`,
+          [JSON.stringify({ kind, error_preview: errStr.slice(0, 300) })]);
+      } catch (_) { /* audit nunca derruba */ }
+
+      // Cooldown timestamp
+      await this.db.query(`
+        INSERT INTO v3.settings (key, value)
+        VALUES ($1, $2::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()`,
+        [key, JSON.stringify(new Date().toISOString())]);
+    } catch (_) { /* alerta nunca derruba o pipeline */ }
   }
 
   async _audit(action, messageId, after) {
