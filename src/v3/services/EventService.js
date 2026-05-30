@@ -114,8 +114,11 @@ class EventService {
   }
 
   /** UPDATE uniforme de 1 event por id. fields = {col:value}.
-   *  Pode retornar null se o guard dur=0 bloquear o patch (bloco 29/mai-noite #3). */
-  async _patch(c, id, fields) {
+   *  opts.forceEodPatch=true permite mexer em ended_at de eventos
+   *  end_of_day (correct() admin-driven; audita warning).
+   *  Pode retornar null se o guard dur=0 bloquear o patch (bloco 29/mai-noite #3)
+   *  OU se o guard end_of_day intocável bloquear (bloco 30/mai). */
+  async _patch(c, id, fields, opts = {}) {
     // GUARD duração negativa: se este patch grava ended_at < started_at,
     // clampa pro started_at (duração zero) e audita a anomalia. Preserva
     // a invariante "1 event de trabalho ativo" (≠ rejeitar o close, que
@@ -149,22 +152,56 @@ class EventService {
       // Caso real ev316/ev317 29/mai: _closeActive disparado por 2 opens
       // com mesmo started_at fechou o primeiro em ended_at = started_at,
       // gerando events fantasmas dur=0 inválidos.
-      if (startedAt && fields.ended_at
-          && new Date(fields.ended_at).getTime() === new Date(startedAt).getTime()) {
-        const isEod = await this._isEndOfDay(c, activityTypeId);
-        if (!isEod) {
+      const eq = startedAt && fields.ended_at
+        && new Date(fields.ended_at).getTime() === new Date(startedAt).getTime();
+      const isEod = await this._isEndOfDay(c, activityTypeId);
+      if (eq && !isEod) {
+        await this._audit(c, {
+          actorType: 'system', action: 'event.close_blocked_dur_zero', targetId: id,
+          before: null, after: null,
+          metadata: {
+            guard: 'ended_at == started_at e slug != end_of_day',
+            attempted_fields: Object.keys(fields),
+            started_at: startedAt,
+            attempted_ended_at: fields.ended_at,
+            activity_type_id: activityTypeId,
+          },
+        });
+        return null;   // patch rejected; caller deve checar e tratar
+      }
+      // GUARD bloco 30/mai — end_of_day INTOCÁVEL após criação.
+      // Caso real ev305 28/mai: meta_closed_by_fg fechou o end_of_day no
+      // dia seguinte (16h42 inflado), quebrando o invariant "carimbo
+      // instantâneo". Quando patch tenta mudar ended_at != started_at de
+      // um end_of_day, REJEITA — exceto se caller passar forceEodPatch
+      // (admin correct() explícito; loga warning em ambos os casos).
+      if (isEod && !eq && fields.ended_at) {
+        if (opts.forceEodPatch) {
           await this._audit(c, {
-            actorType: 'system', action: 'event.close_blocked_dur_zero', targetId: id,
+            actorType: 'system', action: 'event.eod_patch_forced', targetId: id,
             before: null, after: null,
             metadata: {
-              guard: 'ended_at == started_at e slug != end_of_day',
+              warning: 'admin forçou patch em end_of_day (invariant carimbo instantâneo quebrado intencionalmente)',
               attempted_fields: Object.keys(fields),
-              started_at: startedAt,
+              original_started_at: startedAt,
               attempted_ended_at: fields.ended_at,
               activity_type_id: activityTypeId,
             },
           });
-          return null;   // patch rejected; caller deve checar e tratar
+          // continua — admin permite
+        } else {
+          await this._audit(c, {
+            actorType: 'system', action: 'event.eod_patch_blocked', targetId: id,
+            before: null, after: null,
+            metadata: {
+              guard: 'end_of_day intocável após criação',
+              attempted_fields: Object.keys(fields),
+              original_started_at: startedAt,
+              attempted_ended_at: fields.ended_at,
+              activity_type_id: activityTypeId,
+            },
+          });
+          return null;
         }
       }
     }
@@ -407,6 +444,9 @@ class EventService {
       [personId, batchId]);
     const closed = [];
     for (const ev of r.rows) {
+      // Bloco 30/mai — defesa em profundidade: skip end_of_day.
+      // (já filtrado pela query is_background=true, mas defense in depth.)
+      if (await this._isEndOfDay(c, ev.activity_type_id)) continue;
       const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
       // Bloco 29/mai-noite #3: _patch retorna null se bloqueou (dur=0 non-eod).
       // Audit do bloqueio já foi feito; pula o audit de event.closed.
@@ -434,6 +474,10 @@ class EventService {
       const evKind = await this._kindOf(c, ev.activity_type_id);
       const matches = kind === 'any' || evKind === kind;
       if (!matches) continue;
+      // Bloco 30/mai — end_of_day INTOCÁVEL. Pula silenciosamente eventos
+      // end_of_day (caso histórico ev305 28/mai: meta_closed_by_fg do dia
+      // seguinte fechou o end_of_day quebrando o invariant).
+      if (await this._isEndOfDay(c, ev.activity_type_id)) continue;
       const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
       // Bloco 29/mai-noite #3: _patch retorna null quando bloquearia dur=0
       // em non-eod. Audit do bloqueio já foi feito. Pula audit de closed
@@ -706,7 +750,9 @@ class EventService {
     return this._withTx(async (c) => {
       const before = await this._getById(c, eventId);
       if (!before) throw new Error('correct: event ' + eventId + ' não existe');
-      const after = await this._patch(c, eventId, fields);
+      // Bloco 30/mai — admin pode forçar patch em end_of_day (com audit
+      // warning); outros guards (dur=0 non-eod) continuam bloqueando.
+      const after = await this._patch(c, eventId, fields, { forceEodPatch: true });
       // Bloco 29/mai-noite #3: _patch retorna null se guard bloqueou dur=0 non-eod.
       // Em correct (admin-driven), lança erro claro pra admin saber.
       if (!after) {
