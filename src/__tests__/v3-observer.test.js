@@ -556,6 +556,117 @@ describe('V3 §2.8 — Captura Aprimorada (Parte A)', () => {
   });
 });
 
+describe('V3 §2.8 — guard slack_ts override (bloco 29/mai-noite #7)', () => {
+  // slack_ts = 1780090058.861 → ISO = 2026-05-29T21:27:38.861Z
+  const SLACK_TS_BASE = '1780090058.861';
+  const SLACK_TS_ISO = '2026-05-29T21:27:38.861Z';
+
+  const overrideCalls = (db) => db.query.mock.calls.filter(([sql]) =>
+    String(sql).replace(/\s+/g, ' ').includes("'action.timestamp_overridden'"));
+
+  test('LLM action.started_at Δ +80min vs slack_ts → override + audit', async () => {
+    const m = msg({ slack_ts: SLACK_TS_BASE, raw_text: 'S-Troca de linha' });
+    const { observer, eventService, db } = makeObserver({
+      message: m,
+      llmResult: {
+        actions: [{
+          type: 'open_event', person_id: 6, activity_type_id: 10, confidence: 'high',
+          started_at: '2026-05-29T22:47:38Z',   // +80min do slack_ts (hallucination)
+        }],
+        categorization: 'activity_start', confidence: 'high',
+      },
+    });
+    await observer.processMessage(m);
+    expect(overrideCalls(db).length).toBe(1);
+    // upsert deve ter recebido o slack_ts ISO (não o que LLM emitiu)
+    expect(eventService.upsert.mock.calls[0][0].started_at).toBe(SLACK_TS_ISO);
+  });
+
+  test('LLM action.ended_at Δ +60min → override também', async () => {
+    const m = msg({ slack_ts: SLACK_TS_BASE, raw_text: 'F: terminei' });
+    const { observer, db } = makeObserver({
+      message: m,
+      llmResult: {
+        actions: [{
+          type: 'close_event', person_id: 6, confidence: 'high',
+          ended_at: '2026-05-29T22:27:38Z',     // +60min do slack_ts
+        }],
+        categorization: 'activity_end', confidence: 'high',
+      },
+    });
+    await observer.processMessage(m);
+    expect(overrideCalls(db).length).toBe(1);
+  });
+
+  test('LLM Δ < 5min → mantém o que LLM emitiu (sem override)', async () => {
+    const m = msg({ slack_ts: SLACK_TS_BASE, raw_text: 'S: iniciando' });
+    const { observer, eventService, db } = makeObserver({
+      message: m,
+      llmResult: {
+        actions: [{
+          type: 'open_event', person_id: 6, activity_type_id: 10, confidence: 'high',
+          started_at: '2026-05-29T21:25:00Z',  // -2.6min (dentro da tolerância)
+        }],
+        categorization: 'activity_start', confidence: 'high',
+      },
+    });
+    await observer.processMessage(m);
+    expect(overrideCalls(db).length).toBe(0);
+    expect(eventService.upsert.mock.calls[0][0].started_at).toBe('2026-05-29T21:25:00Z');
+  });
+
+  test('admin context (categorization=admin_intervention) preserva LLM timestamp retroativo', async () => {
+    // Caso real msg700: Bruno Camp "@Carolina Simone saiu pro almoco as 1:01pm" 13:14.
+    // LLM emite ended_at retroativo 1:01 PM (Δ -13min mas legítimo).
+    const m = msg({ slack_ts: SLACK_TS_BASE, raw_text: '@Carolina Simone saiu 1:01 PM' });
+    const { observer, eventService, db } = makeObserver({
+      message: m,
+      dbOpts: { persons: [1, 5, 6] },
+      llmResult: {
+        actions: [{
+          type: 'break_start', person_id: 5, confidence: 'high',
+          started_at: '2026-05-29T20:01:00Z',   // -86min do slack_ts (retroativo)
+        }],
+        categorization: 'admin_intervention', confidence: 'high',
+      },
+    });
+    await observer.processMessage(m);
+    expect(overrideCalls(db).length).toBe(0);
+    expect(eventService.upsert.mock.calls[0][0].started_at).toBe('2026-05-29T20:01:00Z');
+  });
+
+  test('msg de Bruno Camp via @Carolina (slack U0B3EQLPEPL) preserva LLM timestamp', async () => {
+    const m = msg({ slack_user_id: 'U0B3EQLPEPL', slack_ts: SLACK_TS_BASE });
+    const { observer, eventService, db } = makeObserver({
+      message: m,
+      dbOpts: { persons: [1, 4, 6] },
+      llmResult: {
+        actions: [{
+          type: 'open_event', person_id: 4, activity_type_id: 10, confidence: 'high',
+          started_at: '2026-05-29T20:18:00Z',   // -1h09min do slack_ts (admin retro)
+        }],
+        categorization: 'note', confidence: 'high',
+      },
+    });
+    await observer.processMessage(m);
+    expect(overrideCalls(db).length).toBe(0);
+    expect(eventService.upsert.mock.calls[0][0].started_at).toBe('2026-05-29T20:18:00Z');
+  });
+
+  test('action sem started_at/ended_at → guard ignora', async () => {
+    const m = msg({ slack_ts: SLACK_TS_BASE });
+    const { observer, db } = makeObserver({
+      message: m,
+      llmResult: {
+        actions: [{ type: 'open_event', person_id: 6, activity_type_id: 10, confidence: 'high' }],
+        categorization: 'activity_start', confidence: 'high',
+      },
+    });
+    await observer.processMessage(m);
+    expect(overrideCalls(db).length).toBe(0);
+  });
+});
+
 describe('V3 §2.8 — guard msg.no_event_created (bloco 29/mai-noite #36)', () => {
   const guardCalls = (db) => db.query.mock.calls.filter(([sql]) =>
     String(sql).replace(/\s+/g, ' ').includes("'msg.no_event_created'"));

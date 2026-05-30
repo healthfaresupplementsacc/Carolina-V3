@@ -149,6 +149,21 @@ class Observer {
       return { ok: false, stage: 'validation', error: invalid, retryable: true };
     }
 
+    // 6.5 ── GUARD slack_ts override (bloco 29/mai-noite #7).
+    // Quando o LLM emite action.started_at/ended_at que diverge > 5min
+    // do slack_ts da msg, sobrescreve com slack_ts e loga warning.
+    // EXCEÇÃO: msg de admin (adminCtx, categorization='admin_intervention',
+    // ou slack U0B3EQLPEPL — Bruno Camp via @Carolina) preserva o
+    // horário do LLM porque admin pode estar especificando retroativamente.
+    {
+      const adminLikeForTs = !!(author && author.is_admin_context)
+        || decision.categorization === 'admin_intervention'
+        || message.slack_user_id === 'U0B3EQLPEPL';
+      if (!adminLikeForTs) {
+        await this._enforceSlackTsOnActions(decision.actions || [], message);
+      }
+    }
+
     // 7 ── PERSISTÊNCIA (SHADOW) ───────────────────────────────
     const created = [];
     const updated = [];
@@ -468,6 +483,51 @@ class Observer {
        WHERE id = $1`,
       [message.id, JSON.stringify(llmResult)]);
     await this._audit('observer.skipped', message.id, llmResult);
+  }
+
+  /** Bloco 29/mai-noite #7 — força action.started_at/ended_at = slack_ts
+   *  quando LLM diverge > 5min do horário real da msg. Defesa contra
+   *  hallucinations de tempo (caso 29/mai reprocesso: msg724 17:27 virou
+   *  ev335 started 18:47 = +80min de hallucination LLM).
+   *  Loga warning em audit_log action='action.timestamp_overridden' com
+   *  Δ original pra admin auditar.
+   *  Caller deve checar se msg é de admin/Carolina ANTES de chamar — esses
+   *  podem especificar timestamps retroativos legitimamente. */
+  async _enforceSlackTsOnActions(actions, message) {
+    if (!Array.isArray(actions) || actions.length === 0) return;
+    const slackTsMs = parseFloat(message.slack_ts) * 1000;
+    if (!Number.isFinite(slackTsMs)) return;
+    const msgIso = new Date(slackTsMs).toISOString();
+    const TOLERANCE_MS = 5 * 60 * 1000;
+    for (const action of actions) {
+      if (!action || typeof action !== 'object') continue;
+      for (const field of ['started_at', 'ended_at']) {
+        if (!action[field]) continue;
+        const actionMs = new Date(action[field]).getTime();
+        if (!Number.isFinite(actionMs)) continue;
+        const deltaMs = actionMs - slackTsMs;
+        if (Math.abs(deltaMs) <= TOLERANCE_MS) continue;
+        const originalTs = action[field];
+        action[field] = msgIso;
+        try {
+          await this.db.query(
+            `INSERT INTO v3.audit_log
+               (actor_type, actor_person_id, action, target_type, target_id, before_data, after_data, metadata)
+             VALUES ('system', NULL, 'action.timestamp_overridden', 'message', $1, NULL, NULL, $2::jsonb)`,
+            [message.id, JSON.stringify({
+              guard: 'LLM action timestamp diverged > 5min from slack_ts',
+              field,
+              original_ts: originalTs,
+              override_ts: msgIso,
+              delta_min: Math.round(deltaMs / 60000),
+              slack_ts: message.slack_ts,
+              action_type: action.type,
+            })]);
+        } catch (e) {
+          console.error('[Observer] falha ao audit timestamp_overridden:', e.message);
+        }
+      }
+    }
   }
 
   async _markError(message, error) {
