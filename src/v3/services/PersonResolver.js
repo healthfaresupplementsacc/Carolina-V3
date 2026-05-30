@@ -36,17 +36,35 @@ const SIGNATURE_NOISE = new Set([
 
 // Padrões de assinatura procurados pelo parser. Cada um devolve o primeiro
 // nome no grupo 1; o caller verifica se o nome bate com algum primeiro
-// nome do catálogo de persons. Ordem importa — assinatura no fim é mais
-// forte que no começo.
+// nome do catálogo de persons. Ordem importa — padrões mais específicos
+// primeiro (dash > underscore > paren > por > prefix_dash > suffix_space
+// > prefix_space) pra evitar over-match.
+//
+// PHASE 1 (já em prod):
 //   /-\s*Nome\s*$/         → "...-Bruno" / "...- Bruno"  (clássico)
 //   /\(\s*Nome\s*\)\s*$/   → "...(Bruno)" no fim
 //   /\bpor\s+Nome\s*$/     → "feito por Bruno" no fim
 //   /^\s*Nome\s*-/         → "Bruno- voltei..." (variação que Bruno usa)
+//
+// PHASE 2 (bloco 29/mai-noite — varredura 27-29/mai achou 7 falsos
+// positivos com underscore/espaço/prefixo sem dash):
+//   /_\s*Nome\s*$/         → "..._Bruno" / "..._ Bruno"  (underscore)
+//   /\s+Nome\s*$/  3+      → "... Bruno" (espaço sem dash, min 3 letras
+//                            pra excluir "S"/"F")
+//   /^\s*Nome\s/  3+       → "Bruno indo..." (prefixo espaço, min 3)
+// strong=true → marca como assinatura inequívoca (dash/underscore/paren/
+// por/prefix-dash). Se o nome não está no catálogo, sinaliza unknown.
+// strong=false → assinatura fraca (espaço sem separador). Se nome não
+// está no catálogo, ignora silenciosamente (só faz match quando nome
+// CASA com catálogo — evita "msg ambígua" virar unknown_signature_name).
 const SIGNATURE_PATTERNS = [
-  { re: /-\s*([A-Za-zÀ-ÿ]{2,})\s*$/u, kind: 'suffix_dash' },
-  { re: /\(\s*([A-Za-zÀ-ÿ]{2,})\s*\)\s*$/u, kind: 'suffix_paren' },
-  { re: /\bpor\s+([A-Za-zÀ-ÿ]{2,})\s*$/iu, kind: 'suffix_por' },
-  { re: /^\s*([A-Za-zÀ-ÿ]{2,})\s*-/u, kind: 'prefix_dash' },
+  { re: /-\s*([A-Za-zÀ-ÿ]{2,})\s*$/u,        kind: 'suffix_dash',       strong: true },
+  { re: /_\s*([A-Za-zÀ-ÿ]{2,})\s*$/u,        kind: 'suffix_underscore', strong: true },
+  { re: /\(\s*([A-Za-zÀ-ÿ]{2,})\s*\)\s*$/u,  kind: 'suffix_paren',      strong: true },
+  { re: /\bpor\s+([A-Za-zÀ-ÿ]{2,})\s*$/iu,   kind: 'suffix_por',        strong: true },
+  { re: /^\s*([A-Za-zÀ-ÿ]{2,})\s*-/u,        kind: 'prefix_dash',       strong: true },
+  { re: /\s+([A-Za-zÀ-ÿ]{3,})\s*$/u,         kind: 'suffix_space',      strong: false },
+  { re: /^\s*([A-Za-zÀ-ÿ]{3,})\s/u,          kind: 'prefix_space',      strong: false },
 ];
 
 class PersonResolver {
@@ -68,22 +86,10 @@ class PersonResolver {
   }
 
   /**
-   * Bloco 29/mai-noite — parser de assinatura "-Nome" ANTES do LLM.
-   * Deterministic, sem LLM. Tenta padrões em ordem; retorna o person row
-   * do catálogo OU null. Preferência por OPERADOR quando o primeiro nome
-   * existe tanto em admin quanto em operador (caso "Bruno" = Bruno Camp
-   * owner OU Bruno Sarmento operator → opera).
-   *
-   * @param {string} messageText
-   * @param {object} dir   diretório (de _loadDirectory)
-   * @returns {{ person, matchedName, kind } | null}
+   * Bloco 29/mai-noite — helper que constrói índice firstName → [persons].
+   * Usado pelo parser e pelo detector de menções. Memoiza via _firstNameMap.
    */
-  _parseSignature(messageText, dir) {
-    if (!messageText) return null;
-    const text = String(messageText).trim();
-    if (text.length === 0) return null;
-
-    // Constrói índice firstName(lowercase) → [person rows].
+  _buildFirstNameMap(dir) {
     const firstNameMap = new Map();
     for (const p of dir.personsById.values()) {
       if (!p.display_name) continue;
@@ -91,21 +97,84 @@ class PersonResolver {
       if (!firstNameMap.has(first)) firstNameMap.set(first, []);
       firstNameMap.get(first).push(p);
     }
+    return firstNameMap;
+  }
 
-    for (const { re, kind } of SIGNATURE_PATTERNS) {
+  /**
+   * Bloco 29/mai-noite PHASE 2 — varre o texto procurando QUALQUER primeiro
+   * nome do catálogo (por word-boundary, case-insensitive). Devolve Set de
+   * person_id "resolved" (preferência operador igual no parser).
+   * Usado pra detectar ambiguidade ("Bruno e Vitor") e menção sem assinatura
+   * ("ajudando Bruno na linha").
+   */
+  _scanFirstNamesInText(messageText, dir) {
+    const out = new Set();
+    if (!messageText) return out;
+    const lower = String(messageText).toLowerCase();
+    const firstNameMap = this._buildFirstNameMap(dir);
+    for (const [first, candidates] of firstNameMap.entries()) {
+      if (SIGNATURE_NOISE.has(first)) continue;
+      // word boundary — \b funciona com ASCII; pra acentos usa regex unicode
+      const escaped = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(?:^|[^\\p{L}])(${escaped})(?:[^\\p{L}]|$)`, 'iu');
+      if (!re.test(lower)) continue;
+      const op = candidates.find((p) => !ADMIN_ROLES.includes(p.role));
+      const chosen = op || (candidates.length === 1 ? candidates[0] : null);
+      if (chosen) out.add(chosen.id);
+    }
+    return out;
+  }
+
+  /**
+   * Bloco 29/mai-noite — parser de assinatura "-Nome" / underscore /
+   * espaço / prefixo. Deterministic, sem LLM. Preferência por OPERADOR.
+   *
+   * @param {string} messageText
+   * @param {object} dir   diretório (de _loadDirectory)
+   * @returns {object | null}
+   *   null                                          — nenhum pattern bateu
+   *   { person, matchedName, kind }                 — assinatura clara
+   *   { ambiguous: true, namesInText, matchedName, kind } — múltiplos nomes no texto
+   *   { unknown: true, attemptedName, matchedName, kind } — pattern bateu mas nome fora do catálogo
+   */
+  _parseSignature(messageText, dir) {
+    if (!messageText) return null;
+    const text = String(messageText).trim();
+    if (text.length === 0) return null;
+
+    const firstNameMap = this._buildFirstNameMap(dir);
+
+    // PHASE 2 — pré-calcula ambiguidade (múltiplos nomes no texto).
+    const namesInText = this._scanFirstNamesInText(messageText, dir);
+
+    for (const { re, kind, strong } of SIGNATURE_PATTERNS) {
       const m = text.match(re);
       if (!m) continue;
       const name = m[1].toLowerCase();
       if (SIGNATURE_NOISE.has(name)) continue;
       const candidates = firstNameMap.get(name);
-      if (!candidates || candidates.length === 0) continue;
-      // Preferir operador quando há ambiguidade (caso real "Bruno": Bruno
-      // Camp owner OU Bruno Sarmento operator → operator).
+      if (!candidates || candidates.length === 0) {
+        // STRONG pattern + nome fora do catálogo → unknown_name
+        // (caso "S-Linha_Pedro" — Pedro não cadastrado, sinal claro).
+        // WEAK pattern → ignora silenciosamente (caso "msg ambígua" —
+        // "ambígua" é só uma palavra qualquer, não tentativa de assinar).
+        if (strong) return { unknown: true, attemptedName: name, matchedName: m[0], kind };
+        continue;
+      }
+      // Preferir operador (caso "Bruno": Camp owner OU Sarmento operator)
       let person = candidates.find((p) => !ADMIN_ROLES.includes(p.role));
       if (!person && candidates.length === 1) person = candidates[0];
-      // Múltiplos admins com mesmo primeiro nome E nenhum operador:
-      // não decide — deixa pro LLM resolver (raro).
       if (!person) continue;
+      // PHASE 2 — se texto tem múltiplos nomes distintos, marca ambíguo
+      // mesmo com signature match clara (caso "Bruno e Vitor").
+      if (namesInText.size > 1) {
+        return {
+          ambiguous: true,
+          namesInText: [...namesInText],
+          matchedName: m[0],
+          kind,
+        };
+      }
       return { person, matchedName: m[0], kind };
     }
     return null;
@@ -281,9 +350,10 @@ class PersonResolver {
     const account = dir.sharedAccounts.get(slackUserId);
     let result;
 
-    // ── PHASE 1 — parser de assinatura (deterministic, sem LLM) ──
+    // ── PHASE 1+2 — parser de assinatura (deterministic, sem LLM) ──
     const sig = this._parseSignature(messageText, dir);
-    if (sig) {
+    if (sig && sig.person) {
+      // signature clara (single name, in catalog)
       const isAdmin = ADMIN_ROLES.includes(sig.person.role);
       result = {
         person_id: sig.person.id,
@@ -292,6 +362,24 @@ class PersonResolver {
         confidence: 'high',
         is_admin_context: isAdmin,
         llm_reasoning: `assinatura "${sig.matchedName}" (${sig.kind}) → person=${sig.person.display_name}${isAdmin ? ' (admin)' : ''}`,
+        cost_estimate_usd: 0,
+      };
+    } else if (sig && (sig.ambiguous || sig.unknown)) {
+      // PHASE 2 — múltiplos nomes OU nome fora do catálogo → fallback
+      // pro owner da conta com confidence=low, marca uncertain.
+      const owner = account && account.primary_owner_id != null
+        ? dir.personsById.get(account.primary_owner_id)
+        : (account ? null : dir.personsBySlack.get(slackUserId));
+      const reason = sig.ambiguous
+        ? `assinatura "${sig.matchedName}" mas texto tem múltiplos nomes (${(sig.namesInText || []).join(',')}) — autor da conta como fallback, marca uncertain`
+        : `assinatura "${sig.matchedName}" mas "${sig.attemptedName}" não está no catálogo — autor da conta como fallback, marca uncertain`;
+      result = {
+        person_id: owner ? owner.id : null,
+        resolution_method: sig.ambiguous ? 'ambiguous_signature' : 'unknown_signature_name',
+        detected_identification: sig.matchedName,
+        confidence: 'low',
+        is_admin_context: !!(owner && ADMIN_ROLES.includes(owner.role)),
+        llm_reasoning: reason,
         cost_estimate_usd: 0,
       };
     } else if (!account) {
@@ -331,20 +419,40 @@ class PersonResolver {
       const owner = dir.personsById.get(account.primary_owner_id);
       if (owner) {
         const isAdmin = ADMIN_ROLES.includes(owner.role);
-        result = isAdmin
-          ? {
+        if (isAdmin) {
+          result = {
             person_id: owner.id, resolution_method: 'admin_directive',
             detected_identification: null, confidence: 'high',
             is_admin_context: true,
             llm_reasoning: `primary_owner da conta é admin (${owner.display_name}) — não cria event`,
             cost_estimate_usd: 0,
-          }
-          : {
-            person_id: owner.id, resolution_method: 'owner_default',
-            detected_identification: null, confidence: 'high',
-            llm_reasoning: `conta compartilhada sem assinatura — primary_owner ${owner.display_name}`,
-            cost_estimate_usd: 0,
           };
+        } else {
+          // PHASE 2 — se texto MENCIONA outro nome (sem ser assinatura),
+          // mantém owner mas marca uncertain. Caso "ajudando Bruno na
+          // linha" via Vitor's slack — autor é Vitor mas Bruno citado
+          // exige conferência.
+          const namesInText = this._scanFirstNamesInText(messageText, dir);
+          const othersMentioned = [...namesInText].filter((id) => id !== owner.id);
+          if (othersMentioned.length > 0) {
+            const othersNames = othersMentioned
+              .map((id) => (dir.personsById.get(id) || {}).display_name || `id=${id}`)
+              .join(', ');
+            result = {
+              person_id: owner.id, resolution_method: 'mention_uncertain',
+              detected_identification: null, confidence: 'low',
+              llm_reasoning: `texto menciona outros nomes (${othersNames}) sem assinatura clara — autor da conta ${owner.display_name} mas marca uncertain`,
+              cost_estimate_usd: 0,
+            };
+          } else {
+            result = {
+              person_id: owner.id, resolution_method: 'owner_default',
+              detected_identification: null, confidence: 'high',
+              llm_reasoning: `conta compartilhada sem assinatura — primary_owner ${owner.display_name}`,
+              cost_estimate_usd: 0,
+            };
+          }
+        }
       } else {
         // primary_owner_id aponta pra person inexistente (catálogo inconsistente)
         result = await this._resolveShared(account, dir, slackUserId, messageText, messageTs, context);

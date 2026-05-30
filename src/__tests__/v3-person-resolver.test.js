@@ -84,12 +84,13 @@ describe('V3 §2.3 — lookup direto (conta própria, sem LLM)', () => {
 describe('V3 §2.3 — conta compartilhada (LLM só pra contas SEM primary_owner)', () => {
   // Bloco 29/mai-noite: contas COM primary_owner agora resolvem direto
   // sem LLM. LLM só roda em contas tipo Production Line (sem owner).
-  test('Production Line (sem owner) — LLM identifica → llm_identified, high', async () => {
+  test('Production Line (sem owner, msg sem nome reconhecido) → LLM identifica', async () => {
+    // msg sem nome conhecido no início/fim — força caminho LLM.
     const { resolver, provider } = makeResolver({
       db: makeDb(),
-      llmJson: { person_id: 6, identification_evidence: 'Ana', confidence: 'high', reasoning: 'nome no texto' },
+      llmJson: { person_id: 6, identification_evidence: 'inferido', confidence: 'high', reasoning: 'só LLM tem contexto' },
     });
-    const r = await resolver.resolve('U_PL', 'Ana feita 200', '222.1', { message_id: 102 });
+    const r = await resolver.resolve('U_PL', 'feita 200 garrafas', '222.1', { message_id: 102 });
     expect(r.person_id).toBe(6);
     expect(r.resolution_method).toBe('llm_identified');
     expect(r.confidence).toBe('high');
@@ -277,11 +278,123 @@ describe('V3 — parser de assinatura (bloco 29/mai-noite #1b) — zero LLM', ()
     expect(r.resolution_method).toBe('owner_default');
   });
 
-  test('nome no texto que NÃO é assinatura ("ajudando Bruno") → owner_default, NÃO parser', async () => {
+  test('nome no texto que NÃO é assinatura ("ajudando Bruno") → owner + mention_uncertain', async () => {
+    // PHASE 2 (bloco 29/mai-noite): texto menciona outro nome SEM padrão
+    // de assinatura → mantém owner mas marca uncertain pra admin conferir.
     const { resolver } = makeResolver({ db: makeDb() });
     const r = await resolver.resolve('U_VITOR', 'estou ajudando Bruno na linha', 'fe.8', { message_id: 208 });
-    // "Bruno" no meio, sem padrão de assinatura — autor é o dono da conta.
-    expect(r.person_id).toBe(4);            // Vitor
+    expect(r.person_id).toBe(4);            // Vitor (owner)
+    expect(r.resolution_method).toBe('mention_uncertain');
+    expect(r.confidence).toBe('low');
+  });
+});
+
+describe('V3 — parser PHASE 2 (bloco 29/mai-noite — underscore/espaço/lowercase)', () => {
+  // POSITIVOS — casos reais da varredura 27-29/mai. Todos devem virar
+  // signature_match pra Bruno Sarmento (id=7).
+
+  test('suffix_space: "S-Lithium- 0166 ( rodando ) Bruno" → Bruno Sarmento', async () => {
+    const { resolver, provider } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S-Lithium- 0166 ( rodando ) Bruno', 'p2.1', { message_id: 400 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+    expect(provider.rawCalls).toHaveLength(0);
+  });
+
+  test('suffix_underscore: "S-Rutin na maquina de capsula_Bruno" → Bruno Sarmento', async () => {
+    const { resolver, provider } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S-Rutin na maquina de capsula_Bruno', 'p2.2', { message_id: 401 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+    expect(provider.rawCalls).toHaveLength(0);
+  });
+
+  test('suffix_underscore com espaço: "_ Bruno" no fim → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S-Apple Cider-0132 ( para capsulas ) _ Bruno', 'p2.3', { message_id: 402 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+  });
+
+  test('suffix_space case-insensitive: "bruno" minúsculo no fim → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S-Rutin-0174 (para capsulas ) bruno', 'p2.4', { message_id: 403 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+  });
+
+  test('prefix_space: "Bruno indo agora almocar" → Bruno Sarmento', async () => {
+    const { resolver, provider } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'Bruno indo agora almocar', 'p2.5', { message_id: 404 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+    expect(provider.rawCalls).toHaveLength(0);
+  });
+
+  test('prefix_space com ! no fim: "Bruno almocar agora !" → Bruno Sarmento', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'Bruno almocar agora !', 'p2.6', { message_id: 405 });
+    expect(r.person_id).toBe(7);
+    expect(r.resolution_method).toBe('signature_match');
+  });
+
+  // NEGATIVOS — ambiguidade / menção / sem nome / nome desconhecido
+
+  test('"ajudando Bruno na linha" via Vitor — owner Vitor, MAS mention_uncertain', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'estou ajudando Bruno na linha', 'p2.7', { message_id: 406 });
+    expect(r.person_id).toBe(4);                       // Vitor (owner)
+    expect(r.resolution_method).toBe('mention_uncertain');
+    expect(r.confidence).toBe('low');
+  });
+
+  test('"S: linha Bruno e Vitor" — ambíguo, owner fallback + uncertain', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S: linha Bruno e Vitor', 'p2.8', { message_id: 407 });
+    expect(r.person_id).toBe(4);                       // Vitor (owner fallback)
+    expect(r.resolution_method).toBe('ambiguous_signature');
+    expect(r.confidence).toBe('low');
+  });
+
+  test('"Bruno e Vitor estao na linha" — ambíguo (prefix_space match mas múltiplos nomes)', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'Bruno e Vitor estao na linha', 'p2.9', { message_id: 408 });
+    expect(r.resolution_method).toBe('ambiguous_signature');
+    expect(r.confidence).toBe('low');
+  });
+
+  test('"F" (1 letra) → não captura, owner_default', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'F', 'p2.10', { message_id: 409 });
+    expect(r.person_id).toBe(4);
+    expect(r.resolution_method).toBe('owner_default');
+    expect(r.confidence).toBe('high');
+  });
+
+  test('"S: linha de producao" sem nome → owner_default high', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S: linha de producao', 'p2.11', { message_id: 410 });
+    expect(r.person_id).toBe(4);
+    expect(r.resolution_method).toBe('owner_default');
+    expect(r.confidence).toBe('high');
+  });
+
+  test('"S-Linha_Pedro" — nome desconhecido, owner fallback + uncertain', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S-Linha_Pedro', 'p2.12', { message_id: 411 });
+    expect(r.person_id).toBe(4);                       // Vitor (owner fallback)
+    expect(r.resolution_method).toBe('unknown_signature_name');
+    expect(r.confidence).toBe('low');
+  });
+
+  test('"S-" sozinho não captura como prefix (S é 1 letra)', async () => {
+    const { resolver } = makeResolver({ db: makeDb() });
+    const r = await resolver.resolve('U_VITOR', 'S- algo qualquer', 'p2.13', { message_id: 412 });
+    // "algo" 4 letras, "qualquer" 8 letras — algo no início após "S- "?
+    // Pattern prefix_dash `^Nome\s*-` mata em "S-" mas "S" é 1 letra (<2) — não bate.
+    // Pattern prefix_space `^Nome\s` — pega "S" mas requer 3+ letras — não bate.
+    // Pattern suffix_space — "qualquer" no fim, mas qualquer não está no catálogo.
+    expect(r.person_id).toBe(4);
     expect(r.resolution_method).toBe('owner_default');
   });
 });
