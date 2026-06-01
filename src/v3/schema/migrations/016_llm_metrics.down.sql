@@ -1,0 +1,3 @@
+BEGIN;
+DROP TABLE IF EXISTS v3.llm_metrics;
+COMMIT;

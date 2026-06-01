@@ -16,8 +16,14 @@ const { getSharedLimiter } = require('../RateLimiter');
 let Anthropic = null;
 try { Anthropic = require('@anthropic-ai/sdk'); } catch (_) { /* SDK ausente — métodos lançam erro claro */ }
 
-// Sonnet 4.6 — preço USD por 1M tokens.
-const PRICING = { input: 3.0, output: 15.0 };
+// Sonnet 4.6 — preço USD por 1M tokens. Bloco 1/jun Fase 1: prompt
+// caching adiciona cache_write (1.25x input) e cache_read (0.1x = 90% off).
+const PRICING = {
+  input: 3.0,           // normal input
+  cache_write: 3.75,    // input com cache_control marcado (1.25x)
+  cache_read: 0.30,     // input lido de cache anterior (0.1x = 90% off)
+  output: 15.0,
+};
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 class AnthropicProvider extends LLMProvider {
@@ -40,13 +46,20 @@ class AnthropicProvider extends LLMProvider {
 
   get name() { return 'anthropic'; }
 
-  /** Estima tokens da chamada (input ≈ chars/4 + saída pedida). */
+  /** Estima tokens da chamada (input ≈ chars/4 + saída pedida).
+   *  Aceita system como string OU array de blocks (cache mode). */
   _estimateTokens(system, userContent, maxTokens) {
-    const inChars = (String(system || '').length + String(userContent || '').length);
+    let sysChars = 0;
+    if (Array.isArray(system)) {
+      for (const b of system) sysChars += (b && b.text ? String(b.text).length : 0);
+    } else {
+      sysChars = String(system || '').length;
+    }
+    const inChars = sysChars + String(userContent || '').length;
     return Math.ceil(inChars / 4) + (maxTokens || this.maxTokens);
   }
 
-  /** Chamada crua à Messages API. @returns {{text,tin,tout,ms}} */
+  /** Chamada crua à Messages API. @returns {{text,tin,tout,ms,cache_creation,cache_read}} */
   async _call(system, userContent, maxTokens) {
     if (!this._client) {
       throw new Error('AnthropicProvider: @anthropic-ai/sdk indisponível ou sem client');
@@ -56,6 +69,9 @@ class AnthropicProvider extends LLMProvider {
       await this._rateLimiter.acquire(this._estimateTokens(system, userContent, maxTokens));
     }
     const t0 = Date.now();
+    // Bloco 1/jun Fase 1 — SDK Anthropic aceita system como string OU array
+    // de blocos. Quando array com cache_control, ativa prompt caching
+    // automaticamente (beta na conta — SDK recente já trata).
     const resp = await this._client.messages.create({
       model: this.model,
       max_tokens: maxTokens || this.maxTokens,
@@ -67,30 +83,43 @@ class AnthropicProvider extends LLMProvider {
       .filter((b) => b && b.type === 'text')
       .map((b) => b.text)
       .join('');
+    const usage = (resp && resp.usage) || {};
     return {
       text,
-      tin: (resp && resp.usage && resp.usage.input_tokens) || 0,
-      tout: (resp && resp.usage && resp.usage.output_tokens) || 0,
+      tin: usage.input_tokens || 0,
+      tout: usage.output_tokens || 0,
+      cache_creation: usage.cache_creation_input_tokens || 0,
+      cache_read: usage.cache_read_input_tokens || 0,
       ms,
     };
   }
 
-  _cost(tin, tout) {
-    return +((tin / 1e6) * PRICING.input + (tout / 1e6) * PRICING.output).toFixed(6);
+  /** Custo USD considerando cache write/read. */
+  _cost(tin, tout, cacheCreation, cacheRead) {
+    return +(
+      (tin / 1e6) * PRICING.input
+      + ((cacheCreation || 0) / 1e6) * PRICING.cache_write
+      + ((cacheRead || 0) / 1e6) * PRICING.cache_read
+      + (tout / 1e6) * PRICING.output
+    ).toFixed(6);
   }
 
   /** Pergunta focada — devolve o JSON parseado cru (RawResult). */
   async classifyRaw(systemPrompt, userContent, opts = {}) {
-    const { text, tin, tout, ms } = await this._call(systemPrompt, userContent, opts.maxTokens);
+    const r = await this._call(systemPrompt, userContent, opts.maxTokens);
+    const isCacheMode = Array.isArray(systemPrompt);
     return {
-      json_parsed: this._parseJsonOrNull(text),
-      raw_text: text,
+      json_parsed: this._parseJsonOrNull(r.text),
+      raw_text: r.text,
       provider_used: 'anthropic',
       model_used: this.model,
-      tokens_in: tin,
-      tokens_out: tout,
-      cost_estimate_usd: this._cost(tin, tout),
-      processing_ms: ms,
+      tokens_in: r.tin,
+      tokens_out: r.tout,
+      cache_creation_input_tokens: r.cache_creation,
+      cache_read_input_tokens: r.cache_read,
+      cache_enabled: isCacheMode,
+      cost_estimate_usd: this._cost(r.tin, r.tout, r.cache_creation, r.cache_read),
+      processing_ms: r.ms,
     };
   }
 
@@ -114,6 +143,9 @@ class AnthropicProvider extends LLMProvider {
       model_used: this.model,
       tokens_in: raw.tokens_in,
       tokens_out: raw.tokens_out,
+      cache_creation_input_tokens: raw.cache_creation_input_tokens || 0,
+      cache_read_input_tokens: raw.cache_read_input_tokens || 0,
+      cache_enabled: raw.cache_enabled || false,
       cost_estimate_usd: raw.cost_estimate_usd,
       processing_ms: raw.processing_ms,
       raw_response: raw.raw_text,

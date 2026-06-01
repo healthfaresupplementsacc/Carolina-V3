@@ -490,7 +490,7 @@ class PromptBuilder {
       ]);
     }
 
-    const userContent = this._userContent(message, author, {
+    const ctx = {
       persons: persons.rows,
       activeEvents: activeEvents.rows,
       products: products.rows,
@@ -501,9 +501,190 @@ class PromptBuilder {
       corrections: rankCorrections(message.text, corrections.rows),
       vocab: vocab.rows,
       profile: profile.rows[0] || null,
-    });
+    };
 
-    return { systemPrompt: SYSTEM_PROMPT, userContent };
+    // Bloco 1/jun Fase 1 — prompt caching. Quando V3_PROMPT_CACHE_ENABLED!='0'
+    // (default ON), monta o system como ARRAY de 2 blocos:
+    //  [0] STATIC (cache_control: ephemeral): SYSTEM_PROMPT + catálogos
+    //      (pessoas/produtos/activity_types/correções/vocab/perfil).
+    //      Muda só com deploy ou edit admin — cache hit alto.
+    //  [1] DYNAMIC: autor + EQUIPE + batches ativos + recent msgs.
+    //      Muda a cada msg — sem cache.
+    // userContent fica só com a msg atual (sempre única).
+    const cacheEnabled = process.env.V3_PROMPT_CACHE_ENABLED !== '0';
+    if (cacheEnabled) {
+      const staticText = this._buildStaticSystem(ctx);
+      const dynamicText = this._buildDynamicContext(message, author, ctx);
+      const userContent = this._buildCurrentMessage(message);
+      return {
+        systemPrompt: [
+          { type: 'text', text: staticText, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: dynamicText },
+        ],
+        userContent,
+        _cacheEnabled: true,
+      };
+    }
+
+    // Fallback (cache OFF) — comportamento legado: tudo em userContent string.
+    return { systemPrompt: SYSTEM_PROMPT, userContent: this._userContent(message, author, ctx) };
+  }
+
+  /** Bloco 1/jun Fase 1 — bloco STATIC do system pra cachear.
+   *  SYSTEM_PROMPT (regras 1-37) + catálogos relativamente estáveis.
+   *  Stable o suficiente pra cache hit alto (5min TTL). */
+  _buildStaticSystem(ctx) {
+    const parts = [SYSTEM_PROMPT];
+    const sec = [];
+
+    // PRODUTOS — catálogo (changes rare)
+    if (ctx.products.length) {
+      sec.push(['PRODUTOS', ctx.products.map((p) =>
+        `- product_id=${p.id} "${p.canonical_name}" aliases=[${(p.aliases || []).join(', ')}]`).join('\n')]);
+    }
+
+    // ACTIVITY TYPES — catálogo
+    if (ctx.activityTypes.length) {
+      const FLOW_LABEL = {
+        production: 'PRODUÇÃO — fabricar suplementos; esteira de fases por lote',
+        pnp: 'PICKING & PACKING — enviar pedidos do estoque; bloco do dia (sub-passos)',
+        support: 'SUPORTE — tarefas avulsas, não presas a lote',
+      };
+      const at = ctx.activityTypes;
+      const lines = [];
+      for (const flow of ['production', 'pnp', 'support']) {
+        const inFlow = at.filter((a) => a.flow === flow)
+          .sort((x, y) => (x.phase_order || 99) - (y.phase_order || 99));
+        if (!inFlow.length) continue;
+        lines.push(`FLUXO ${FLOW_LABEL[flow] || flow}:`);
+        for (const a of inFlow) {
+          const ph = a.phase_order ? ` [fase ${a.phase_order}]` : '';
+          const bg = a.is_background ? ' [BACKGROUND — roda em paralelo]' : '';
+          lines.push(`  - activity_type_id=${a.id} ${a.slug} "${a.display_name}"${ph}${bg}`
+            + `${a.requires_product ? ' (requer produto)' : ''}`);
+        }
+      }
+      const semFluxo = at.filter((a) => !a.flow);
+      if (semFluxo.length) {
+        lines.push('SEM FLUXO (não classificado):');
+        for (const a of semFluxo) {
+          lines.push(`  - activity_type_id=${a.id} ${a.slug} "${a.display_name}"`);
+        }
+      }
+      sec.push(['TIPOS DE ATIVIDADE (por fluxo)', lines.join('\n')]);
+    }
+
+    // PESSOAS (catálogo — relativamente estável; muda só com admin add/remove)
+    if (ctx.persons.length) {
+      const linhas = ctx.persons.map((p) =>
+        `- person_id=${p.id} "${p.display_name}" (${p.role})`);
+      sec.push(['CATÁLOGO DE PESSOAS', linhas.join('\n')]);
+    }
+
+    // CORREÇÕES — admin-curadas, mudam devagar
+    if (ctx.corrections.length) {
+      const linhas = ctx.corrections.map((c) =>
+        `- LLM disse: ${JSON.stringify(c.original_interpretation)} | certo: `
+        + `${JSON.stringify(c.corrected_interpretation)}`
+        + `${c.correction_note ? ' | nota: ' + c.correction_note : ''}`);
+      sec.push(['CORREÇÕES RECENTES (aprenda com elas)', linhas.join('\n')]);
+    }
+
+    // VOCABULÁRIO — admin-confirmado, muda devagar
+    if (ctx.vocab.length) {
+      sec.push(['VOCABULÁRIO DO TIME', ctx.vocab.map((v) =>
+        `- "${v.term}" = ${v.meaning || '(sem definição)'}${v.category ? ' (' + v.category + ')' : ''}`).join('\n')]);
+    }
+
+    if (sec.length) {
+      parts.push(sec.map(([title, body]) => `=== ${title} ===\n${body}`).join('\n\n'));
+    }
+    return parts.join('\n\n');
+  }
+
+  /** Bloco 1/jun Fase 1 — bloco DYNAMIC do system. Estado corrente
+   *  da fábrica (mudou desde a última msg) — não cacheável. */
+  _buildDynamicContext(message, author, ctx) {
+    const sec = [];
+    const atById = new Map(ctx.activityTypes.map((a) => [a.id, a]));
+    const personById = new Map(ctx.persons.map((p) => [p.id, p]));
+    const evsByPerson = new Map();
+    for (const e of ctx.activeEvents) {
+      if (!evsByPerson.has(e.person_id)) evsByPerson.set(e.person_id, []);
+      evsByPerson.get(e.person_id).push(e);
+    }
+    const kindOfEv = (e) => {
+      if (e.category === 'meta') return 'meta';
+      if (e.is_background === true) return 'bg';
+      return 'fg';
+    };
+
+    // AUTOR
+    const ap = author.person_id ? personById.get(author.person_id) : null;
+    const autorLinhas = [
+      author.person_id
+        ? `person_id=${author.person_id} "${ap ? ap.display_name : '?'}"${ap ? ' (' + ap.role + ')' : ''}`
+          + ` — resolvido por ${author.resolution_method || '?'}, confiança ${author.confidence || '?'}`
+        : 'NÃO resolvido (autor desconhecido) — trate com cautela, confidence baixa',
+    ];
+    if (author.is_admin_context) {
+      autorLinhas.push('⚠️ Este autor é ADMIN. Mensagem dele no canal é SUPERVISÃO:'
+        + ' categorization=admin_intervention, actions=[]. NÃO crie event.');
+    }
+    sec.push(['AUTOR DA MENSAGEM', autorLinhas.join('\n')]);
+
+    // EQUIPE — events LIVE de cada pessoa
+    if (ctx.persons.length) {
+      const linhas = ctx.persons.map((p) => {
+        const evs = evsByPerson.get(p.id) || [];
+        if (!evs.length) return `- person_id=${p.id} "${p.display_name}" — sem atividade ativa`;
+        const items = evs.map((ev) => {
+          const at = ev.activity_type_id ? atById.get(ev.activity_type_id) : null;
+          return `[${kindOfEv(ev)}] activity_type_id=${ev.activity_type_id || '?'} `
+            + `"${at ? at.display_name : '(não classificada)'}"`
+            + `${ev.phase_label ? ' / ' + ev.phase_label : ''} desde ${this._ts(ev.started_at)}`;
+        });
+        return `- person_id=${p.id} "${p.display_name}" — abertas: ${items.join(' | ')}`;
+      });
+      sec.push(['EQUIPE (todas as atividades abertas por pessoa)', linhas.join('\n')]);
+    }
+
+    // BATCHES ATIVOS
+    if (ctx.batches.length) {
+      sec.push(['BATCHES ATIVOS', ctx.batches.map((b) =>
+        `- product_batch_id=${b.id} "${b.product_name}" batch ${b.batch_number} desde ${this._ts(b.started_at)}`).join('\n')]);
+    }
+
+    // ÚLTIMAS MENSAGENS DO CANAL (cronológico)
+    if (ctx.channelMsgs.length) {
+      const linhas = ctx.channelMsgs.slice().reverse().map((m) =>
+        `[${this._ts(m.created_at)}] ${m.display_name || '(não resolvido)'}: ${m.raw_text}`);
+      sec.push(['ÚLTIMAS MENSAGENS DO CANAL', linhas.join('\n')]);
+    }
+
+    // ÚLTIMAS MENSAGENS DO AUTOR
+    if (ctx.personMsgs.length) {
+      const linhas = ctx.personMsgs.slice().reverse().map((m) =>
+        `[${this._ts(m.created_at)}] ${m.raw_text}`);
+      sec.push(['ÚLTIMAS MENSAGENS DESTE AUTOR (hoje)', linhas.join('\n')]);
+    }
+
+    // PERFIL DE LINGUAGEM
+    if (ctx.profile) {
+      const p = ctx.profile;
+      const partes = [];
+      if (p.message_style) partes.push(`estilo: ${p.message_style}`);
+      if (p.abbreviation_map) partes.push(`abreviações: ${JSON.stringify(p.abbreviation_map)}`);
+      if (p.common_phrases) partes.push(`frases comuns: ${JSON.stringify(p.common_phrases)}`);
+      if (partes.length) sec.push(['PERFIL DE LINGUAGEM DO AUTOR', partes.join('; ')]);
+    }
+
+    return sec.map(([title, body]) => `=== ${title} ===\n${body}`).join('\n\n');
+  }
+
+  /** Bloco 1/jun Fase 1 — current message como user content. */
+  _buildCurrentMessage(message) {
+    return `=== MENSAGEM A INTERPRETAR ===\nts=${message.ts || '?'} conta=${message.slack_user_id || '?'}\n"${message.text || ''}"`;
   }
 
   _userContent(message, author, ctx) {

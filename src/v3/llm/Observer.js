@@ -159,6 +159,11 @@ class Observer {
       return { ok: false, stage: 'llm', error: e.message, retryable: true };
     }
 
+    // 5.5 ── TELEMETRIA LLM (bloco 1/jun Fase 1).
+    // Grava input/output/cache/cost por chamada em v3.llm_metrics pra
+    // medir economia de prompt caching. Best-effort (não derruba pipeline).
+    await this._recordLlmMetric(message, decision, 'observer');
+
     // 6 ── VALIDAÇÃO ───────────────────────────────────────────
     const invalid = await this._validate(decision);
     if (invalid) {
@@ -500,6 +505,38 @@ class Observer {
        WHERE id = $1`,
       [message.id, JSON.stringify(llmResult)]);
     await this._audit('observer.skipped', message.id, llmResult);
+  }
+
+  /** Bloco 1/jun Fase 1 — grava métricas de LLM call em v3.llm_metrics.
+   *  Best-effort (nunca derruba pipeline). decision deve ter tokens_in/out,
+   *  cache_creation_input_tokens, cache_read_input_tokens, cost_estimate_usd,
+   *  model_used, processing_ms (todos providos pelo AnthropicProvider). */
+  async _recordLlmMetric(message, decision, caller) {
+    if (!decision) return;
+    try {
+      await this.db.query(
+        `INSERT INTO v3.llm_metrics
+           (message_id, caller, model, provider, input_tokens, output_tokens,
+            cache_creation_input_tokens, cache_read_input_tokens,
+            cost_estimate_usd, processing_ms, cache_enabled)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          message && message.id ? message.id : null,
+          caller || 'observer',
+          decision.model_used || 'unknown',
+          decision.provider_used || 'anthropic',
+          decision.tokens_in || 0,
+          decision.tokens_out || 0,
+          decision.cache_creation_input_tokens || 0,
+          decision.cache_read_input_tokens || 0,
+          decision.cost_estimate_usd || 0,
+          decision.processing_ms || 0,
+          !!decision.cache_enabled,
+        ]);
+    } catch (e) {
+      // Tabela pode não existir ainda (deploy parcial). Log e segue.
+      console.error('[Observer] _recordLlmMetric falhou:', e.message);
+    }
   }
 
   /** Bloco 29/mai-noite #7 — força action.started_at/ended_at = slack_ts

@@ -1,5 +1,9 @@
 'use strict';
 // HEALTHFARE V3 — PARTE 2.7 — testes comportamentais do prompt-builder.
+// Bloco 1/jun Fase 1: prompt caching default ON em prod via env. Aqui
+// desliga pra manter shape de string nos testes legados; cobertura do
+// modo cache (system como array de 2 blocos) vai em test dedicado.
+process.env.V3_PROMPT_CACHE_ENABLED = '0';
 const { PromptBuilder, SYSTEM_PROMPT, rankCorrections } = require('../v3/llm/prompt-builder');
 
 function makeFakeDb(seed = {}) {
