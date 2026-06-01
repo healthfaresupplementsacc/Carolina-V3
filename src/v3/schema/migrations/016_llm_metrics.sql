@@ -19,7 +19,7 @@ BEGIN;
 
 CREATE TABLE IF NOT EXISTS v3.llm_metrics (
   id                              BIGSERIAL    PRIMARY KEY,
-  message_id                      INTEGER,                  -- v3.messages.id (NULL pra chamadas fora do classify)
+  message_id                      INTEGER      REFERENCES v3.messages(id) ON DELETE SET NULL,  -- NULL pra chamadas fora do classify
   caller                          TEXT         NOT NULL,    -- 'observer' | 'person_resolver' | 'command_handler' | etc
   model                           TEXT         NOT NULL,    -- 'claude-sonnet-4-6' | 'claude-haiku-4-5' | ...
   provider                        TEXT         NOT NULL DEFAULT 'anthropic',

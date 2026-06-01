@@ -33,7 +33,7 @@ function makeFakeDb(seed = {}) {
 }
 
 describe('PromptBuilder — modo CACHE (cache_control: ephemeral)', () => {
-  test('buildContext retorna systemPrompt como ARRAY de 2 blocos quando cache ON', async () => {
+  test('buildContext retorna systemPrompt como ARRAY de 3 blocos com 2 cache breakpoints', async () => {
     const db = makeFakeDb({
       persons: [{ id: 4, display_name: 'Vitor', role: 'operator' }],
       products: [{ id: 1, canonical_name: 'Potassium', aliases: [] }],
@@ -43,15 +43,20 @@ describe('PromptBuilder — modo CACHE (cache_control: ephemeral)', () => {
     const r = await pb.buildContext({ text: 'S: linha', ts: '1.1', slack_user_id: 'U_VITOR' },
       { author: { person_id: 4, resolution_method: 'direct', confidence: 'high' } });
     expect(Array.isArray(r.systemPrompt)).toBe(true);
-    expect(r.systemPrompt).toHaveLength(2);
+    expect(r.systemPrompt).toHaveLength(3);
+    // [0] REGRAS — cache breakpoint #1
     expect(r.systemPrompt[0].type).toBe('text');
     expect(r.systemPrompt[0].cache_control).toEqual({ type: 'ephemeral' });
+    // [1] CATÁLOGOS — cache breakpoint #2
     expect(r.systemPrompt[1].type).toBe('text');
-    expect(r.systemPrompt[1].cache_control).toBeUndefined();
+    expect(r.systemPrompt[1].cache_control).toEqual({ type: 'ephemeral' });
+    // [2] DINÂMICO — sem cache
+    expect(r.systemPrompt[2].type).toBe('text');
+    expect(r.systemPrompt[2].cache_control).toBeUndefined();
     expect(r._cacheEnabled).toBe(true);
   });
 
-  test('bloco STATIC contém SYSTEM_PROMPT + catálogos (regras + products + activity_types)', async () => {
+  test('bloco [0] REGRAS contém SYSTEM_PROMPT puro (NÃO catálogos)', async () => {
     const db = makeFakeDb({
       products: [{ id: 1, canonical_name: 'Potassium', aliases: [] }],
       activityTypes: [{ id: 5, slug: 'production_line', display_name: 'Linha', flow: 'production' }],
@@ -59,15 +64,34 @@ describe('PromptBuilder — modo CACHE (cache_control: ephemeral)', () => {
     });
     const pb = new PromptBuilder({ db });
     const r = await pb.buildContext({ text: 'S: linha' }, { author: { person_id: 4 } });
-    const staticText = r.systemPrompt[0].text;
-    expect(staticText).toContain('PRINCÍPIO FUNDAMENTAL');     // SYSTEM_PROMPT
-    expect(staticText).toContain('Potassium');                   // catálogo produtos
-    expect(staticText).toContain('production_line');             // catálogo activity_types
-    expect(staticText).toContain('CATÁLOGO DE PESSOAS');         // catálogo pessoas
-    expect(staticText).toContain('Vitor');
+    const rulesText = r.systemPrompt[0].text;
+    expect(rulesText).toContain('PRINCÍPIO FUNDAMENTAL');     // SYSTEM_PROMPT
+    expect(rulesText).toContain('REGRAS:');
+    expect(rulesText).toContain('SCHEMA DA RESPOSTA');
+    // catálogos NÃO podem estar em [0] — vão pro [1]
+    expect(rulesText).not.toContain('CATÁLOGO DE PESSOAS');
+    expect(rulesText).not.toContain('=== PRODUTOS ===');
   });
 
-  test('bloco DYNAMIC contém autor + EQUIPE + batches + recent msgs (NÃO catálogos)', async () => {
+  test('bloco [1] CATÁLOGOS contém products + activity_types + pessoas (NÃO regras nem dinâmico)', async () => {
+    const db = makeFakeDb({
+      products: [{ id: 1, canonical_name: 'Potassium', aliases: [] }],
+      activityTypes: [{ id: 5, slug: 'production_line', display_name: 'Linha', flow: 'production' }],
+      persons: [{ id: 4, display_name: 'Vitor', role: 'operator' }],
+    });
+    const pb = new PromptBuilder({ db });
+    const r = await pb.buildContext({ text: 'S: linha' }, { author: { person_id: 4 } });
+    const catalogsText = r.systemPrompt[1].text;
+    expect(catalogsText).toContain('Potassium');
+    expect(catalogsText).toContain('production_line');
+    expect(catalogsText).toContain('CATÁLOGO DE PESSOAS');
+    expect(catalogsText).toContain('Vitor');
+    // catálogos NÃO podem ter regras nem dinâmico
+    expect(catalogsText).not.toContain('PRINCÍPIO FUNDAMENTAL');
+    expect(catalogsText).not.toContain('AUTOR DA MENSAGEM');
+  });
+
+  test('bloco [2] DINÂMICO contém autor + EQUIPE + batches + recent msgs (NÃO catálogos)', async () => {
     const db = makeFakeDb({
       persons: [{ id: 4, display_name: 'Vitor', role: 'operator' }],
       activeEvents: [{ person_id: 4, activity_type_id: 5, started_at: new Date(), category: null, is_background: false }],
@@ -77,11 +101,14 @@ describe('PromptBuilder — modo CACHE (cache_control: ephemeral)', () => {
     const pb = new PromptBuilder({ db });
     const r = await pb.buildContext({ text: 'F: linha', ts: '1.2', slack_user_id: 'U_VITOR' },
       { author: { person_id: 4, resolution_method: 'direct', confidence: 'high' } });
-    const dynamicText = r.systemPrompt[1].text;
+    const dynamicText = r.systemPrompt[2].text;
     expect(dynamicText).toContain('AUTOR DA MENSAGEM');
     expect(dynamicText).toContain('EQUIPE');
     expect(dynamicText).toContain('BATCHES ATIVOS');
     expect(dynamicText).toContain('BR-001');
+    // dinâmico NÃO pode ter catálogos nem regras
+    expect(dynamicText).not.toContain('=== PRODUTOS ===');
+    expect(dynamicText).not.toContain('PRINCÍPIO FUNDAMENTAL');
   });
 
   test('userContent contém apenas a mensagem atual', async () => {

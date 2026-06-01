@@ -504,21 +504,28 @@ class PromptBuilder {
     };
 
     // Bloco 1/jun Fase 1 — prompt caching. Quando V3_PROMPT_CACHE_ENABLED!='0'
-    // (default ON), monta o system como ARRAY de 2 blocos:
-    //  [0] STATIC (cache_control: ephemeral): SYSTEM_PROMPT + catálogos
-    //      (pessoas/produtos/activity_types/correções/vocab/perfil).
-    //      Muda só com deploy ou edit admin — cache hit alto.
-    //  [1] DYNAMIC: autor + EQUIPE + batches ativos + recent msgs.
+    // (default ON), monta o system como ARRAY de 3 blocos com 2 breakpoints
+    // cache_control (ordem importa — Anthropic cacheia o PREFIXO):
+    //  [0] REGRAS 1-37 (SYSTEM_PROMPT)            cache_control: ephemeral
+    //      Muda só com deploy. Cache hit altíssimo.
+    //  [1] CATÁLOGOS (produtos/activity_types/    cache_control: ephemeral
+    //      pessoas/correções/vocabulário)
+    //      Muda devagar (admin edita). Se mudar, [0] ainda fica cacheado;
+    //      só recria daqui pra frente.
+    //  [2] DINÂMICO (autor + EQUIPE + batches +   SEM cache_control
+    //      recent msgs do canal/autor + perfil)
     //      Muda a cada msg — sem cache.
     // userContent fica só com a msg atual (sempre única).
     const cacheEnabled = process.env.V3_PROMPT_CACHE_ENABLED !== '0';
     if (cacheEnabled) {
-      const staticText = this._buildStaticSystem(ctx);
+      const rulesText = this._buildRulesBlock();
+      const catalogsText = this._buildCatalogsBlock(ctx);
       const dynamicText = this._buildDynamicContext(message, author, ctx);
       const userContent = this._buildCurrentMessage(message);
       return {
         systemPrompt: [
-          { type: 'text', text: staticText, cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: rulesText,   cache_control: { type: 'ephemeral' } },
+          { type: 'text', text: catalogsText, cache_control: { type: 'ephemeral' } },
           { type: 'text', text: dynamicText },
         ],
         userContent,
@@ -530,11 +537,16 @@ class PromptBuilder {
     return { systemPrompt: SYSTEM_PROMPT, userContent: this._userContent(message, author, ctx) };
   }
 
-  /** Bloco 1/jun Fase 1 — bloco STATIC do system pra cachear.
-   *  SYSTEM_PROMPT (regras 1-37) + catálogos relativamente estáveis.
-   *  Stable o suficiente pra cache hit alto (5min TTL). */
-  _buildStaticSystem(ctx) {
-    const parts = [SYSTEM_PROMPT];
+  /** Bloco 1/jun Fase 1 — bloco RULES (regras 1-37). Muda só com deploy.
+   *  Cache breakpoint #1 — prefixo mais estável do prompt. */
+  _buildRulesBlock() {
+    return SYSTEM_PROMPT;
+  }
+
+  /** Bloco 1/jun Fase 1 — bloco CATÁLOGOS. Produtos / activity_types /
+   *  pessoas / correções / vocabulário. Muda devagar (admin edita).
+   *  Cache breakpoint #2 — se mudar, [0] (regras) ainda fica cacheado. */
+  _buildCatalogsBlock(ctx) {
     const sec = [];
 
     // PRODUTOS — catálogo (changes rare)
@@ -596,10 +608,7 @@ class PromptBuilder {
         `- "${v.term}" = ${v.meaning || '(sem definição)'}${v.category ? ' (' + v.category + ')' : ''}`).join('\n')]);
     }
 
-    if (sec.length) {
-      parts.push(sec.map(([title, body]) => `=== ${title} ===\n${body}`).join('\n\n'));
-    }
-    return parts.join('\n\n');
+    return sec.map(([title, body]) => `=== ${title} ===\n${body}`).join('\n\n');
   }
 
   /** Bloco 1/jun Fase 1 — bloco DYNAMIC do system. Estado corrente
