@@ -1,0 +1,610 @@
+'use strict';
+/**
+ * HEALTHFARE V3 — bloco 30/mai noite — Comandos do admin via @Carolina.
+ *
+ * Fluxo:
+ *   1. Observer detecta msg de admin (slack_user_id mapeia pra
+ *      role owner/manager) com menção @Carolina/@HealthFare Tracker
+ *      no canal #orders-and-inventory.
+ *   2. Observer.processMessage roteia pra CommandHandler.handle() EM
+ *      VEZ DE criar event de produção (admin_directive flow legado
+ *      continua igual; o que muda é que comandos vão pra cá).
+ *   3. CommandHandler chama LLM com prompt dedicado pra parsear o
+ *      comando. JSON estruturado com command_type/target/params/
+ *      destructive/uncertain.
+ *   4. Reage ✓ na msg do admin (acknowledgment imediato).
+ *   5. Se NÃO-DESTRUTIVO ou uncertain=false:
+ *        executa direto via EventService → posta reply "Anotado: ...".
+ *      Se DESTRUTIVO ou uncertain=true:
+ *        salva em v3.pending_commands → posta reply "Reaja ✅ pra
+ *        confirmar". TTL 10min (cron expira).
+ *   6. Quando admin reage ✅ na reply: events-v2 reaction_added
+ *      handler dispara CommandHandler.confirmAndExecute().
+ *   7. Audit: actor_type='admin_via_slack' (novo enum value).
+ *
+ * Guards:
+ *   - Só admins (role IN owner/manager) podem mandar comandos.
+ *   - Confirmação ✅ tem que vir do MESMO admin que mandou o comando.
+ *   - LLM uncertain=true → SEMPRE pede confirmação humana, nunca age direto.
+ */
+
+const ADMIN_ROLES = ['owner', 'manager'];
+const CAROLINA_MENTION_REGEX = /<@U0B3EQLPEPL>|@carolina|@Carolina/;
+const DEFAULT_TTL_MIN = 10;
+
+class CommandHandler {
+  /**
+   * @param {object} deps
+   * @param {object} deps.db
+   * @param {object} deps.provider       LLM provider
+   * @param {object} deps.eventService
+   * @param {object} deps.batchService
+   * @param {object} deps.slack          { postAs, addReaction, channelMessage }
+   * @param {string} deps.productionChannelId  canal #orders-and-inventory
+   * @param {number} [deps.ttlMs]        default 10min
+   * @param {function} [deps.now]
+   */
+  constructor(deps = {}) {
+    this.db = deps.db;
+    this.provider = deps.provider;
+    this.eventService = deps.eventService;
+    this.batchService = deps.batchService;
+    this.slack = deps.slack || null;
+    this.productionChannelId = deps.productionChannelId || 'C09UNBXFRKK';
+    this.ttlMs = deps.ttlMs || DEFAULT_TTL_MIN * 60 * 1000;
+    this.now = deps.now || (() => new Date());
+  }
+
+  /** Detecta apenas se o texto menciona Carolina (regex puro). */
+  static hasMention(rawText) {
+    return !!rawText && CAROLINA_MENTION_REGEX.test(String(rawText));
+  }
+
+  /** Carrega admin person via slack_user_id (DB lookup). null se não-admin. */
+  async _loadAdminPerson(slackUserId) {
+    if (!slackUserId) return null;
+    const r = await this.db.query(
+      `SELECT id, display_name, role, slack_user_id FROM v3.persons
+       WHERE slack_user_id = $1 AND role IN ('owner','manager') AND deleted_at IS NULL
+       LIMIT 1`, [slackUserId]);
+    return r.rows[0] || null;
+  }
+
+  /**
+   * Tenta rotear uma msg como comando admin. Retorna:
+   *   { matched: false } — não tem menção (continua pipeline normal do Observer)
+   *   { matched: true, handled: false, reason } — menção sem admin (já auditou)
+   *   { matched: true, ...handle() result } — comando processado
+   */
+  async tryRoute(message) {
+    if (!CommandHandler.hasMention(message.raw_text || '')) return { matched: false };
+    if (message.slack_channel_id !== this.productionChannelId) return { matched: false };
+    const admin = await this._loadAdminPerson(message.slack_user_id);
+    if (!admin) {
+      await this._audit('admin_command_rejected_not_admin', message.id, {
+        reason: 'autor não é admin (role IN owner/manager)',
+        slack_user_id: message.slack_user_id,
+        raw_text: (message.raw_text || '').slice(0, 200),
+      });
+      return { matched: true, handled: false, reason: 'not_admin' };
+    }
+    const result = await this.handle(message, { adminPerson: admin });
+    return { matched: true, ...result };
+  }
+
+  /**
+   * Pipeline principal — chamada pelo Observer quando detecta comando admin.
+   * Retorna { handled: true, result: 'executed'|'pending'|'rejected'|'unknown' }.
+   */
+  async handle(message, options = {}) {
+    const adminPerson = options.adminPerson;
+    if (!adminPerson || !ADMIN_ROLES.includes(adminPerson.role)) {
+      await this._audit('admin_command_rejected_not_admin', message.id, {
+        reason: 'autor não é admin', slack_user_id: message.slack_user_id,
+      });
+      return { handled: false, result: 'rejected' };
+    }
+
+    // 1) react ✓ no admin msg (acknowledgment)
+    await this._react(message.slack_ts, 'white_check_mark');
+
+    // 2) LLM parse
+    let parsed;
+    try {
+      parsed = await this._parseCommand(message.raw_text || '', adminPerson, options.context || {});
+    } catch (e) {
+      await this._reply(message.slack_ts, `❌ Erro ao processar comando: ${e.message}`);
+      await this._audit('admin_command_parse_error', message.id, { error: e.message });
+      return { handled: true, result: 'error' };
+    }
+
+    const isDestructive = !!parsed.destructive;
+    const isUncertain = !!parsed.uncertain;
+    const isUnknown = parsed.command_type === 'unknown';
+
+    // 3) Roteamento
+    if (isUnknown) {
+      await this._reply(message.slack_ts,
+        `Não entendi o comando. Exemplos:\n`
+        + `• "anota lunch da Simone 1pm"\n`
+        + `• "maquinario parou 4:18-4:52"\n`
+        + `• "apaga ev280"\n`
+        + `• "como tá o Potassium?"`);
+      await this._audit('admin_command_unknown', message.id, { llm_parsed: parsed });
+      return { handled: true, result: 'unknown' };
+    }
+
+    if (parsed.command_type === 'query_status') {
+      // read-only — só responde
+      const text = await this._executeQuery(parsed);
+      await this._reply(message.slack_ts, text);
+      await this._audit('admin_command_query', message.id, { llm_parsed: parsed });
+      return { handled: true, result: 'executed' };
+    }
+
+    if (!isDestructive && !isUncertain) {
+      // executa direto
+      const result = await this._executeNonDestructive(parsed, adminPerson, message);
+      await this._reply(message.slack_ts, result.replyText);
+      await this._audit('admin_command_executed', message.id, {
+        llm_parsed: parsed, result, admin_person_id: adminPerson.id,
+      });
+      return { handled: true, result: 'executed' };
+    }
+
+    // destructive ou uncertain → pending confirmation
+    const carolinaReplyText = this._formatConfirmationPrompt(parsed);
+    const replyTs = await this._reply(message.slack_ts, carolinaReplyText);
+    if (!replyTs) {
+      await this._reply(message.slack_ts, '⚠ Falha ao postar pedido de confirmação. Tente de novo.');
+      return { handled: true, result: 'error' };
+    }
+    const expiresAt = new Date(this.now().getTime() + this.ttlMs);
+    await this.db.query(`
+      INSERT INTO v3.pending_commands
+        (carolina_msg_ts, admin_msg_ts, admin_person_id, admin_slack_user_id,
+         command_type, command_payload, expires_at)
+      VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+      [replyTs, message.slack_ts, adminPerson.id, message.slack_user_id,
+        parsed.command_type, JSON.stringify(parsed), expiresAt]);
+    await this._audit('admin_command_pending', message.id, {
+      llm_parsed: parsed, carolina_reply_ts: replyTs, expires_at: expiresAt.toISOString(),
+    });
+    return { handled: true, result: 'pending' };
+  }
+
+  /**
+   * Chamado pelo handler de reação ✅. Busca pending command pelo
+   * carolina_msg_ts, valida quem confirmou, executa.
+   */
+  async confirmAndExecute({ carolinaMsgTs, reactorSlackUserId, reactorPersonId }) {
+    const r = await this.db.query(`
+      SELECT * FROM v3.pending_commands
+      WHERE carolina_msg_ts = $1 AND status = 'pending'`, [carolinaMsgTs]);
+    if (r.rows.length === 0) return { handled: false, reason: 'no_pending_command' };
+    const cmd = r.rows[0];
+
+    // Guard: só o admin original pode confirmar
+    if (reactorPersonId !== cmd.admin_person_id) {
+      await this._reply(carolinaMsgTs, '⚠ Só quem mandou o comando pode confirmar.');
+      await this._audit('admin_command_wrong_confirmer', null, {
+        original_admin: cmd.admin_person_id,
+        attempted_admin: reactorPersonId,
+        attempted_slack_user_id: reactorSlackUserId,
+      });
+      return { handled: false, reason: 'wrong_admin' };
+    }
+
+    // Guard: expirado?
+    if (new Date(cmd.expires_at).getTime() < this.now().getTime()) {
+      await this.db.query(`UPDATE v3.pending_commands SET status='expired' WHERE id=$1`, [cmd.id]);
+      await this._reply(carolinaMsgTs, '⏰ Comando expirou. Mande de novo se ainda quiser.');
+      return { handled: false, reason: 'expired' };
+    }
+
+    const adminPerson = { id: cmd.admin_person_id, role: 'owner' };  // já validamos acima
+    const parsed = cmd.command_payload;
+    let execResult;
+    try {
+      execResult = await this._executeDestructive(parsed, adminPerson, cmd);
+    } catch (e) {
+      await this._reply(carolinaMsgTs, `❌ Erro ao executar: ${e.message}`);
+      await this._audit('admin_command_execution_error', null, {
+        pending_command_id: cmd.id, error: e.message,
+      });
+      return { handled: true, result: 'error' };
+    }
+    await this.db.query(`
+      UPDATE v3.pending_commands
+      SET status='executed', confirmed_at=NOW(), executed_at=NOW(), result=$2::jsonb
+      WHERE id=$1`, [cmd.id, JSON.stringify(execResult)]);
+    await this._reply(carolinaMsgTs, execResult.replyText);
+    await this._audit('admin_command_executed_after_confirm', null, {
+      pending_command_id: cmd.id, llm_parsed: parsed, result: execResult,
+      admin_person_id: adminPerson.id,
+    });
+    return { handled: true, result: 'executed' };
+  }
+
+  /**
+   * Cron — expira comandos pendentes com expires_at < now.
+   * Roda 1x/min via setInterval no wire.js.
+   */
+  async expireOldPending() {
+    const r = await this.db.query(`
+      UPDATE v3.pending_commands
+      SET status='expired'
+      WHERE status='pending' AND expires_at < NOW()
+      RETURNING id, carolina_msg_ts`);
+    for (const row of r.rows) {
+      try {
+        if (this.slack) {
+          await this._reply(row.carolina_msg_ts, '⏰ Comando expirou sem confirmação (10min). Mande de novo se ainda quiser.');
+        }
+      } catch (e) {
+        console.error('[CommandHandler] falha ao postar timeout reply:', e.message);
+      }
+    }
+    return r.rows.length;
+  }
+
+  // ─── LLM parser ─────────────────────────────────────────────
+
+  async _parseCommand(rawText, adminPerson, context) {
+    const sys = [
+      'Você é o intérprete de comandos do admin pra Carolina (sistema de tracking',
+      'da HealthFare). O admin escreveu uma mensagem mencionando @Carolina.',
+      'Sua tarefa: extrair a INTENÇÃO em JSON estruturado.',
+      '',
+      'TIPOS DE COMANDO suportados:',
+      '',
+      'NÃO-DESTRUTIVOS (executam direto):',
+      '- create_event: cria event novo. params: { person_id, slug, started_at,',
+      '  ended_at?, description, product_batch_id?, cowork_with? }',
+      '- create_downtime: machine_downtime retroativo. params: { started_at,',
+      '  ended_at, person_id?, cowork_with?, product_batch_id?, description }',
+      '- annotate_note: adiciona nota em event existente. target: { event_id }.',
+      '  params: { note }',
+      '- mark_long_running: marca/desmarca event como long_running. target:',
+      '  { event_id } OR { person_id, slug, product_batch_id }. params: { flag }',
+      '- query_status: pergunta status (read-only). params: { question, scope? }',
+      '',
+      'DESTRUTIVOS (precisam confirmação ✅):',
+      '- delete_event: soft-delete. target: { event_id }. params: { reason? }',
+      '- reassign: muda person_id. target: { event_id }. params: { new_person_id }',
+      '- edit_field: edita campo do event. target: { event_id }.',
+      '  params: { field, value }. Campos permitidos: product_batch_id, ended_at,',
+      '  started_at, cowork_with, description, confidence, phase_label.',
+      '',
+      'SEM correspondência ou ambíguo → command_type="unknown".',
+      'Se a intenção é clara mas algum dado falta (ex: pessoa não identificada)',
+      ' → uncertain=true + explanation.',
+      '',
+      'CATÁLOGO DE PESSOAS (id → nome / role):',
+      '  1 = Bruno Camp (owner)',
+      '  2 = Thassio (owner)',
+      '  3 = Henrique (manager)',
+      '  4 = Vitor (operator)',
+      '  5 = Simone (operator)',
+      '  6 = Ana (operator)',
+      '  7 = Bruno Sarmento (operator)',
+      'Quando admin fala "Bruno" em contexto operacional, é Bruno Sarmento (7).',
+      '',
+      'TIMESTAMPS: NY timezone (EDT/EST). Devolva ISO UTC com Z. Hoje é',
+      `  ${this._todayNyDate()} (use pra resolver horários relativos como "4:18 PM" → ISO completo).`,
+      '',
+      'EXEMPLOS:',
+      '',
+      'msg: "@Carolina anota que Simone saiu pro almoco às 1:01pm"',
+      '→ { "command_type": "create_event", "target": null,',
+      '    "params": { "person_id": 5, "slug": "lunch",',
+      '                "started_at": "...T17:01:00Z" (1:01 PM NY EDT → 17:01 UTC),',
+      '                "ended_at": null, "description": "Almoço Simone (criado retroativo)" },',
+      '    "destructive": false, "uncertain": false,',
+      '    "explanation": "Criar lunch da Simone começando 1:01 PM" }',
+      '',
+      'msg: "@Carolina maquinario sem funcionar de 4:18pm as 4:52pm"',
+      '→ { "command_type": "create_downtime", "target": null,',
+      '    "params": { "started_at": "...T20:18:00Z", "ended_at": "...T20:52:00Z",',
+      '                "description": "Maquinário parou (criado retroativo via comando admin)" },',
+      '    "destructive": false, "uncertain": false,',
+      '    "explanation": "Criar machine_downtime 4:18-4:52 PM" }',
+      '',
+      'msg: "@Carolina apaga ev280"',
+      '→ { "command_type": "delete_event", "target": { "event_id": 280 },',
+      '    "params": { "reason": "comando admin via Slack" },',
+      '    "destructive": true, "uncertain": false,',
+      '    "explanation": "Soft-delete ev280" }',
+      '',
+      'msg: "@Carolina como tá o Potassium?"',
+      '→ { "command_type": "query_status", "target": null,',
+      '    "params": { "question": "como tá o Potassium", "scope": "current_production" },',
+      '    "destructive": false, "uncertain": false,',
+      '    "explanation": "Status atual da produção de Potassium" }',
+      '',
+      'RESPOSTA: APENAS o JSON. Sem texto extra. Sem markdown. JSON puro.',
+    ].join('\n');
+
+    const userContent = [
+      `Admin: ${adminPerson.display_name || `person_id=${adminPerson.id}`} (${adminPerson.role})`,
+      `Mensagem: "${rawText}"`,
+    ].join('\n');
+
+    const res = await this.provider.classifyRaw(sys, userContent);
+    const parsed = res && res.json_parsed;
+    if (!parsed || typeof parsed !== 'object' || !parsed.command_type) {
+      throw new Error('LLM retornou JSON inválido');
+    }
+    return parsed;
+  }
+
+  _todayNyDate() {
+    try {
+      const f = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+      return f.format(this.now());
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+
+  // ─── Execução ───────────────────────────────────────────────
+
+  async _executeNonDestructive(parsed, adminPerson, message) {
+    switch (parsed.command_type) {
+      case 'create_event':
+        return this._execCreateEvent(parsed, adminPerson, message);
+      case 'create_downtime':
+        return this._execCreateDowntime(parsed, adminPerson, message);
+      case 'annotate_note':
+        return this._execAnnotateNote(parsed, adminPerson, message);
+      case 'mark_long_running':
+        return this._execMarkLongRunning(parsed, adminPerson, message);
+      default:
+        return { replyText: `⚠ Tipo não-destrutivo desconhecido: ${parsed.command_type}` };
+    }
+  }
+
+  async _executeDestructive(parsed, adminPerson, pendingCmd) {
+    switch (parsed.command_type) {
+      case 'delete_event':
+        return this._execDeleteEvent(parsed, adminPerson, pendingCmd);
+      case 'reassign':
+        return this._execReassign(parsed, adminPerson, pendingCmd);
+      case 'edit_field':
+        return this._execEditField(parsed, adminPerson, pendingCmd);
+      default:
+        return { replyText: `⚠ Tipo destrutivo desconhecido: ${parsed.command_type}` };
+    }
+  }
+
+  async _execCreateEvent(parsed, adminPerson, message) {
+    const p = parsed.params || {};
+    const slug = p.slug;
+    if (!slug || !p.person_id || !p.started_at) {
+      return { replyText: `⚠ Faltam params: slug, person_id, started_at.` };
+    }
+    const at = await this.db.query(`SELECT id FROM v3.activity_types WHERE slug = $1`, [slug]);
+    if (at.rows.length === 0) {
+      return { replyText: `⚠ slug "${slug}" não existe no catálogo.` };
+    }
+    // Idempotência: checa se já existe event MESMA pessoa, MESMO slug, MESMO horário (±60s)
+    const existing = await this.db.query(`
+      SELECT id FROM v3.events
+      WHERE person_id = $1 AND activity_type_id = $2 AND deleted_at IS NULL
+        AND ABS(EXTRACT(EPOCH FROM (started_at - $3::timestamptz))) < 60
+      LIMIT 1`, [p.person_id, at.rows[0].id, p.started_at]);
+    if (existing.rows.length > 0) {
+      return { replyText: `ℹ Já existe event similar (ev${existing.rows[0].id}). Comando idempotente — nada a fazer.` };
+    }
+    const ev = await this.eventService.upsert({
+      person_id: p.person_id,
+      activity_type_id: at.rows[0].id,
+      product_batch_id: p.product_batch_id || null,
+      started_at: p.started_at,
+      ended_at: p.ended_at || null,
+      description: p.description || `Criado retroativo via comando admin (msg ${message.slack_ts}).`,
+      cowork_with: p.cowork_with || [],
+      confidence: 'medium',
+      actor_type: 'admin',
+    });
+    if (!ev) {
+      return { replyText: `⚠ Event não criado (guard bloqueou — possivelmente dur=0 non-eod).` };
+    }
+    return {
+      replyText: `✅ Criado ev${ev.id} (${slug}, person ${p.person_id}).`,
+      event_id: ev.id,
+    };
+  }
+
+  async _execCreateDowntime(parsed, adminPerson, message) {
+    const p = parsed.params || {};
+    if (!p.started_at || !p.ended_at) {
+      return { replyText: `⚠ Faltam started_at e ended_at pro downtime.` };
+    }
+    const at = await this.db.query(`SELECT id FROM v3.activity_types WHERE slug = $1`, ['machine_downtime']);
+    if (at.rows.length === 0) return { replyText: `⚠ Catálogo sem machine_downtime.` };
+
+    // Auto-detect cowork das pessoas em produção no intervalo
+    let cowork = p.cowork_with || [];
+    let personId = p.person_id;
+    if ((!cowork || cowork.length === 0) || !personId) {
+      const onLine = await this.db.query(`
+        SELECT DISTINCT e.person_id, p.display_name, p.role
+        FROM v3.events e
+        LEFT JOIN v3.persons p ON p.id = e.person_id
+        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+        WHERE e.deleted_at IS NULL
+          AND at.flow = 'production'
+          AND e.started_at <= $2::timestamptz
+          AND (e.ended_at >= $1::timestamptz OR e.ended_at IS NULL)
+        ORDER BY e.person_id`, [p.started_at, p.ended_at]);
+      const opsOnLine = onLine.rows.filter((r) => !ADMIN_ROLES.includes(r.role)).map((r) => r.person_id);
+      if (!personId) personId = opsOnLine[0] || null;
+      if ((!cowork || cowork.length === 0) && personId) {
+        cowork = opsOnLine.filter((id) => id !== personId);
+      }
+    }
+    if (!personId) {
+      return { replyText: `⚠ Não consegui identificar a pessoa do downtime (sem ninguém na linha no intervalo).` };
+    }
+
+    // Idempotência
+    const existing = await this.db.query(`
+      SELECT id FROM v3.events
+      WHERE activity_type_id = $1 AND deleted_at IS NULL
+        AND ABS(EXTRACT(EPOCH FROM (started_at - $2::timestamptz))) < 60
+        AND ABS(EXTRACT(EPOCH FROM (ended_at - $3::timestamptz))) < 60
+      LIMIT 1`, [at.rows[0].id, p.started_at, p.ended_at]);
+    if (existing.rows.length > 0) {
+      return { replyText: `ℹ Já existe machine_downtime similar (ev${existing.rows[0].id}). Nada a fazer.` };
+    }
+
+    const ev = await this.eventService.upsert({
+      person_id: personId,
+      activity_type_id: at.rows[0].id,
+      product_batch_id: p.product_batch_id || null,
+      started_at: p.started_at,
+      ended_at: p.ended_at,
+      description: p.description || `Machine downtime criado retroativo via comando admin (msg ${message.slack_ts}).`,
+      cowork_with: cowork,
+      confidence: 'medium',
+      actor_type: 'admin',
+    });
+    if (!ev) return { replyText: `⚠ Downtime não criado (guard bloqueou).` };
+    return {
+      replyText: `✅ Criado machine_downtime ev${ev.id} (person ${personId}, cowork [${cowork.join(',')}]).`,
+      event_id: ev.id,
+    };
+  }
+
+  async _execAnnotateNote(parsed, adminPerson, message) {
+    const eventId = parsed.target && parsed.target.event_id;
+    const note = parsed.params && parsed.params.note;
+    if (!eventId || !note) return { replyText: `⚠ Faltam event_id e/ou note.` };
+    const cur = await this.db.query(`SELECT description FROM v3.events WHERE id = $1 AND deleted_at IS NULL`, [eventId]);
+    if (cur.rows.length === 0) return { replyText: `⚠ ev${eventId} não existe ou está deletado.` };
+    const oldDesc = cur.rows[0].description || '';
+    const newDesc = oldDesc ? `${oldDesc}\n[admin nota]: ${note}` : `[admin nota]: ${note}`;
+    const after = await this.eventService.correct(eventId, { description: newDesc }, adminPerson.id,
+      `Annotate via comando Slack admin (msg ${message.slack_ts})`, 'admin');
+    return { replyText: `✅ Nota adicionada em ev${eventId}.`, event_id: eventId };
+  }
+
+  async _execMarkLongRunning(parsed, adminPerson, message) {
+    const t = parsed.target || {};
+    const flag = (parsed.params && parsed.params.flag) !== false;
+    if (t.event_id) {
+      await this.eventService.markLongRunning(t.event_id, flag, {
+        actorType: 'admin', actorPersonId: adminPerson.id,
+        reason: `comando admin via Slack (msg ${message.slack_ts})`,
+      });
+      return { replyText: `✅ ev${t.event_id} marcado long_running=${flag}.`, event_id: t.event_id };
+    }
+    return { replyText: `⚠ mark_long_running sem target.event_id (TODO: suportar slug+product+person).` };
+  }
+
+  async _execDeleteEvent(parsed, adminPerson, pendingCmd) {
+    const eventId = parsed.target && parsed.target.event_id;
+    if (!eventId) return { replyText: `⚠ Falta target.event_id.` };
+    const cur = await this.db.query(`SELECT id, deleted_at FROM v3.events WHERE id = $1`, [eventId]);
+    if (cur.rows.length === 0) return { replyText: `⚠ ev${eventId} não existe.` };
+    if (cur.rows[0].deleted_at) return { replyText: `ℹ ev${eventId} já está deletado.` };
+    const reason = (parsed.params && parsed.params.reason) || `comando admin via Slack (pending_command ${pendingCmd.id})`;
+    await this.eventService.softDelete(eventId, adminPerson.id, reason, 'admin');
+    return { replyText: `✅ ev${eventId} soft-deleted.`, event_id: eventId };
+  }
+
+  async _execReassign(parsed, adminPerson, pendingCmd) {
+    const eventId = parsed.target && parsed.target.event_id;
+    const newPersonId = parsed.params && parsed.params.new_person_id;
+    if (!eventId || !newPersonId) return { replyText: `⚠ Faltam event_id e/ou new_person_id.` };
+    const after = await this.eventService.correct(eventId, { person_id: newPersonId },
+      adminPerson.id,
+      `Reassign via comando Slack admin (pending_command ${pendingCmd.id})`, 'admin');
+    return { replyText: `✅ ev${eventId} reatribuído pra person_id=${newPersonId}.`, event_id: eventId };
+  }
+
+  async _execEditField(parsed, adminPerson, pendingCmd) {
+    const eventId = parsed.target && parsed.target.event_id;
+    const field = parsed.params && parsed.params.field;
+    const value = parsed.params && parsed.params.value;
+    const ALLOWED = new Set(['product_batch_id', 'ended_at', 'started_at', 'cowork_with', 'description', 'confidence', 'phase_label']);
+    if (!eventId || !field) return { replyText: `⚠ Faltam event_id e/ou field.` };
+    if (!ALLOWED.has(field)) return { replyText: `⚠ Campo "${field}" não permitido (allowed: ${[...ALLOWED].join(', ')}).` };
+    await this.eventService.correct(eventId, { [field]: value }, adminPerson.id,
+      `Edit ${field} via comando Slack admin (pending_command ${pendingCmd.id})`, 'admin');
+    return { replyText: `✅ ev${eventId} ${field} atualizado.`, event_id: eventId };
+  }
+
+  async _executeQuery(parsed) {
+    const q = (parsed.params && parsed.params.question) || '';
+    const scope = parsed.params && parsed.params.scope;
+    if (scope === 'current_production') {
+      const r = await this.db.query(`
+        SELECT pr.canonical_name AS product, pb.batch_number,
+          array_agg(DISTINCT p.display_name) AS people,
+          MAX(e.started_at) AS latest
+        FROM v3.events e
+        LEFT JOIN v3.persons p ON p.id = e.person_id
+        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+        LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+        LEFT JOIN v3.products pr ON pr.id = pb.product_id
+        WHERE e.deleted_at IS NULL AND e.ended_at IS NULL AND at.flow = 'production'
+        GROUP BY pr.canonical_name, pb.batch_number ORDER BY latest DESC LIMIT 5`);
+      if (r.rows.length === 0) return 'Sem produção ativa agora.';
+      return r.rows.map((row) =>
+        `• ${row.product || '?'} / ${row.batch_number || '—'} — ${(row.people || []).join(', ')}`
+      ).join('\n');
+    }
+    return `Query: "${q}" — TODO suportar mais scopes além de current_production.`;
+  }
+
+  // ─── Slack helpers ──────────────────────────────────────────
+
+  _formatConfirmationPrompt(parsed) {
+    const expl = parsed.explanation || JSON.stringify(parsed.target || parsed.params);
+    return `⚠ Vou ${expl}.\nReaja ✅ NESTA mensagem (10min) pra confirmar. Reaja ❌ pra cancelar.`;
+  }
+
+  async _react(slackTs, emoji) {
+    if (!this.slack || !this.slack.addReaction) return;
+    try {
+      await this.slack.addReaction({ channel: this.productionChannelId, ts: slackTs, emoji });
+    } catch (e) {
+      console.error('[CommandHandler] addReaction falhou:', e.message);
+    }
+  }
+
+  async _reply(threadTs, text) {
+    if (!this.slack || !this.slack.postAs) return null;
+    try {
+      const r = await this.slack.postAs({
+        channel: this.productionChannelId,
+        sender_name: 'Carolina',
+        text,
+        thread_ts: threadTs,
+      });
+      return r && r.ts;
+    } catch (e) {
+      console.error('[CommandHandler] postAs falhou:', e.message);
+      return null;
+    }
+  }
+
+  async _audit(action, messageId, metadata) {
+    try {
+      await this.db.query(
+        `INSERT INTO v3.audit_log
+           (actor_type, actor_person_id, action, target_type, target_id, before_data, after_data, metadata)
+         VALUES ('admin_via_slack', NULL, $1, 'message', $2, NULL, NULL, $3::jsonb)`,
+        [action, messageId, JSON.stringify(metadata || {})]);
+    } catch (e) {
+      console.error('[CommandHandler] _audit falhou:', e.message);
+    }
+  }
+}
+
+module.exports = { CommandHandler, ADMIN_ROLES, CAROLINA_MENTION_REGEX };

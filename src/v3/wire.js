@@ -21,6 +21,8 @@ const { BatchService } = require('./services/BatchService');
 const { ProductionCountService } = require('./services/ProductionCountService');
 const { GoalService } = require('./services/GoalService');
 const { Observer } = require('./llm/Observer');
+const { CommandHandler } = require('./services/CommandHandler');
+const slackSender = require('./slack/sender');
 const { eventsV2Handler } = require('./slack/events-v2');
 const adminV3 = require('./admin-v3/routes');
 const dataApi = require('./data/router');
@@ -34,10 +36,16 @@ function _init() {
   if (_pool) return;
   _pool = makeV3Pool();
   const provider = getProvider('anthropic');
+  const eventService = new EventService({ db: _pool });
+  const batchService = new BatchService({ db: _pool });
+  // Bloco 30/mai-noite — CommandHandler pra comandos admin via @Carolina.
+  const commandHandler = new CommandHandler({
+    db: _pool, provider, eventService, batchService,
+    slack: { postAs: slackSender.postAs, addReaction: slackSender.addReaction },
+    productionChannelId: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
+  });
   _svc = {
-    provider,
-    eventService: new EventService({ db: _pool }),
-    batchService: new BatchService({ db: _pool }),
+    provider, eventService, batchService, commandHandler,
     productionCountService: new ProductionCountService({ db: _pool }),
     goalService: new GoalService({ db: _pool }),
     personResolver: new PersonResolver({ db: _pool, provider }),
@@ -58,6 +66,7 @@ function mount(app) {
         db: _pool,
         productionChannelId,
         eventService: _svc.eventService,
+        commandHandler: _svc.commandHandler,
         signingSecret: process.env.SLACK_SIGNING_SECRET,
       });
       res.status(out.status).send(out.body);
@@ -108,9 +117,25 @@ async function startWorker() {
     // billing/rate-limit. Default ON em prod. Pode desligar via env
     // WORKER_ALERTS_DISABLED=1.
     enableWorkerAlerts: process.env.WORKER_ALERTS_DISABLED !== '1',
+    slack: { postAs: slackSender.postAs, addReaction: slackSender.addReaction },
   }, _svc));
   _observer.start(5000);
   console.log('[V3] Observer worker SHADOW ligado (tick 5s, bot=' + (botUserId || '?') + ')');
+
+  // Bloco 30/mai-noite — cron de expiração de pending_commands.
+  // Roda a cada 60s; marca status='expired' os com expires_at < NOW()
+  // e posta timeout reply na thread. Pode desligar via env.
+  if (process.env.V3_PENDING_COMMANDS_CRON_DISABLED !== '1') {
+    setInterval(async () => {
+      try {
+        const n = await _svc.commandHandler.expireOldPending();
+        if (n > 0) console.log(`[V3] pending_commands cron: ${n} comandos expirados`);
+      } catch (e) {
+        console.error('[V3] pending_commands cron erro:', e.message);
+      }
+    }, 60 * 1000);
+    console.log('[V3] pending_commands cron ligado (tick 60s)');
+  }
 }
 
 module.exports = { mount, startWorker, getObserver: () => _observer, getPool: () => _pool };

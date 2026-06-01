@@ -65,6 +65,8 @@ class Observer {
     this.alertAdminChannelId = deps.alertAdminChannelId || 'C0B36DR5MP1';
     this.alertBrunoCampDmId = deps.alertBrunoCampDmId || 'D03UL80GDRB';
     this.alertCooldownMs = deps.alertCooldownMs || (60 * 60 * 1000);   // 1h
+    // Bloco 30/mai-noite — comandos do admin via @Carolina mention.
+    this.commandHandler = deps.commandHandler || null;
     // FIX C: concorrência reduzida p/ 2 durante backfill (env), 3 em
     // tempo-real — deixa headroom de rate-limit pra Carolina legada.
     this.concurrency = deps.concurrency
@@ -106,6 +108,21 @@ class Observer {
       await this._finalizeSkipped(message, skippedResult('small_talk', pf.detail));
       return { ok: true, category: 'small_talk', events: [] };
     }
+
+    // 1.5 ── ADMIN COMMAND ROUTING (bloco 30/mai-noite).
+    // Msg de admin com @Carolina/@HealthFare Tracker no canal de produção
+    // vai pro CommandHandler em vez da pipeline LLM normal. Não cria
+    // event de produção (admin não opera linha). Inclui mentions sem admin
+    // role (rejected silenciosamente, com audit).
+    if (this.commandHandler) {
+      const cmd = await this.commandHandler.tryRoute(message);
+      if (cmd.matched) {
+        await this._finalizeSkipped(message, skippedResult('admin_command',
+          JSON.stringify({ handled: cmd.handled, result: cmd.result, reason: cmd.reason || null })));
+        return { ok: true, category: 'admin_command', events: [], commandResult: cmd };
+      }
+    }
+
     // burst_member → coalesce as N mensagens num texto só
     const text = pf.category === 'burst_member'
       ? pf.batch.map((m) => m.text).join('\n')

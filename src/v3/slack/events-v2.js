@@ -52,9 +52,55 @@ function verifySignature(rawBody, headers, signingSecret, nowMs) {
  * v3.messages. Só age sobre type=message no canal de produção.
  */
 async function handleEvent(payload, deps) {
-  const { db, productionChannelId, eventService } = deps;
+  const { db, productionChannelId, eventService, commandHandler } = deps;
   if (!payload || payload.type !== 'event_callback') return { handled: false, reason: 'not_event_callback' };
   const ev = payload.event || {};
+
+  // ── REACTION (bloco 30/mai-noite — confirmar ✅ comando destrutivo) ──
+  // Quando admin reage ✅ numa msg da Carolina, busca pending_command e
+  // executa. ❌ cancela. Outros emojis → ignora.
+  if (ev.type === 'reaction_added') {
+    if (!commandHandler) return { handled: false, reason: 'no_command_handler' };
+    const item = ev.item || {};
+    if (item.type !== 'message') return { handled: false, reason: 'reaction_not_on_message' };
+    if (item.channel !== productionChannelId) return { handled: false, reason: 'reaction_other_channel' };
+    const emoji = ev.reaction;
+    const reactorSlackUserId = ev.user;
+    const carolinaMsgTs = item.ts;
+    // Resolve reactor → person (deve ser admin com role owner/manager)
+    const personR = await db.query(
+      `SELECT id, role FROM v3.persons
+       WHERE slack_user_id = $1 AND role IN ('owner','manager') AND deleted_at IS NULL`,
+      [reactorSlackUserId]);
+    if (personR.rows.length === 0) {
+      return { handled: false, reason: 'reactor_not_admin' };
+    }
+    const reactorPersonId = personR.rows[0].id;
+    if (emoji === 'white_check_mark' || emoji === '+1' || emoji === 'heavy_check_mark') {
+      const r = await commandHandler.confirmAndExecute({
+        carolinaMsgTs, reactorSlackUserId, reactorPersonId,
+      });
+      return { handled: r.handled === true, action: 'reaction_confirm', result: r };
+    }
+    if (emoji === 'x' || emoji === 'no_entry_sign' || emoji === 'red_circle') {
+      // Cancela pending
+      const upd = await db.query(`
+        UPDATE v3.pending_commands SET status='cancelled', confirmed_at=NOW()
+        WHERE carolina_msg_ts = $1 AND status='pending' AND admin_person_id = $2
+        RETURNING id`, [carolinaMsgTs, reactorPersonId]);
+      if (upd.rowCount > 0 && commandHandler && commandHandler.slack && commandHandler.slack.postAs) {
+        try {
+          await commandHandler.slack.postAs({
+            channel: productionChannelId, sender_name: 'Carolina',
+            thread_ts: carolinaMsgTs, text: '🛑 Comando cancelado pelo admin.',
+          });
+        } catch (_) { /* não derruba */ }
+      }
+      return { handled: upd.rowCount > 0, action: 'reaction_cancel' };
+    }
+    return { handled: false, reason: 'reaction_emoji_ignored' };
+  }
+
   if (ev.type !== 'message') return { handled: false, reason: 'not_message' };
   if (ev.channel !== productionChannelId) return { handled: false, reason: 'other_channel' };
   const sub = ev.subtype;
