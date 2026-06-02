@@ -36,8 +36,9 @@ function makeFakeDb({ events = [], existingTs = [] } = {}) {
 }
 
 const PROD = 'C09UNBXFRKK';
+const ADMIN = 'C0B36DR5MP1';
 const deps = (db, extra = {}) => Object.assign({
-  db, productionChannelId: PROD, signingSecret: SECRET, now: () => NOW_MS,
+  db, productionChannelId: PROD, adminChannelId: ADMIN, signingSecret: SECRET, now: () => NOW_MS,
   eventService: { softDelete: jest.fn().mockResolvedValue({}) },
 }, extra);
 
@@ -133,6 +134,105 @@ describe('V3 §2.9 — handleEvent', () => {
     }, deps(db));
     expect(r.handled).toBe(false);
     expect(db.messages).toHaveLength(0);
+  });
+});
+
+// Frente 1 (01/jun) — admin-orin é canal de COMANDO: ingere só com @Carolina.
+describe('V3 §2.9 — escopo admin-orin (Frente 1)', () => {
+  test('admin-orin COM @Carolina → ingere', async () => {
+    const db = makeFakeDb();
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: { type: 'message', channel: ADMIN, ts: '210.1', user: 'U03URLL1D4L',
+        text: '<@U0B3EQLPEPL> anota machine_downtime de 4:18 PM a 4:52 PM dia 29/mai' },
+    }, deps(db));
+    expect(r.action).toBe('inserted');
+    expect(db.messages).toHaveLength(1);
+    expect(db.messages[0].slack_channel_id).toBe(ADMIN);
+  });
+
+  test('admin-orin SEM mention → drop admin_channel_no_mention (zero custo LLM)', async () => {
+    const db = makeFakeDb();
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: { type: 'message', channel: ADMIN, ts: '210.2', user: 'U03URLL1D4L',
+        text: 'Thassio, viu o relatorio de ontem?' },
+    }, deps(db));
+    expect(r.handled).toBe(false);
+    expect(r.reason).toBe('admin_channel_no_mention');
+    expect(db.messages).toHaveLength(0);
+  });
+
+  test('produção COM @Carolina → ingere (regressão: produção sempre ingere)', async () => {
+    const db = makeFakeDb();
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: { type: 'message', channel: PROD, ts: '210.3', user: 'U03URLL1D4L',
+        text: '<@U0B3EQLPEPL> apaga ev280' },
+    }, deps(db));
+    expect(r.action).toBe('inserted');
+    expect(db.messages).toHaveLength(1);
+  });
+
+  test('outro canal qualquer (mesmo com mention) → drop other_channel', async () => {
+    const db = makeFakeDb();
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: { type: 'message', channel: 'C_RANDOM', ts: '210.4', user: 'U03URLL1D4L',
+        text: '<@U0B3EQLPEPL> oi' },
+    }, deps(db));
+    expect(r.handled).toBe(false);
+    expect(r.reason).toBe('other_channel');
+    expect(db.messages).toHaveLength(0);
+  });
+
+  test('reaction ❌ (cancelamento) posta TOP-LEVEL (thread_ts=null) no canal de origem', async () => {
+    const adminDb = {
+      query: jest.fn((sql) => {
+        const s = String(sql);
+        if (/FROM v3\.persons/.test(s)) return Promise.resolve({ rows: [{ id: 1, role: 'owner' }] });
+        if (/UPDATE v3\.pending_commands SET status='cancelled'/.test(s)) return Promise.resolve({ rows: [{ id: 7 }], rowCount: 1 });
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }),
+    };
+    const postAs = jest.fn().mockResolvedValue({ ts: 'x' });
+    const d = deps(adminDb, { commandHandler: { slack: { postAs } } });
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: {
+        type: 'reaction_added', reaction: 'x', user: 'U03URLL1D4L',
+        item: { type: 'message', channel: ADMIN, ts: 'carolina.reply.1' },
+      },
+    }, d);
+    expect(r.action).toBe('reaction_cancel');
+    expect(postAs).toHaveBeenCalledTimes(1);
+    expect(postAs.mock.calls[0][0].thread_ts).toBeNull();      // top-level
+    expect(postAs.mock.calls[0][0].channel).toBe(ADMIN);       // canal de origem
+    expect(postAs.mock.calls[0][0].sender.name).toBe('Carolina');
+  });
+
+  test('reaction ✅ no admin-orin é ACEITA (não reaction_other_channel) + canal propagado', async () => {
+    const adminDb = {
+      query: jest.fn((sql) => {
+        if (/FROM v3\.persons/.test(String(sql))) {
+          return Promise.resolve({ rows: [{ id: 1, role: 'owner' }] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+    };
+    const confirmAndExecute = jest.fn().mockResolvedValue({ handled: true, result: 'executed' });
+    const d = deps(adminDb, { commandHandler: { confirmAndExecute } });
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: {
+        type: 'reaction_added', reaction: 'white_check_mark', user: 'U03URLL1D4L',
+        item: { type: 'message', channel: ADMIN, ts: 'carolina.reply.1' },
+      },
+    }, d);
+    expect(r.action).toBe('reaction_confirm');
+    expect(r.reason).not.toBe('reaction_other_channel');
+    expect(confirmAndExecute).toHaveBeenCalledTimes(1);
+    expect(confirmAndExecute.mock.calls[0][0].channel).toBe(ADMIN); // canal de origem propagado
   });
 });
 

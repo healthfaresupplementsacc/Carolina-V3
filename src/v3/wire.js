@@ -43,6 +43,7 @@ function _init() {
     db: _pool, provider, eventService, batchService,
     slack: { postAs: slackSender.postAs, addReaction: slackSender.addReaction },
     productionChannelId: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
+    adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
   });
   _svc = {
     provider, eventService, batchService, commandHandler,
@@ -57,6 +58,7 @@ function _init() {
 function mount(app) {
   _init();
   const productionChannelId = process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
+  const adminChannelId = process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
 
   // webhook — reaproveita req.rawBody que o middleware /slack legado
   // já captura (rawBodySaver). Não usa express.raw próprio.
@@ -65,6 +67,7 @@ function mount(app) {
       const out = await eventsV2Handler(req.rawBody || '', req.headers || {}, {
         db: _pool,
         productionChannelId,
+        adminChannelId,
         eventService: _svc.eventService,
         commandHandler: _svc.commandHandler,
         signingSecret: process.env.SLACK_SIGNING_SECRET,

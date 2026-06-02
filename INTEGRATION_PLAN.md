@@ -200,6 +200,71 @@ Cada item DEVE estar funcionando no v4 antes do switch:
 
 ---
 
+## 🔴 BUGS LLM URGENTES — pendentes (descobertos 01/jun auditoria)
+
+**Status**: diagnosticados read-only (llm_result inspecionado), **NÃO corrigidos**.
+**Quando**: implementar DEPOIS das 4 frentes (admin-orin, endpoint architect,
+validação, smoke). Anotados aqui pra não perder.
+
+### BUG #1 — Event órfão de activity_type
+- **Trigger**: msgs tipo "Cortando Silica" onde o LLM não acha slug perfeito no catálogo.
+- **Sintoma**: emite `activity_type_id=null` + `uncertain=false` + **persiste** event sem tipo (caso real: ev372, msg#798 01/jun).
+- **Recorrência**: ALTA (diário).
+- **Causa raiz**: LLM reconhece a atividade ("preparação de material") mas não faz fallback pra `material_handling` (id=28); e não há guard contra persistir event type-null.
+- **Fix candidato (2 camadas)**:
+  - (a) Regra nova **R38** no `prompt-builder.js`: "Atividades de preparação de material (cortar sílica, separar pó, pesar matéria-prima) → `activity_type=material_handling` (id=28)".
+  - (b) Guard em `EventService._upsert`: se `activity_type_id IS NULL` → força `uncertain=true` E `confidence='low'` E loga audit `event.type_null_blocked`. Não deixa persistir limpo.
+- **Retroativo**: corrigir ev372 junto do fix (ou depois).
+
+### BUG #2 — Open_event fantasma em F: com verbo contínuo
+- **Trigger**: "F: ... rodando" / "F: ... funcionando" / "F: ... em andamento".
+- **Sintoma**: LLM honra o F (close correto) **+ INVENTA** um open_event novo de "background rodando" que ninguém pediu → fica OPEN sem fechar (caso real: ev345, msg#746 01/jun, OPEN 7h, `is_long_running=false`).
+- **Recorrência**: MÉDIA.
+- **Causa raiz**: verbo de estado contínuo ("rodando") gatilha start implícito; msg categorizada `activity_start` apesar do prefixo `F:`.
+- **Fix candidato (2 camadas)**:
+  - (a) Regra nova **R39** no `prompt-builder.js`: "F explícito de fim-de-fase NUNCA gera open_event novo, exceto se o operador POSTOU EXPLICITAMENTE outro S: na mesma msg. Verbos de estado contínuo (rodando/funcionando/em andamento) descrevem o estado que ACABOU de mudar, não disparam start novo."
+  - (b) Guard em `Observer._applyAction`: se action é `open_event` MAS msg começa com `F:` (fim explícito) E nenhum `S:` explícito na mesma msg → bloqueia o open + audit `action.phantom_open_blocked`.
+- **Retroativo**: fechar ev345 manualmente em 12:30 PM (depois do close de ev344), junto do fix.
+
+### BUG #3 — Reply do CommandHandler sempre em thread (deveria depender do tipo)
+- **Trigger**: qualquer comando admin via @Carolina.
+- **Sintoma**: Carolina responde em **thread reply** da msg do admin. Pra `query_status`/comandos rápidos, Bruno prefere **mensagem top-level** no canal. (Smoke 01/jun.)
+- **Decisão de design**:
+  - `query_status` / comandos rápidos → **canal principal** (top-level, `thread_ts=null`).
+  - destrutivos / pending confirmation → **thread reply** (`thread_ts=message.slack_ts`) pra não poluir o canal com confirmações.
+- **Fix**: no `CommandHandler`, passar `thread_ts=null` pro `_reply` no caminho `query_status` (e demais não-destrutivos rápidos); manter `thread_ts` nos destrutivos/pending. Ajuste rápido — próximo bloco.
+
+### BUG #4 — query_status ignora o filtro semântico de activity_type
+- **Trigger**: "quem está **na linha de produção** agora?" (e perguntas com filtro de atividade).
+- **Sintoma**: retorna TODOS os events LIVE com `flow='production'` (production_line + formulation + review + cowork etc.), não só `activity_type=production_line`. O LLM do `query_status` não faz parsing do filtro semântico.
+- **Fix candidato**: (a) melhorar o prompt do `query_status` pra mapear filtros ("linha de produção"→slug `production_line`); OU (b) retornar tudo LIVE mas **agrupado por tipo** (mais visual). Decidir no próximo bloco.
+
+### BUG #5 — Linha "? / — — <pessoas>" na resposta (events de produção sem batch)
+- **Trigger**: resposta do `query_status` current_production.
+- **Sintoma**: linha `• ? / — — Bruno Sarmento, Vitor` — o GROUP BY `(produto, batch)` agrupa events `flow='production'` **sem batch** em `(null,null)`.
+- **Causa (confirmada 01/jun, read-only)**: NÃO é o ev372/BUG #1 (esse já não está mais LIVE). São **ev213** (formulation Bruno Sarmento, batch NULL, aberto desde 26/mai — provável long-running Potassium) **+ ev345** (formulation Vitor, batch NULL, = BUG #2 stale). Artefato de display de events de produção sem produto/lote vinculado.
+- **Fix candidato**: na query do `_executeQuery`, ou (a) omitir/rotular events sem batch ("(sem lote)"), ou (b) resolver junto do BUG #2 (ev345 não deveria existir) e revisar se ev213 é long-running legítimo. Cosmético; depende de BUG #2.
+
+---
+
+## TODO — audit actor_type 'admin_via_slack' (Frente 1, 01/jun)
+
+Hoje comandos admin via @Carolina (Slack) gravam no `audit_log` com
+`actor_type='admin'` — mesmo valor de comandos via dashboard UI. Isso
+porque o CHECK `audit_log_actor_type_check` só permite
+`admin | llm_observer | llm_assistant | system | app_home`, e o valor
+`'admin_via_slack'` (usado originalmente no `CommandHandler._audit`)
+**violava o CHECK** → todo audit de comando admin falhava silenciosamente
+(descoberto no smoke admin-orin 01/jun).
+
+**Por ora:** `_audit` usa `'admin'` (passa no CHECK; rastreabilidade
+restaurada). **TODO:** considerar adicionar `'admin_via_slack'` ao CHECK
+pra diferenciar comando-via-Slack de comando-via-dashboard. Revisar quando
+o bloco grande **Carolina configurável** rolar (migration nova que altere
+o CHECK + atualizar `_audit`).
+
+---
+
 ## TODO futuro — aprendizado contínuo da Carolina (bloco 28/mai noite #11)
 
 A cada ajuste/correção feita pelo admin no `/dashboard-v4`, o sistema grava

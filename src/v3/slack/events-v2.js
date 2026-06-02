@@ -21,6 +21,7 @@
  * Princípio #24: queries v3.* schema-qualificadas.
  */
 const crypto = require('crypto');
+const { CommandHandler } = require('../services/CommandHandler');
 
 const REPLAY_WINDOW_SEC = 300; // 5 min
 
@@ -53,6 +54,7 @@ function verifySignature(rawBody, headers, signingSecret, nowMs) {
  */
 async function handleEvent(payload, deps) {
   const { db, productionChannelId, eventService, commandHandler } = deps;
+  const adminChannelId = deps.adminChannelId || 'C0B36DR5MP1';
   if (!payload || payload.type !== 'event_callback') return { handled: false, reason: 'not_event_callback' };
   const ev = payload.event || {};
 
@@ -63,7 +65,10 @@ async function handleEvent(payload, deps) {
     if (!commandHandler) return { handled: false, reason: 'no_command_handler' };
     const item = ev.item || {};
     if (item.type !== 'message') return { handled: false, reason: 'reaction_not_on_message' };
-    if (item.channel !== productionChannelId) return { handled: false, reason: 'reaction_other_channel' };
+    // Reação de confirmação ✅/❌ vale no canal de produção OU no admin-orin (Frente 1).
+    if (item.channel !== productionChannelId && item.channel !== adminChannelId) {
+      return { handled: false, reason: 'reaction_other_channel' };
+    }
     const emoji = ev.reaction;
     const reactorSlackUserId = ev.user;
     const carolinaMsgTs = item.ts;
@@ -78,7 +83,7 @@ async function handleEvent(payload, deps) {
     const reactorPersonId = personR.rows[0].id;
     if (emoji === 'white_check_mark' || emoji === '+1' || emoji === 'heavy_check_mark') {
       const r = await commandHandler.confirmAndExecute({
-        carolinaMsgTs, reactorSlackUserId, reactorPersonId,
+        carolinaMsgTs, reactorSlackUserId, reactorPersonId, channel: item.channel,
       });
       return { handled: r.handled === true, action: 'reaction_confirm', result: r };
     }
@@ -91,8 +96,9 @@ async function handleEvent(payload, deps) {
       if (upd.rowCount > 0 && commandHandler && commandHandler.slack && commandHandler.slack.postAs) {
         try {
           await commandHandler.slack.postAs({
-            channel: productionChannelId, sender_name: 'Carolina',
-            thread_ts: carolinaMsgTs, text: '🛑 Comando cancelado pelo admin.',
+            // reply top-level (thread_ts=null) — decisão Bruno 01/jun.
+            channel: item.channel, sender: { name: 'Carolina' },
+            thread_ts: null, text: '🛑 Comando cancelado pelo admin.',
           });
         } catch (_) { /* não derruba */ }
       }
@@ -102,7 +108,21 @@ async function handleEvent(payload, deps) {
   }
 
   if (ev.type !== 'message') return { handled: false, reason: 'not_message' };
-  if (ev.channel !== productionChannelId) return { handled: false, reason: 'other_channel' };
+  // Escopo de canal (Frente 1 — 01/jun):
+  //   produção (C09UNBXFRKK): ingere TUDO (operadores trabalhando).
+  //   admin-orin (C0B36DR5MP1): canal de COMANDO, não de produção — ingere
+  //     SÓ msgs com mention da Carolina. As demais (admins conversando entre
+  //     si) são dropadas ANTES do INSERT → zero custo de LLM.
+  //   qualquer outro canal: dropa.
+  if (ev.channel === productionChannelId) {
+    // ingere tudo (segue abaixo)
+  } else if (ev.channel === adminChannelId) {
+    if (!CommandHandler.hasMention(ev.text || '')) {
+      return { handled: false, reason: 'admin_channel_no_mention' };
+    }
+  } else {
+    return { handled: false, reason: 'other_channel' };
+  }
   const sub = ev.subtype;
 
   // ── edição ──

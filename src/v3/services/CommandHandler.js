@@ -51,6 +51,7 @@ class CommandHandler {
     this.batchService = deps.batchService;
     this.slack = deps.slack || null;
     this.productionChannelId = deps.productionChannelId || 'C09UNBXFRKK';
+    this.adminChannelId = deps.adminChannelId || 'C0B36DR5MP1';
     this.ttlMs = deps.ttlMs || DEFAULT_TTL_MIN * 60 * 1000;
     this.now = deps.now || (() => new Date());
   }
@@ -78,7 +79,9 @@ class CommandHandler {
    */
   async tryRoute(message) {
     if (!CommandHandler.hasMention(message.raw_text || '')) return { matched: false };
-    if (message.slack_channel_id !== this.productionChannelId) return { matched: false };
+    // Comando admin é aceito no canal de produção OU no admin-orin (Frente 1).
+    const allowedChannels = [this.productionChannelId, this.adminChannelId];
+    if (!allowedChannels.includes(message.slack_channel_id)) return { matched: false };
     const admin = await this._loadAdminPerson(message.slack_user_id);
     if (!admin) {
       await this._audit('admin_command_rejected_not_admin', message.id, {
@@ -98,6 +101,8 @@ class CommandHandler {
    */
   async handle(message, options = {}) {
     const adminPerson = options.adminPerson;
+    // Carolina responde NO CANAL DE ORIGEM da msg do admin (Frente 1).
+    const channel = message.slack_channel_id || this.productionChannelId;
     if (!adminPerson || !ADMIN_ROLES.includes(adminPerson.role)) {
       await this._audit('admin_command_rejected_not_admin', message.id, {
         reason: 'autor não é admin', slack_user_id: message.slack_user_id,
@@ -106,14 +111,14 @@ class CommandHandler {
     }
 
     // 1) react ✓ no admin msg (acknowledgment)
-    await this._react(message.slack_ts, 'white_check_mark');
+    await this._react(message.slack_ts, 'white_check_mark', channel);
 
     // 2) LLM parse
     let parsed;
     try {
       parsed = await this._parseCommand(message.raw_text || '', adminPerson, options.context || {});
     } catch (e) {
-      await this._reply(message.slack_ts, `❌ Erro ao processar comando: ${e.message}`);
+      await this._reply(message.slack_ts, `❌ Erro ao processar comando: ${e.message}`, channel);
       await this._audit('admin_command_parse_error', message.id, { error: e.message });
       return { handled: true, result: 'error' };
     }
@@ -129,7 +134,7 @@ class CommandHandler {
         + `• "anota lunch da Simone 1pm"\n`
         + `• "maquinario parou 4:18-4:52"\n`
         + `• "apaga ev280"\n`
-        + `• "como tá o Potassium?"`);
+        + `• "como tá o Potassium?"`, channel);
       await this._audit('admin_command_unknown', message.id, { llm_parsed: parsed });
       return { handled: true, result: 'unknown' };
     }
@@ -137,7 +142,7 @@ class CommandHandler {
     if (parsed.command_type === 'query_status') {
       // read-only — só responde
       const text = await this._executeQuery(parsed);
-      await this._reply(message.slack_ts, text);
+      await this._reply(message.slack_ts, text, channel);
       await this._audit('admin_command_query', message.id, { llm_parsed: parsed });
       return { handled: true, result: 'executed' };
     }
@@ -145,7 +150,7 @@ class CommandHandler {
     if (!isDestructive && !isUncertain) {
       // executa direto
       const result = await this._executeNonDestructive(parsed, adminPerson, message);
-      await this._reply(message.slack_ts, result.replyText);
+      await this._reply(message.slack_ts, result.replyText, channel);
       await this._audit('admin_command_executed', message.id, {
         llm_parsed: parsed, result, admin_person_id: adminPerson.id,
       });
@@ -154,9 +159,9 @@ class CommandHandler {
 
     // destructive ou uncertain → pending confirmation
     const carolinaReplyText = this._formatConfirmationPrompt(parsed);
-    const replyTs = await this._reply(message.slack_ts, carolinaReplyText);
+    const replyTs = await this._reply(message.slack_ts, carolinaReplyText, channel);
     if (!replyTs) {
-      await this._reply(message.slack_ts, '⚠ Falha ao postar pedido de confirmação. Tente de novo.');
+      await this._reply(message.slack_ts, '⚠ Falha ao postar pedido de confirmação. Tente de novo.', channel);
       return { handled: true, result: 'error' };
     }
     const expiresAt = new Date(this.now().getTime() + this.ttlMs);
@@ -177,7 +182,9 @@ class CommandHandler {
    * Chamado pelo handler de reação ✅. Busca pending command pelo
    * carolina_msg_ts, valida quem confirmou, executa.
    */
-  async confirmAndExecute({ carolinaMsgTs, reactorSlackUserId, reactorPersonId }) {
+  async confirmAndExecute({ carolinaMsgTs, reactorSlackUserId, reactorPersonId, channel }) {
+    // Canal de origem da reação (Frente 1) — Carolina responde onde foi chamada.
+    const ch = channel || this.productionChannelId;
     const r = await this.db.query(`
       SELECT * FROM v3.pending_commands
       WHERE carolina_msg_ts = $1 AND status = 'pending'`, [carolinaMsgTs]);
@@ -186,7 +193,7 @@ class CommandHandler {
 
     // Guard: só o admin original pode confirmar
     if (reactorPersonId !== cmd.admin_person_id) {
-      await this._reply(carolinaMsgTs, '⚠ Só quem mandou o comando pode confirmar.');
+      await this._reply(carolinaMsgTs, '⚠ Só quem mandou o comando pode confirmar.', ch);
       await this._audit('admin_command_wrong_confirmer', null, {
         original_admin: cmd.admin_person_id,
         attempted_admin: reactorPersonId,
@@ -198,7 +205,7 @@ class CommandHandler {
     // Guard: expirado?
     if (new Date(cmd.expires_at).getTime() < this.now().getTime()) {
       await this.db.query(`UPDATE v3.pending_commands SET status='expired' WHERE id=$1`, [cmd.id]);
-      await this._reply(carolinaMsgTs, '⏰ Comando expirou. Mande de novo se ainda quiser.');
+      await this._reply(carolinaMsgTs, '⏰ Comando expirou. Mande de novo se ainda quiser.', ch);
       return { handled: false, reason: 'expired' };
     }
 
@@ -208,7 +215,7 @@ class CommandHandler {
     try {
       execResult = await this._executeDestructive(parsed, adminPerson, cmd);
     } catch (e) {
-      await this._reply(carolinaMsgTs, `❌ Erro ao executar: ${e.message}`);
+      await this._reply(carolinaMsgTs, `❌ Erro ao executar: ${e.message}`, ch);
       await this._audit('admin_command_execution_error', null, {
         pending_command_id: cmd.id, error: e.message,
       });
@@ -218,7 +225,7 @@ class CommandHandler {
       UPDATE v3.pending_commands
       SET status='executed', confirmed_at=NOW(), executed_at=NOW(), result=$2::jsonb
       WHERE id=$1`, [cmd.id, JSON.stringify(execResult)]);
-    await this._reply(carolinaMsgTs, execResult.replyText);
+    await this._reply(carolinaMsgTs, execResult.replyText, ch);
     await this._audit('admin_command_executed_after_confirm', null, {
       pending_command_id: cmd.id, llm_parsed: parsed, result: execResult,
       admin_person_id: adminPerson.id,
@@ -235,11 +242,19 @@ class CommandHandler {
       UPDATE v3.pending_commands
       SET status='expired'
       WHERE status='pending' AND expires_at < NOW()
-      RETURNING id, carolina_msg_ts`);
+      RETURNING id, carolina_msg_ts, admin_msg_ts`);
     for (const row of r.rows) {
       try {
         if (this.slack) {
-          await this._reply(row.carolina_msg_ts, '⏰ Comando expirou sem confirmação (10min). Mande de novo se ainda quiser.');
+          // pending_commands não guarda canal — resolve pelo canal da msg
+          // original do admin (admin_msg_ts) em v3.messages. Fallback produção.
+          let channel = this.productionChannelId;
+          try {
+            const m = await this.db.query(
+              'SELECT slack_channel_id FROM v3.messages WHERE slack_ts = $1 LIMIT 1', [row.admin_msg_ts]);
+            if (m.rows[0] && m.rows[0].slack_channel_id) channel = m.rows[0].slack_channel_id;
+          } catch (_) { /* mantém fallback */ }
+          await this._reply(row.carolina_msg_ts, '⏰ Comando expirou sem confirmação (10min). Mande de novo se ainda quiser.', channel);
         }
       } catch (e) {
         console.error('[CommandHandler] falha ao postar timeout reply:', e.message);
@@ -569,23 +584,27 @@ class CommandHandler {
     return `⚠ Vou ${expl}.\nReaja ✅ NESTA mensagem (10min) pra confirmar. Reaja ❌ pra cancelar.`;
   }
 
-  async _react(slackTs, emoji) {
+  async _react(slackTs, emoji, channel) {
     if (!this.slack || !this.slack.addReaction) return;
     try {
-      await this.slack.addReaction({ channel: this.productionChannelId, ts: slackTs, emoji });
+      await this.slack.addReaction({ channel: channel || this.productionChannelId, ts: slackTs, emoji });
     } catch (e) {
       console.error('[CommandHandler] addReaction falhou:', e.message);
     }
   }
 
-  async _reply(threadTs, text) {
+  async _reply(threadTs, text, channel) {
+    // Decisão Bruno (01/jun): reply da Carolina SEMPRE no canal principal
+    // (mensagem top-level), NUNCA em thread — qualquer canal, qualquer comando.
+    // O 1º arg (threadTs) é mantido por compat dos call-sites mas IGNORADO
+    // p/ threading (thread_ts=null explícito). O ✓ (_react) segue mirando a msg.
     if (!this.slack || !this.slack.postAs) return null;
     try {
       const r = await this.slack.postAs({
-        channel: this.productionChannelId,
-        sender_name: 'Carolina',
+        channel: channel || this.productionChannelId,
+        sender: { name: 'Carolina' },
         text,
-        thread_ts: threadTs,
+        thread_ts: null,
       });
       return r && r.ts;
     } catch (e) {
@@ -596,10 +615,12 @@ class CommandHandler {
 
   async _audit(action, messageId, metadata) {
     try {
+      // actor_type='admin' (passa no CHECK audit_log_actor_type_check). Ver TODO
+      // no INTEGRATION_PLAN sobre criar 'admin_via_slack' pra diferenciar de dashboard.
       await this.db.query(
         `INSERT INTO v3.audit_log
            (actor_type, actor_person_id, action, target_type, target_id, before_data, after_data, metadata)
-         VALUES ('admin_via_slack', NULL, $1, 'message', $2, NULL, NULL, $3::jsonb)`,
+         VALUES ('admin', NULL, $1, 'message', $2, NULL, NULL, $3::jsonb)`,
         [action, messageId, JSON.stringify(metadata || {})]);
     } catch (e) {
       console.error('[CommandHandler] _audit falhou:', e.message);

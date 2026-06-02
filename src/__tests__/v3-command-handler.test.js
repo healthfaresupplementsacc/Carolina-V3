@@ -83,9 +83,15 @@ function makeFakeDb(opts = {}) {
         }
         return { rows: [] };
       }
-      // audit_log INSERT
+      // audit_log INSERT — simula o CHECK constraint audit_log_actor_type_check
+      // (actor_type é literal no SQL). Pega regressão se voltar p/ 'admin_via_slack'.
       if (/INSERT INTO v3\.audit_log/.test(s)) {
-        audit.push({ action: params[0], target_id: params[1],
+        const ALLOWED_ACTOR = ['admin', 'llm_observer', 'llm_assistant', 'system', 'app_home'];
+        const mActor = /VALUES \('([^']+)'/.exec(s);
+        if (mActor && !ALLOWED_ACTOR.includes(mActor[1])) {
+          return Promise.reject(new Error('new row for relation "audit_log" violates check constraint "audit_log_actor_type_check"'));
+        }
+        audit.push({ actor_type: mActor && mActor[1], action: params[0], target_id: params[1],
           metadata: typeof params[2] === 'string' ? JSON.parse(params[2]) : params[2] });
         return { rows: [] };
       }
@@ -128,9 +134,16 @@ function makeSlackMock() {
   const calls = { posts: [], reactions: [] };
   return {
     calls,
-    postAs: jest.fn(async ({ channel, text, thread_ts, sender_name }) => {
+    // Espelha a assinatura REAL do sender.postAs: exige sender.name (objeto),
+    // NÃO sender_name plano. Se alguém passar o shape errado, lança igual ao
+    // real — assim o test pega o bug em vez de mascará-lo (drift mock↔realidade).
+    postAs: jest.fn(async ({ channel, text, thread_ts, sender }) => {
+      if (!sender || !sender.name) throw new Error('sender.name obrigatório');
+      // Decisão Bruno (01/jun): reply SEMPRE top-level. Mock rejeita thread_ts
+      // não-null pra pegar regressão se alguém voltar a responder em thread.
+      if (thread_ts != null) throw new Error('reply deve ser top-level (thread_ts=null), recebeu: ' + thread_ts);
       const ts = 'reply.' + (calls.posts.length + 1);
-      calls.posts.push({ channel, text, thread_ts, sender_name, ts });
+      calls.posts.push({ channel, text, thread_ts, sender_name: sender.name, ts });
       return { ts };
     }),
     addReaction: jest.fn(async ({ channel, ts, emoji }) => {
@@ -157,6 +170,7 @@ function makeHandler(extra = {}) {
     db, provider, eventService,
     slack: { postAs: slack.postAs, addReaction: slack.addReaction },
     productionChannelId: 'C_PROD',
+    adminChannelId: 'C_ADMIN',
     now: extra.now,
   });
   return { handler: h, db, slack, eventService, provider };
@@ -192,6 +206,13 @@ describe('CommandHandler — detecção de mention', () => {
     expect(r.matched).toBe(false);
   });
 
+  test('tryRoute no admin-orin com mention + admin → matched=true (Frente 1)', async () => {
+    const llmJson = { command_type: 'unknown', destructive: false, uncertain: false, explanation: '...' };
+    const { handler } = makeHandler({ llmJson });
+    const r = await handler.tryRoute(msg({ slack_channel_id: 'C_ADMIN' }));
+    expect(r.matched).toBe(true);
+  });
+
   test('tryRoute operador (Vitor) com mention → rejected + audit', async () => {
     const { handler, db } = makeHandler();
     const r = await handler.tryRoute(msg({ slack_user_id: 'U_VITOR' }));
@@ -223,6 +244,71 @@ describe('CommandHandler — não-destrutivo (executa direto)', () => {
     expect(slack.calls.reactions[0].emoji).toBe('white_check_mark');  // react ✓
     expect(slack.calls.posts[0].text).toMatch(/✅|Criado ev/);          // reply
     expect(db.audit.some((a) => a.action === 'admin_command_executed')).toBe(true);
+  });
+
+  test('Frente 1 — comando no admin-orin: react ✓ e reply vão pro admin-orin', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 5, slug: 'lunch', started_at: '2026-05-31T17:01:00Z' },
+      destructive: false, uncertain: false, explanation: 'criar lunch',
+    };
+    const { handler, slack } = makeHandler({ llmJson });
+    await handler.tryRoute(msg({ slack_channel_id: 'C_ADMIN' }));
+    expect(slack.calls.reactions[0].channel).toBe('C_ADMIN');  // ✓ no canal de origem
+    expect(slack.calls.posts[0].channel).toBe('C_ADMIN');      // reply no canal de origem
+  });
+
+  test('Frente 1 — comando no produção: react ✓ e reply vão pro produção (regressão)', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 5, slug: 'lunch', started_at: '2026-05-31T17:01:00Z' },
+      destructive: false, uncertain: false, explanation: 'criar lunch',
+    };
+    const { handler, slack } = makeHandler({ llmJson });
+    await handler.tryRoute(msg({ slack_channel_id: 'C_PROD' }));
+    expect(slack.calls.reactions[0].channel).toBe('C_PROD');
+    expect(slack.calls.posts[0].channel).toBe('C_PROD');
+  });
+
+  test('Frente 1 — reply usa sender.name=Carolina + audit grava com actor_type=admin', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 5, slug: 'lunch', started_at: '2026-05-31T17:01:00Z' },
+      destructive: false, uncertain: false, explanation: 'criar lunch',
+    };
+    const { handler, db, slack } = makeHandler({ llmJson });
+    await handler.tryRoute(msg());
+    // reply postado (mock só aceita sender.name — se _reply passar sender_name plano, lança)
+    expect(slack.calls.posts.length).toBeGreaterThan(0);
+    expect(slack.calls.posts[0].sender_name).toBe('Carolina');
+    // audit gravado com actor_type permitido (FIX 3 — 'admin', não 'admin_via_slack')
+    const exec = db.audit.find((a) => a.action === 'admin_command_executed');
+    expect(exec).toBeTruthy();
+    expect(exec.actor_type).toBe('admin');
+  });
+
+  test('Frente 1 — reply de query_status é TOP-LEVEL (thread_ts=null)', async () => {
+    const llmJson = {
+      command_type: 'query_status',
+      params: { question: 'quem está na linha', scope: 'current_production' },
+      destructive: false, uncertain: false,
+    };
+    const { handler, slack } = makeHandler({ llmJson });
+    await handler.tryRoute(msg());
+    expect(slack.calls.posts.length).toBeGreaterThan(0);
+    expect(slack.calls.posts[0].thread_ts).toBeNull();
+  });
+
+  test('Frente 1 — reply de comando destrutivo (pending) é TOP-LEVEL (thread_ts=null)', async () => {
+    const llmJson = {
+      command_type: 'delete_event', target: { event_id: 999 },
+      destructive: true, uncertain: false, explanation: 'soft-delete ev999',
+    };
+    const { handler, slack, db } = makeHandler({ llmJson });
+    const r = await handler.tryRoute(msg({ raw_text: '@Carolina apaga ev999' }));
+    expect(r.result).toBe('pending');
+    expect(db.pendings).toHaveLength(1);
+    expect(slack.calls.posts[0].thread_ts).toBeNull();  // pedido de confirmação top-level
   });
 
   test('create_downtime — auto-detect cowork via people em produção', async () => {
