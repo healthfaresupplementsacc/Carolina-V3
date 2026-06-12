@@ -252,22 +252,43 @@
     lang.value = voiceLang;
     lang.onchange = () => { voiceLang = lang.value; };
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { mic.disabled = true; mic.title = 'Navegador sem suporte a voz'; }
+    // Sem suporte (Firefox/Brave/iOS antigo): botão CLICÁVEL com explicação —
+    // disabled silencioso parece "quebrado" (bug reportado 12/jun).
+    const VOICE_ERR = {
+      'not-allowed': '🎤 Permissão negada — toca no cadeado 🔒 da barra e libera o Microfone',
+      'service-not-allowed': '🎤 Voz bloqueada pelo navegador — libera o microfone nas configurações',
+      'audio-capture': '🎤 Nenhum microfone encontrado neste aparelho',
+      network: '🎤 Sem conexão com o serviço de voz — verifica a internet',
+      'no-speech': '🎤 Não ouvi nada — tenta de novo falando mais perto',
+      aborted: null, // stop manual, sem aviso
+    };
     let rec = null;
     mic.onclick = () => {
+      if (!SR) { toast('🎤 Este navegador não tem voz — usa o Chrome ou Edge (ou digita)'); return; }
       if (rec) { rec.stop(); return; }
-      rec = new SR();
-      rec.lang = voiceLang; rec.continuous = true; rec.interimResults = true;
-      const baseText = textarea.value;
-      rec.onresult = (ev) => {
-        let txt = '';
-        for (const res of ev.results) txt += res[0].transcript;
-        textarea.value = (baseText ? baseText + ' ' : '') + txt;
-      };
-      rec.onend = () => { mic.classList.remove('rec'); rec = null; };
-      rec.onerror = () => { mic.classList.remove('rec'); rec = null; toast('🎤 erro — tenta de novo ou digita'); };
-      mic.classList.add('rec');
-      rec.start();
+      try {
+        rec = new SR();
+        rec.lang = voiceLang; rec.continuous = true; rec.interimResults = true;
+        const baseText = textarea.value;
+        rec.onresult = (ev) => {
+          let txt = '';
+          for (const res of ev.results) txt += res[0].transcript;
+          textarea.value = (baseText ? baseText + ' ' : '') + txt;
+        };
+        rec.onend = () => { mic.classList.remove('rec'); rec = null; };
+        rec.onerror = (ev) => {
+          mic.classList.remove('rec'); rec = null;
+          const msg = Object.prototype.hasOwnProperty.call(VOICE_ERR, ev.error)
+            ? VOICE_ERR[ev.error]
+            : ('🎤 erro: ' + (ev.error || 'desconhecido') + ' — tenta de novo ou digita');
+          if (msg) toast(msg, 4500);
+        };
+        mic.classList.add('rec');
+        rec.start();
+      } catch (e) {
+        mic.classList.remove('rec'); rec = null;
+        toast('🎤 não consegui iniciar (' + e.name + ') — tenta de novo ou digita', 4000);
+      }
     };
     row.appendChild(mic); row.appendChild(lang);
     return row;
