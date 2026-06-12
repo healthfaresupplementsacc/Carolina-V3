@@ -28,6 +28,7 @@ const adminV3 = require('./admin-v3/routes');
 const dataApi = require('./data/router');
 const imagesApi = require('./images/router');
 const architectApi = require('../routes/architect');
+const opApi = require('../routes/op');
 
 let _pool = null;
 let _svc = null;
@@ -87,6 +88,18 @@ function mount(app) {
   // nenhum token autentica (rotas respondem 401) — seguro deployar antes
   // de setar as vars.
   app.use('/', architectApi.createArchitectRouter({ db: _pool }));
+  // Deploy 2 — Operator Page: API de writes estruturados (sem LLM) + UI
+  // estática em /op. config.js dinâmico vem ANTES do static (precedência).
+  app.use('/', opApi.createOpRouter({
+    db: _pool,
+    slack: { postAs: slackSender.postAs },
+    adminChannelId: adminChannelId,
+  }));
+  {
+    const express2 = require('express');
+    const path2 = require('path');
+    app.use('/op', express2.static(path2.join(process.cwd(), 'src', 'op')));
+  }
   // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
   app.use('/', dataApi.createDataRouter({ db: _pool }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,

@@ -6,15 +6,13 @@
  *   action   = 'architect_api_access'
  *   metadata = { actor, endpoint, query_params, response_status, latency_ms, ip }
  *
- * NOTA actor_type: o CHECK audit_log_actor_type_check só permite
- * ('admin','llm_observer','llm_assistant','system','app_home').
- * 'operator_page' VIOLARIA o CHECK (mesma armadilha do antigo
- * 'admin_via_slack' que falhava silencioso). Mapeamos:
+ * NOTA actor_type: a migration 018 ampliou o CHECK
+ * audit_log_actor_type_check (+operator_page, +admin_via_slack,
+ * +dedupe_worker). Mapeamos:
  *   scope architect      → actor_type 'admin'
- *   scope operator_page  → actor_type 'system'
+ *   scope operator_page  → actor_type 'operator_page'
  *   não autenticado      → actor_type 'system'
- * O ator REAL vai sempre em metadata.actor. Ampliar o CHECK fica pra
- * migration futura (TODO no INTEGRATION_PLAN).
+ * O ator REAL vai sempre em metadata.actor.
  *
  * Fire-and-forget: falha de audit NUNCA derruba a resposta (loga no console).
  * Este middleware vem ANTES do auth na cadeia pra capturar 401 também.
@@ -25,7 +23,8 @@ function makeArchitectAudit({ db, now = Date.now } = {}) {
     const t0 = now();
     res.on('finish', () => {
       const scope = req.architectScope || 'unauthenticated';
-      const actorType = scope === 'architect' ? 'admin' : 'system';
+      const actorType = scope === 'architect' ? 'admin'
+        : scope === 'operator_page' ? 'operator_page' : 'system';
       const ip = req.ip
         || (req.headers && req.headers['x-forwarded-for'])
         || (req.socket && req.socket.remoteAddress) || null;

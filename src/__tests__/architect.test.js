@@ -348,11 +348,11 @@ describe('architect API — audit de toda chamada', () => {
     expect(typeof a.metadata.latency_ms).toBe('number');
   });
 
-  test('chamada operator_page → metadata.actor=operator_page, actor_type=system', async () => {
+  test('chamada operator_page → actor_type=operator_page (CHECK ampliado na 018)', async () => {
     await asOp(`${B}/persons`);
     await flushAudit();
     expect(db.audits).toHaveLength(1);
-    expect(db.audits[0].actor_type).toBe('system');
+    expect(db.audits[0].actor_type).toBe('operator_page');
     expect(db.audits[0].metadata.actor).toBe('operator_page');
   });
 

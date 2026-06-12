@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>HealthFare — Produção</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- header sticky (só logado) -->
+  <header id="hdr" class="hidden">
+    <span id="hdr-user">👤 —</span>
+    <span id="hdr-timer" class="timer"></span>
+    <span class="hdr-actions">
+      <button id="btn-clockout" class="btn-sm btn-warn">Sair (fim do dia)</button>
+      <button id="btn-switch" class="btn-sm">Trocar</button>
+    </span>
+  </header>
+
+  <main id="main">
+    <!-- LOGIN -->
+    <section id="view-login" class="view">
+      <h1>HealthFare<br><small>Linha de Produção</small></h1>
+      <div id="pin-dots" class="pin-dots">····</div>
+      <div id="pin-error" class="pin-error"></div>
+      <div class="keypad" id="keypad"></div>
+    </section>
+
+    <!-- IDLE -->
+    <section id="view-idle" class="view hidden">
+      <button id="btn-new" class="btn-big btn-primary">➕ Iniciar Tarefa</button>
+      <h2>📋 Minhas tarefas</h2>
+      <div id="my-tasks" class="cards"></div>
+      <h2>👥 Tasks da equipe agora</h2>
+      <div id="team-tasks" class="cards"></div>
+      <button id="btn-note" class="btn-big">📝 Nota / 🎤 Voz</button>
+    </section>
+  </main>
+
+  <!-- modal genérico -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div id="modal-title" class="modal-title"></div>
+      <div id="modal-body" class="modal-body"></div>
+      <div id="modal-foot" class="modal-foot"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="config.js"></script>
+  <script src="fuse-data.js"></script>
+  <script src="state-machine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
