@@ -200,6 +200,25 @@ Cada item DEVE estar funcionando no v4 antes do switch:
 
 ---
 
+## 🔴 TODO #1 PÓS-DEPLOY-3 — retry infinito sem dead-letter (12/jun)
+
+**Risco**: msg que falha (llm_error, invalid_llm_response) fica com
+`llm_processed_at=NULL` → re-claim a cada ~2min PARA SEMPRE (Observer.js
+claim não filtra tentativas). Uma msg envenenada ≈ 720 calls/dia ≈ **$20/dia**
+até intervenção manual. Em 12/jun a fila estava limpa (0 presas), mas o
+mecanismo continua latente.
+
+**Fix (aprovado pelo Bruno, não escopar antes do Deploy 3)**:
+- Migration: `v3.messages` + `processing_attempts INT DEFAULT 0`,
+  `last_error TEXT`, `dead_lettered_at TIMESTAMPTZ`.
+- Observer claim: incrementa attempts; `attempts >= 3` → marca
+  `dead_lettered_at=NOW()` + `processing_error` e SAI da fila.
+- Claim query exclui `dead_lettered_at IS NOT NULL`.
+- Alerta admin (já existe canal de worker alerts) ao dead-letterizar.
+- Endpoint architect `/diagnostics/queue` passa a expor dead-lettered.
+
+---
+
 ## 🔴 BUGS LLM URGENTES — pendentes (descobertos 01/jun auditoria)
 
 **Status**: diagnosticados read-only (llm_result inspecionado), **NÃO corrigidos**.
