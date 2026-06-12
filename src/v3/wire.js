@@ -27,6 +27,7 @@ const { eventsV2Handler } = require('./slack/events-v2');
 const adminV3 = require('./admin-v3/routes');
 const dataApi = require('./data/router');
 const imagesApi = require('./images/router');
+const architectApi = require('../routes/architect');
 
 let _pool = null;
 let _svc = null;
@@ -81,6 +82,11 @@ function mount(app) {
 
   // endpoints de inspeção shadow
   app.use('/', adminV3.createRouter({ db: _pool }));
+  // Fase 1 (Operator Page bloco) — Architect API read-only. Auth por
+  // ARCHITECT_API_TOKEN / OPERATOR_PAGE_TOKEN (env). Sem env setada,
+  // nenhum token autentica (rotas respondem 401) — seguro deployar antes
+  // de setar as vars.
+  app.use('/', architectApi.createArchitectRouter({ db: _pool }));
   // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
   app.use('/', dataApi.createDataRouter({ db: _pool }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
