@@ -136,6 +136,46 @@ function createAdminRouter(deps = {}) {
     res.json({ operators: r.rows });
   }));
 
+  // criar operador (Fase E)
+  router.post('/api/adminpanel/operators', makeRateLimit({ limit: 10 }), h(async (req, res) => {
+    const name = String((req.body && req.body.display_name) || '').trim();
+    const pin = String((req.body && req.body.pin) || '');
+    if (!name) return res.status(400).json({ error: 'name_required' });
+    if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'bad_pin_format', detail: '4 dígitos' });
+    const dup = await db.query(
+      `SELECT 1 FROM v3.persons WHERE role='operator' AND deleted_at IS NULL AND lower(display_name)=lower($1) LIMIT 1`, [name]);
+    if (dup.rows.length) return res.status(400).json({ error: 'name_taken' });
+    // PIN não pode colidir com operador ativo (scrypt → compara via verify)
+    const actives = await db.query(`SELECT pin_hash, pin_salt FROM v3.persons WHERE role='operator' AND active=true AND deleted_at IS NULL AND pin_hash IS NOT NULL`);
+    if (actives.rows.some((p) => opAuth.verifyPin(pin, p.pin_salt, p.pin_hash))) {
+      return res.status(400).json({ error: 'pin_taken', detail: 'PIN já usado por outro operador ativo.' });
+    }
+    const autoLogoff = (req.body && req.body.auto_logoff_seconds !== undefined) ? req.body.auto_logoff_seconds : 30;
+    const countExempt = !!(req.body && req.body.count_exempt);
+    const { pin_hash, pin_salt } = opAuth.hashPin(pin);
+    const ins = await db.query(
+      `INSERT INTO v3.persons (display_name, role, active, pin_hash, pin_salt, auto_logoff_seconds, count_exempt, created_at, updated_at)
+       VALUES ($1, 'operator', true, $2, $3, $4, $5, NOW(), NOW())
+       RETURNING id, display_name, auto_logoff_seconds, count_exempt`,
+      [name, pin_hash, pin_salt, autoLogoff === null ? null : parseInt(autoLogoff, 10) || 30, countExempt]);
+    await audit('operator.created', 'person', ins.rows[0].id, { display_name: name, via: 'admin_panel' });
+    res.json({ ok: true, operator: ins.rows[0] });
+  }));
+
+  // remover operador (soft-delete; mantém events históricos) (Fase E)
+  router.delete('/api/adminpanel/operators/:id', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const r = await db.query(
+      `UPDATE v3.persons SET active=false, deleted_at=NOW(), updated_at=NOW()
+       WHERE id=$1 AND role='operator' AND deleted_at IS NULL RETURNING id, display_name`, [id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'operator_not_found' });
+    const closed = await db.query(
+      `UPDATE v3.operator_sessions SET logged_out_at=NOW(), logoff_reason='admin_force'
+       WHERE person_id=$1 AND logged_out_at IS NULL RETURNING id`, [id]);
+    await audit('operator.deleted', 'person', id, { display_name: r.rows[0].display_name, sessions_closed: closed.rowCount, via: 'admin_panel' });
+    res.json({ ok: true, id, sessions_closed: closed.rowCount });
+  }));
+
   router.post('/api/adminpanel/operators/:id/pin', makeRateLimit({ limit: 5 }), h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const pin = String((req.body && req.body.pin) || '');

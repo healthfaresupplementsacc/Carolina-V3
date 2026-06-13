@@ -8,9 +8,10 @@ const PW = 'test-admin-password';
 const resp = (rows) => ({ rows, rowCount: rows.length });
 
 function makeMem() {
+  const vitor = opAuth.hashPin('1111'); // hash scrypt real p/ testar colisão de PIN
   return {
     persons: [
-      { id: 4, display_name: 'Vitor', role: 'operator', active: true, pin_hash: 'h', pin_salt: 's', auto_logoff_seconds: 30, count_exempt: false },
+      { id: 4, display_name: 'Vitor', role: 'operator', active: true, pin_hash: vitor.pin_hash, pin_salt: vitor.pin_salt, auto_logoff_seconds: 30, count_exempt: false },
       { id: 7, display_name: 'Bruno Sarmento', role: 'operator', active: true, pin_hash: null, pin_salt: null, auto_logoff_seconds: 30, count_exempt: true },
     ],
     sessions: [{ id: 1, person_id: 4, logged_out_at: null }],
@@ -48,7 +49,7 @@ function makeDb(mem) {
         p.count_exempt = params[1];
         return resp([{ id: p.id, count_exempt: p.count_exempt }]);
       }
-      if (/UPDATE v3\.persons SET active/.test(s)) {
+      if (/UPDATE v3\.persons SET active=\$2/.test(s)) {
         const p = mem.persons.find((x) => x.id === params[0]);
         if (!p) return resp([]);
         p.active = params[1];
@@ -81,6 +82,24 @@ function makeDb(mem) {
       if (/FROM v3\.product_batches WHERE batch_number/.test(s)) {
         return params[0] === '0181' ? resp([{ id: 30 }]) : resp([]);
       }
+      // Fase E — create/delete operador
+      if (/SELECT 1 FROM v3\.persons WHERE role='operator' AND deleted_at IS NULL AND lower\(display_name\)/.test(s)) {
+        return resp(mem.persons.some((p) => p.role === 'operator' && !p.deleted_at && p.display_name.toLowerCase() === String(params[0]).toLowerCase()) ? [{ x: 1 }] : []);
+      }
+      if (/SELECT pin_hash, pin_salt FROM v3\.persons WHERE role='operator' AND active=true/.test(s)) {
+        return resp(mem.persons.filter((p) => p.role === 'operator' && p.active && !p.deleted_at && p.pin_hash));
+      }
+      if (/INSERT INTO v3\.persons/.test(s)) {
+        const id = 90 + mem.persons.length;
+        mem.persons.push({ id, display_name: params[0], role: 'operator', active: true, pin_hash: params[1], pin_salt: params[2], auto_logoff_seconds: params[3], count_exempt: params[4], deleted_at: null });
+        return resp([{ id, display_name: params[0], auto_logoff_seconds: params[3], count_exempt: params[4] }]);
+      }
+      if (/UPDATE v3\.persons SET active=false, deleted_at=NOW\(\)/.test(s)) {
+        const p = mem.persons.find((x) => x.id === params[0] && x.role === 'operator' && !x.deleted_at);
+        if (!p) return resp([]);
+        p.active = false; p.deleted_at = new Date();
+        return resp([{ id: p.id, display_name: p.display_name }]);
+      }
       if (/UPDATE v3\.events SET /.test(s)) { mem.eventsUpdated.push({ sql: s, params }); return resp([]); }
       // analytics (Fase B): agregados de 1 linha precisam de rows[0]; GROUP BY → vazio
       if (/^SELECT/.test(s) && /FROM v3\.(events|production_counts|product_batches|products|notifications)/.test(s)) {
@@ -102,6 +121,11 @@ async function post(path, body, tok) {
 async function put(path, body, tok) {
   const headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok };
   const r = await fetch(base + path, { method: 'PUT', headers, body: JSON.stringify(body || {}) });
+  let j = null; try { j = await r.json(); } catch (_) {}
+  return { status: r.status, body: j };
+}
+async function del(path, tok) {
+  const r = await fetch(base + path, { method: 'DELETE', headers: { Authorization: 'Bearer ' + tok } });
   let j = null; try { j = await r.json(); } catch (_) {}
   return { status: r.status, body: j };
 }
@@ -224,6 +248,46 @@ describe('admin panel — notifications inbox (Fase C)', () => {
     const r = await post('/api/adminpanel/notifications/8/accept', {}, token);
     expect(r.status).toBe(200);
     expect(mem.eventsDeleted).toHaveLength(0);
+  });
+});
+
+describe('admin panel — operator CRUD (Fase E)', () => {
+  test('criar operador novo → aparece com PIN scrypt válido', async () => {
+    const r = await post('/api/adminpanel/operators', { display_name: 'João Silva', pin: '1357', count_exempt: false }, token);
+    expect(r.status).toBe(200);
+    const created = mem.persons.find((p) => p.display_name === 'João Silva');
+    expect(created).toBeTruthy();
+    expect(opAuth.verifyPin('1357', created.pin_salt, created.pin_hash)).toBe(true);
+    expect(mem.audits.some((a) => a.action === 'operator.created')).toBe(true);
+  });
+  test('nome duplicado → 400 name_taken', async () => {
+    const r = await post('/api/adminpanel/operators', { display_name: 'Vitor', pin: '1357' }, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('name_taken');
+  });
+  test('PIN duplicado de operador ativo → 400 pin_taken', async () => {
+    // PINs fixture: Vitor=1111. Tenta criar com 1111.
+    const r = await post('/api/adminpanel/operators', { display_name: 'Outro', pin: '1111' }, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('pin_taken');
+  });
+  test('PIN inválido → 400', async () => {
+    expect((await post('/api/adminpanel/operators', { display_name: 'X', pin: '12' }, token)).status).toBe(400);
+  });
+  test('delete soft → marca inativo + força logout; events ficam', async () => {
+    const r = await del('/api/adminpanel/operators/4', token);
+    expect(r.status).toBe(200);
+    const p = mem.persons.find((x) => x.id === 4);
+    expect(p.active).toBe(false);
+    expect(p.deleted_at).toBeTruthy();
+    expect(mem.audits.some((a) => a.action === 'operator.deleted')).toBe(true);
+  });
+  test('delete de inexistente → 404', async () => {
+    expect((await del('/api/adminpanel/operators/999', token)).status).toBe(404);
+  });
+  test('criar sem token → 401', async () => {
+    const r = await fetch(base + '/api/adminpanel/operators', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    expect(r.status).toBe(401);
   });
 });
 

@@ -68,6 +68,9 @@
     const r = await api('/api/adminpanel/operators');
     ops = r.operators;
     const box = $('ops-list'); box.innerHTML = '';
+    const addBtn = el('button', 'btn-big btn-primary', '➕ Adicionar Operador');
+    addBtn.onclick = openCreate;
+    box.appendChild(addBtn);
     ops.forEach((o) => {
       const status = !o.is_active ? '<span class="pill off">🔴 inativo</span>'
         : !o.has_pin ? '<span class="pill warn">🟡 sem PIN</span>'
@@ -156,6 +159,17 @@
       catch (e) { toast('❌ ' + e.message); }
     };
     fFl.appendChild(btFl); box.appendChild(fFl);
+
+    // remover (soft-delete) (Fase E)
+    const fRm = el('div', 'field');
+    const btRm = el('button', 'btn-big btn-danger', '🗑️ Remover operador');
+    btRm.onclick = async () => {
+      if (!window.confirm(`Remover ${o.display_name}? Será desativado e os events históricos ficam. Confirma?`)) return;
+      if (!window.confirm('Tem CERTEZA? Essa ação desativa o operador permanentemente.')) return;
+      try { await api(`/api/adminpanel/operators/${o.id}`, { method: 'DELETE' }); toast('🗑️ Removido'); show('ops'); await loadOps(); }
+      catch (e) { toast('❌ ' + e.message); }
+    };
+    fRm.appendChild(btRm); box.appendChild(fRm);
 
     // timeline 7d
     const fTl = el('div', 'field');
@@ -270,6 +284,40 @@
     let html = '<table class="dt"><tr><th>Dia</th><th>Eventos</th><th>Bottles</th><th>Horas</th></tr>';
     s.daily_breakdown.slice().reverse().forEach((d) => { html += `<tr><td>${d.day}</td><td>${d.events}</td><td>${d.bottles}</td><td>${d.hours}</td></tr>`; });
     $('a-table').innerHTML = html + '</table>';
+  }
+
+  // ── criar operador (Fase E) ─────────────────────────────────
+  function openCreate() {
+    show('op-edit');
+    const box = $('op-edit'); box.innerHTML = '';
+    box.appendChild(el('h1', null, '➕ Novo operador'));
+    const fields = {};
+    const addField = (label, input) => { const f = el('div', 'field'); f.appendChild(el('label', null, label)); f.appendChild(input); box.appendChild(f); return input; };
+    fields.name = addField('Nome', Object.assign(el('input'), { type: 'text', placeholder: 'ex: João Silva' }));
+    fields.pin = addField('PIN (4 dígitos)', Object.assign(el('input'), { type: 'tel', maxLength: 4, placeholder: '••••' }));
+    fields.logoff = addField('Auto-logoff (segundos, vazio = desligado)', Object.assign(el('input'), { type: 'number', min: 5, max: 3600, value: 30 }));
+    const fEx = el('div', 'field'); const cEx = el('input'); cEx.type = 'checkbox';
+    const lEx = el('label', 'chk'); lEx.appendChild(cEx); lEx.appendChild(el('span', null, 'Pode pular contagem de bottles'));
+    fEx.appendChild(lEx); box.appendChild(fEx);
+    const go = el('button', 'btn-big btn-primary', 'Criar');
+    go.onclick = async () => {
+      if (!fields.name.value.trim()) { toast('Nome obrigatório'); return; }
+      if (!/^\d{4}$/.test(fields.pin.value)) { toast('PIN precisa de 4 dígitos'); return; }
+      try {
+        await api('/api/adminpanel/operators', { method: 'POST', body: {
+          display_name: fields.name.value.trim(), pin: fields.pin.value,
+          auto_logoff_seconds: fields.logoff.value === '' ? null : parseInt(fields.logoff.value, 10),
+          count_exempt: cEx.checked,
+        } });
+        toast('✅ Operador criado'); show('ops'); await loadOps();
+      } catch (e) {
+        const M = { name_taken: 'Nome já existe', pin_taken: 'PIN já usado por outro operador', bad_pin_format: 'PIN inválido' };
+        toast('❌ ' + (M[e.message] || e.message));
+      }
+    };
+    box.appendChild(go);
+    const back = el('button', 'btn-sm', '← Cancelar'); back.onclick = async () => { show('ops'); await loadOps(); };
+    box.appendChild(back);
   }
 
   // ── audit log (Fase C) ──────────────────────────────────────
