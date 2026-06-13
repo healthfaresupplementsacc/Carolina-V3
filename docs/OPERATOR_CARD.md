@@ -33,6 +33,15 @@ preenche — ou marca **🤷 Não sei** que o escritório resolve.
 
 ---
 
+## 📱 ADICIONAR NA TELA INICIAL
+Quando aparecer o botão **📱 Instalar** (ou no menu do navegador
+"Adicionar à tela inicial"), toca — vira um ícone igual a um app.
+
+## 🟢/🔴 SEM INTERNET
+No topo aparece **🔴 offline** se a internet cair. Pode continuar
+trabalhando: o que você registrar fica guardado e **envia sozinho**
+quando a internet voltar (aparece "🟢 X p/ sincronizar").
+
 ## ⚠️ SE A PÁGINA TRAVAR
 **Posta no Slack normal** ("S: comecei…", "F: terminei…") **e avisa o Bruno.**
 Nada se perde — o sistema lê o Slack também.

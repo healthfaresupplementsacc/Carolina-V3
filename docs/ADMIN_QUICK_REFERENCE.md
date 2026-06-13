@@ -7,12 +7,19 @@ Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio.
 ## Operadores (aba 👷)
 | Quero… | Como |
 |---|---|
+| **Adicionar operador** | "➕ Adicionar Operador" → nome + PIN + auto-logoff → Criar |
 | **Mudar PIN** | Gerenciar → digita 4 dígitos → "Atualizar PIN" (vale na hora; sessões abertas continuam) |
 | **Ajustar auto-logoff** | Gerenciar → segundos (5–3600) ou vazio = desligado |
 | **Deixar pular bottle count** | Gerenciar → toggle "count exempt" (hoje: só Bruno Sarmento) |
 | **Desativar operador** | Gerenciar → "🔴 Desativar" → derruba TODAS as sessões dele e bloqueia login. Histórico fica. Reativar = mesmo botão |
+| **Remover operador** | Gerenciar → "🗑️ Remover" (confirmação 2x; soft-delete, events ficam) |
 | **Derrubar sessão sem desativar** | "🚪 Forçar logout agora" |
 | **Ver o que fez** | "📅 Ver timeline 7 dias" (read-only) |
+
+## Outras abas
+- **📊 Analytics**: métricas (bottles/dia, horas/operador, top supplements), range 7/30/90d.
+- **📋 Histórico**: auditoria filtrável (quem mudou o quê, quando).
+- **🔔 Notificações**: inbox (slack órfão, bottle count, dead-letter, ocioso, task presa, count anômalo) — ✅/❌/📝 ou ações específicas (💤 force logout, ⏱️ fecha task).
 
 ## Notificações (aba 🔔) — espelho do que a Carolina posta no #admin-orin
 - **🔔 Slack órfão**: alguém postou no Slack sem registrar na página → ✅ aceita o registro / ❌ apaga / 📝 edita (lote/nota).

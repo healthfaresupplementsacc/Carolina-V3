@@ -61,6 +61,30 @@ foi exposta) → liberar o Vitor na página → acompanhar 1-2 dias
 (#admin-orin + `/admin/` + `diagnostics/llm_metrics`) → liberar o resto
 → quando confortável, desligar o Slack pros operadores (custo LLM ≈ $0).
 
+**Bloco zera-sistema (13/jun) — amarrou as pontas pra produção real:**
+- **Carolina admin commands robustos**: `close_tasks` (fecha todas as tasks
+  abertas de 1+ pessoas — resolve "@carolina finaliza os tasks do Vitor" e
+  "fecha as atividades do Vitor e da Ana") e `close_specific_event` (fecha
+  ev por id), com confirmação ✅ que lista as tasks antes; exclui
+  long_running. (create/edit/delete/query já existiam.)
+- **Analytics** (aba 📊 do /admin): bottles/dia, horas/operador, eventos por
+  tipo, top supplements, breakdown diário; drill-down operador/supplement.
+- **Histórico de auditoria** (aba 📋): audit_log filtrável e legível.
+- **Hardening** (`docs/SECURITY.md`): CSP/HSTS/X-Frame nas rotas novas,
+  rate-limits, brute-force ban (10/h→24h + alerta), session cleanup 8h.
+- **CRUD de operadores** no /admin (criar/remover, soft-delete preserva
+  histórico).
+- **PWA /op** (instalável, offline: shell cacheado + fila de eventos que
+  sincroniza quando a internet volta; botão 📱 Instalar). Fluxo online
+  intocado.
+- **Alertas proativos** (cron 30min, `WORKER_PROACTIVE_ALERTS_ENABLED`):
+  operador ocioso >2h, task aberta >3h, contagem de bottles anômala (>70%
+  da média) → notificação + Carolina no #admin-orin, resolvível na inbox.
+
+Env vars novas: `ADMIN_PASSWORD`, `WORKER_PROACTIVE_ALERTS_ENABLED`.
+Suite ~2053 tests. Custo LLM segue ~$0 (Gemini). Docs: `SECURITY.md`,
+`ADMIN_QUICK_REFERENCE.md` (atualizado), `OPERATOR_CARD`.
+
 *(O restante deste documento descreve o estado de 21/mai — segue válido
 como contexto da operação; onde conflitar com este adendo, vale o adendo.)*
 

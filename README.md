@@ -8,7 +8,7 @@ cada pessoa da fábrica realmente faz — pra trocar chute por dados.
 ```
 OPERADORES                          ADMINS (Bruno/Thassio/Henrique)
    │                                     │
-   ├─ /op (Operator Page, PIN)           ├─ /admin (painel: operadores+inbox)
+   ├─ /op (Operator Page, PIN)           ├─ /admin (painel: operadores+inbox+📊analytics+📋auditoria)
    │    botões touch → writes DIRETOS    ├─ /dashboard-v4 (timeline/metas)
    │    em v3.events (SEM LLM, $0)       ├─ #admin-orin (@Carolina comandos)
    │                                     └─ /api/v3/architect/* (read-only,

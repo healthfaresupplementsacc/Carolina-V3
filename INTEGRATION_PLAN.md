@@ -211,6 +211,22 @@ Cada item DEVE estar funcionando no v4 antes do switch:
   notificações Carolina ✅/❌/📝 no #admin-orin
 - Docs: OPERATOR_PAGE.md, ADMIN_NOTIFICATIONS.md, adendo no handoff
 
+## ✅ ENTREGUE — bloco zera-sistema 13/jun
+- A: Carolina close_tasks/close_specific_event
+- B: Analytics dashboard (/admin 📊)
+- C: Audit log UI (/admin 📋)
+- D: Security hardening (CSP/HSTS/rate-limits/brute-force/session-cleanup) — docs/SECURITY.md
+- E: CRUD de operadores (/admin)
+- F: PWA /op (manifest + SW + offline queue + add-to-home)
+- G: Alertas proativos (idle/stale/anomaly) — WORKER_PROACTIVE_ALERTS_ENABLED
+
+### TODOs restantes (opcionais, próximos blocos)
+- 🔴 Rotacionar GEMINI_API_KEY (exposta no chat 12/jun) — Bruno faz no Railway
+- ⚪ Voice Whisper fallback (só se Web Speech der problema)
+- ⚪ Telemetria histórica (custo LLM ao longo do tempo)
+- ⚪ Operator self-service / analytics avançado
+- ⚪ Migration 017 Carolina configurável (bloco grande futuro, untracked)
+
 ## ✅ ENTREGUE — bloco autônomo noturno 12→13/jun
 - ✅ TODO #1 dead-letter (migration 021, Observer, diagnostics/queue)
 - ✅ TODO #2 Admin Panel `/admin/` (operadores + inbox; API /api/adminpanel/*)
