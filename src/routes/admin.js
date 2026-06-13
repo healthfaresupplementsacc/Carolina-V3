@@ -25,6 +25,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const opAuth = require('../lib/op-auth');
+const { makeRateLimit } = require('../middleware/security');
 
 const SESSION_HOURS = 8;
 const LOGIN_LIMIT = 3;
@@ -58,6 +59,7 @@ function createAdminRouter(deps = {}) {
   const slack = deps.slack || null; // { postAs, updateMessage }
   const password = deps.adminPassword !== undefined ? deps.adminPassword : process.env.ADMIN_PASSWORD;
   const now = deps.now || Date.now;
+  const bf = deps.bruteForce || null; // brute-force guard (Fase D)
   const router = express.Router();
   router.use(express.json({ limit: '128kb' }));
 
@@ -81,6 +83,7 @@ function createAdminRouter(deps = {}) {
   const loginHits = new Map();
   router.post('/api/adminpanel/auth/login', h(async (req, res) => {
     const ip = req.ip || 'unknown';
+    if (bf && bf.isBanned(ip)) return res.status(429).json({ error: 'ip_temporarily_blocked' });
     const t = now();
     let e = loginHits.get(ip);
     if (!e || t - e.windowStart >= LOGIN_WINDOW_MS) { e = { count: 0, windowStart: t }; loginHits.set(ip, e); }
@@ -92,8 +95,10 @@ function createAdminRouter(deps = {}) {
     const given = String((req.body && req.body.password) || '');
     if (!password || given !== password) {
       await audit('admin_login_failed', 'admin', null, { ip });
+      if (bf) await bf.recordFailure(ip);
       return res.status(401).json({ error: 'wrong_password' });
     }
+    if (bf) bf.recordSuccess(ip);
     const exp = t + SESSION_HOURS * 3600 * 1000;
     const token = signToken(password, exp);
     await audit('admin_login_success', 'admin', null, { ip });
@@ -112,7 +117,7 @@ function createAdminRouter(deps = {}) {
     return res.status(401).json({ error: 'unauthorized' });
   };
   router.use('/api/adminpanel/operators', requireAdmin);
-  router.use('/api/adminpanel/notifications', requireAdmin);
+  router.use('/api/adminpanel/notifications', requireAdmin, makeRateLimit({ limit: 30 }));
 
   // ── operators ───────────────────────────────────────────────
   router.get('/api/adminpanel/operators', h(async (req, res) => {
@@ -131,7 +136,7 @@ function createAdminRouter(deps = {}) {
     res.json({ operators: r.rows });
   }));
 
-  router.post('/api/adminpanel/operators/:id/pin', h(async (req, res) => {
+  router.post('/api/adminpanel/operators/:id/pin', makeRateLimit({ limit: 5 }), h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const pin = String((req.body && req.body.pin) || '');
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'bad_pin_format', detail: '4 dígitos' });
@@ -318,7 +323,7 @@ function createAdminRouter(deps = {}) {
   }));
 
   // ── analytics (Fase B) ──────────────────────────────────────
-  router.use('/api/adminpanel/analytics', requireAdmin);
+  router.use('/api/adminpanel/analytics', requireAdmin, makeRateLimit({ limit: 60 }));
   const rangeDays = (r) => ({ '7d': 7, '30d': 30, '90d': 90 }[String(r)] || 7);
   // duração só conta events FECHADOS (ended_at não-null) pra não inflar com abertos
   const DUR_MIN = `EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60.0`;

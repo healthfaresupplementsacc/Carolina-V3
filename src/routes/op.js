@@ -43,6 +43,7 @@ function createOpRouter(deps = {}) {
   const adminChannel = deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
   const slack = deps.slack || null; // { postAs }
   const now = deps.now || (() => Date.now());
+  const bf = deps.bruteForce || null; // Fase D brute-force guard
 
   const router = express.Router();
   router.use(express.json({ limit: '256kb' }));
@@ -76,6 +77,7 @@ function createOpRouter(deps = {}) {
   router.post('/api/v3/op/auth/login', async (req, res) => {
     try {
       const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+      if (bf && bf.isBanned(ip)) return res.status(429).json({ error: 'ip_temporarily_blocked' });
       const t = now();
       let entry = loginHits.get(ip);
       if (!entry || t - entry.windowStart >= LOGIN_WINDOW_MS) { entry = { count: 0, windowStart: t }; loginHits.set(ip, entry); }
@@ -94,8 +96,10 @@ function createOpRouter(deps = {}) {
       const person = candidates.rows.find((p) => opAuth.verifyPin(pin, p.pin_salt, p.pin_hash));
       if (!person) {
         await audit('op_login_failed', 'person', null, { ip });
+        if (bf) await bf.recordFailure(ip);
         return res.status(401).json({ error: 'invalid_pin' });
       }
+      if (bf) bf.recordSuccess(ip);
       const session = await opAuth.createSession(db, { personId: person.id, ip, userAgent: req.headers['user-agent'] });
       await db.query('UPDATE v3.persons SET last_page_login_at = NOW() WHERE id = $1', [person.id]);
       await audit('op_login_success', 'person', person.id, { ip, session_id: session.id }, person.id);

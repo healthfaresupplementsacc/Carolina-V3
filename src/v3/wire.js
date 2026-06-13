@@ -92,6 +92,16 @@ function mount(app) {
     }
   });
 
+  // Fase D — headers de segurança SÓ nas rotas novas (V4 legado intocado).
+  const { securityHeaders, makeBruteForceGuard } = require('../middleware/security');
+  for (const prefix of ['/op', '/admin', '/api/v3/op', '/api/v3/architect', '/api/adminpanel']) {
+    app.use(prefix, securityHeaders);
+  }
+  // brute-force guard compartilhado (login admin + operador)
+  const bruteForce = makeBruteForceGuard({
+    db: _pool, slack: { postAs: slackSender.postAs }, adminChannelId,
+  });
+
   // endpoints de inspeção shadow
   app.use('/', adminV3.createRouter({ db: _pool }));
   // Fase 1 (Operator Page bloco) — Architect API read-only. Auth por
@@ -105,6 +115,7 @@ function mount(app) {
     db: _pool,
     slack: { postAs: slackSender.postAs },
     adminChannelId: adminChannelId,
+    bruteForce,
   }));
   {
     const express2 = require('express');
@@ -115,11 +126,12 @@ function mount(app) {
     app.use('/', adminPanel.createAdminRouter({
       db: _pool,
       slack: { postAs: slackSender.postAs, updateMessage: slackSender.updateMessage },
+      bruteForce,
     }));
     const adminDir = path2.join(process.cwd(), 'src', 'admin');
     app.use('/admin', express2.static(adminDir));
     // SPA: /admin/operators e /admin/notifications servem o mesmo index
-    app.get(['/admin', '/admin/operators', '/admin/notifications'], (_req, res) => {
+    app.get(['/admin', '/admin/operators', '/admin/notifications', '/admin/analytics', '/admin/audit'], (_req, res) => {
       res.sendFile(path2.join(adminDir, 'index.html'));
     });
   }
@@ -166,6 +178,25 @@ async function startWorker() {
   }, _svc));
   _observer.start(5000);
   console.log('[V3] Observer worker SHADOW ligado (tick 5s, bot=' + (botUserId || '?') + ')');
+
+  // Fase D — session cleanup: fecha operator_sessions ociosas >8h (hard limit),
+  // 1×/h. Não derruba sessões legítimas (last_activity < 8h). Loga quantas.
+  setInterval(async () => {
+    try {
+      const r = await _pool.query(
+        `UPDATE v3.operator_sessions
+         SET logged_out_at = NOW(), logoff_reason = 'session_expired_cleanup'
+         WHERE logged_out_at IS NULL AND last_activity_at < NOW() - INTERVAL '8 hours'
+         RETURNING id`);
+      if (r.rowCount > 0) {
+        await _pool.query(
+          `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+           VALUES ('system', NULL, 'session_cleanup', 'api', NULL, $1::jsonb)`,
+          [JSON.stringify({ closed: r.rowCount })]);
+        console.log('[V3] session cleanup: ' + r.rowCount + ' sessões ociosas fechadas');
+      }
+    } catch (e) { console.error('[V3] session cleanup erro:', e.message); }
+  }, 60 * 60 * 1000);
 
   // Bloco 30/mai-noite — cron de expiração de pending_commands.
   // Roda a cada 60s; marca status='expired' os com expires_at < NOW()
