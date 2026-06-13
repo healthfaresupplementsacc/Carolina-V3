@@ -3,3 +3,7 @@ node_modules/
 public/archive/*.png
 *.log
 .DS_Store
+
+# dados locais (dumps de prod, config pessoal)
+snapshots/
+.claude/settings.json
