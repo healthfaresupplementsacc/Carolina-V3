@@ -562,14 +562,25 @@ function createAdminRouter(deps = {}) {
        WHERE v.deleted_at IS NULL ORDER BY v.id DESC LIMIT $1`, [limit]);
     res.json({ voice: r.rows });
   }));
+  // Lista filtrável (Fase 0.7 — aba 🎤 Voices dedicada). Filtros opcionais:
+  // event_id, person_id, date_from, date_to, limit, offset. Sem filtro = últimas.
   router.get('/api/adminpanel/voice', h(async (req, res) => {
+    const conds = ['v.deleted_at IS NULL']; const vals = []; let i = 1;
     const evId = parseInt(req.query.event_id, 10);
-    if (!Number.isFinite(evId)) return res.status(400).json({ error: 'event_id_required' });
+    if (Number.isFinite(evId)) { conds.push(`v.event_id = $${i++}`); vals.push(evId); }
+    const pid = parseInt(req.query.person_id, 10);
+    if (Number.isFinite(pid)) { conds.push(`v.person_id = $${i++}`); vals.push(pid); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date_from || '')) { conds.push(`v.created_at >= $${i++}::date`); vals.push(req.query.date_from); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date_to || '')) { conds.push(`v.created_at < ($${i++}::date + INTERVAL '1 day')`); vals.push(req.query.date_to); }
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    vals.push(limit, offset);
     const r = await db.query(
-      `SELECT v.id, v.audio_mime, v.audio_duration_seconds, v.transcript, v.transcript_language,
+      `SELECT v.id, v.event_id, v.audio_mime, v.audio_duration_seconds, v.audio_size_bytes,
+              v.transcript, v.transcript_language, v.person_id,
               p.display_name AS person, to_char(v.created_at AT TIME ZONE '${EDT}','MM-DD HH12:MI AM') AS created_edt
        FROM v3.voice_recordings v JOIN v3.persons p ON p.id = v.person_id
-       WHERE v.event_id = $1 AND v.deleted_at IS NULL ORDER BY v.id`, [evId]);
+       WHERE ${conds.join(' AND ')} ORDER BY v.id DESC LIMIT $${i++} OFFSET $${i++}`, vals);
     res.json({ voice: r.rows });
   }));
   router.get('/api/adminpanel/voice/:id', h(async (req, res) => {
@@ -579,6 +590,20 @@ function createAdminRouter(deps = {}) {
     res.set('Content-Type', r.rows[0].audio_mime || 'audio/webm');
     res.set('Cache-Control', 'private, max-age=3600');
     res.send(r.rows[0].audio_bytes);
+  }));
+  // Soft-delete pelo admin (Fase 0.7). Mantém a row + transcript; zera o áudio
+  // só no cleanup de retenção (TODO 90d). Audita.
+  router.delete('/api/adminpanel/voice/:id', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad_id' });
+    const r = await db.query(
+      'UPDATE v3.voice_recordings SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING id, person_id', [id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });
+    await db.query(
+      `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+       VALUES ('admin', NULL, 'voice_deleted', 'voice', $1, $2::jsonb)`,
+      [id, JSON.stringify({ person_id: r.rows[0].person_id })]).catch(() => {});
+    res.json({ ok: true, id });
   }));
 
   // ── audit log (Fase C) ──────────────────────────────────────

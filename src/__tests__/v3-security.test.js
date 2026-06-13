@@ -95,3 +95,64 @@ describe('Fase D — brute-force guard', () => {
     await new Promise((r2) => s.close(r2));
   });
 });
+
+describe('Fase D — blocked_ips persistente (migration 023)', () => {
+  test('ban persiste em v3.blocked_ips (INSERT ... ON CONFLICT) ao disparar', async () => {
+    let t = 1000; const inserts = [];
+    const bf = makeBruteForceGuard({
+      db: { query: async (sql, p) => { if (/INSERT INTO v3\.blocked_ips/.test(String(sql))) inserts.push({ sql: String(sql), p }); return { rows: [] }; } },
+      slack: null, now: () => t,
+    });
+    for (let i = 0; i < 10; i++) await bf.recordFailure('2.2.2.2');
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].sql).toMatch(/ON CONFLICT \(ip_address\) DO UPDATE/);
+    expect(inserts[0].sql).toMatch(/block_count = v3\.blocked_ips\.block_count \+ 1/);
+    expect(inserts[0].p[0]).toBe('2.2.2.2');               // ip
+    expect(inserts[0].p[1]).toBe(t + 24 * 60 * 60 * 1000); // expires (ms epoch)
+  });
+
+  test('hydrate() re-carrega bans não-expirados do DB (sobrevive a restart)', async () => {
+    let t = 5_000_000;
+    const future = (t + 60 * 60 * 1000) / 1000; // 1h no futuro, em segundos epoch
+    const bf = makeBruteForceGuard({
+      db: { query: async (sql) => {
+        if (/DELETE FROM v3\.blocked_ips/.test(String(sql))) return { rows: [] };
+        if (/SELECT ip_address/.test(String(sql))) return { rows: [{ ip_address: '3.3.3.3', until_ms: future * 1000 }] };
+        return { rows: [] };
+      } },
+      slack: null, now: () => t,
+    });
+    expect(bf.isBanned('3.3.3.3')).toBe(false); // memória vazia antes do hydrate
+    const n = await bf.hydrate();
+    expect(n).toBe(1);
+    expect(bf.isBanned('3.3.3.3')).toBe(true);  // re-hidratado
+  });
+
+  test('globalGate retorna 403 (sem detalhe) p/ IP banido', async () => {
+    let t = 1000;
+    const bf = makeBruteForceGuard({ db: { query: async () => ({ rows: [] }) }, slack: null, now: () => t });
+    for (let i = 0; i < 10; i++) await bf.recordFailure('4.4.4.4');
+    const app = express();
+    app.use((req, _r, n) => { Object.defineProperty(req, 'ip', { value: '4.4.4.4', configurable: true }); n(); });
+    app.use(bf.globalGate);
+    app.get('/any', (_q, r) => r.json({ ok: true }));
+    const s = await new Promise((res) => { const x = app.listen(0, '127.0.0.1', () => res(x)); });
+    const r = await fetch(`http://127.0.0.1:${s.address().port}/any`);
+    expect(r.status).toBe(403);
+    const j = await r.json();
+    expect(j).toEqual({ error: 'forbidden' }); // sem vazar motivo/contagem
+    await new Promise((r2) => s.close(r2));
+  });
+
+  test('globalGate deixa passar IP limpo', async () => {
+    const bf = makeBruteForceGuard({ db: { query: async () => ({ rows: [] }) }, slack: null });
+    const app = express();
+    app.use((req, _r, n) => { Object.defineProperty(req, 'ip', { value: '8.8.8.8', configurable: true }); n(); });
+    app.use(bf.globalGate);
+    app.get('/any', (_q, r) => r.json({ ok: true }));
+    const s = await new Promise((res) => { const x = app.listen(0, '127.0.0.1', () => res(x)); });
+    const r = await fetch(`http://127.0.0.1:${s.address().port}/any`);
+    expect(r.status).toBe(200);
+    await new Promise((r2) => s.close(r2));
+  });
+});

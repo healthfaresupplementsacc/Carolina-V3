@@ -18,6 +18,7 @@ Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio.
 
 ## Outras abas
 - **📊 Analytics**: métricas (bottles/dia, horas/operador, top supplements, **min/ordem impressa**, **uso de voz**), range 7/30/90d. No fim da aba: **🎤 Notas de voz recentes** com player + transcrição.
+- **🎤 Voices**: aba dedicada — todas as gravações, **filtra por operador e data**, player inline + transcrição, **📥 baixar** e **🗑️ apagar** (soft-delete, audita). Voz também aparece como player inline no **📋 Histórico** quando a ação é sobre uma gravação.
 - **📋 Histórico**: auditoria filtrável (quem mudou o quê, quando).
 - **🔔 Notificações**: inbox (slack órfão, bottle count, dead-letter, ocioso, task presa, count anômalo, **ordens anômalas**, **quota de áudio**) — ✅/❌/📝 ou ações específicas (💤 force logout, ⏱️ fecha task).
 

@@ -26,11 +26,13 @@
     $('view-op-edit').classList.toggle('hidden', v !== 'op-edit');
     $('view-notifs').classList.toggle('hidden', v !== 'notifs');
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
+    $('view-voices').classList.toggle('hidden', v !== 'voices');
     $('view-audit').classList.toggle('hidden', v !== 'audit');
     $('hdr').classList.toggle('hidden', v === 'login');
     $('tab-ops').classList.toggle('active', v === 'ops' || v === 'op-edit');
     $('tab-notifs').classList.toggle('active', v === 'notifs');
     $('tab-analytics').classList.toggle('active', v === 'analytics');
+    $('tab-voices').classList.toggle('active', v === 'voices');
     $('tab-audit').classList.toggle('active', v === 'audit');
   }
 
@@ -48,6 +50,8 @@
   $('tab-notifs').onclick = async () => { show('notifs'); await loadNotifs(); };
   $('tab-analytics').onclick = async () => { show('analytics'); await loadAnalytics(); };
   $('a-range').onchange = loadAnalytics;
+  $('tab-voices').onclick = async () => { show('voices'); await loadVoices(); };
+  $('v-apply').onclick = () => loadVoices();
   $('tab-audit').onclick = async () => { show('audit'); auditOffset = 0; await loadAudit(false); };
   $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
   let _auDeb = null;
@@ -302,9 +306,73 @@
       data: { labels: s.avg_task_duration_minutes_by_slug.slice(0, 8).map((x) => x.slug || '?'), datasets: [{ data: s.avg_task_duration_minutes_by_slug.slice(0, 8).map((x) => x.n), backgroundColor: ['#0e7a4e', '#2c505f', '#b35c00', '#b3261e', '#6b46c1', '#0891b2', '#65a30d', '#9333ea'] }] },
       options: { plugins: { title: { display: true, text: '🧩 Eventos por tipo de tarefa' } } },
     });
+    if (s.voice_usage) $('a-cards').appendChild(metric('🎤 ' + s.voice_usage.count, Math.round((s.voice_usage.total_seconds || 0) / 60) + ' min de voz'));
     let html = '<table class="dt"><tr><th>Dia</th><th>Eventos</th><th>Bottles</th><th>Horas</th></tr>';
     s.daily_breakdown.slice().reverse().forEach((d) => { html += `<tr><td>${d.day}</td><td>${d.events}</td><td>${d.bottles}</td><td>${d.hours}</td></tr>`; });
+    if (s.minutes_per_order && s.minutes_per_order.length) {
+      html += '</table><h2>⏱️ Min por ordem impressa</h2><table class="dt"><tr><th>Tipo</th><th>Ordens</th><th>Min/ordem</th></tr>';
+      s.minutes_per_order.forEach((o) => { html += `<tr><td>${o.slug}</td><td>${o.total_orders}</td><td>${o.min_por_ordem || '—'}</td></tr>`; });
+    }
     $('a-table').innerHTML = html + '</table>';
+    // notas de voz recentes (player) — Fase 0 / addition C
+    try {
+      const v = await api('/api/adminpanel/voice/recent?limit=20');
+      if (v.voice && v.voice.length) {
+        const vb = el('div'); vb.appendChild(el('h2', null, '🎤 Notas de voz recentes'));
+        v.voice.forEach((rec) => {
+          const c = el('div', 'card');
+          c.appendChild(el('div', 'sub', `${rec.person} · ${rec.created_edt} · ${rec.audio_duration_seconds || '?'}s · ${rec.transcript_language || ''}`));
+          const au = document.createElement('audio'); au.controls = true; au.preload = 'none'; au.src = '/api/adminpanel/voice/' + rec.id; au.style.width = '100%';
+          c.appendChild(au);
+          if (rec.transcript) c.appendChild(el('div', 'sub', '“' + rec.transcript + '”'));
+          vb.appendChild(c);
+        });
+        $('a-table').appendChild(vb);
+      }
+    } catch (_) { /* sem voz */ }
+  }
+
+  // ── voices (Fase 0.7 — aba dedicada 🎤) ─────────────────────
+  function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function voiceCard(rec) {
+    const c = el('div', 'card');
+    c.appendChild(el('div', 'row',
+      `<span class="title">🎤 ${escapeHtml(rec.person)}${rec.event_id ? ' · ev' + rec.event_id : ''}</span>` +
+      `<span class="sub">${rec.created_edt} · ${rec.audio_duration_seconds || '?'}s · ${rec.transcript_language || ''}</span>`));
+    const au = document.createElement('audio'); au.controls = true; au.preload = 'none';
+    au.src = '/api/adminpanel/voice/' + rec.id; au.style.width = '100%';
+    c.appendChild(au);
+    if (rec.transcript) c.appendChild(el('div', 'sub', '“' + escapeHtml(rec.transcript) + '”'));
+    const act = el('div', 'actions');
+    const dl = el('button', 'btn-sm', '📥 Baixar');
+    dl.onclick = () => { const a = document.createElement('a'); a.href = '/api/adminpanel/voice/' + rec.id; a.download = 'voz-' + rec.id + '.webm'; a.click(); };
+    const rm = el('button', 'no', '🗑️ Apagar');
+    rm.onclick = async () => {
+      if (!window.confirm('Apagar essa gravação? (soft-delete; transcrição fica no histórico)')) return;
+      try { await api('/api/adminpanel/voice/' + rec.id, { method: 'DELETE' }); toast('🗑️ apagada'); loadVoices(); }
+      catch (e) { toast('❌ ' + e.message); }
+    };
+    act.appendChild(dl); act.appendChild(rm); c.appendChild(act);
+    return c;
+  }
+  async function loadVoices() {
+    // popula dropdown de operadores (1x)
+    const sel = $('v-person');
+    if (sel.options.length <= 1) {
+      try {
+        if (!ops.length) { const r = await api('/api/adminpanel/operators'); ops = r.operators; }
+        ops.forEach((o) => { const opt = document.createElement('option'); opt.value = o.id; opt.textContent = o.display_name; sel.appendChild(opt); });
+      } catch (_) {}
+    }
+    const qs = new URLSearchParams({ limit: '50' });
+    if (sel.value) qs.set('person_id', sel.value);
+    if ($('v-from').value) qs.set('date_from', $('v-from').value);
+    if ($('v-to').value) qs.set('date_to', $('v-to').value);
+    let r;
+    try { r = await api('/api/adminpanel/voice?' + qs.toString()); } catch (e) { toast('❌ ' + e.message); return; }
+    const box = $('voices-list'); box.innerHTML = '';
+    if (!r.voice.length) { box.appendChild(el('div', 'sub', 'Nenhuma gravação de voz.')); return; }
+    r.voice.forEach((rec) => box.appendChild(voiceCard(rec)));
   }
 
   // ── criar operador (Fase E) ─────────────────────────────────
@@ -350,6 +418,9 @@
     'event.closed_via_carolina': (m) => 'Fechou ev' + m.target_id + ' (via Carolina)',
     'carolina_admin_command': (m) => 'Comando Carolina',
     'message_dead_lettered': (m) => 'Mensagem foi pra dead-letter',
+    'voice_uploaded': () => '🎤 Voz gravada',
+    'voice_deleted': (m) => '🎤 Voz apagada' + (m.target_id ? ' #' + m.target_id : ''),
+    'login_bruteforce_ban': (m) => '⚠️ IP bloqueado por brute-force' + (m.ip ? ' (' + m.ip + ')' : ''),
     'dedupe_matched': () => 'Match dedupe Slack↔página',
     'dedupe_orphan_notified': () => 'Slack órfão → notificou admin',
     'operator.auto_logoff_set': (m) => 'Ajustou auto-logoff',
@@ -383,6 +454,11 @@
       const who = e.actor_name ? e.actor_name : e.actor_type;
       c.appendChild(el('div', 'row', `<span class="title">${actionText(e)}</span><span class="sub" title="${e.created_at}">${e.created_edt}</span>`));
       c.appendChild(el('div', 'sub', `${who} · ${e.actor_type}${e.target_type ? ' · ' + e.target_type + (e.target_id ? ' #' + e.target_id : '') : ''}`));
+      if (e.target_type === 'voice' && e.target_id && e.action !== 'voice_deleted') {
+        const au = document.createElement('audio'); au.controls = true; au.preload = 'none';
+        au.src = '/api/adminpanel/voice/' + e.target_id; au.style.cssText = 'width:100%;margin-top:6px';
+        c.appendChild(au);
+      }
       if (e.metadata && Object.keys(e.metadata).length) {
         const det = el('button', 'btn-sm', 'ver detalhes');
         const pre = el('pre', 'sub', ''); pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;display:none;margin-top:8px';

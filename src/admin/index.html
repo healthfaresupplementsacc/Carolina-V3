@@ -13,6 +13,7 @@
       <button id="tab-ops" class="tab active">👷 Operadores</button>
       <button id="tab-notifs" class="tab">🔔 Notificações <span id="notif-badge" class="badge hidden">0</span></button>
       <button id="tab-analytics" class="tab">📊 Analytics</button>
+      <button id="tab-voices" class="tab">🎤 Voices</button>
       <button id="tab-audit" class="tab">📋 Histórico</button>
     </nav>
     <button id="btn-logout" class="btn-sm">Sair</button>
@@ -53,6 +54,16 @@
       </div>
       <div id="audit-list" class="cards"></div>
       <button id="au-more" class="btn-big hidden">Carregar mais</button>
+    </section>
+
+    <section id="view-voices" class="view hidden">
+      <div class="filters">
+        <select id="v-person"><option value="">Todos os operadores</option></select>
+        <input id="v-from" type="date">
+        <input id="v-to" type="date">
+        <button id="v-apply" class="btn-sm">Filtrar</button>
+      </div>
+      <div id="voices-list" class="cards"></div>
     </section>
 
     <section id="view-notifs" class="view hidden">

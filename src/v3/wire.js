@@ -101,6 +101,12 @@ function mount(app) {
   const bruteForce = makeBruteForceGuard({
     db: _pool, slack: { postAs: slackSender.postAs }, adminChannelId,
   });
+  // Fase D — re-hidrata bans persistidos (v3.blocked_ips) no boot e aplica gate
+  // global 403 nas rotas novas: IP banido não acessa NADA, não só o login.
+  bruteForce.hydrate().then((n) => { if (n) console.log(`[V3] brute-force: ${n} IP(s) banido(s) re-hidratado(s)`); }).catch(() => {});
+  for (const prefix of ['/op', '/admin', '/api/v3/op', '/api/v3/architect', '/api/adminpanel']) {
+    app.use(prefix, bruteForce.globalGate);
+  }
 
   // endpoints de inspeção shadow
   app.use('/', adminV3.createRouter({ db: _pool }));
@@ -131,7 +137,7 @@ function mount(app) {
     const adminDir = path2.join(process.cwd(), 'src', 'admin');
     app.use('/admin', express2.static(adminDir));
     // SPA: /admin/operators e /admin/notifications servem o mesmo index
-    app.get(['/admin', '/admin/operators', '/admin/notifications', '/admin/analytics', '/admin/audit'], (_req, res) => {
+    app.get(['/admin', '/admin/operators', '/admin/notifications', '/admin/analytics', '/admin/voices', '/admin/audit'], (_req, res) => {
       res.sendFile(path2.join(adminDir, 'index.html'));
     });
   }

@@ -28,6 +28,12 @@ varrido). PINs e senha nunca aparecem em respostas de API.
 ## Brute-force
 10 falhas de login do mesmo IP em 1h → **ban 24h** + Carolina alerta o
 `#admin-orin` + audit `login_bruteforce_ban`. Sucesso limpa o contador.
+- **Persistência** (`v3.blocked_ips`, migration 023): o ban é gravado no DB e
+  re-hidratado no boot, então **sobrevive a restart/redeploy** do Railway
+  (antes vivia só em memória). `block_count` conta reincidências.
+- **Gate global**: IP banido recebe **403** em qualquer rota nova (`/op`,
+  `/admin`, `/api/v3/op`, `/api/adminpanel`, architect) — não só no login.
+  Expiração é preguiçosa + limpeza dos vencidos no boot.
 
 ## Sessões
 - Operador: cleanup automático 1×/h fecha sessões ociosas >8h
