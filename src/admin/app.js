@@ -77,6 +77,9 @@
   $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
   let _auDeb = null;
   $('au-action').oninput = () => { clearTimeout(_auDeb); _auDeb = setTimeout(async () => { auditOffset = 0; await loadAudit(false); }, 400); };
+  $('au-q').oninput = () => { clearTimeout(_auDeb); _auDeb = setTimeout(async () => { auditOffset = 0; await loadAudit(false); }, 400); };
+  $('au-sensitive').onchange = async () => { auditOffset = 0; await loadAudit(false); };
+  $('au-export').onclick = () => { window.location.href = '/api/adminpanel/audit/export.csv?' + auditQS().toString(); };
   $('au-more').onclick = () => loadAudit(true);
   $('btn-back').onclick = async () => { show('ops'); await loadOps(); };
 
@@ -684,11 +687,21 @@
     const base = f ? f({ ...e, ...(e.metadata || {}) }) : e.action.replace(/[._]/g, ' ');
     return base;
   }
-  async function loadAudit(append) {
-    if (!append) auditOffset = 0;
-    const qs = new URLSearchParams({ limit: '50', offset: String(auditOffset) });
+  function auditQS() {
+    const qs = new URLSearchParams();
     if ($('au-actor').value) qs.set('actor_type', $('au-actor').value);
     if ($('au-action').value.trim()) qs.set('action', $('au-action').value.trim());
+    if ($('au-q').value.trim()) qs.set('q', $('au-q').value.trim());
+    if (isOwner() && $('au-sensitive').checked) qs.set('sensitive_only', '1');
+    return qs;
+  }
+  async function loadAudit(append) {
+    if (!append) auditOffset = 0;
+    // controles owner-only
+    $('au-sens-wrap').style.display = isOwner() ? '' : 'none';
+    $('au-export').style.display = isOwner() ? '' : 'none';
+    const qs = auditQS();
+    qs.set('limit', '50'); qs.set('offset', String(auditOffset));
     let r;
     try { r = await api('/api/adminpanel/audit?' + qs.toString()); } catch (e) { toast('❌ ' + e.message); return; }
     const box = $('audit-list');

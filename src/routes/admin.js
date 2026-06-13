@@ -1050,20 +1050,34 @@ function createAdminRouter(deps = {}) {
     });
   }));
 
-  // ── audit log (Fase C) ──────────────────────────────────────
+  // ── audit log (Fase C + Fase 6: filtro por role + CSV) ──────
+  // Ações "sensíveis": só owner vê. Manager vê apenas operacional.
+  const SENSITIVE_ACTIONS = [
+    'admin_login_success', 'admin_login_failed', 'admin_login_rate_limited',
+    'admin_user.pin_changed', 'admin_user.role_changed', 'admin_user.active_changed', 'admin_user.created',
+    'finance_calculation', 'login_bruteforce_ban',
+  ];
   router.use('/api/adminpanel/audit', requireAdmin);
-  router.get('/api/adminpanel/audit', h(async (req, res) => {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
-    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+  function buildAuditQuery(req, forCsv) {
     const conds = []; const vals = []; let i = 1;
     if (req.query.actor_type) { conds.push(`a.actor_type = $${i++}`); vals.push(String(req.query.actor_type)); }
     if (req.query.action) { conds.push(`a.action ILIKE $${i++}`); vals.push('%' + String(req.query.action) + '%'); }
     if (req.query.target_type) { conds.push(`a.target_type = $${i++}`); vals.push(String(req.query.target_type)); }
     if (req.query.target_id) { conds.push(`a.target_id = $${i++}`); vals.push(parseInt(req.query.target_id, 10)); }
+    if (req.query.q) { conds.push(`a.metadata::text ILIKE $${i++}`); vals.push('%' + String(req.query.q) + '%'); }
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date_from || '')) { conds.push(`a.created_at >= $${i++}::date`); vals.push(req.query.date_from); }
     if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date_to || '')) { conds.push(`a.created_at < ($${i++}::date + INTERVAL '1 day')`); vals.push(req.query.date_to); }
-    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-    vals.push(limit); const limI = i++; vals.push(offset); const offI = i++;
+    // role gating: manager nunca vê ações sensíveis
+    const isOwner = req.admin && req.admin.role === 'owner';
+    if (!isOwner) { conds.push(`a.action <> ALL($${i++}::text[])`); vals.push(SENSITIVE_ACTIONS); }
+    else if (req.query.sensitive_only === '1') { conds.push(`a.action = ANY($${i++}::text[])`); vals.push(SENSITIVE_ACTIONS); }
+    return { where: conds.length ? 'WHERE ' + conds.join(' AND ') : '', vals, i };
+  }
+  router.get('/api/adminpanel/audit', h(async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const { where, vals, i } = buildAuditQuery(req);
+    vals.push(limit); const limI = i; vals.push(offset); const offI = i + 1;
     const r = await db.query(`
       SELECT a.id, a.actor_type, a.actor_person_id, p.display_name AS actor_name,
              a.action, a.target_type, a.target_id, a.metadata,
@@ -1071,7 +1085,25 @@ function createAdminRouter(deps = {}) {
       FROM v3.audit_log a LEFT JOIN v3.persons p ON p.id = a.actor_person_id
       ${where}
       ORDER BY a.id DESC LIMIT $${limI} OFFSET $${offI}`, vals);
-    res.json({ entries: r.rows, limit, offset });
+    res.json({ entries: r.rows, limit, offset, role: (req.admin && req.admin.role) || null });
+  }));
+  // Export CSV (owner only) — Fase 6
+  router.get('/api/adminpanel/audit/export.csv', requireRole('owner'), h(async (req, res) => {
+    const { where, vals } = buildAuditQuery(req);
+    const r = await db.query(`
+      SELECT to_char(a.created_at AT TIME ZONE '${EDT}', 'YYYY-MM-DD HH24:MI:SS') AS ts,
+             a.actor_type, COALESCE(p.display_name,'') AS actor_name, a.action,
+             COALESCE(a.target_type,'') AS target_type, COALESCE(a.target_id::text,'') AS target_id,
+             COALESCE(a.metadata::text,'{}') AS metadata
+      FROM v3.audit_log a LEFT JOIN v3.persons p ON p.id = a.actor_person_id
+      ${where} ORDER BY a.id DESC LIMIT 10000`, vals);
+    const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const head = ['timestamp_edt', 'actor_type', 'actor_name', 'action', 'target_type', 'target_id', 'metadata'];
+    const lines = [head.join(',')].concat(r.rows.map((x) => [x.ts, x.actor_type, x.actor_name, x.action, x.target_type, x.target_id, x.metadata].map(esc).join(',')));
+    await audit('audit_exported_csv', 'audit', null, { rows: r.rowCount }, req);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="audit-export.csv"');
+    res.send(lines.join('\n'));
   }));
 
   return router;

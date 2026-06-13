@@ -58,6 +58,9 @@
       <div class="filters">
         <select id="au-actor"><option value="">Todos os atores</option><option value="admin">admin</option><option value="operator_page">operator_page</option><option value="llm_observer">llm_observer</option><option value="dedupe_worker">dedupe_worker</option><option value="system">system</option></select>
         <input id="au-action" type="text" placeholder="filtrar por ação…" style="flex:1">
+        <input id="au-q" type="text" placeholder="buscar nos detalhes…" style="flex:1">
+        <label class="chk" id="au-sens-wrap" style="display:none"><input id="au-sensitive" type="checkbox"><span>só sensíveis</span></label>
+        <button id="au-export" class="btn-sm" style="display:none">📥 CSV</button>
       </div>
       <div id="audit-list" class="cards"></div>
       <button id="au-more" class="btn-big hidden">Carregar mais</button>
