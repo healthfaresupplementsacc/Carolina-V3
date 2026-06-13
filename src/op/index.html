@@ -5,13 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>HealthFare — Produção</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="/op/manifest.json">
+  <meta name="theme-color" content="#0e7a4e">
+  <link rel="apple-touch-icon" href="/op/icon.svg">
 </head>
 <body>
   <!-- header sticky (só logado) -->
   <header id="hdr" class="hidden">
     <span id="hdr-user">👤 —</span>
     <span id="hdr-timer" class="timer"></span>
+    <span id="conn" class="timer" title="conexão"></span>
     <span class="hdr-actions">
+      <button id="btn-install" class="btn-sm hidden">📱 Instalar</button>
       <button id="btn-clockout" class="btn-sm btn-warn">Sair (fim do dia)</button>
       <button id="btn-switch" class="btn-sm">Trocar</button>
     </span>
@@ -51,6 +56,7 @@
   <script src="config.js"></script>
   <script src="fuse-data.js"></script>
   <script src="state-machine.js"></script>
+  <script src="offline-queue.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

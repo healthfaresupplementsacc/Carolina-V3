@@ -24,15 +24,52 @@
     const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
     clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), ms || 2600);
   }
+  // Fase F — POST de event/note pode ser enfileirado offline (fluxo online intocado).
+  const Q = window.HFOfflineQueue;
+  const queueable = (path) => /\/api\/v3\/op\/(event|note)/.test(path);
   async function api(path, { method = 'GET', body, headers = {} } = {}) {
     const h = { Authorization: 'Bearer ' + CFG.pageToken, ...headers };
     if (session) h['X-Session-Token'] = session.token;
     if (body !== undefined) h['Content-Type'] = 'application/json';
-    const r = await fetch(path, { method, headers: h, body: body !== undefined ? JSON.stringify(body) : undefined });
+    // offline + enfileirável → guarda e segue (sincroniza quando voltar)
+    if (Q && method === 'POST' && queueable(path) && typeof navigator !== 'undefined' && navigator.onLine === false) {
+      Q.enqueue({ path, body, sessionToken: session && session.token });
+      updateConn();
+      return { queued: true };
+    }
+    let r;
+    try {
+      r = await fetch(path, { method, headers: h, body: body !== undefined ? JSON.stringify(body) : undefined });
+    } catch (netErr) {
+      if (Q && method === 'POST' && queueable(path)) { Q.enqueue({ path, body, sessionToken: session && session.token }); updateConn(); return { queued: true }; }
+      throw netErr;
+    }
     let j = null; try { j = await r.json(); } catch (_) { /* vazio */ }
     if (r.status === 401 && session && path.indexOf('/auth/login') < 0) { endSession(); throw new Error('Sessão expirou — entra de novo'); }
     if (!r.ok) { const e = new Error((j && (j.detail || j.error)) || ('HTTP ' + r.status)); e.status = r.status; e.body = j; throw e; }
     return j;
+  }
+
+  // ── conectividade + sync (Fase F) ───────────────────────────
+  function updateConn() {
+    const ind = $('conn'); if (!ind) return;
+    const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+    const pending = Q ? Q.size() : 0;
+    ind.textContent = online ? (pending ? '🟢 ' + pending + ' p/ sincronizar' : '🟢') : ('🔴 offline' + (pending ? ' (' + pending + ')' : ''));
+  }
+  async function syncQueue() {
+    if (!Q || !Q.size()) { updateConn(); return; }
+    const res = await Q.flush(async (path, { body, sessionToken }) => {
+      const r = await fetch(path, { method: 'POST', headers: { Authorization: 'Bearer ' + CFG.pageToken, 'X-Session-Token': sessionToken || '', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!r.ok && r.status !== 409) throw new Error('retry'); // 409 (já fechado) conta como entregue
+    });
+    if (res.sent) toast('✅ ' + res.sent + ' registro(s) sincronizado(s)');
+    updateConn();
+    if (state === 'IDLE') refreshIdle().catch(() => {});
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => { updateConn(); syncQueue(); });
+    window.addEventListener('offline', updateConn);
   }
   function dispatch(event, payload) {
     const r = SM.transition(state, event, { draft }, payload);
@@ -507,5 +544,25 @@
   $('btn-clockout').onclick = openClockOut;
   $('btn-switch').onclick = () => doLogout('manual');
 
-  buildKeypad(); renderPin(); render();
+  // ── PWA: service worker + add-to-home (Fase F) ──────────────
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/op/sw.js').catch(() => {});
+  }
+  let _installPrompt = null;
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault(); _installPrompt = e;
+      const b = $('btn-install'); if (b && !sessionStorage.getItem('hf_install_dismissed')) b.classList.remove('hidden');
+    });
+  }
+  if ($('btn-install')) {
+    $('btn-install').onclick = async () => {
+      $('btn-install').classList.add('hidden');
+      sessionStorage.setItem('hf_install_dismissed', '1');
+      if (_installPrompt) { _installPrompt.prompt(); _installPrompt = null; }
+    };
+  }
+
+  buildKeypad(); renderPin(); render(); updateConn();
+  if (typeof navigator !== 'undefined' && navigator.onLine !== false) syncQueue();
 }());

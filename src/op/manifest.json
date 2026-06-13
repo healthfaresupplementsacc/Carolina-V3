@@ -1,0 +1,14 @@
+{
+  "name": "HealthFare — Linha de Produção",
+  "short_name": "HF Linha",
+  "start_url": "/op/",
+  "scope": "/op/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14323f",
+  "theme_color": "#0e7a4e",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/op/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

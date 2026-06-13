@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="HealthFare Linha">
+  <rect width="512" height="512" rx="96" fill="#14323f"/>
+  <!-- cápsula -->
+  <g transform="rotate(45 256 256)">
+    <rect x="176" y="120" width="160" height="272" rx="80" fill="#ffffff"/>
+    <path d="M176 256 a80 80 0 0 1 160 0 v56 a80 80 0 0 1 -160 0 z" fill="#0e7a4e"/>
+  </g>
+  <text x="256" y="470" font-family="Arial, sans-serif" font-size="64" font-weight="bold" fill="#ffffff" text-anchor="middle">HF</text>
+</svg>
