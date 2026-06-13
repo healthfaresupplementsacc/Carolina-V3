@@ -29,21 +29,24 @@ const GROUPS = [
   { key: 'embalagem', icon: '📦', label: 'Embalagem / Ordens', items: [
     ['orders', 'Ordens'], ['order_printing', 'Impressão de ordens'],
     ['order_printing_2', '2ª impressão'], ['labeling', 'Colar labels'],
-    ['packaging', 'Embalagem'], ['clinic_shipment', 'Envio Clínica'],
+    ['packaging', 'Embalagem'],
     ['marketplace_prep', 'Trocar label / marketplace'],
   ] },
   { key: 'envio', icon: '🚚', label: 'Envio', items: [
-    ['shipping', 'Envio'], ['dc_shipment', 'Envio DC'], ['box_closing', 'Fechar caixas'],
+    ['shipping', 'Envio'], ['dc_shipment', 'Envio DC'],
+    ['clinic_shipment', 'Envio Clínica'], ['box_closing', 'Fechar caixas'],
   ] },
   { key: 'outros', icon: '⋯', label: 'Outros', items: [
-    ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
+    ['special_task', '✨ Algo Especial'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
   ] },
 ];
 
 // Botões DIRETOS na tela "O que vai fazer?" (sem entrar em grupo)
 const QUICK = [['lunch', 'Almoço', '🍽️']];
 // Slugs cuja nota é OBRIGATÓRIA (validado também no servidor)
-const NOTE_REQUIRED = new Set(['break']);
+const NOTE_REQUIRED = new Set(['break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training']);
+// Slugs que exigem quantidade de ordens impressas
+const ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
 
 async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -60,6 +63,7 @@ async function main() {
         slug, label,
         requires_product: !!bySlug.get(slug).requires_product,
         note_required: NOTE_REQUIRED.has(slug),
+        orders_required: ORDERS_REQUIRED.has(slug),
       })),
   })).filter((g) => g.types.length);
 
@@ -69,6 +73,7 @@ async function main() {
       slug, label, icon,
       requires_product: !!bySlug.get(slug).requires_product,
       note_required: NOTE_REQUIRED.has(slug),
+      orders_required: ORDERS_REQUIRED.has(slug),
     }));
 
   const sup = await c.query(`

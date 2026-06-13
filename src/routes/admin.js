@@ -436,6 +436,18 @@ function createAdminRouter(deps = {}) {
         FROM v3.events e WHERE e.deleted_at IS NULL AND e.started_at > ${since}
         GROUP BY day ORDER BY day`),
     ]);
+    // Fase B addition: tempo médio por ordem impressa + uso de voz 7d
+    const [ordersEff, voiceUse] = await Promise.all([
+      db.query(`
+        SELECT at.slug, COUNT(*)::int n, SUM(e.orders_printed)::int total_orders,
+               ROUND(SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL)) total_min,
+               ROUND((SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL)) / NULLIF(SUM(e.orders_printed),0), 2) AS min_por_ordem
+        FROM v3.events e JOIN v3.activity_types at ON at.id=e.activity_type_id
+        WHERE e.deleted_at IS NULL AND e.started_at > ${since} AND e.orders_printed > 0
+        GROUP BY at.slug`),
+      db.query(`SELECT COUNT(*)::int n, COALESCE(SUM(audio_duration_seconds),0)::int total_s
+                FROM v3.voice_recordings WHERE deleted_at IS NULL AND created_at > ${since}`),
+    ]);
     // bottles por dia (separado — production_counts)
     const bottlesDaily = await db.query(`
       SELECT (created_at AT TIME ZONE '${EDT}')::date AS day, COALESCE(SUM(bottles),0)::int AS bottles
@@ -450,6 +462,8 @@ function createAdminRouter(deps = {}) {
       top_supplements: topSup.rows,
       top_operators: topOps.rows,
       avg_task_duration_minutes_by_slug: durBySlug.rows,
+      minutes_per_order: ordersEff.rows,
+      voice_usage: { count: voiceUse.rows[0].n, total_seconds: voiceUse.rows[0].total_s },
       daily_breakdown,
     });
   }));
@@ -535,6 +549,36 @@ function createAdminRouter(deps = {}) {
       tasks_completed: tasks.rows[0].n,
       notifications_resolved: notifs.rows[0].n,
     });
+  }));
+
+  // ── voz (Fase 0 / addition C) ───────────────────────────────
+  router.use('/api/adminpanel/voice', requireAdmin);
+  router.get('/api/adminpanel/voice/recent', h(async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 30, 100);
+    const r = await db.query(
+      `SELECT v.id, v.audio_mime, v.audio_duration_seconds, v.transcript, v.transcript_language,
+              p.display_name AS person, to_char(v.created_at AT TIME ZONE '${EDT}','MM-DD HH12:MI AM') AS created_edt
+       FROM v3.voice_recordings v JOIN v3.persons p ON p.id = v.person_id
+       WHERE v.deleted_at IS NULL ORDER BY v.id DESC LIMIT $1`, [limit]);
+    res.json({ voice: r.rows });
+  }));
+  router.get('/api/adminpanel/voice', h(async (req, res) => {
+    const evId = parseInt(req.query.event_id, 10);
+    if (!Number.isFinite(evId)) return res.status(400).json({ error: 'event_id_required' });
+    const r = await db.query(
+      `SELECT v.id, v.audio_mime, v.audio_duration_seconds, v.transcript, v.transcript_language,
+              p.display_name AS person, to_char(v.created_at AT TIME ZONE '${EDT}','MM-DD HH12:MI AM') AS created_edt
+       FROM v3.voice_recordings v JOIN v3.persons p ON p.id = v.person_id
+       WHERE v.event_id = $1 AND v.deleted_at IS NULL ORDER BY v.id`, [evId]);
+    res.json({ voice: r.rows });
+  }));
+  router.get('/api/adminpanel/voice/:id', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const r = await db.query('SELECT audio_bytes, audio_mime FROM v3.voice_recordings WHERE id = $1 AND deleted_at IS NULL', [id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'not_found' });
+    res.set('Content-Type', r.rows[0].audio_mime || 'audio/webm');
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(r.rows[0].audio_bytes);
   }));
 
   // ── audit log (Fase C) ──────────────────────────────────────

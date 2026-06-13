@@ -102,6 +102,33 @@ class ProactiveAlerts {
           `📊 Count anômalo: ${c.product} ${c.batch_number || ''} = ${c.bottles} bottles (média recente: ${avg}, ${pct > 0 ? '+' : ''}${pct}%). Erro de digitação?\n✅ ok   📝 corrigir`);
         if (ok) out.anomaly += 1;
       }
+      // 4 ── high_orders_printed_anomaly (Fase G addition) ──
+      out.orders = 0;
+      const op = await this.db.query(`
+        SELECT e.id, e.orders_printed, e.person_id, p.display_name,
+               (SELECT ROUND(AVG(e2.orders_printed)) FROM v3.events e2
+                WHERE e2.person_id = e.person_id AND e2.orders_printed > 0 AND e2.deleted_at IS NULL
+                  AND e2.created_at BETWEEN NOW() - INTERVAL '30 days' AND NOW() - INTERVAL '24 hours') AS avg_orders
+        FROM v3.events e JOIN v3.persons p ON p.id = e.person_id
+        WHERE e.deleted_at IS NULL AND e.orders_printed > 0 AND e.created_at > NOW() - INTERVAL '24 hours'`);
+      for (const r of op.rows) {
+        const avg = r.avg_orders ? Number(r.avg_orders) : null;
+        if (!avg || avg <= 0 || r.orders_printed <= avg * 3) continue;
+        const ok = await this._notify('high_orders_printed_anomaly', 'event_id', r.id,
+          { event_id: r.id, person: r.display_name, orders_printed: r.orders_printed, avg },
+          `🔢 ${r.display_name} registrou ${r.orders_printed} ordens (média dele: ${avg}). Erro de digitação no teclado?\n✅ ok   📝 corrigir`);
+        if (ok) out.orders += 1;
+      }
+      // 5 ── voice_storage_quota_warning (Fase G addition) ──
+      out.quota = 0;
+      const vq = await this.db.query(`SELECT COALESCE(SUM(audio_size_bytes),0)::bigint b FROM v3.voice_recordings WHERE deleted_at IS NULL`);
+      const usedMb = Math.round(Number(vq.rows[0].b) / 1048576);
+      if (usedMb >= 400) { // PG volume é 500MB
+        const ok = await this._notify('voice_storage_quota_warning', 'bucket', 'voice',
+          { used_mb: usedMb, limit_mb: 500 },
+          `💾 Armazenamento de áudio em ${usedMb}MB / 500MB. Limpa gravações antigas (>90d) ou aumenta o plano.`);
+        if (ok) out.quota += 1;
+      }
       return out;
     } finally {
       this._ticking = false;

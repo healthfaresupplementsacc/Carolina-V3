@@ -311,35 +311,74 @@
       'no-speech': '🎤 Não ouvi nada — tenta de novo falando mais perto',
       aborted: null, // stop manual, sem aviso
     };
-    let rec = null;
-    mic.onclick = () => {
-      if (!SR) { toast('🎤 Este navegador não tem voz — usa o Chrome ou Edge (ou digita)'); return; }
-      if (rec) { rec.stop(); return; }
+    const timerEl = el('span', 'rec-timer');
+    let rec = null;          // SpeechRecognition (transcrição)
+    let recorder = null;     // MediaRecorder (áudio)
+    let stream = null; let chunks = []; let startMs = 0; let timerInt = null; let autoStop = null;
+
+    function stopAll() {
+      try { if (rec) rec.stop(); } catch (_) {}
+      try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (_) {}
+      clearInterval(timerInt); clearTimeout(autoStop);
+      mic.classList.remove('rec'); timerEl.textContent = '';
+    }
+    function startSpeech() {
+      if (!SR) return;
       try {
-        rec = new SR();
-        rec.lang = voiceLang; rec.continuous = true; rec.interimResults = true;
+        rec = new SR(); rec.lang = voiceLang; rec.continuous = true; rec.interimResults = true;
         const baseText = textarea.value;
-        rec.onresult = (ev) => {
-          let txt = '';
-          for (const res of ev.results) txt += res[0].transcript;
-          textarea.value = (baseText ? baseText + ' ' : '') + txt;
-        };
-        rec.onend = () => { mic.classList.remove('rec'); rec = null; };
-        rec.onerror = (ev) => {
-          mic.classList.remove('rec'); rec = null;
-          const msg = Object.prototype.hasOwnProperty.call(VOICE_ERR, ev.error)
-            ? VOICE_ERR[ev.error]
-            : ('🎤 erro: ' + (ev.error || 'desconhecido') + ' — tenta de novo ou digita');
-          if (msg) toast(msg, 4500);
-        };
-        mic.classList.add('rec');
+        rec.onresult = (ev) => { let t = ''; for (const r of ev.results) t += r[0].transcript; textarea.value = (baseText ? baseText + ' ' : '') + t; };
+        rec.onend = () => { rec = null; };
+        rec.onerror = (ev) => { rec = null; const m = Object.prototype.hasOwnProperty.call(VOICE_ERR, ev.error) ? VOICE_ERR[ev.error] : null; if (m) toast(m, 4500); };
         rec.start();
+      } catch (_) { rec = null; }
+    }
+    async function onStop() {
+      const mime = (recorder && recorder.mimeType) || 'audio/webm';
+      const blob = new Blob(chunks, { type: mime });
+      const dur = Math.round((Date.now() - startMs) / 1000);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      recorder = null;
+      if (!blob.size) return;
+      // pergunta salvar
+      const ok = window.confirm('Salvar essa gravação de voz? (' + dur + 's)\nO texto já foi pra nota.');
+      if (!ok) return;
+      try {
+        const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(blob); });
+        await api('/api/v3/op/voice/upload', { method: 'POST', body: {
+          audio_base64: b64, audio_mime: mime.split(';')[0],
+          transcript: textarea.value || null, language: voiceLang, duration_seconds: dur,
+        } });
+        toast('✅ Voz salva (' + dur + 's)');
       } catch (e) {
-        mic.classList.remove('rec'); rec = null;
-        toast('🎤 não consegui iniciar (' + e.name + ') — tenta de novo ou digita', 4000);
+        toast('⚠️ Áudio não salvo (' + (e.message || 'rede') + ') — mas o texto ficou na nota');
+      }
+    }
+    mic.onclick = async () => {
+      if (rec || recorder) { stopAll(); return; }
+      startSpeech();
+      const hasRec = (typeof navigator !== 'undefined' && navigator.mediaDevices && window.MediaRecorder);
+      if (!hasRec) {
+        if (!SR) toast('🎤 Este navegador não grava — usa o Chrome ou Edge (ou digita)');
+        else { mic.classList.add('rec'); } // só transcrição
+        return;
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        recorder = new MediaRecorder(stream); chunks = [];
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onstop = onStop;
+        recorder.start(); startMs = Date.now();
+        mic.classList.add('rec');
+        timerInt = setInterval(() => { timerEl.textContent = '🔴 ' + Math.round((Date.now() - startMs) / 1000) + 's'; }, 500);
+        autoStop = setTimeout(stopAll, 60000); // limite 60s
+      } catch (e) {
+        mic.classList.remove('rec'); recorder = null;
+        const m = e && e.name === 'NotAllowedError' ? VOICE_ERR['not-allowed'] : ('🎤 microfone: ' + (e && e.name || 'erro'));
+        toast(m || '🎤 erro', 4500);
       }
     };
-    row.appendChild(mic); row.appendChild(lang);
+    row.appendChild(mic); row.appendChild(lang); row.appendChild(timerEl);
     return row;
   }
 
@@ -366,6 +405,15 @@
       cwBox.appendChild(l);
     });
     box.appendChild(cwBox);
+    // quantidade de ordens (order_printing*) — obrigatória
+    const ordersRequired = !!(draft.type && draft.type.orders_required);
+    let ordersInput = null;
+    if (ordersRequired) {
+      box.appendChild(el('h2', null, '🔢 Quantas ordens vai imprimir?'));
+      ordersInput = el('input'); ordersInput.type = 'number'; ordersInput.min = '1'; ordersInput.placeholder = 'ex: 206';
+      ordersInput.oninput = () => { draft.orders_printed = ordersInput.value; };
+      box.appendChild(ordersInput);
+    }
     // nota + voz (obrigatória pra alguns tipos, ex.: Pausa)
     const noteRequired = !!(draft.type && draft.type.note_required);
     box.appendChild(el('h2', null, noteRequired ? '📝 Motivo (OBRIGATÓRIO)' : '📝 Nota (opcional)'));
@@ -379,8 +427,14 @@
     const go = el('button', 'btn-primary', '▶ COMEÇAR');
     go.onclick = async () => {
       if (noteRequired && !ta.value.trim()) {
-        toast('📝 Escreve o motivo da pausa antes de começar');
+        toast('📝 Conta o que está acontecendo (ou usa 🎤) antes de começar');
         ta.focus();
+        return;
+      }
+      const ordersN = ordersInput ? parseInt(ordersInput.value, 10) : null;
+      if (ordersRequired && (!Number.isFinite(ordersN) || ordersN <= 0)) {
+        toast('🔢 Informe quantas ordens (número maior que 0)');
+        if (ordersInput) ordersInput.focus();
         return;
       }
       go.disabled = true;
@@ -390,6 +444,7 @@
           batch_number: draft.batch ? draft.batch.batch_number : null,
           cowork_with: draft.cowork,
           note: ta.value.trim() || null,
+          orders_printed: ordersRequired ? ordersN : undefined,
         } });
         toast('✅ Tarefa iniciada!');
         dispatch('CONFIRM_OK');

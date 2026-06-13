@@ -46,7 +46,9 @@ function createOpRouter(deps = {}) {
   const bf = deps.bruteForce || null; // Fase D brute-force guard
 
   const router = express.Router();
-  router.use(express.json({ limit: '256kb' }));
+  // JSON 256kb pra tudo, EXCETO upload de voz (que tem parser 8mb próprio).
+  const json256 = express.json({ limit: '256kb' });
+  router.use((req, res, next) => (req.path === '/api/v3/op/voice/upload' ? next() : json256(req, res, next)));
 
   // ── audit helper ────────────────────────────────────────────
   async function audit(action, targetType, targetId, metadata, personId) {
@@ -168,8 +170,10 @@ function createOpRouter(deps = {}) {
       [event.product_id || null, event.product_batch_id || null, bottles, personId, event.id, unit || 'bottle']);
   }
 
-  // slugs cuja nota é OBRIGATÓRIA (pausa precisa de motivo — pedido Bruno 12/jun)
-  const NOTE_REQUIRED_SLUGS = new Set(['break']);
+  // slugs cuja nota é OBRIGATÓRIA (Fase 0: + impressão de ordens, especial, Outros)
+  const NOTE_REQUIRED_SLUGS = new Set(['break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training']);
+  // slugs que exigem quantidade de ordens (Fase 0)
+  const ORDERS_REQUIRED_SLUGS = new Set(['order_printing', 'order_printing_2']);
 
   // ── start ───────────────────────────────────────────────────
   router.post('/api/v3/op/event/start', h(async (req, res) => {
@@ -178,7 +182,14 @@ function createOpRouter(deps = {}) {
     const act = await resolveActivity(String(activity_slug || ''));
     if (!act) return res.status(400).json({ error: 'unknown_activity_slug', slug: activity_slug || null });
     if (NOTE_REQUIRED_SLUGS.has(act.slug) && !(note && String(note).trim())) {
-      return res.status(400).json({ error: 'note_required', detail: 'Pausa exige nota com o motivo.' });
+      return res.status(400).json({ error: 'note_required', detail: 'Esta task exige uma nota.' });
+    }
+    let ordersPrinted = null;
+    if (ORDERS_REQUIRED_SLUGS.has(act.slug)) {
+      ordersPrinted = parseInt(req.body && req.body.orders_printed, 10);
+      if (!Number.isFinite(ordersPrinted) || ordersPrinted <= 0) {
+        return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe quantas ordens (número > 0).' });
+      }
     }
     const batch = await resolveBatch(batch_number);
     if (batch_number && !batch) return res.status(400).json({ error: 'unknown_batch', batch_number });
@@ -188,10 +199,10 @@ function createOpRouter(deps = {}) {
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
-          cowork_with, confidence, source)
-       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page')
-       RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with`,
-      [s.person_id, act.id, batch ? batch.id : null, note ? String(note).slice(0, 500) : null, cw]);
+          cowork_with, confidence, source, orders_printed)
+       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6)
+       RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed`,
+      [s.person_id, act.id, batch ? batch.id : null, note ? String(note).slice(0, 500) : null, cw, ordersPrinted]);
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
@@ -269,6 +280,51 @@ function createOpRouter(deps = {}) {
       'INSERT INTO v3.op_notes (person_id, text) VALUES ($1, $2) RETURNING id', [s.person_id, text.slice(0, 2000)]);
     await audit('op_note.created', 'op_note', r.rows[0].id, { len: text.length }, s.person_id);
     res.json({ ok: true, note_id: r.rows[0].id });
+  }));
+
+  // ── voz: upload (Fase 0) ────────────────────────────────────
+  const VOICE_MAX_BYTES = 5 * 1024 * 1024;
+  const VOICE_MIMES = new Set(['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav']);
+  const voiceJson = express.json({ limit: '8mb' }); // base64 infla ~33%
+  const voiceHits = new Map(); // person_id -> [timestamps] (20/h)
+  router.post('/api/v3/op/voice/upload', voiceJson, h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    // rate-limit 20/h por pessoa (Fase D — anti-flood de uploads grandes)
+    const t = now();
+    const arr = (voiceHits.get(s.person_id) || []).filter((x) => t - x < 3600000);
+    if (arr.length >= 20) { return res.status(429).json({ error: 'too_many_uploads', detail: 'Máx 20 áudios/hora.' }); }
+    arr.push(t); voiceHits.set(s.person_id, arr);
+
+    const b64 = String((req.body && req.body.audio_base64) || '').replace(/^data:[^,]+,/, '');
+    if (!b64) return res.status(400).json({ error: 'audio_required' });
+    let buf;
+    try { buf = Buffer.from(b64, 'base64'); } catch (_) { return res.status(400).json({ error: 'bad_base64' }); }
+    if (!buf.length) return res.status(400).json({ error: 'empty_audio' });
+    if (buf.length > VOICE_MAX_BYTES) return res.status(413).json({ error: 'too_large', detail: 'Máx 5MB.' });
+    const mime = String((req.body && req.body.audio_mime) || 'audio/webm').split(';')[0];
+    if (!VOICE_MIMES.has(mime)) return res.status(400).json({ error: 'bad_mime', mime });
+    const eventId = req.body && req.body.event_id ? parseInt(req.body.event_id, 10) : null;
+    const dur = req.body && req.body.duration_seconds ? Math.min(parseInt(req.body.duration_seconds, 10) || 0, 120) : null;
+    const lang = String((req.body && req.body.language) || 'pt-BR').slice(0, 10);
+    const transcript = req.body && req.body.transcript ? String(req.body.transcript).slice(0, 4000) : null;
+    const ins = await db.query(
+      `INSERT INTO v3.voice_recordings
+         (event_id, person_id, audio_bytes, audio_mime, audio_duration_seconds, audio_size_bytes, transcript, transcript_language)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [eventId, s.person_id, buf, mime, dur, buf.length, transcript, lang]);
+    await audit('voice.uploaded', 'voice', ins.rows[0].id, { event_id: eventId, bytes: buf.length, dur }, s.person_id);
+    res.json({ ok: true, id: ins.rows[0].id, transcript });
+  }));
+
+  router.delete('/api/v3/op/voice/:id', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const id = parseInt(req.params.id, 10);
+    const r = await db.query(
+      `UPDATE v3.voice_recordings SET deleted_at = NOW()
+       WHERE id = $1 AND person_id = $2 AND deleted_at IS NULL RETURNING id`, [id, s.person_id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'not_found_or_not_yours' });
+    await audit('voice.deleted', 'voice', id, {}, s.person_id);
+    res.json({ ok: true });
   }));
 
   // ── equipe agora ────────────────────────────────────────────

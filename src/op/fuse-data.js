@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-13T00:24:42.843Z",
+ "generated_at": "2026-06-13T17:34:20.129Z",
  "groups": [
   {
    "key": "linha",
@@ -10,25 +10,29 @@ window.HF_DATA = {
      "slug": "production_line",
      "label": "Linha de produção",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "review",
      "label": "Revisão",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "counting",
      "label": "Contagem",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "line_changeover",
      "label": "Troca de linha",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     }
    ]
   },
@@ -41,25 +45,29 @@ window.HF_DATA = {
      "slug": "formulation",
      "label": "Formulação",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "mixing",
      "label": "Mistura",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "encapsulation",
      "label": "Cápsulas / Tablets",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "material_handling",
      "label": "Preparo de material (peneira…)",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     }
    ]
   },
@@ -72,31 +80,36 @@ window.HF_DATA = {
      "slug": "cleaning",
      "label": "Limpeza",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "repair",
      "label": "Conserto de máquina",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "facility_maintenance",
      "label": "Manutenção",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "organization",
      "label": "Organização",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "machine_downtime",
      "label": "Máquina parada",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     }
    ]
   },
@@ -109,43 +122,43 @@ window.HF_DATA = {
      "slug": "orders",
      "label": "Ordens",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "order_printing",
      "label": "Impressão de ordens",
      "requires_product": false,
-     "note_required": false
+     "note_required": true,
+     "orders_required": true
     },
     {
      "slug": "order_printing_2",
      "label": "2ª impressão",
      "requires_product": false,
-     "note_required": false
+     "note_required": true,
+     "orders_required": true
     },
     {
      "slug": "labeling",
      "label": "Colar labels",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "packaging",
      "label": "Embalagem",
      "requires_product": true,
-     "note_required": false
-    },
-    {
-     "slug": "clinic_shipment",
-     "label": "Envio Clínica",
-     "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "marketplace_prep",
      "label": "Trocar label / marketplace",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     }
    ]
   },
@@ -158,19 +171,29 @@ window.HF_DATA = {
      "slug": "shipping",
      "label": "Envio",
      "requires_product": true,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "dc_shipment",
      "label": "Envio DC",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "clinic_shipment",
+     "label": "Envio Clínica",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false
     },
     {
      "slug": "box_closing",
      "label": "Fechar caixas",
      "requires_product": false,
-     "note_required": false
+     "note_required": false,
+     "orders_required": false
     }
    ]
   },
@@ -180,22 +203,32 @@ window.HF_DATA = {
    "label": "Outros",
    "types": [
     {
+     "slug": "special_task",
+     "label": "✨ Algo Especial",
+     "requires_product": false,
+     "note_required": true,
+     "orders_required": false
+    },
+    {
      "slug": "break",
      "label": "Pausa",
      "requires_product": false,
-     "note_required": true
+     "note_required": true,
+     "orders_required": false
     },
     {
      "slug": "meeting",
      "label": "Reunião",
      "requires_product": false,
-     "note_required": false
+     "note_required": true,
+     "orders_required": false
     },
     {
      "slug": "training",
      "label": "Treinamento",
      "requires_product": false,
-     "note_required": false
+     "note_required": true,
+     "orders_required": false
     }
    ]
   }
@@ -206,7 +239,8 @@ window.HF_DATA = {
    "label": "Almoço",
    "icon": "🍽️",
    "requires_product": false,
-   "note_required": false
+   "note_required": false,
+   "orders_required": false
   }
  ],
  "supplements": [

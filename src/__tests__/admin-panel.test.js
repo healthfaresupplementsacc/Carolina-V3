@@ -114,8 +114,8 @@ function makeDb(mem) {
       }
       if (/UPDATE v3\.events SET /.test(s)) { mem.eventsUpdated.push({ sql: s, params }); return resp([]); }
       // analytics (Fase B): agregados de 1 linha precisam de rows[0]; GROUP BY → vazio
-      if (/^SELECT/.test(s) && /FROM v3\.(events|production_counts|product_batches|products|notifications)/.test(s)) {
-        return /GROUP BY/.test(s) ? resp([]) : resp([{ n: 0, batches: 0, bottles: 0 }]);
+      if (/^SELECT/.test(s) && /FROM v3\.(events|production_counts|product_batches|products|notifications|voice_recordings)/.test(s)) {
+        return /GROUP BY/.test(s) ? resp([]) : resp([{ n: 0, batches: 0, bottles: 0, total_s: 0 }]);
       }
       return resp([]);
     }),

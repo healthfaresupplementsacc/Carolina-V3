@@ -4,7 +4,7 @@ const { ProactiveAlerts } = require('../workers/proactive-alerts');
 
 const resp = (rows) => ({ rows, rowCount: rows.length });
 
-function makeDb({ idle = [], stale = [], counts = [], avg = null, existingNotif = false } = {}) {
+function makeDb({ idle = [], stale = [], counts = [], avg = null, ordersRows = [], voiceBytes = 0, existingNotif = false } = {}) {
   const mem = { notifications: [], posts: 0 };
   const db = {
     mem,
@@ -19,6 +19,8 @@ function makeDb({ idle = [], stale = [], counts = [], avg = null, existingNotif 
       if (/e\.is_long_running = false AND e\.started_at < NOW\(\) - INTERVAL '3 hours'/.test(s)) return resp(stale);
       if (/FROM v3\.production_counts pc JOIN v3\.product_batches pb ON pb\.id = pc\.product_batch_id JOIN v3\.products/.test(s) && /created_at > NOW\(\) - INTERVAL '24 hours'/.test(s)) return resp(counts);
       if (/SELECT ROUND\(AVG\(pc\.bottles\)\) AS avg/.test(s)) return resp([{ avg }]);
+      if (/e\.orders_printed > 0 AND e\.created_at > NOW\(\) - INTERVAL '24 hours'/.test(s)) return resp(ordersRows);
+      if (/SUM\(audio_size_bytes\)/.test(s)) return resp([{ b: String(voiceBytes) }]);
       return resp([]);
     }),
   };
@@ -63,6 +65,20 @@ describe('Fase G — ProactiveAlerts', () => {
     const r = await mk(db).tick();
     expect(r.idle).toBe(0);
     expect(db.mem.notifications).toHaveLength(0);
+  });
+
+  test('high_orders_printed_anomaly: >3x média → notifica; ≤3x → não', async () => {
+    const big = makeDb({ ordersRows: [{ id: 5, orders_printed: 400, person_id: 4, display_name: 'Simone', avg_orders: 50 }] });
+    expect((await mk(big).tick()).orders).toBe(1); // 400 > 50*3
+    const small = makeDb({ ordersRows: [{ id: 6, orders_printed: 120, person_id: 4, display_name: 'Simone', avg_orders: 50 }] });
+    expect((await mk(small).tick()).orders).toBe(0); // 120 < 150
+  });
+
+  test('voice_storage_quota_warning: >=400MB → notifica; abaixo → não', async () => {
+    const hi = makeDb({ voiceBytes: 420 * 1048576 });
+    expect((await mk(hi).tick()).quota).toBe(1);
+    const lo = makeDb({ voiceBytes: 100 * 1048576 });
+    expect((await mk(lo).tick()).quota).toBe(0);
   });
 
   test('tick concorrente → skip overlap', async () => {

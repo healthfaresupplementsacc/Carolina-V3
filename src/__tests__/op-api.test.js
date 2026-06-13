@@ -31,12 +31,15 @@ function makeMem() {
       { id: 10, slug: 'cleaning', requires_product: false, active: true },
       { id: 17, slug: 'lunch', requires_product: false, active: true },
       { id: 16, slug: 'break', requires_product: false, active: true },
+      { id: 19, slug: 'order_printing', requires_product: false, active: true },
+      { id: 20, slug: 'order_printing_2', requires_product: false, active: true },
+      { id: 29, slug: 'special_task', requires_product: false, active: true },
     ],
     batches: [
       { id: 39, batch_number: 'BR-2026-0190', product_id: 1, product: 'Magnesium Glycinate' },
       { id: 44, batch_number: '0200', product_id: 3, product: 'Berberine' },
     ],
-    sessions: [], events: [], counts: [], notes: [], notifications: [], audits: [],
+    sessions: [], events: [], counts: [], notes: [], voices: [], audits: [], notifications: [],
     seq: { session: 1, event: 100, note: 1, notif: 1 },
   };
 }
@@ -110,9 +113,21 @@ function makeFakeDb(mem) {
           product_batch_id: params[2], started_at: new Date(), ended_at: null,
           description: params[3], cowork_with: params[4] || [], confidence: 'high',
           source: 'operator_page', deleted_at: null, is_long_running: false, closed_reason: null,
+          orders_printed: params[5] != null ? params[5] : null,
         };
         mem.events.push(ev);
-        return resp([{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, started_at: ev.started_at, cowork_with: ev.cowork_with }]);
+        return resp([{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, started_at: ev.started_at, cowork_with: ev.cowork_with, orders_printed: ev.orders_printed }]);
+      }
+      if (/INSERT INTO v3\.voice_recordings/.test(s)) {
+        const v = { id: (mem.seq.voice = (mem.seq.voice || 0) + 1), event_id: params[0], person_id: params[1], size: params[5], deleted_at: null };
+        mem.voices.push(v);
+        return resp([{ id: v.id }]);
+      }
+      if (/UPDATE v3\.voice_recordings SET deleted_at = NOW\(\)/.test(s)) {
+        const v = mem.voices.find((x) => x.id === params[0] && x.person_id === params[1] && !x.deleted_at);
+        if (!v) return resp([]);
+        v.deleted_at = new Date();
+        return resp([{ id: v.id }]);
       }
       if (/SELECT e\.id, e\.person_id, e\.cowork_with, e\.product_batch_id, e\.ended_at, e\.deleted_at/.test(s)) {
         const ev = mem.events.find((x) => x.id === params[0]);
@@ -305,6 +320,27 @@ describe('op API — events', () => {
     expect((await post('/api/v3/op/event/start', { body: { activity_slug: 'cleaning' } })).status).toBe(401);
   });
 
+  test('Fase 0 — order_printing SEM orders_printed → 400; COM → 200 e grava', async () => {
+    const s = await login(4);
+    const r1 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', note: 'imprimindo' } });
+    expect(r1.status).toBe(400);
+    expect(r1.body.error).toBe('orders_printed_required');
+    const r2 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', note: 'imprimindo', orders_printed: 206 } });
+    expect(r2.status).toBe(200);
+    expect(mem.events[mem.events.length - 1].orders_printed).toBe(206);
+  });
+  test('Fase 0 — order_printing exige nota também (note_required)', async () => {
+    const s = await login(4);
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', orders_printed: 10 } });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('note_required');
+  });
+  test('Fase 0 — special_task SEM nota → 400; COM → 200', async () => {
+    const s = await login(4);
+    expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'special_task' } })).status).toBe(400);
+    expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'special_task', note: 'consertando bancada' } })).status).toBe(200);
+  });
+
   test('start break SEM nota → 400 note_required; COM nota → 200 (regra Pausa)', async () => {
     const s = await login(4);
     const r1 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'break' } });
@@ -358,6 +394,27 @@ describe('op API — events', () => {
     await post(`/api/v3/op/event/${id}/end`, { session: sv, body: {} });
     const r3 = await post(`/api/v3/op/event/${id}/join`, { session: sa, body: {} });
     expect(r3.status).toBe(409);
+  });
+
+  test('Fase 0 — voice upload: ok / mime ruim / muito grande / vazio', async () => {
+    const s = await login(4);
+    const tiny = Buffer.from('webmfake').toString('base64');
+    const ok = await post('/api/v3/op/voice/upload', { session: s, body: { audio_base64: 'data:audio/webm;base64,' + tiny, audio_mime: 'audio/webm', transcript: 'oi', language: 'pt-BR', duration_seconds: 3 } });
+    expect(ok.status).toBe(200);
+    expect(ok.body.id).toBeTruthy();
+    expect(mem.voices).toHaveLength(1);
+    expect((await post('/api/v3/op/voice/upload', { session: s, body: { audio_base64: tiny, audio_mime: 'application/zip' } })).status).toBe(400);
+    expect((await post('/api/v3/op/voice/upload', { session: s, body: { audio_mime: 'audio/webm' } })).status).toBe(400);
+    const big = Buffer.alloc(6 * 1024 * 1024, 1).toString('base64');
+    expect((await post('/api/v3/op/voice/upload', { session: s, body: { audio_base64: big, audio_mime: 'audio/webm' } })).status).toBe(413);
+  });
+  test('Fase 0 — voice delete do dono → ok; sem sessão → 401', async () => {
+    const s = await login(4);
+    const up = await post('/api/v3/op/voice/upload', { session: s, body: { audio_base64: Buffer.from('x').toString('base64'), audio_mime: 'audio/webm' } });
+    const id = up.body.id;
+    const r = await fetch(url(`/api/v3/op/voice/${id}`), { method: 'DELETE', headers: { Authorization: 'Bearer ' + PAGE_TOKEN, 'X-Session-Token': s } });
+    expect(r.status).toBe(200);
+    expect(mem.voices.find((v) => v.id === id).deleted_at).toBeTruthy();
   });
 
   test('note → op_notes; vazia → 400', async () => {

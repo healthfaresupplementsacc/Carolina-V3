@@ -18,6 +18,7 @@ const CSP = [
   "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'", // Chart.js + handlers inline da UI
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
+  "media-src 'self' blob:",
   "connect-src 'self'",
   "font-src 'self' data:",
   "frame-ancestors 'none'",
