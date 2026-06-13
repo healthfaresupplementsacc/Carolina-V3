@@ -7,3 +7,4 @@ public/archive/*.png
 # dados locais (dumps de prod, config pessoal)
 snapshots/
 .claude/settings.json
+analysis_output.json
