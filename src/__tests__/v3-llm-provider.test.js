@@ -24,7 +24,7 @@ describe('V3 §2.1 — LLMProvider interface + fábrica', () => {
   });
 
   test('getProvider com nome desconhecido lança', () => {
-    expect(() => getProvider('gemini')).toThrow(/desconhecido/);
+    expect(() => getProvider('provider-inexistente')).toThrow(/desconhecido/);
   });
 
   test('constantes expostas', () => {
