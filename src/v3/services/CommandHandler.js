@@ -158,7 +158,7 @@ class CommandHandler {
     }
 
     // destructive ou uncertain → pending confirmation
-    const carolinaReplyText = this._formatConfirmationPrompt(parsed);
+    const carolinaReplyText = await this._buildConfirmation(parsed);
     const replyTs = await this._reply(message.slack_ts, carolinaReplyText, channel);
     if (!replyTs) {
       await this._reply(message.slack_ts, '⚠ Falha ao postar pedido de confirmação. Tente de novo.', channel);
@@ -290,6 +290,14 @@ class CommandHandler {
       '- edit_field: edita campo do event. target: { event_id }.',
       '  params: { field, value }. Campos permitidos: product_batch_id, ended_at,',
       '  started_at, cowork_with, description, confidence, phase_label.',
+      '- close_tasks: FECHA TODAS as tasks abertas de uma OU MAIS pessoas.',
+      '  params: { person_ids: [4, 6] }. Use quando admin diz "fecha/finaliza/',
+      '  encerra/termina as tasks/atividades/eventos do <pessoa>" (uma ou várias).',
+      '- close_specific_event: fecha UM event específico. target: { event_id }.',
+      '  Use pra "fecha ev280" / "encerra o evento 280" (≠ apagar).',
+      '',
+      'DIFERENÇA close vs delete: "fecha/finaliza/encerra" = close (marca fim,',
+      'mantém o registro). "apaga/deleta/remove" = delete (soft-delete).',
       '',
       'SEM correspondência ou ambíguo → command_type="unknown".',
       'Se a intenção é clara mas algum dado falta (ex: pessoa não identificada)',
@@ -336,6 +344,23 @@ class CommandHandler {
       '    "params": { "question": "como tá o Potassium", "scope": "current_production" },',
       '    "destructive": false, "uncertain": false,',
       '    "explanation": "Status atual da produção de Potassium" }',
+      '',
+      'msg: "@carolina Finaliza os tasks do vitor que estao ativos"',
+      '→ { "command_type": "close_tasks", "target": null,',
+      '    "params": { "person_ids": [4] },',
+      '    "destructive": true, "uncertain": false,',
+      '    "explanation": "Fechar todas as tasks abertas do Vitor" }',
+      '',
+      'msg: "@carolina fecha as atividades do Vitor e da Ana"',
+      '→ { "command_type": "close_tasks", "target": null,',
+      '    "params": { "person_ids": [4, 6] },',
+      '    "destructive": true, "uncertain": false,',
+      '    "explanation": "Fechar tasks abertas do Vitor e da Ana" }',
+      '',
+      'msg: "@carolina encerra o evento 312"',
+      '→ { "command_type": "close_specific_event", "target": { "event_id": 312 },',
+      '    "params": {}, "destructive": true, "uncertain": false,',
+      '    "explanation": "Fechar ev312" }',
       '',
       'RESPOSTA: APENAS o JSON. Sem texto extra. Sem markdown. JSON puro.',
     ].join('\n');
@@ -390,6 +415,10 @@ class CommandHandler {
         return this._execReassign(parsed, adminPerson, pendingCmd);
       case 'edit_field':
         return this._execEditField(parsed, adminPerson, pendingCmd);
+      case 'close_tasks':
+        return this._execCloseTasks(parsed, adminPerson, pendingCmd);
+      case 'close_specific_event':
+        return this._execCloseSpecificEvent(parsed, adminPerson, pendingCmd);
       default:
         return { replyText: `⚠ Tipo destrutivo desconhecido: ${parsed.command_type}` };
     }
@@ -552,6 +581,93 @@ class CommandHandler {
     await this.eventService.correct(eventId, { [field]: value }, adminPerson.id,
       `Edit ${field} via comando Slack admin (pending_command ${pendingCmd.id})`, 'admin');
     return { replyText: `✅ ev${eventId} ${field} atualizado.`, event_id: eventId };
+  }
+
+  // ─── Fase A (bloco zerar) — fechar tasks ────────────────────
+
+  /** Normaliza person_ids do parsed (aceita person_id único OU person_ids[]). */
+  _personIdsFromParsed(parsed) {
+    const p = parsed.params || {};
+    const ids = [];
+    if (Array.isArray(p.person_ids)) ids.push(...p.person_ids);
+    if (p.person_id != null) ids.push(p.person_id);
+    if (parsed.target && parsed.target.person_id != null) ids.push(parsed.target.person_id);
+    return [...new Set(ids.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x)))];
+  }
+
+  /** Lista open events (foreground) de uma lista de pessoas. */
+  async _openEventsForPeople(personIds) {
+    if (!personIds.length) return [];
+    const r = await this.db.query(`
+      SELECT e.id, e.person_id, p.display_name, at.slug, pb.batch_number,
+             to_char(e.started_at AT TIME ZONE 'America/New_York', 'HH12:MI AM') AS started_edt,
+             ROUND((EXTRACT(EPOCH FROM (NOW() - e.started_at)) / 60)::numeric) AS min_aberto
+      FROM v3.events e
+      JOIN v3.persons p ON p.id = e.person_id
+      LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+      LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+      WHERE e.person_id = ANY($1::int[])
+        AND e.ended_at IS NULL AND e.deleted_at IS NULL
+        AND e.is_long_running = false
+      ORDER BY e.person_id, e.started_at`, [personIds]);
+    return r.rows;
+  }
+
+  /** close_tasks — fecha TODAS as tasks abertas (foreground) das pessoas. */
+  async _execCloseTasks(parsed, adminPerson, pendingCmd) {
+    const personIds = this._personIdsFromParsed(parsed);
+    if (!personIds.length) return { replyText: '⚠ Não identifiquei a pessoa. Tenta "fecha as tasks do Vitor".' };
+    const open = await this._openEventsForPeople(personIds);
+    if (!open.length) return { replyText: 'Nenhuma task aberta pra fechar (long-running não conta).' };
+    const ids = open.map((e) => e.id);
+    await this.db.query(
+      `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'admin_close_via_carolina', updated_at = NOW()
+       WHERE id = ANY($1::int[]) AND ended_at IS NULL`, [ids]);
+    for (const e of open) {
+      await this._audit('event.closed_via_carolina', e.id,
+        { pending_command_id: pendingCmd.id, admin_person_id: adminPerson.id, slug: e.slug });
+    }
+    const names = [...new Set(open.map((e) => e.display_name))].join(', ');
+    return { replyText: `✅ Fechei ${ids.length} task(s) de ${names}: ev${ids.join(', ev')}.`, event_ids: ids };
+  }
+
+  /** close_specific_event — fecha um event por id (se aberto). */
+  async _execCloseSpecificEvent(parsed, adminPerson, pendingCmd) {
+    const eventId = parsed.target && parsed.target.event_id;
+    if (!eventId) return { replyText: '⚠ Faltou o event_id (ex: "fecha ev280").' };
+    const r = await this.db.query(
+      `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'admin_close_via_carolina', updated_at = NOW()
+       WHERE id = $1 AND ended_at IS NULL AND deleted_at IS NULL RETURNING id`, [eventId]);
+    if (r.rowCount === 0) {
+      const chk = await this.db.query('SELECT ended_at, deleted_at FROM v3.events WHERE id = $1', [eventId]);
+      if (!chk.rows[0]) return { replyText: `⚠ ev${eventId} não existe.` };
+      if (chk.rows[0].deleted_at) return { replyText: `⚠ ev${eventId} foi apagado.` };
+      return { replyText: `ev${eventId} já estava fechado.` };
+    }
+    await this._audit('event.closed_via_carolina', eventId,
+      { pending_command_id: pendingCmd.id, admin_person_id: adminPerson.id, specific: true });
+    return { replyText: `✅ ev${eventId} fechado.`, event_id: eventId };
+  }
+
+  /** Texto de confirmação — enriquecido pra close_tasks (lista as tasks). */
+  async _buildConfirmation(parsed) {
+    try {
+      if (parsed.command_type === 'close_tasks') {
+        const personIds = this._personIdsFromParsed(parsed);
+        const open = await this._openEventsForPeople(personIds);
+        if (!open.length) return '⚠ Vou fechar tasks, mas não achei nenhuma aberta dessas pessoas. Reaja ✅ pra seguir mesmo assim (10min) ou ❌ pra cancelar.';
+        const lines = open.map((e) =>
+          `• ${e.display_name} — ${e.slug || '?'}${e.batch_number ? ' ' + e.batch_number : ''} (aberta há ${e.min_aberto}min)`);
+        return `⚠ Vou fechar ${open.length} task(s) abertas:\n${lines.join('\n')}\nReaja ✅ NESTA mensagem (10min) pra confirmar. ❌ pra cancelar.`;
+      }
+      if (parsed.command_type === 'close_specific_event') {
+        const id = parsed.target && parsed.target.event_id;
+        return `⚠ Vou fechar a task ev${id} (ended_at = agora).\nReaja ✅ NESTA mensagem (10min) pra confirmar. ❌ pra cancelar.`;
+      }
+    } catch (e) {
+      console.error('[CommandHandler] _buildConfirmation falhou:', e.message);
+    }
+    return this._formatConfirmationPrompt(parsed);
   }
 
   /**
