@@ -594,6 +594,25 @@ Toda atividade detectada vira registro. Mesmo as ambíguas/incompletas (marca co
 
 ---
 
+## ADENDO — Bloco Final (13/jun 2026)
+
+- **RBAC admin** (migration 025): PIN individual + roles owner/manager + sessões
+  DB. Bruno/Thassio = owner, Henrique = manager. Detalhes em
+  [ADMIN_ROLES.md](ADMIN_ROLES.md). PINs em env (`ADMIN_PIN_*`).
+- **SQL analysis 30d** (Fase 2): `docs/analysis/task-targets-*.md` + 3 métodos de
+  target. Mais lentas: encapsulation (P50 ~136min), mixing, formulation.
+- **Schedule por dia da semana** (migration 026): `v3.operator_schedules`.
+- **Checkout cascade** (migration 027): detecta esquecimento de logout, fecha
+  no horário da última atividade, avisa admin na hora + DM da Carolina no dia
+  seguinte. [FORGOTTEN_CHECKOUTS.md](FORGOTTEN_CHECKOUTS.md).
+- **Dashboard de métricas** (migration 028): matview `events_enriched` +
+  `task_targets` + aba 📈 Métricas (9/12 sub-abas) + **Finance owner-only
+  (salário nunca salvo/logado, G12/G13)**. [METRICS_GUIDE.md](METRICS_GUIDE.md).
+- **Histórico filtrado por role** + export CSV (owner).
+- **Worker flags** (off por padrão): `WORKER_FORGOTTEN_DM_ENABLED`.
+
+---
+
 **FIM DO HANDOFF V3.**
-Versão 1.0 · 21 Mai 2026 · base do Sprint 2.
+Versão 1.0 · 21 Mai 2026 · base do Sprint 2 · **Adendo bloco final 13 jun 2026**.
 Fundamentado no Slack real de 14–21 Mai + decisões do Bruno.

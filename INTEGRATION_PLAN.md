@@ -436,3 +436,25 @@ Esse pipeline é E9+ (após estabilizar V4 + Falar como Carolina). Antes disso,
 correções continuam manuais (admin via /dashboard-v4 + scripts/v3-apply-fix-*.js)
 e cada bloco diário gera audits que ficam no histórico esperando o pipeline
 nascer.
+
+---
+
+## BLOCO FINAL (13/jun 2026) — concluído
+
+Entregue e deployado: RBAC admin (025), SQL analysis 30d, schedule por dia (026),
+checkout cascade + forgotten DM (027), dashboard de métricas + finance owner-only
+(028), audit filtrado por role + CSV. Migrations 025–028 aplicadas em prod.
+
+### Backlog restante (pós-bloco)
+- 🔴 **Bruno: setar `ADMIN_PIN_*` no Railway** (fresh PINs — os do prompt estão
+  expostos no chat) → CC roda `v3-seed-admin-users.js` + smoke. Até lá, login
+  admin usa o fallback `ADMIN_PASSWORD`.
+- 🔴 **Rotação `GEMINI_API_KEY`** (exposta) — Bruno faz.
+- ⚠️ **Colisão de PIN**: o PIN definido pro Henrique no prompt == PIN legado do
+  V2 (`/api/admin/*`). Considerar um PIN diferente no env.
+- Métricas: **Score composto**, **Por-Produto**, **Schedule-adherence detalhada**
+  (endpoint existe; UI dedicada é TODO).
+- `WORKER_FORGOTTEN_DM_ENABLED=true` quando quiser ativar as DMs.
+- Carolina autonomous nudges (Insights hoje é só leitura).
+- Retenção de voz 90d (cron mensal); Whisper fallback.
+- Backup externo S3/GCP.

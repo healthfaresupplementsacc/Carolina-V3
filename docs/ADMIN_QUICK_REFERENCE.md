@@ -1,8 +1,18 @@
 # Admin — Referência Rápida (HealthFare V3)
 
 **Painel admin:** `https://productionlineservice-production.up.railway.app/admin/`
-**Senha:** env var `ADMIN_PASSWORD` no Railway (Settings → Variables do ProductionLineService).
-Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio.
+**Login:** **PIN individual** (Bruno/Thassio = owner 👑, Henrique = manager 🛡️).
+Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio. PINs ficam em env var
+(`ADMIN_PIN_*`). `ADMIN_PASSWORD` só funciona em emergência (antes do 1º admin).
+Roles e permissões: ver [ADMIN_ROLES.md](ADMIN_ROLES.md).
+
+## Abas novas (bloco final)
+- **📈 Métricas**: Hoje/Operador/Tasks/Targets/Tendências/Anomalias/Rankings/Insights
+  (+ 💰 Finance só pra owner — salário não é salvo). Guia: [METRICS_GUIDE.md](METRICS_GUIDE.md).
+- **👥 Admins** (owner): mudar PIN/role/ativar de cada admin.
+- **🕐 Schedule**: no card do operador, "Editar schedule" define horário por dia da semana.
+- **📋 Histórico**: agora filtra por role (manager não vê ações sensíveis); owner exporta CSV e busca nos detalhes.
+- **Forgotten checkout**: quem chega de manhã confirma se colega esqueceu de sair — ver [FORGOTTEN_CHECKOUTS.md](FORGOTTEN_CHECKOUTS.md).
 
 ## Operadores (aba 👷)
 | Quero… | Como |

@@ -35,10 +35,26 @@ varrido). PINs e senha nunca aparecem em respostas de API.
   `/admin`, `/api/v3/op`, `/api/adminpanel`, architect) — não só no login.
   Expiração é preguiçosa + limpeza dos vencidos no boot.
 
+## RBAC admin (Fase 1 bloco final)
+- `/admin` usa **PIN individual** (scrypt) por admin + sessão no DB
+  (`v3.admin_sessions`, 8h). Roles **owner** / **manager** — ver
+  [ADMIN_ROLES.md](ADMIN_ROLES.md).
+- `requireRole('owner')` server-side em Finance, Gerenciar Admins, export CSV
+  e ações sensíveis do audit. Manager → **403** (não escala privilégio).
+- Guards: não rebaixar/desativar o último owner; não mudar a própria role; não
+  se autodesativar.
+- PINs só em env var (`ADMIN_PIN_*`), nunca no código. `ADMIN_PASSWORD` é
+  fallback de emergência só enquanto não há admin ativo.
+
+## Finance — salário nunca persiste (G12/G13)
+- Salário/hora é input temporário; **não é gravado no banco nem em log**.
+- Audit registra só o fato do acesso (`finance_calculation`: quem, operador, range).
+
 ## Sessões
 - Operador: cleanup automático 1×/h fecha sessões ociosas >8h
   (`logoff_reason=session_expired_cleanup`). Auto-logoff fino é client-side.
-- Admin: token expira em 8h (cookie + HMAC).
+- Admin: sessão DB 8h (`admin_sessions`); logout marca `logged_out_at`.
+  Fallback de emergência usa token HMAC stateless.
 
 ## Auditoria
 Todo write/login/ação sensível → `v3.audit_log` (visível na aba 📋 Histórico
