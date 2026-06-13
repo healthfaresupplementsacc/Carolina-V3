@@ -85,6 +85,25 @@ Env vars novas: `ADMIN_PASSWORD`, `WORKER_PROACTIVE_ALERTS_ENABLED`.
 Suite ~2053 tests. Custo LLM segue ~$0 (Gemini). Docs: `SECURITY.md`,
 `ADMIN_QUICK_REFERENCE.md` (atualizado), `OPERATOR_CARD`.
 
+**Bloco zera-sistema FASE 0 (13/jun) — UI fixes + voz:**
+- **Grupos /op**: Envio Clínica → grupo 🚚 Envio; novo **✨ Algo Especial**
+  (`special_task`, catch-all em Outros).
+- **Regras por slug** (nota/quantidade obrigatórias, validadas front+server):
+  | slug | nota obrig. | qtd ordens obrig. |
+  |---|---|---|
+  | break, meeting, training, special_task | ✅ | — |
+  | order_printing, order_printing_2 | ✅ | ✅ (orders_printed INT>0) |
+  | lunch, cleaning, production_line, formulation, review, packaging, labeling, orders, shipping, dc_shipment, clinic_shipment, box_closing, marketplace_prep, encapsulation, material_handling… | — | — |
+- **Voice recording** (migration 022): MediaRecorder grava áudio junto da
+  transcrição (Web Speech); até 60s; salvo em `v3.voice_recordings.audio_bytes`
+  (BYTEA — **não há volume de app persistente**, então áudio vive no Postgres;
+  cap 5MB, rate 20/h/pessoa). Admin ouve em 📊 Analytics → "🎤 Notas recentes".
+  Offline: áudio NÃO enfileira (grande p/ localStorage) — o **texto** da nota
+  persiste via Web Speech.
+- **Analytics+**: min/ordem (order_printing), card de uso de voz.
+- **Proativos+**: ordens anômalas (>3× média do operador), quota de áudio (≥400MB).
+- Env: nenhuma nova. Migration 022 aplicada. Suite ~2060.
+
 *(O restante deste documento descreve o estado de 21/mai — segue válido
 como contexto da operação; onde conflitar com este adendo, vale o adendo.)*
 

@@ -211,6 +211,15 @@ Cada item DEVE estar funcionando no v4 antes do switch:
   notificações Carolina ✅/❌/📝 no #admin-orin
 - Docs: OPERATOR_PAGE.md, ADMIN_NOTIFICATIONS.md, adendo no handoff
 
+## ✅ ENTREGUE — Fase 0 (UI fixes + voz, 13/jun)
+- Grupos: clinic→Envio; special_task (Outros)
+- Nota obrigatória: break/meeting/training/special_task/order_printing*
+- Qtd ordens obrigatória: order_printing/_2 (events.orders_printed)
+- Voice recording (MediaRecorder + transcript) → voice_recordings (bytea),
+  admin player no analytics; rate 20/h, cap 5MB
+- Analytics: min/ordem + uso de voz; Proativos: orders anomaly + voice quota
+- Migration 022. As ADIÇÕES de B/C/D/G deste prompt entraram aqui.
+
 ## ✅ ENTREGUE — bloco zera-sistema 13/jun
 - A: Carolina close_tasks/close_specific_event
 - B: Analytics dashboard (/admin 📊)

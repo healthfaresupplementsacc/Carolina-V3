@@ -25,7 +25,19 @@ Se for produção, diz **quantos bottles** saíram (se souber).
 Viu a tarefa do colega em "👥 Tasks da equipe"? Toca **🤝 Entrar**.
 
 ## ⑤ FALAR EM VEZ DE ESCREVER 🎤
-Nos campos de nota, toca no **microfone** e fala. Toca de novo pra parar.
+Nos campos de nota, toca no **microfone** e fala. Aparece um cronômetro
+(🔴 0:08…). Toca de novo pra **parar** (ou para sozinho em 1 minuto).
+Ele **escreve o que você falou** na nota E pergunta se quer **salvar a
+gravação** — toca "Salvar" pra guardar o áudio (o escritório pode ouvir
+depois) ou "Descartar" pra ficar só o texto.
+
+## ⑤b TAREFAS QUE PEDEM EXPLICAÇÃO / NÚMERO
+- **Impressão de ordens** (1ª e 2ª): pede **quantas ordens** você vai
+  imprimir — digita o número antes de começar.
+- **Pausa, Reunião, Treinamento, "✨ Algo Especial"**: pedem uma **nota**
+  (escreve ou fala no 🎤) explicando o que é.
+- **✨ Algo Especial** está em "Outros ⋯" — usa pra qualquer coisa fora do
+  normal, e explica na nota.
 
 ## ⑥ IR EMBORA
 Toca **Sair (fim do dia)** lá em cima. Se faltar contagem de bottles,

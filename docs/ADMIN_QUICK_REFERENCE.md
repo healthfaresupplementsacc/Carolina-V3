@@ -17,9 +17,14 @@ Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio.
 | **Ver o que fez** | "📅 Ver timeline 7 dias" (read-only) |
 
 ## Outras abas
-- **📊 Analytics**: métricas (bottles/dia, horas/operador, top supplements), range 7/30/90d.
+- **📊 Analytics**: métricas (bottles/dia, horas/operador, top supplements, **min/ordem impressa**, **uso de voz**), range 7/30/90d. No fim da aba: **🎤 Notas de voz recentes** com player + transcrição.
 - **📋 Histórico**: auditoria filtrável (quem mudou o quê, quando).
-- **🔔 Notificações**: inbox (slack órfão, bottle count, dead-letter, ocioso, task presa, count anômalo) — ✅/❌/📝 ou ações específicas (💤 force logout, ⏱️ fecha task).
+- **🔔 Notificações**: inbox (slack órfão, bottle count, dead-letter, ocioso, task presa, count anômalo, **ordens anômalas**, **quota de áudio**) — ✅/❌/📝 ou ações específicas (💤 force logout, ⏱️ fecha task).
+
+## Notas de voz (🎤)
+- Operadores podem gravar áudio (até 60s) — fica com transcrição.
+- **Ouvir**: aba 📊 Analytics → "🎤 Notas de voz recentes" → player.
+- **Storage**: áudio guardado no Postgres (bytea). Retenção sugerida **90 dias** — quando o alerta de quota (≥400MB) aparecer, apague gravações antigas (soft-delete no DB) ou aumente o plano.
 
 ## Notificações (aba 🔔) — espelho do que a Carolina posta no #admin-orin
 - **🔔 Slack órfão**: alguém postou no Slack sem registrar na página → ✅ aceita o registro / ❌ apaga / 📝 edita (lote/nota).
