@@ -14,17 +14,23 @@
       <button id="tab-notifs" class="tab">🔔 Notificações <span id="notif-badge" class="badge hidden">0</span></button>
       <button id="tab-analytics" class="tab">📊 Analytics</button>
       <button id="tab-voices" class="tab">🎤 Voices</button>
+      <button id="tab-admins" class="tab hidden">👥 Admins</button>
       <button id="tab-audit" class="tab">📋 Histórico</button>
     </nav>
+    <span id="who" class="who"></span>
     <button id="btn-logout" class="btn-sm">Sair</button>
   </header>
 
   <main>
     <section id="view-login" class="view">
       <h1>🛠️ Admin</h1>
-      <input id="pw" type="password" placeholder="Senha do painel" autocomplete="current-password">
+      <input id="pw" type="password" inputmode="numeric" placeholder="Seu PIN" autocomplete="current-password">
       <button id="btn-login" class="btn-big btn-primary">Entrar</button>
       <div id="login-err" class="err"></div>
+    </section>
+
+    <section id="view-admins" class="view hidden">
+      <div id="admins-list" class="cards"></div>
     </section>
 
     <section id="view-ops" class="view hidden">

@@ -6,8 +6,16 @@
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   function toast(m, ms) { const t = $('toast'); t.textContent = m; t.classList.remove('hidden'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.add('hidden'), ms || 2600); }
 
-  let view = 'login'; // login | ops | op-edit | notifs
+  let view = 'login'; // login | ops | op-edit | notifs | analytics | voices | admins | audit
   let ops = []; let editing = null; let notifPoll = null;
+  let me = null; // { id, name, role } do admin logado (RBAC)
+  function isOwner() { return me && me.role === 'owner'; }
+  function applyRole() {
+    const badge = me ? (me.role === 'owner' ? '👑 Owner' : '🛡️ Manager') : '';
+    $('who').textContent = me ? `${me.name} · ${badge}` : '';
+    // aba Admins só pra owner
+    $('tab-admins').classList.toggle('hidden', !isOwner());
+  }
 
   async function api(path, { method = 'GET', body } = {}) {
     const opts = { method, credentials: 'same-origin', headers: {} };
@@ -27,25 +35,35 @@
     $('view-notifs').classList.toggle('hidden', v !== 'notifs');
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
     $('view-voices').classList.toggle('hidden', v !== 'voices');
+    $('view-admins').classList.toggle('hidden', v !== 'admins');
     $('view-audit').classList.toggle('hidden', v !== 'audit');
     $('hdr').classList.toggle('hidden', v === 'login');
     $('tab-ops').classList.toggle('active', v === 'ops' || v === 'op-edit');
     $('tab-notifs').classList.toggle('active', v === 'notifs');
     $('tab-analytics').classList.toggle('active', v === 'analytics');
     $('tab-voices').classList.toggle('active', v === 'voices');
+    $('tab-admins').classList.toggle('active', v === 'admins');
     $('tab-audit').classList.toggle('active', v === 'audit');
   }
 
   // ── login ───────────────────────────────────────────────────
   $('btn-login').onclick = async () => {
     try {
-      await api('/api/adminpanel/auth/login', { method: 'POST', body: { password: $('pw').value } });
+      const val = $('pw').value.trim();
+      // PIN (só dígitos) vai como pin; qualquer outra coisa = senha de emergência
+      const body = /^\d{4,8}$/.test(val) ? { pin: val } : { password: val };
+      const r = await api('/api/adminpanel/auth/login', { method: 'POST', body });
+      me = r.admin || null; applyRole();
       $('pw').value = ''; $('login-err').textContent = '';
       show('ops'); await loadOps(); refreshBadge();
-    } catch (e) { $('login-err').textContent = e.message === 'wrong_password' ? 'Senha errada' : e.message; }
+    } catch (e) {
+      const M = { wrong_pin: 'PIN incorreto', wrong_password: 'PIN incorreto', password_disabled: 'Senha de emergência desativada — use seu PIN', too_many_attempts: 'Muitas tentativas — espera 5min' };
+      $('login-err').textContent = M[e.message] || e.message;
+    }
   };
   $('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-login').click(); });
-  $('btn-logout').onclick = async () => { try { await api('/api/adminpanel/auth/logout', { method: 'POST' }); } catch (_) {} show('login'); };
+  $('btn-logout').onclick = async () => { try { await api('/api/adminpanel/auth/logout', { method: 'POST' }); } catch (_) {} me = null; applyRole(); show('login'); };
+  $('tab-admins').onclick = async () => { show('admins'); await loadAdmins(); };
   $('tab-ops').onclick = async () => { show('ops'); await loadOps(); };
   $('tab-notifs').onclick = async () => { show('notifs'); await loadNotifs(); };
   $('tab-analytics').onclick = async () => { show('analytics'); await loadAnalytics(); };
@@ -330,6 +348,54 @@
         $('a-table').appendChild(vb);
       }
     } catch (_) { /* sem voz */ }
+  }
+
+  // ── gerenciar admins (RBAC, owner-only) ─────────────────────
+  async function loadAdmins() {
+    let r;
+    try { r = await api('/api/adminpanel/admins'); } catch (e) { toast('❌ ' + e.message); return; }
+    const box = $('admins-list'); box.innerHTML = '';
+    box.appendChild(el('div', 'sub', '👑 Owner = acesso total (finance, gerenciar admins). 🛡️ Manager = operacional, sem finance.'));
+    r.admins.forEach((a) => {
+      const isMe = r.me && r.me.id === a.id;
+      const badge = a.role === 'owner' ? '<span class="pill on">👑 owner</span>' : '<span class="pill warn">🛡️ manager</span>';
+      const status = a.is_active ? '' : ' <span class="pill off">🔴 inativo</span>';
+      const c = el('div', 'card');
+      c.appendChild(el('div', 'row', `<span class="title">${a.name}${isMe ? ' (você)' : ''}</span>${badge}${status}`));
+      c.appendChild(el('div', 'sub', `Último login: ${a.last_login_edt || 'nunca'} · Sessões ativas: ${a.active_session_count}`));
+      const act = el('div', 'actions');
+      // mudar PIN
+      const bPin = el('button', null, '🔑 Mudar PIN');
+      bPin.onclick = async () => {
+        const pin = window.prompt(`Novo PIN de ${a.name} (4-8 dígitos):`, '');
+        if (pin == null) return;
+        if (!/^\d{4,8}$/.test(pin)) { toast('PIN: 4-8 dígitos'); return; }
+        try { await api(`/api/adminpanel/admins/${a.id}/pin`, { method: 'POST', body: { pin } }); toast('✅ PIN atualizado'); }
+        catch (e) { toast('❌ ' + ({ pin_taken: 'PIN já usado', bad_pin_format: 'PIN inválido' }[e.message] || e.message)); }
+      };
+      act.appendChild(bPin);
+      // mudar role (não pra si mesmo)
+      if (!isMe) {
+        const bRole = el('button', null, a.role === 'owner' ? '⬇️ Tornar manager' : '⬆️ Tornar owner');
+        bRole.onclick = async () => {
+          const role = a.role === 'owner' ? 'manager' : 'owner';
+          if (!window.confirm(`Mudar ${a.name} para ${role}?`)) return;
+          try { await api(`/api/adminpanel/admins/${a.id}/role`, { method: 'PUT', body: { role } }); toast('✅ role alterada'); loadAdmins(); }
+          catch (e) { toast('❌ ' + ({ last_owner: 'Não dá: é o único owner ativo' }[e.message] || e.message)); }
+        };
+        act.appendChild(bRole);
+        // ativar/desativar (não pra si mesmo)
+        const bAct = el('button', a.is_active ? 'no' : 'ok', a.is_active ? '🔴 Desativar' : '🟢 Reativar');
+        bAct.onclick = async () => {
+          if (a.is_active && !window.confirm(`Desativar ${a.name}? Derruba as sessões dele.`)) return;
+          try { await api(`/api/adminpanel/admins/${a.id}/active`, { method: 'PUT', body: { active: !a.is_active } }); toast('✅ feito'); loadAdmins(); }
+          catch (e) { toast('❌ ' + ({ last_owner: 'Não dá: é o único owner ativo' }[e.message] || e.message)); }
+        };
+        act.appendChild(bAct);
+      }
+      c.appendChild(act);
+      box.appendChild(c);
+    });
   }
 
   // ── voices (Fase 0.7 — aba dedicada 🎤) ─────────────────────

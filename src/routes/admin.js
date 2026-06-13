@@ -63,12 +63,16 @@ function createAdminRouter(deps = {}) {
   const router = express.Router();
   router.use(express.json({ limit: '128kb' }));
 
-  async function audit(action, targetType, targetId, metadata) {
+  // audit: actor_type='admin'; o admin específico (RBAC) vai em metadata
+  // (audit_log.actor_person_id é p/ persons, não admin_users).
+  async function audit(action, targetType, targetId, metadata, req) {
     try {
+      const meta = { ...(metadata || {}) };
+      if (req && req.admin) { meta.admin_user_id = req.admin.id; meta.admin_name = req.admin.name; meta.admin_role = req.admin.role; }
       await db.query(
         `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
          VALUES ('admin', NULL, $1, $2, $3, $4::jsonb)`,
-        [action, targetType, targetId, JSON.stringify(metadata || {})]);
+        [action, targetType, targetId, JSON.stringify(meta)]);
     } catch (e) { console.error('[admin] audit falhou:', e.message); }
   }
 
@@ -79,7 +83,45 @@ function createAdminRouter(deps = {}) {
     }
   };
 
-  // ── auth ────────────────────────────────────────────────────
+  // ── auth: PIN individual (admin_users, scrypt) + sessão no DB ──────────
+  // Fallback de emergência: ADMIN_PASSWORD só loga enquanto NÃO houver
+  // admin_user ativo (token HMAC stateless legado). Depois do seed, só PIN.
+  function setAdminCookie(res, token) {
+    res.set('Set-Cookie', `hf_admin=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${SESSION_HOURS * 3600}; SameSite=Lax; Secure`);
+  }
+  async function countActiveAdmins() {
+    try { const r = await db.query('SELECT COUNT(*)::int n FROM v3.admin_users WHERE is_active = true'); return (r.rows[0] && r.rows[0].n) || 0; }
+    catch (_) { return 0; }
+  }
+  async function findAdminByPin(pin) {
+    const r = await db.query('SELECT id, name, role, pin_hash, pin_salt FROM v3.admin_users WHERE is_active = true');
+    for (const u of (r.rows || [])) {
+      if (opAuth.verifyPin(pin, u.pin_salt, u.pin_hash)) return { id: u.id, name: u.name, role: u.role };
+    }
+    return null;
+  }
+  async function createAdminSession(adminUserId, ip, ua) {
+    const token = opAuth.makeSessionToken();
+    const exp = new Date(now() + SESSION_HOURS * 3600 * 1000);
+    await db.query(
+      `INSERT INTO v3.admin_sessions (admin_user_id, session_token, ip_address, user_agent, expires_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [adminUserId, token, ip || null, ua ? String(ua).slice(0, 300) : null, exp]);
+    await db.query('UPDATE v3.admin_users SET last_login_at = NOW() WHERE id = $1', [adminUserId]).catch(() => {});
+    return { token, exp };
+  }
+  async function lookupAdminSession(token) {
+    if (!token) return null;
+    const r = await db.query(
+      `SELECT s.id AS session_id, u.id AS admin_user_id, u.name, u.role
+       FROM v3.admin_sessions s JOIN v3.admin_users u ON u.id = s.admin_user_id
+       WHERE s.session_token = $1 AND s.logged_out_at IS NULL AND s.expires_at > NOW() AND u.is_active = true
+       LIMIT 1`, [token]);
+    if (!r.rows[0]) return null;
+    db.query('UPDATE v3.admin_sessions SET last_activity_at = NOW() WHERE id = $1', [r.rows[0].session_id]).catch(() => {});
+    return { id: r.rows[0].admin_user_id, name: r.rows[0].name, role: r.rows[0].role, session_id: r.rows[0].session_id };
+  }
+
   const loginHits = new Map();
   router.post('/api/adminpanel/auth/login', h(async (req, res) => {
     const ip = req.ip || 'unknown';
@@ -92,32 +134,136 @@ function createAdminRouter(deps = {}) {
       await audit('admin_login_rate_limited', 'admin', null, { ip });
       return res.status(429).json({ error: 'too_many_attempts' });
     }
-    const given = String((req.body && req.body.password) || '');
-    if (!password || given !== password) {
-      await audit('admin_login_failed', 'admin', null, { ip });
-      if (bf) await bf.recordFailure(ip);
-      return res.status(401).json({ error: 'wrong_password' });
+    const body = req.body || {};
+    const pin = body.pin != null ? String(body.pin).trim() : null;
+    // 1) PIN individual (RBAC)
+    if (pin) {
+      const admin = await findAdminByPin(pin);
+      if (!admin) {
+        await audit('admin_login_failed', 'admin', null, { ip, mode: 'pin' });
+        if (bf) await bf.recordFailure(ip);
+        return res.status(401).json({ error: 'wrong_pin' });
+      }
+      if (bf) bf.recordSuccess(ip);
+      const { token, exp } = await createAdminSession(admin.id, ip, req.headers['user-agent']);
+      await audit('admin_login_success', 'admin', null, { ip, mode: 'pin', admin_user_id: admin.id, name: admin.name, role: admin.role });
+      setAdminCookie(res, token);
+      return res.json({ ok: true, token, admin: { id: admin.id, name: admin.name, role: admin.role }, expires_at: exp.toISOString() });
     }
-    if (bf) bf.recordSuccess(ip);
-    const exp = t + SESSION_HOURS * 3600 * 1000;
-    const token = signToken(password, exp);
-    await audit('admin_login_success', 'admin', null, { ip });
-    res.set('Set-Cookie', `hf_admin=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${SESSION_HOURS * 3600}; SameSite=Lax; Secure`);
-    res.json({ ok: true, token, expires_at: new Date(exp).toISOString() });
+    // 2) Fallback de emergência por senha — só se NÃO houver admin ativo
+    const given = body.password != null ? String(body.password) : null;
+    if (given !== null && password && given === password) {
+      const active = await countActiveAdmins();
+      if (active === 0) {
+        if (bf) bf.recordSuccess(ip);
+        const exp = t + SESSION_HOURS * 3600 * 1000;
+        const token = signToken(password, exp);
+        await audit('admin_login_success', 'admin', null, { ip, mode: 'emergency_password' });
+        setAdminCookie(res, token);
+        return res.json({ ok: true, token, admin: { id: null, name: 'emergency', role: 'owner' }, expires_at: new Date(exp).toISOString() });
+      }
+      await audit('admin_login_failed', 'admin', null, { ip, mode: 'emergency_password_disabled' });
+      return res.status(401).json({ error: 'password_disabled', detail: 'Senha de emergência desativada — use seu PIN.' });
+    }
+    await audit('admin_login_failed', 'admin', null, { ip });
+    if (bf) await bf.recordFailure(ip);
+    return res.status(401).json({ error: 'wrong_password' });
   }));
 
   router.post('/api/adminpanel/auth/logout', h(async (req, res) => {
+    const token = tokenFromReq(req);
+    if (token) db.query('UPDATE v3.admin_sessions SET logged_out_at = NOW() WHERE session_token = $1 AND logged_out_at IS NULL', [token]).catch(() => {});
     res.set('Set-Cookie', 'hf_admin=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure');
     res.json({ ok: true });
   }));
 
-  // gate de sessão pra tudo abaixo
-  const requireAdmin = (req, res, next) => {
-    if (verifyToken(password, tokenFromReq(req), now())) return next();
-    return res.status(401).json({ error: 'unauthorized' });
+  // ── gates de sessão / role ────────────────────────────────────────────
+  // requireAdmin: tenta sessão DB (RBAC) → senão token de emergência.
+  // Popula req.admin = { id, name, role }.
+  const requireAdmin = async (req, res, next) => {
+    try {
+      const token = tokenFromReq(req);
+      const sess = await lookupAdminSession(token);
+      if (sess) { req.admin = sess; return next(); }
+      if (verifyToken(password, token, now()) && (await countActiveAdmins()) === 0) {
+        req.admin = { id: null, name: 'emergency', role: 'owner' };
+        return next();
+      }
+      return res.status(401).json({ error: 'unauthorized' });
+    } catch (e) {
+      console.error('[admin] requireAdmin erro:', e.message);
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+  };
+  // requireRole('owner'): manager → 403 (não escala privilégio, G14).
+  const requireRole = (role) => (req, res, next) => {
+    if (!req.admin) return res.status(401).json({ error: 'unauthorized' });
+    if (role === 'owner' && req.admin.role !== 'owner') {
+      return res.status(403).json({ error: 'forbidden', message: 'Acesso requer permissão de owner' });
+    }
+    return next();
   };
   router.use('/api/adminpanel/operators', requireAdmin);
   router.use('/api/adminpanel/notifications', requireAdmin, makeRateLimit({ limit: 30 }));
+  router.use('/api/adminpanel/admins', requireAdmin, requireRole('owner'));
+
+  // ── gerenciar admins (OWNER ONLY) ─────────────────────────────────────
+  router.get('/api/adminpanel/admins', h(async (req, res) => {
+    const r = await db.query(
+      `SELECT u.id, u.name, u.role, u.slack_user_id, u.email, u.is_active,
+              to_char(u.last_login_at AT TIME ZONE '${EDT}','MM-DD HH12:MI AM') AS last_login_edt,
+              (SELECT COUNT(*)::int FROM v3.admin_sessions s
+               WHERE s.admin_user_id = u.id AND s.logged_out_at IS NULL AND s.expires_at > NOW()) AS active_session_count
+       FROM v3.admin_users u ORDER BY u.role, u.name`);
+    res.json({ admins: r.rows, me: req.admin });
+  }));
+  router.post('/api/adminpanel/admins/:id/pin', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const pin = String((req.body && req.body.pin) || '');
+    if (!/^\d{4,8}$/.test(pin)) return res.status(400).json({ error: 'bad_pin_format', detail: 'PIN: 4 a 8 dígitos numéricos.' });
+    const tgt = await db.query('SELECT id FROM v3.admin_users WHERE id = $1', [id]);
+    if (!tgt.rows[0]) return res.status(404).json({ error: 'not_found' });
+    // PIN não pode colidir com outro admin ATIVO (verifica scrypt 1-a-1)
+    const others = await db.query('SELECT id, pin_hash, pin_salt FROM v3.admin_users WHERE is_active = true AND id <> $1', [id]);
+    if ((others.rows || []).some((u) => opAuth.verifyPin(pin, u.pin_salt, u.pin_hash))) {
+      return res.status(409).json({ error: 'pin_taken', detail: 'PIN já usado por outro admin.' });
+    }
+    const { pin_hash, pin_salt } = opAuth.hashPin(pin);
+    await db.query('UPDATE v3.admin_users SET pin_hash = $2, pin_salt = $3, updated_at = NOW() WHERE id = $1', [id, pin_hash, pin_salt]);
+    await audit('admin_user.pin_changed', 'admin_user', id, {}, req);
+    res.json({ ok: true });
+  }));
+  router.put('/api/adminpanel/admins/:id/role', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const role = String((req.body && req.body.role) || '');
+    if (!['owner', 'manager'].includes(role)) return res.status(400).json({ error: 'bad_role' });
+    if (req.admin && req.admin.id === id) return res.status(400).json({ error: 'cannot_change_own_role' });
+    const cur = await db.query('SELECT role, is_active FROM v3.admin_users WHERE id = $1', [id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: 'not_found' });
+    // rebaixar um owner ativo: garante que sobra pelo menos 1 owner ativo
+    if (cur.rows[0].role === 'owner' && role === 'manager' && cur.rows[0].is_active) {
+      const owners = await db.query("SELECT COUNT(*)::int n FROM v3.admin_users WHERE role = 'owner' AND is_active = true");
+      if ((owners.rows[0].n || 0) <= 1) return res.status(400).json({ error: 'last_owner', detail: 'Não dá pra rebaixar o único owner ativo.' });
+    }
+    await db.query('UPDATE v3.admin_users SET role = $2, updated_at = NOW() WHERE id = $1', [id, role]);
+    await audit('admin_user.role_changed', 'admin_user', id, { new_role: role, old_role: cur.rows[0].role }, req);
+    res.json({ ok: true, role });
+  }));
+  router.put('/api/adminpanel/admins/:id/active', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const active = !!(req.body && req.body.active);
+    if (req.admin && req.admin.id === id && !active) return res.status(400).json({ error: 'cannot_deactivate_self' });
+    const cur = await db.query('SELECT role, is_active FROM v3.admin_users WHERE id = $1', [id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: 'not_found' });
+    if (!active && cur.rows[0].role === 'owner' && cur.rows[0].is_active) {
+      const owners = await db.query("SELECT COUNT(*)::int n FROM v3.admin_users WHERE role = 'owner' AND is_active = true");
+      if ((owners.rows[0].n || 0) <= 1) return res.status(400).json({ error: 'last_owner', detail: 'Não dá pra desativar o único owner ativo.' });
+    }
+    await db.query('UPDATE v3.admin_users SET is_active = $2, updated_at = NOW() WHERE id = $1', [id, active]);
+    if (!active) await db.query('UPDATE v3.admin_sessions SET logged_out_at = NOW() WHERE admin_user_id = $1 AND logged_out_at IS NULL', [id]).catch(() => {});
+    await audit('admin_user.active_changed', 'admin_user', id, { active }, req);
+    res.json({ ok: true, is_active: active });
+  }));
 
   // ── operators ───────────────────────────────────────────────
   router.get('/api/adminpanel/operators', h(async (req, res) => {
