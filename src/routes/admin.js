@@ -317,6 +317,144 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, status: 'admin_edited', event_id: evId });
   }));
 
+  // ── analytics (Fase B) ──────────────────────────────────────
+  router.use('/api/adminpanel/analytics', requireAdmin);
+  const rangeDays = (r) => ({ '7d': 7, '30d': 30, '90d': 90 }[String(r)] || 7);
+  // duração só conta events FECHADOS (ended_at não-null) pra não inflar com abertos
+  const DUR_MIN = `EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60.0`;
+
+  router.get('/api/adminpanel/analytics/summary', h(async (req, res) => {
+    const days = rangeDays(req.query.range);
+    const since = `NOW() - INTERVAL '${days} days'`;
+    const [tot, bottles, topSup, topOps, durBySlug, daily] = await Promise.all([
+      db.query(`SELECT COUNT(*)::int n FROM v3.events e WHERE e.deleted_at IS NULL AND e.started_at > ${since}`),
+      db.query(`SELECT COALESCE(SUM(bottles),0)::int n FROM v3.production_counts WHERE deleted_at IS NULL AND created_at > ${since}`),
+      db.query(`
+        SELECT pr.canonical_name AS product, COUNT(e.id)::int AS events
+        FROM v3.events e JOIN v3.product_batches pb ON pb.id=e.product_batch_id
+        JOIN v3.products pr ON pr.id=pb.product_id
+        WHERE e.deleted_at IS NULL AND e.started_at > ${since}
+        GROUP BY pr.canonical_name ORDER BY events DESC LIMIT 10`),
+      db.query(`
+        SELECT p.id, p.display_name, COUNT(e.id)::int AS events,
+               ROUND(COALESCE(SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL),0)/60.0, 1) AS hours
+        FROM v3.events e JOIN v3.persons p ON p.id=e.person_id
+        WHERE e.deleted_at IS NULL AND e.started_at > ${since} AND p.role='operator'
+        GROUP BY p.id, p.display_name ORDER BY events DESC LIMIT 10`),
+      db.query(`
+        SELECT at.slug, COUNT(e.id)::int AS n,
+               ROUND(AVG(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL)) AS avg_min
+        FROM v3.events e LEFT JOIN v3.activity_types at ON at.id=e.activity_type_id
+        WHERE e.deleted_at IS NULL AND e.started_at > ${since}
+        GROUP BY at.slug ORDER BY n DESC LIMIT 20`),
+      db.query(`
+        SELECT (e.started_at AT TIME ZONE '${EDT}')::date AS day,
+               COUNT(*)::int AS events,
+               ROUND(COALESCE(SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL),0)/60.0,1) AS hours
+        FROM v3.events e WHERE e.deleted_at IS NULL AND e.started_at > ${since}
+        GROUP BY day ORDER BY day`),
+    ]);
+    // bottles por dia (separado — production_counts)
+    const bottlesDaily = await db.query(`
+      SELECT (created_at AT TIME ZONE '${EDT}')::date AS day, COALESCE(SUM(bottles),0)::int AS bottles
+      FROM v3.production_counts WHERE deleted_at IS NULL AND created_at > ${since}
+      GROUP BY day ORDER BY day`);
+    const bMap = new Map(bottlesDaily.rows.map((r) => [String(r.day), r.bottles]));
+    const daily_breakdown = daily.rows.map((r) => ({ day: r.day, events: r.events, hours: Number(r.hours), bottles: bMap.get(String(r.day)) || 0 }));
+    res.json({
+      range: days + 'd',
+      total_events_count: tot.rows[0].n,
+      total_bottles: bottles.rows[0].n,
+      top_supplements: topSup.rows,
+      top_operators: topOps.rows,
+      avg_task_duration_minutes_by_slug: durBySlug.rows,
+      daily_breakdown,
+    });
+  }));
+
+  router.get('/api/adminpanel/analytics/operator/:id', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const days = rangeDays(req.query.range);
+    const since = `NOW() - INTERVAL '${days} days'`;
+    const info = await db.query(`SELECT id, display_name, role FROM v3.persons WHERE id=$1`, [id]);
+    if (!info.rows[0]) return res.status(404).json({ error: 'person_not_found' });
+    const [bySlug, daily, cowork, batches] = await Promise.all([
+      db.query(`
+        SELECT at.slug, COUNT(e.id)::int AS n, ROUND(AVG(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL)) AS avg_min
+        FROM v3.events e LEFT JOIN v3.activity_types at ON at.id=e.activity_type_id
+        WHERE e.person_id=$1 AND e.deleted_at IS NULL AND e.started_at > ${since}
+        GROUP BY at.slug ORDER BY n DESC`, [id]),
+      db.query(`
+        SELECT (e.started_at AT TIME ZONE '${EDT}')::date AS day,
+               ROUND(COALESCE(SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL),0)/60.0,1) AS hours,
+               COUNT(*)::int AS events
+        FROM v3.events e WHERE e.person_id=$1 AND e.deleted_at IS NULL AND e.started_at > ${since}
+        GROUP BY day ORDER BY day`, [id]),
+      db.query(`SELECT COUNT(*)::int n FROM v3.events e WHERE e.cowork_with @> ARRAY[$1]::int[] AND e.deleted_at IS NULL AND e.started_at > ${since}`, [id]),
+      db.query(`SELECT COUNT(DISTINCT e.product_batch_id)::int n FROM v3.events e WHERE e.person_id=$1 AND e.product_batch_id IS NOT NULL AND e.deleted_at IS NULL AND e.started_at > ${since}`, [id]),
+    ]);
+    const totalEvents = bySlug.rows.reduce((a, r) => a + r.n, 0);
+    const totalHours = daily.rows.reduce((a, r) => a + Number(r.hours), 0);
+    res.json({
+      person: info.rows[0], range: days + 'd',
+      total_events: totalEvents, total_hours_worked: Math.round(totalHours * 10) / 10,
+      events_by_slug: bySlug.rows, cowork_count: cowork.rows[0].n,
+      batches_touched: batches.rows[0].n, daily_activity: daily.rows,
+    });
+  }));
+
+  router.get('/api/adminpanel/analytics/supplement/:pid', h(async (req, res) => {
+    const pid = parseInt(req.params.pid, 10);
+    const days = rangeDays(req.query.range);
+    const since = `NOW() - INTERVAL '${days} days'`;
+    const info = await db.query(`SELECT id, canonical_name FROM v3.products WHERE id=$1`, [pid]);
+    if (!info.rows[0]) return res.status(404).json({ error: 'product_not_found' });
+    const [counts, ops, timeline] = await Promise.all([
+      db.query(`
+        SELECT COUNT(DISTINCT pb.id)::int batches, COALESCE(SUM(pc.bottles),0)::int bottles
+        FROM v3.product_batches pb LEFT JOIN v3.production_counts pc ON pc.product_batch_id=pb.id AND pc.deleted_at IS NULL AND pc.created_at > ${since}
+        WHERE pb.product_id=$1`, [pid]),
+      db.query(`
+        SELECT DISTINCT p.display_name FROM v3.events e
+        JOIN v3.product_batches pb ON pb.id=e.product_batch_id JOIN v3.persons p ON p.id=e.person_id
+        WHERE pb.product_id=$1 AND e.deleted_at IS NULL AND e.started_at > ${since}`, [pid]),
+      db.query(`
+        SELECT (pc.created_at AT TIME ZONE '${EDT}')::date AS day, SUM(pc.bottles)::int AS bottles
+        FROM v3.production_counts pc JOIN v3.product_batches pb ON pb.id=pc.product_batch_id
+        WHERE pb.product_id=$1 AND pc.deleted_at IS NULL AND pc.created_at > ${since}
+        GROUP BY day ORDER BY day`, [pid]),
+    ]);
+    const c = counts.rows[0];
+    res.json({
+      product: info.rows[0], range: days + 'd',
+      total_batches: c.batches, total_bottles: c.bottles,
+      avg_bottles_per_batch: c.batches ? Math.round(c.bottles / c.batches) : 0,
+      operators_involved: ops.rows.map((r) => r.display_name), timeline: timeline.rows,
+    });
+  }));
+
+  router.get('/api/adminpanel/analytics/daily-production', h(async (req, res) => {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
+    const dayCond = `(${'%COL%'} AT TIME ZONE '${EDT}')::date = COALESCE($1::date, (NOW() AT TIME ZONE '${EDT}')::date)`;
+    const [bottles, hours, tasks, notifs] = await Promise.all([
+      db.query(`SELECT pr.canonical_name AS product, SUM(pc.bottles)::int AS bottles
+        FROM v3.production_counts pc JOIN v3.product_batches pb ON pb.id=pc.product_batch_id JOIN v3.products pr ON pr.id=pb.product_id
+        WHERE pc.deleted_at IS NULL AND ${dayCond.replace('%COL%', 'pc.created_at')} GROUP BY pr.canonical_name ORDER BY bottles DESC`, [date]),
+      db.query(`SELECT p.display_name, ROUND(COALESCE(SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL),0)/60.0,1) AS hours
+        FROM v3.events e JOIN v3.persons p ON p.id=e.person_id
+        WHERE e.deleted_at IS NULL AND p.role='operator' AND ${dayCond.replace('%COL%', 'e.started_at')} GROUP BY p.display_name ORDER BY hours DESC`, [date]),
+      db.query(`SELECT COUNT(*)::int n FROM v3.events e WHERE e.deleted_at IS NULL AND e.ended_at IS NOT NULL AND ${dayCond.replace('%COL%', 'e.started_at')}`, [date]),
+      db.query(`SELECT COUNT(*)::int n FROM v3.notifications WHERE resolved_at IS NOT NULL AND ${dayCond.replace('%COL%', 'resolved_at')}`, [date]),
+    ]);
+    res.json({
+      date: date || 'today_edt',
+      bottles_produced_by_supplement: bottles.rows,
+      hours_worked_by_operator: hours.rows,
+      tasks_completed: tasks.rows[0].n,
+      notifications_resolved: notifs.rows[0].n,
+    });
+  }));
+
   return router;
 }
 

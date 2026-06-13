@@ -37,3 +37,12 @@ button { font: inherit; cursor: pointer; border: 0; border-radius: 10px; }
 .pill.off { background: #f4d7d5; color: #b3261e; }
 .pill.warn { background: #fdeccc; color: #b35c00; }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #14323f; color: #fff; padding: 12px 20px; border-radius: 10px; z-index: 200; max-width: 92vw; }
+.metric-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.metric { background: #fff; border: 2px solid #c8d6dc; border-radius: 12px; padding: 14px; text-align: center; }
+.metric .big { font-size: 30px; font-weight: 900; color: #0e7a4e; }
+.metric .lbl { font-size: 14px; color: #4b6a77; margin-top: 4px; }
+.chart-box { background: #fff; border: 2px solid #c8d6dc; border-radius: 12px; padding: 14px; margin: 12px 0; }
+table.dt { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; margin-top: 12px; }
+table.dt th, table.dt td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e3edf1; font-size: 15px; }
+table.dt th { background: #14323f; color: #fff; }
+table.dt tr:nth-child(even) td { background: #f7fafb; }

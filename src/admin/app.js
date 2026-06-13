@@ -25,9 +25,11 @@
     $('view-ops').classList.toggle('hidden', v !== 'ops');
     $('view-op-edit').classList.toggle('hidden', v !== 'op-edit');
     $('view-notifs').classList.toggle('hidden', v !== 'notifs');
+    $('view-analytics').classList.toggle('hidden', v !== 'analytics');
     $('hdr').classList.toggle('hidden', v === 'login');
     $('tab-ops').classList.toggle('active', v === 'ops' || v === 'op-edit');
     $('tab-notifs').classList.toggle('active', v === 'notifs');
+    $('tab-analytics').classList.toggle('active', v === 'analytics');
   }
 
   // ── login ───────────────────────────────────────────────────
@@ -42,6 +44,8 @@
   $('btn-logout').onclick = async () => { try { await api('/api/adminpanel/auth/logout', { method: 'POST' }); } catch (_) {} show('login'); };
   $('tab-ops').onclick = async () => { show('ops'); await loadOps(); };
   $('tab-notifs').onclick = async () => { show('notifs'); await loadNotifs(); };
+  $('tab-analytics').onclick = async () => { show('analytics'); await loadAnalytics(); };
+  $('a-range').onchange = loadAnalytics;
   $('btn-back').onclick = async () => { show('ops'); await loadOps(); };
 
   // ── operadores ──────────────────────────────────────────────
@@ -221,6 +225,45 @@
     try { const r = await api('/api/adminpanel/notifications?status=pending&limit=1'); updateBadge(r.pending_total); } catch (_) {}
   }
   notifPoll = setInterval(() => { if (view === 'notifs') loadNotifs().catch(() => {}); else if (view !== 'login') refreshBadge(); }, 30000);
+
+  // ── analytics (Fase B) ──────────────────────────────────────
+  const charts = {};
+  function drawChart(id, cfg) {
+    if (!window.Chart) return;
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new window.Chart($(id).getContext('2d'), cfg);
+  }
+  async function loadAnalytics() {
+    let s;
+    try { s = await api('/api/adminpanel/analytics/summary?range=' + $('a-range').value); }
+    catch (e) { toast('❌ ' + e.message); return; }
+    $('a-cards').innerHTML = '';
+    const metric = (big, lbl) => { const d = el('div', 'metric'); d.appendChild(el('div', 'big', String(big))); d.appendChild(el('div', 'lbl', lbl)); return d; };
+    $('a-cards').appendChild(metric(s.total_events_count, 'Eventos'));
+    $('a-cards').appendChild(metric(s.total_bottles.toLocaleString('pt-BR'), 'Bottles'));
+    $('a-cards').appendChild(metric(s.top_operators.length, 'Operadores ativos'));
+    const totHours = s.daily_breakdown.reduce((a, d) => a + Number(d.hours), 0);
+    $('a-cards').appendChild(metric(Math.round(totHours) + 'h', 'Horas trabalhadas'));
+
+    drawChart('chart-bottles', {
+      type: 'line',
+      data: { labels: s.daily_breakdown.map((d) => String(d.day).slice(5)), datasets: [{ label: 'Bottles/dia', data: s.daily_breakdown.map((d) => d.bottles), borderColor: '#0e7a4e', backgroundColor: 'rgba(14,122,78,.15)', fill: true, tension: .3 }] },
+      options: { plugins: { title: { display: true, text: '🍶 Bottles produzidos por dia' } } },
+    });
+    drawChart('chart-ops', {
+      type: 'bar',
+      data: { labels: s.top_operators.map((o) => o.display_name), datasets: [{ label: 'Horas', data: s.top_operators.map((o) => Number(o.hours)), backgroundColor: '#2c505f' }] },
+      options: { indexAxis: 'y', plugins: { title: { display: true, text: '👷 Horas por operador' } } },
+    });
+    drawChart('chart-slugs', {
+      type: 'doughnut',
+      data: { labels: s.avg_task_duration_minutes_by_slug.slice(0, 8).map((x) => x.slug || '?'), datasets: [{ data: s.avg_task_duration_minutes_by_slug.slice(0, 8).map((x) => x.n), backgroundColor: ['#0e7a4e', '#2c505f', '#b35c00', '#b3261e', '#6b46c1', '#0891b2', '#65a30d', '#9333ea'] }] },
+      options: { plugins: { title: { display: true, text: '🧩 Eventos por tipo de tarefa' } } },
+    });
+    let html = '<table class="dt"><tr><th>Dia</th><th>Eventos</th><th>Bottles</th><th>Horas</th></tr>';
+    s.daily_breakdown.slice().reverse().forEach((d) => { html += `<tr><td>${d.day}</td><td>${d.events}</td><td>${d.bottles}</td><td>${d.hours}</td></tr>`; });
+    $('a-table').innerHTML = html + '</table>';
+  }
 
   show('login');
 }());

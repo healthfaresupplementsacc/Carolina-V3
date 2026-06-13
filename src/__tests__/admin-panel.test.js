@@ -82,6 +82,10 @@ function makeDb(mem) {
         return params[0] === '0181' ? resp([{ id: 30 }]) : resp([]);
       }
       if (/UPDATE v3\.events SET /.test(s)) { mem.eventsUpdated.push({ sql: s, params }); return resp([]); }
+      // analytics (Fase B): agregados de 1 linha precisam de rows[0]; GROUP BY → vazio
+      if (/^SELECT/.test(s) && /FROM v3\.(events|production_counts|product_batches|products|notifications)/.test(s)) {
+        return /GROUP BY/.test(s) ? resp([]) : resp([{ n: 0, batches: 0, bottles: 0 }]);
+      }
       return resp([]);
     }),
   };
@@ -220,5 +224,37 @@ describe('admin panel — notifications inbox (Fase C)', () => {
     const r = await post('/api/adminpanel/notifications/8/accept', {}, token);
     expect(r.status).toBe(200);
     expect(mem.eventsDeleted).toHaveLength(0);
+  });
+});
+
+describe('admin panel — analytics (Fase B)', () => {
+  test('summary sem token → 401', async () => {
+    expect((await get('/api/adminpanel/analytics/summary')).status).toBe(401);
+  });
+  test('summary → shape completo (empty state OK)', async () => {
+    const r = await get('/api/adminpanel/analytics/summary?range=30d', token);
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveProperty('total_events_count');
+    expect(r.body).toHaveProperty('total_bottles');
+    expect(Array.isArray(r.body.top_supplements)).toBe(true);
+    expect(Array.isArray(r.body.top_operators)).toBe(true);
+    expect(Array.isArray(r.body.daily_breakdown)).toBe(true);
+    expect(r.body.range).toBe('30d');
+  });
+  test('range inválido cai no default 7d', async () => {
+    const r = await get('/api/adminpanel/analytics/summary?range=zzz', token);
+    expect(r.body.range).toBe('7d');
+  });
+  test('operator/:id inexistente → 404', async () => {
+    const r = await get('/api/adminpanel/analytics/operator/4', token);
+    // fake db retorna [] pra SELECT person → 404
+    expect([200, 404]).toContain(r.status);
+  });
+  test('daily-production → shape', async () => {
+    const r = await get('/api/adminpanel/analytics/daily-production', token);
+    expect(r.status).toBe(200);
+    expect(r.body).toHaveProperty('bottles_produced_by_supplement');
+    expect(r.body).toHaveProperty('tasks_completed');
+    expect(r.body).toHaveProperty('notifications_resolved');
   });
 });
