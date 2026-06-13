@@ -34,6 +34,7 @@
     $('view-op-edit').classList.toggle('hidden', v !== 'op-edit');
     $('view-notifs').classList.toggle('hidden', v !== 'notifs');
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
+    $('view-metrics').classList.toggle('hidden', v !== 'metrics');
     $('view-voices').classList.toggle('hidden', v !== 'voices');
     $('view-admins').classList.toggle('hidden', v !== 'admins');
     $('view-audit').classList.toggle('hidden', v !== 'audit');
@@ -41,6 +42,7 @@
     $('tab-ops').classList.toggle('active', v === 'ops' || v === 'op-edit');
     $('tab-notifs').classList.toggle('active', v === 'notifs');
     $('tab-analytics').classList.toggle('active', v === 'analytics');
+    $('tab-metrics').classList.toggle('active', v === 'metrics');
     $('tab-voices').classList.toggle('active', v === 'voices');
     $('tab-admins').classList.toggle('active', v === 'admins');
     $('tab-audit').classList.toggle('active', v === 'audit');
@@ -70,6 +72,7 @@
   $('a-range').onchange = loadAnalytics;
   $('tab-voices').onclick = async () => { show('voices'); await loadVoices(); };
   $('v-apply').onclick = () => loadVoices();
+  $('tab-metrics').onclick = async () => { show('metrics'); await loadMetrics(metricsSub); };
   $('tab-audit').onclick = async () => { show('audit'); auditOffset = 0; await loadAudit(false); };
   $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
   let _auDeb = null;
@@ -395,6 +398,136 @@
       }
     } catch (_) { /* sem voz */ }
   }
+
+  // ── métricas (Fase 5) ───────────────────────────────────────
+  let metricsSub = 'hoje';
+  const mchart = {};
+  function mDrawChart(id, cfg) { if (!window.Chart) return; if (mchart[id]) mchart[id].destroy(); mchart[id] = new window.Chart($(id).getContext('2d'), cfg); }
+  function mMetric(big, lbl) { const d = el('div', 'metric'); d.appendChild(el('div', 'big', String(big))); d.appendChild(el('div', 'lbl', lbl)); return d; }
+  async function loadMetrics(sub) {
+    metricsSub = sub || 'hoje';
+    const SUBS = [['hoje', '🎯 Hoje'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
+    if (isOwner()) SUBS.push(['finance', '💰 Finance']);
+    const nav = $('metrics-subnav'); nav.innerHTML = '';
+    SUBS.forEach(([k, lbl]) => { const b = el('button', 'subtab' + (k === metricsSub ? ' active' : ''), lbl); b.onclick = () => loadMetrics(k); nav.appendChild(b); });
+    const c = $('metrics-content'); c.innerHTML = '<div class="sub">carregando…</div>';
+    try { await M_RENDER[metricsSub](c); } catch (e) { c.innerHTML = ''; c.appendChild(el('div', 'err', e.message)); }
+  }
+  const M_RENDER = {
+    hoje: async (c) => {
+      const r = await api('/api/adminpanel/metrics/realtime');
+      c.innerHTML = ''; const cards = el('div', 'metric-cards');
+      cards.appendChild(mMetric(r.logged_in_operators.length, 'Logados agora'));
+      cards.appendChild(mMetric(Number(r.bottles_today).toLocaleString('pt-BR'), 'Bottles hoje'));
+      cards.appendChild(mMetric(r.orders_today, 'Ordens hoje'));
+      cards.appendChild(mMetric(r.hours_today + 'h', 'Horas hoje'));
+      c.appendChild(cards);
+      c.appendChild(el('h2', null, '👷 Operadores logados'));
+      r.logged_in_operators.forEach((o) => {
+        const sem = o.idle_min > 120 ? '🔴' : o.idle_min > 30 ? '🟡' : '🟢';
+        c.appendChild(el('div', 'card', `<div class="row"><span class="title">${sem} ${o.display_name}</span><span class="sub">${o.current_task || 'sem task'} · ocioso ${o.idle_min}min</span></div>`));
+      });
+      if (r.tasks_open_long.length) {
+        c.appendChild(el('h2', null, '⏰ Tasks abertas há +1h'));
+        r.tasks_open_long.forEach((t) => c.appendChild(el('div', 'card', `<div class="sub">ev${t.id} · ${t.display_name} · ${t.task || '?'} · ${t.hours_open}h</div>`)));
+      }
+    },
+    operador: async (c) => {
+      if (!ops.length) { try { ops = (await api('/api/adminpanel/operators')).operators; } catch (_) {} }
+      c.innerHTML = '';
+      const sel = el('select'); sel.appendChild(el('option', null, '— escolha o operador —'));
+      ops.forEach((o) => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.display_name; sel.appendChild(op); });
+      const out = el('div'); c.appendChild(sel); c.appendChild(out);
+      sel.onchange = async () => {
+        if (!sel.value) return; out.innerHTML = '<div class="sub">…</div>';
+        const m = await api(`/api/adminpanel/metrics/operator/${sel.value}?range=30d`);
+        out.innerHTML = ''; const cards = el('div', 'metric-cards');
+        cards.appendChild(mMetric(m.total_events, 'Events 30d'));
+        cards.appendChild(mMetric(m.total_hours + 'h', 'Horas'));
+        cards.appendChild(mMetric(m.active_days, 'Dias ativos'));
+        cards.appendChild(mMetric(m.energy_drain_ratio == null ? '—' : m.energy_drain_ratio, 'Energia tarde/manhã'));
+        cards.appendChild(mMetric('🎤 ' + m.voice_recordings_count, 'Notas de voz'));
+        out.appendChild(cards);
+        let html = '<table class="dt"><tr><th>Task</th><th>Qtd</th><th>Média (min)</th></tr>';
+        m.by_slug.forEach((s) => { html += `<tr><td>${s.task_name || s.slug}</td><td>${s.n}</td><td>${s.avg_min}</td></tr>`; });
+        out.appendChild(el('div', null, html + '</table>'));
+      };
+    },
+    tasks: async (c) => {
+      const cmp = await api('/api/adminpanel/metrics/targets-comparison');
+      c.innerHTML = ''; c.appendChild(el('h2', null, '📋 Tasks (target vs real 30d)'));
+      let html = '<table class="dt"><tr><th>Slug</th><th>Target</th><th>Real médio</th><th>Δ%</th><th>N</th></tr>';
+      cmp.targets.forEach((t) => { const d = t.delta_pct; const col = d == null ? '' : d > 20 ? 'style="color:#b3261e"' : d < -10 ? 'style="color:#0e7a4e"' : ''; html += `<tr><td>${t.slug}</td><td>${t.target_minutes}</td><td>${t.actual_avg ?? '—'}</td><td ${col}>${d == null ? '—' : (d > 0 ? '+' : '') + d + '%'}</td><td>${t.n}</td></tr>`; });
+      c.appendChild(el('div', null, html + '</table>'));
+    },
+    targets: async (c) => {
+      const cmp = await api('/api/adminpanel/metrics/targets-comparison');
+      c.innerHTML = ''; c.appendChild(el('div', 'sub', 'Aplica um novo target (minutos) por slug. Registrado no audit.'));
+      cmp.targets.forEach((t) => {
+        const row = el('div', 'card'); row.appendChild(el('div', 'row', `<span class="title">${t.slug}</span><span class="sub">atual ${t.target_minutes}min · real ${t.actual_avg ?? '—'}</span>`));
+        const inp = el('input'); inp.type = 'number'; inp.min = '1'; inp.placeholder = String(t.target_minutes); inp.style.width = '90px';
+        const b = el('button', 'btn-sm', 'Aplicar');
+        b.onclick = async () => { const v = parseInt(inp.value, 10); if (!(v > 0)) { toast('minutos > 0'); return; } try { await api(`/api/adminpanel/metrics/targets/${t.slug}`, { method: 'POST', body: { custom_minutes: v, method_applied: 'manual' } }); toast('✅ target salvo'); loadMetrics('targets'); } catch (e) { toast('❌ ' + e.message); } };
+        const act = el('div', 'actions'); act.appendChild(inp); act.appendChild(b); row.appendChild(act); c.appendChild(row);
+      });
+    },
+    tendencias: async (c) => {
+      const t = await api('/api/adminpanel/metrics/trends?range=30d');
+      c.innerHTML = ''; c.appendChild(el('div', 'chart-box', '<canvas id="m-trend"></canvas>'));
+      c.appendChild(el('div', 'chart-box', '<canvas id="m-bottles"></canvas>'));
+      mDrawChart('m-trend', { type: 'line', data: { labels: t.productivity_daily.map((d) => String(d.day).slice(5)), datasets: [{ label: 'Horas/dia', data: t.productivity_daily.map((d) => Number(d.hours)), borderColor: '#2c505f', tension: .3 }] }, options: { plugins: { title: { display: true, text: '📈 Horas trabalhadas/dia (30d)' } } } });
+      mDrawChart('m-bottles', { type: 'bar', data: { labels: t.bottles_daily.map((d) => String(d.day).slice(5)), datasets: [{ label: 'Bottles/dia', data: t.bottles_daily.map((d) => d.bottles), backgroundColor: '#0e7a4e' }] }, options: { plugins: { title: { display: true, text: '🍶 Bottles/dia (30d)' } } } });
+    },
+    anomalias: async (c) => {
+      const a = await api('/api/adminpanel/metrics/anomalies');
+      c.innerHTML = ''; const cards = el('div', 'metric-cards');
+      cards.appendChild(mMetric(a.forgotten_pending, 'Forgotten pendentes'));
+      cards.appendChild(mMetric(a.idle_operators.length, 'Ociosos +2h'));
+      cards.appendChild(mMetric(a.stale_events.length, 'Tasks presas +3h'));
+      c.appendChild(cards);
+      if (a.idle_operators.length) { c.appendChild(el('h2', null, '💤 Ociosos')); a.idle_operators.forEach((o) => c.appendChild(el('div', 'card', `<div class="sub">${o.display_name} · ${o.idle_min}min</div>`))); }
+      if (a.stale_events.length) { c.appendChild(el('h2', null, '⏰ Tasks presas')); a.stale_events.forEach((s) => c.appendChild(el('div', 'card', `<div class="sub">ev${s.id} · ${s.display_name} · ${s.hours_open}h</div>`))); }
+    },
+    rankings: async (c) => {
+      const r = await api('/api/adminpanel/metrics/rankings?period=month');
+      c.innerHTML = ''; c.appendChild(el('div', 'sub', '⚠️ Visível só pra admin. Não mostre aos operadores.'));
+      const medal = (i) => ['🥇', '🥈', '🥉'][i] || '·';
+      const block = (title, rows, fmt) => { c.appendChild(el('h2', null, title)); rows.forEach((x, i) => c.appendChild(el('div', 'card', `<div class="sub">${medal(i)} ${fmt(x)}</div>`))); };
+      block('📦 Volume (events)', r.volume_leaders, (x) => `${x.person_name} — ${x.events}`);
+      block('⏱️ Horas', r.hours_leaders, (x) => `${x.person_name} — ${x.hours}h`);
+      block('🤝 Mais ajudou (cowork)', r.most_helpful_cowork, (x) => `${x.person_name} — ${x.helped}`);
+    },
+    insights: async (c) => {
+      const r = await api('/api/adminpanel/metrics/insights');
+      c.innerHTML = ''; if (!r.insights.length) { c.appendChild(el('div', 'sub', 'Sem insights ainda.')); return; }
+      r.insights.forEach((i) => c.appendChild(el('div', 'card', `<div class="row"><span class="pill warn">${i.category}</span></div><div class="sub">${i.text}</div>`)));
+    },
+    finance: async (c) => {
+      c.innerHTML = '';
+      c.appendChild(el('div', 'err', '💰 Salário inserido aqui NÃO é salvo. Saindo da tela, os dados somem. Só o fato do acesso é auditado.'));
+      if (!ops.length) { try { ops = (await api('/api/adminpanel/operators')).operators; } catch (_) {} }
+      const sel = el('select'); sel.appendChild(el('option', null, '— operador —'));
+      ops.forEach((o) => { const op = document.createElement('option'); op.value = o.id; op.textContent = o.display_name; sel.appendChild(op); });
+      const sal = el('input'); sal.type = 'number'; sal.min = '0'; sal.step = '0.5'; sal.placeholder = 'salário/hora';
+      const rng = el('select'); ['30d', '7d', '90d'].forEach((x) => { const o = document.createElement('option'); o.value = x; o.textContent = x; rng.appendChild(o); });
+      const go = el('button', 'btn-primary', 'Calcular'); const out = el('div');
+      go.onclick = async () => {
+        if (!sel.value || !(Number(sal.value) > 0)) { toast('escolha operador e salário/hora'); return; }
+        try {
+          const m = await api('/api/adminpanel/metrics/financial/calculate', { method: 'POST', body: { person_id: parseInt(sel.value, 10), hourly_salary: Number(sal.value), range_days: parseInt(rng.value, 10) } });
+          out.innerHTML = ''; const cards = el('div', 'metric-cards');
+          cards.appendChild(mMetric(m.hours_worked + 'h', 'Horas'));
+          cards.appendChild(mMetric(m.total_cost, 'Custo total'));
+          cards.appendChild(mMetric(m.cost_per_bottle ?? '—', 'Custo/bottle'));
+          cards.appendChild(mMetric(m.cost_per_task ?? '—', 'Custo/task'));
+          cards.appendChild(mMetric((m.productive_pct ?? '—') + '%', 'Tempo produtivo'));
+          out.appendChild(cards);
+        } catch (e) { toast('❌ ' + e.message); }
+      };
+      const form = el('div', 'actions'); form.appendChild(sel); form.appendChild(sal); form.appendChild(rng); form.appendChild(go);
+      c.appendChild(form); c.appendChild(out);
+    },
+  };
 
   // ── gerenciar admins (RBAC, owner-only) ─────────────────────
   async function loadAdmins() {

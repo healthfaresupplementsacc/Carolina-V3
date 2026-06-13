@@ -137,7 +137,7 @@ function mount(app) {
     const adminDir = path2.join(process.cwd(), 'src', 'admin');
     app.use('/admin', express2.static(adminDir));
     // SPA: /admin/operators e /admin/notifications servem o mesmo index
-    app.get(['/admin', '/admin/operators', '/admin/notifications', '/admin/analytics', '/admin/voices', '/admin/audit'], (_req, res) => {
+    app.get(['/admin', '/admin/operators', '/admin/notifications', '/admin/analytics', '/admin/metrics', '/admin/voices', '/admin/audit'], (_req, res) => {
       res.sendFile(path2.join(adminDir, 'index.html'));
     });
   }
@@ -204,6 +204,12 @@ async function startWorker() {
       adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
     }).start(10 * 60 * 1000);
   }
+
+  // Fase 5 — refresh da matview de métricas a cada 10min (best-effort).
+  setInterval(async () => {
+    try { await _pool.query('SELECT v3.refresh_events_enriched()'); }
+    catch (e) { console.error('[V3] refresh events_enriched erro:', e.message); }
+  }, 10 * 60 * 1000);
 
   // Fase D — session cleanup: fecha operator_sessions ociosas >8h (hard limit),
   // 1×/h. Não derruba sessões legítimas (last_activity < 8h). Loga quantas.

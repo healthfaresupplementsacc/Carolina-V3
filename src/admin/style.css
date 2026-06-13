@@ -14,6 +14,9 @@ nav { display: flex; gap: 8px; }
 .sched-row input[type=time] { padding: 4px; }
 .sched-row .sched-note { flex: 1; min-width: 120px; padding: 4px 8px; }
 .sched-today { background: #f0fbf6; border-radius: 8px; }
+.subnav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.subtab { font: inherit; border: 1px solid #c8d6dc; border-radius: 999px; padding: 6px 12px; background: #fff; color: #14323f; cursor: pointer; font-size: 14px; }
+.subtab.active { background: #0e7a4e; color: #fff; border-color: #0e7a4e; }
 main { max-width: 860px; margin: 0 auto; padding: 16px 14px 60px; }
 h1 { text-align: center; margin: 40px 0 16px; }
 input, select { font: inherit; min-height: 50px; padding: 8px 12px; border: 2px solid #c8d6dc; border-radius: 10px; width: 100%; background: #fff; }

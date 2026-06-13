@@ -801,6 +801,255 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, id });
   }));
 
+  // ════════════════════════════════════════════════════════════
+  // Fase 5 — Metrics dashboard. Lê de v3.events_enriched (matview) +
+  // task_targets. owner+manager em tudo; FINANCE é owner-only e NUNCA
+  // grava/loga salário (G12/G13).
+  // ════════════════════════════════════════════════════════════
+  router.use('/api/adminpanel/metrics', requireAdmin, makeRateLimit({ limit: 60 }));
+  const mRange = (req) => ({ '7d': 7, '30d': 30, '90d': 90 }[String(req.query.range || '30d')] || 30);
+
+  // 1) Hoje (realtime)
+  router.get('/api/adminpanel/metrics/realtime', h(async (req, res) => {
+    const loggedIn = await db.query(
+      `SELECT s.person_id, p.display_name,
+              to_char(s.last_activity_at AT TIME ZONE '${EDT}','HH12:MI AM') AS last_activity,
+              EXTRACT(EPOCH FROM (NOW() - s.last_activity_at))/60.0 AS idle_min,
+              (SELECT at.display_name FROM v3.events e LEFT JOIN v3.activity_types at ON at.id=e.activity_type_id
+                WHERE e.person_id=s.person_id AND e.ended_at IS NULL AND e.deleted_at IS NULL
+                ORDER BY e.started_at DESC LIMIT 1) AS current_task
+       FROM v3.operator_sessions s JOIN v3.persons p ON p.id=s.person_id
+       WHERE s.logged_out_at IS NULL ORDER BY p.display_name`);
+    const today = await db.query(
+      `SELECT
+         (SELECT COALESCE(SUM(bottles),0)::int FROM v3.production_counts
+            WHERE deleted_at IS NULL AND production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS bottles_today,
+         (SELECT COALESCE(SUM(orders_printed),0)::int FROM v3.events
+            WHERE deleted_at IS NULL AND (started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS orders_today,
+         (SELECT COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (COALESCE(ended_at,NOW())-started_at)))/3600.0,1),0) FROM v3.events
+            WHERE deleted_at IS NULL AND is_long_running=false AND (started_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date) AS hours_today`);
+    const openLong = await db.query(
+      `SELECT e.id, p.display_name, at.display_name AS task,
+              ROUND(EXTRACT(EPOCH FROM (NOW()-e.started_at))/3600.0,1) AS hours_open
+       FROM v3.events e JOIN v3.persons p ON p.id=e.person_id LEFT JOIN v3.activity_types at ON at.id=e.activity_type_id
+       WHERE e.ended_at IS NULL AND e.deleted_at IS NULL AND e.is_long_running=false
+         AND e.started_at < NOW() - INTERVAL '1 hour' ORDER BY e.started_at LIMIT 50`);
+    res.json({
+      logged_in_operators: loggedIn.rows.map((r) => ({ ...r, idle_min: Math.round(Number(r.idle_min)) })),
+      ...today.rows[0], tasks_open_long: openLong.rows,
+    });
+  }));
+
+  // 2) Por operador (drill-down)
+  router.get('/api/adminpanel/metrics/operator/:id', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const d = mRange(req);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad_id' });
+    const base = await db.query(
+      `SELECT COUNT(*)::int total_events,
+              ROUND(SUM(CASE WHEN NOT is_long_running THEN duration_min ELSE 0 END)/60.0,1) AS total_hours,
+              COUNT(DISTINCT slug)::int slugs_count, COUNT(DISTINCT date_edt)::int active_days
+       FROM v3.events_enriched WHERE person_id=$1 AND started_at > NOW() - ($2||' days')::interval AND ended_at IS NOT NULL`,
+      [id, d]);
+    const bySlug = await db.query(
+      `SELECT slug, task_name, COUNT(*)::int n, ROUND(AVG(duration_min)::numeric,1) avg_min
+       FROM v3.events_enriched WHERE person_id=$1 AND ended_at IS NOT NULL AND is_long_running=false
+         AND started_at > NOW() - ($2||' days')::interval GROUP BY slug, task_name ORDER BY n DESC`, [id, d]);
+    // métrica exótica: day-of-week effect (minutos médios por dia da semana)
+    const byDow = await db.query(
+      `SELECT day_of_week, COUNT(*)::int n, ROUND(AVG(duration_min)::numeric,1) avg_min
+       FROM v3.events_enriched WHERE person_id=$1 AND ended_at IS NOT NULL AND is_long_running=false
+         AND started_at > NOW() - ($2||' days')::interval GROUP BY day_of_week ORDER BY day_of_week`, [id, d]);
+    // energy drain: tasks/h manhã (<13h) vs tarde (>=14h)
+    const energy = await db.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE hour_of_day < 13)::int AS morning_events,
+         COUNT(*) FILTER (WHERE hour_of_day >= 14)::int AS afternoon_events
+       FROM v3.events_enriched WHERE person_id=$1 AND ended_at IS NOT NULL AND is_long_running=false
+         AND started_at > NOW() - ($2||' days')::interval`, [id, d]);
+    const voice = await db.query(
+      `SELECT COUNT(*)::int n, to_char(MAX(created_at) AT TIME ZONE '${EDT}','MM-DD HH12:MI AM') AS last
+       FROM v3.voice_recordings WHERE person_id=$1 AND deleted_at IS NULL AND created_at > NOW() - ($2||' days')::interval`, [id, d]);
+    const em = energy.rows[0];
+    const drain = (em.morning_events > 0) ? Math.round((em.afternoon_events / em.morning_events) * 100) / 100 : null;
+    res.json({
+      range_days: d, ...base.rows[0],
+      by_slug: bySlug.rows, by_day_of_week: byDow.rows,
+      energy_drain_ratio: drain, // afternoon/morning event ratio
+      voice_recordings_count: voice.rows[0].n, last_voice_at: voice.rows[0].last,
+    });
+  }));
+
+  // 3) Por task type
+  router.get('/api/adminpanel/metrics/slug/:slug', h(async (req, res) => {
+    const slug = String(req.params.slug); const d = mRange(req);
+    const stats = await db.query(
+      `SELECT COUNT(*)::int n,
+              ROUND((percentile_cont(0.25) WITHIN GROUP (ORDER BY duration_min))::numeric,1) p25,
+              ROUND((percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_min))::numeric,1) p50,
+              ROUND((percentile_cont(0.75) WITHIN GROUP (ORDER BY duration_min))::numeric,1) p75,
+              ROUND(AVG(duration_min)::numeric,1) avg_min
+       FROM v3.events_enriched WHERE slug=$1 AND ended_at IS NOT NULL AND is_long_running=false
+         AND started_at > NOW() - ($2||' days')::interval`, [slug, d]);
+    const byOp = await db.query(
+      `SELECT person_name, COUNT(*)::int n, ROUND(AVG(duration_min)::numeric,1) avg_min,
+              ROUND((percentile_cont(0.25) WITHIN GROUP (ORDER BY duration_min))::numeric,1) p25
+       FROM v3.events_enriched WHERE slug=$1 AND ended_at IS NOT NULL AND is_long_running=false
+         AND started_at > NOW() - ($2||' days')::interval GROUP BY person_name ORDER BY p25 ASC NULLS LAST`, [slug, d]);
+    const tgt = await db.query('SELECT target_minutes FROM v3.task_targets WHERE slug=$1', [slug]);
+    res.json({ slug, range_days: d, ...stats.rows[0], target_minutes: tgt.rows[0] ? tgt.rows[0].target_minutes : null, by_operator: byOp.rows });
+  }));
+
+  // 4) Comparativo de targets
+  router.get('/api/adminpanel/metrics/targets-comparison', h(async (req, res) => {
+    const r = await db.query(
+      `SELECT t.slug, t.target_minutes, t.method_applied,
+              ROUND(AVG(ee.duration_min)::numeric,1) AS actual_avg,
+              COUNT(ee.id)::int AS n
+       FROM v3.task_targets t
+       LEFT JOIN v3.events_enriched ee ON ee.slug=t.slug AND ee.ended_at IS NOT NULL AND ee.is_long_running=false
+         AND ee.started_at > NOW() - INTERVAL '30 days'
+       GROUP BY t.slug, t.target_minutes, t.method_applied ORDER BY t.slug`);
+    res.json({ targets: r.rows.map((x) => ({ ...x, delta_pct: (x.actual_avg && x.target_minutes) ? Math.round(((x.actual_avg - x.target_minutes) / x.target_minutes) * 100) : null })) });
+  }));
+  router.post('/api/adminpanel/metrics/targets/:slug', h(async (req, res) => {
+    const slug = String(req.params.slug);
+    const b = req.body || {};
+    const minutes = parseInt(b.custom_minutes, 10);
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 100000) return res.status(400).json({ error: 'bad_minutes' });
+    const method = b.method_applied ? String(b.method_applied).slice(0, 20) : 'manual';
+    await db.query(
+      `INSERT INTO v3.task_targets (slug, target_minutes, method_applied, applied_by_admin_id, notes)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (slug) DO UPDATE SET target_minutes=EXCLUDED.target_minutes, method_applied=EXCLUDED.method_applied,
+         applied_by_admin_id=EXCLUDED.applied_by_admin_id, applied_at=NOW(), notes=EXCLUDED.notes`,
+      [slug, minutes, method, (req.admin && req.admin.id) || null, b.notes ? String(b.notes).slice(0, 300) : null]);
+    await audit('task_target.changed', 'task_target', null, { slug, target_minutes: minutes, method }, req);
+    res.json({ ok: true, slug, target_minutes: minutes });
+  }));
+
+  // 6) Tendências (produtividade diária)
+  router.get('/api/adminpanel/metrics/trends', h(async (req, res) => {
+    const d = mRange(req);
+    const daily = await db.query(
+      `SELECT date_edt AS day, COUNT(*)::int events,
+              ROUND(SUM(CASE WHEN NOT is_long_running THEN duration_min ELSE 0 END)/60.0,1) hours
+       FROM v3.events_enriched WHERE ended_at IS NOT NULL AND started_at > NOW() - ($1||' days')::interval
+       GROUP BY date_edt ORDER BY date_edt`, [d]);
+    const bottlesDaily = await db.query(
+      `SELECT production_date AS day, SUM(bottles)::int bottles FROM v3.production_counts
+       WHERE deleted_at IS NULL AND production_date > (NOW() AT TIME ZONE '${EDT}')::date - $1::int
+       GROUP BY production_date ORDER BY production_date`, [d]);
+    res.json({ range_days: d, productivity_daily: daily.rows, bottles_daily: bottlesDaily.rows });
+  }));
+
+  // 7) Anomalias
+  router.get('/api/adminpanel/metrics/anomalies', h(async (req, res) => {
+    const forgotten = await db.query("SELECT COUNT(*)::int n FROM v3.forgotten_checkouts WHERE resolved_at IS NULL");
+    const idle = await db.query(
+      `SELECT p.display_name, ROUND(EXTRACT(EPOCH FROM (NOW()-s.last_activity_at))/60.0)::int idle_min
+       FROM v3.operator_sessions s JOIN v3.persons p ON p.id=s.person_id
+       WHERE s.logged_out_at IS NULL AND s.last_activity_at < NOW() - INTERVAL '2 hours' ORDER BY idle_min DESC`);
+    const stale = await db.query(
+      `SELECT e.id, p.display_name, ROUND(EXTRACT(EPOCH FROM (NOW()-e.started_at))/3600.0,1) hours_open
+       FROM v3.events e JOIN v3.persons p ON p.id=e.person_id
+       WHERE e.ended_at IS NULL AND e.deleted_at IS NULL AND e.is_long_running=false
+         AND e.started_at < NOW() - INTERVAL '3 hours' ORDER BY e.started_at LIMIT 50`);
+    res.json({ forgotten_pending: forgotten.rows[0].n, idle_operators: idle.rows, stale_events: stale.rows });
+  }));
+
+  // 8) Rankings
+  router.get('/api/adminpanel/metrics/rankings', h(async (req, res) => {
+    const d = req.query.period === 'week' ? 7 : 30;
+    const volume = await db.query(
+      `SELECT person_name, COUNT(*)::int events FROM v3.events_enriched
+       WHERE ended_at IS NOT NULL AND started_at > NOW() - ($1||' days')::interval
+       GROUP BY person_name ORDER BY events DESC LIMIT 5`, [d]);
+    const hours = await db.query(
+      `SELECT person_name, ROUND(SUM(CASE WHEN NOT is_long_running THEN duration_min ELSE 0 END)/60.0,1) hours
+       FROM v3.events_enriched WHERE ended_at IS NOT NULL AND started_at > NOW() - ($1||' days')::interval
+       GROUP BY person_name ORDER BY hours DESC LIMIT 5`, [d]);
+    const cowork = await db.query(
+      `SELECT p.display_name AS person_name, COUNT(*)::int helped
+       FROM v3.events e JOIN v3.persons p ON p.id = ANY(e.cowork_with)
+       WHERE e.deleted_at IS NULL AND e.started_at > NOW() - ($1||' days')::interval
+       GROUP BY p.display_name ORDER BY helped DESC LIMIT 5`, [d]);
+    res.json({ period_days: d, volume_leaders: volume.rows, hours_leaders: hours.rows, most_helpful_cowork: cowork.rows });
+  }));
+
+  // 11) Aderência a schedule
+  router.get('/api/adminpanel/metrics/schedule-adherence', h(async (req, res) => {
+    const r = await db.query(
+      `SELECT p.display_name, sc.day_of_week, to_char(sc.expected_start_time,'HH24:MI') AS expected_start,
+              to_char(sc.expected_end_time,'HH24:MI') AS expected_end, sc.is_workday
+       FROM v3.operator_schedules sc JOIN v3.persons p ON p.id=sc.person_id
+       ORDER BY p.display_name, sc.day_of_week`);
+    res.json({ schedules: r.rows });
+  }));
+
+  // 12) Insights (estáticos, gerados via SQL — Carolina não age)
+  router.get('/api/adminpanel/metrics/insights', h(async (req, res) => {
+    const insights = [];
+    const slowest = await db.query(
+      `SELECT slug, task_name, ROUND(AVG(duration_min)::numeric,1) avg_min, COUNT(*)::int n
+       FROM v3.events_enriched WHERE ended_at IS NOT NULL AND is_long_running=false
+         AND started_at > NOW() - INTERVAL '30 days' AND slug IS NOT NULL
+       GROUP BY slug, task_name HAVING COUNT(*) >= 5 ORDER BY avg_min DESC LIMIT 3`);
+    slowest.rows.forEach((x) => insights.push({ category: 'produtividade', text: `${x.task_name || x.slug} leva em média ${x.avg_min}min (${x.n} events em 30d) — task mais demorada.` }));
+    const knowledge = await db.query(
+      `SELECT slug, person_name, cnt, total, ROUND(100.0*cnt/total)::int pct FROM (
+         SELECT slug, person_name, COUNT(*) cnt, SUM(COUNT(*)) OVER (PARTITION BY slug) total
+         FROM v3.events_enriched WHERE ended_at IS NOT NULL AND slug IS NOT NULL AND started_at > NOW() - INTERVAL '30 days'
+         GROUP BY slug, person_name) q WHERE total >= 8 AND 100.0*cnt/total > 70 ORDER BY pct DESC LIMIT 3`);
+    knowledge.rows.forEach((x) => insights.push({ category: 'risco', text: `${x.pct}% de "${x.slug}" é feito por ${x.person_name} — concentração de conhecimento (risco se sair).` }));
+    res.json({ insights });
+  }));
+
+  // refresh manual da matview (owner only)
+  router.post('/api/adminpanel/metrics/refresh-cache', requireRole('owner'), h(async (req, res) => {
+    await db.query('SELECT v3.refresh_events_enriched()');
+    res.json({ ok: true });
+  }));
+
+  // ── FINANCE (OWNER ONLY) — NUNCA grava/loga salário (G12/G13) ──────────
+  router.use('/api/adminpanel/metrics/financial', requireRole('owner'));
+  router.post('/api/adminpanel/metrics/financial/calculate', h(async (req, res) => {
+    const b = req.body || {};
+    const personId = parseInt(b.person_id, 10);
+    const salary = Number(b.hourly_salary); // INPUT TEMPORÁRIO — não persiste
+    const d = [7, 30, 90].includes(parseInt(b.range_days, 10)) ? parseInt(b.range_days, 10) : 30;
+    if (!Number.isFinite(personId)) return res.status(400).json({ error: 'bad_person' });
+    if (!Number.isFinite(salary) || salary <= 0) return res.status(400).json({ error: 'bad_salary' });
+    const agg = await db.query(
+      `SELECT ROUND(SUM(CASE WHEN NOT is_long_running THEN duration_min ELSE 0 END)/60.0,2) AS hours,
+              COUNT(*)::int AS tasks,
+              COALESCE(SUM(CASE WHEN category IN ('production_phase','pnp_phase') THEN duration_min ELSE 0 END),0) AS productive_min,
+              COALESCE(SUM(CASE WHEN category NOT IN ('production_phase','pnp_phase') OR category IS NULL THEN duration_min ELSE 0 END),0) AS support_min
+       FROM v3.events_enriched WHERE person_id=$1 AND ended_at IS NOT NULL AND started_at > NOW() - ($2||' days')::interval`,
+      [personId, d]);
+    const bottles = await db.query(
+      `SELECT COALESCE(SUM(pc.bottles),0)::int n FROM v3.production_counts pc
+       JOIN v3.events e ON e.id = pc.source_event_id
+       WHERE e.person_id=$1 AND pc.deleted_at IS NULL AND pc.reported_at > NOW() - ($2||' days')::interval`, [personId, d]);
+    const a = agg.rows[0]; const hours = Number(a.hours) || 0;
+    const totalCost = Math.round(hours * salary * 100) / 100;
+    const bottlesN = bottles.rows[0].n;
+    // audit: SÓ o fato do acesso (sem salário) — G13
+    await audit('finance_calculation', 'person', personId, { range_days: d }, req);
+    res.json({
+      person_id: personId, range_days: d,
+      hourly_salary_echo: salary, // só eco de confirmação, não gravado
+      hours_worked: hours, total_cost: totalCost,
+      tasks_completed: a.tasks,
+      cost_per_task: a.tasks ? Math.round((totalCost / a.tasks) * 100) / 100 : null,
+      bottles_touched: bottlesN,
+      cost_per_bottle: bottlesN ? Math.round((totalCost / bottlesN) * 100) / 100 : null,
+      productive_minutes: Number(a.productive_min), support_minutes: Number(a.support_min),
+      productive_pct: (Number(a.productive_min) + Number(a.support_min)) > 0
+        ? Math.round(100 * Number(a.productive_min) / (Number(a.productive_min) + Number(a.support_min))) : null,
+      _note: 'Salário não foi salvo nem registrado em log.',
+    });
+  }));
+
   // ── audit log (Fase C) ──────────────────────────────────────
   router.use('/api/adminpanel/audit', requireAdmin);
   router.get('/api/adminpanel/audit', h(async (req, res) => {
