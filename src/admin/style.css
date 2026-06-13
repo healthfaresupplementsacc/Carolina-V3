@@ -9,6 +9,11 @@ nav { display: flex; gap: 8px; }
 .badge { background: #b3261e; border-radius: 999px; padding: 1px 8px; font-size: 13px; margin-left: 4px; }
 .who { font-size: 14px; opacity: .9; margin-left: auto; }
 .tab.hidden { display: none; }
+.sched-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #eef2f4; flex-wrap: wrap; }
+.sched-row .sched-day { width: 42px; font-weight: 700; }
+.sched-row input[type=time] { padding: 4px; }
+.sched-row .sched-note { flex: 1; min-width: 120px; padding: 4px 8px; }
+.sched-today { background: #f0fbf6; border-radius: 8px; }
 main { max-width: 860px; margin: 0 auto; padding: 16px 14px 60px; }
 h1 { text-align: center; margin: 40px 0 16px; }
 input, select { font: inherit; min-height: 50px; padding: 8px 12px; border: 2px solid #c8d6dc; border-radius: 10px; width: 100%; background: #fff; }

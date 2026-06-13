@@ -208,6 +208,52 @@
       } catch (e) { toast('❌ ' + e.message); }
     };
     fTl.appendChild(btTl); fTl.appendChild(tlBox); box.appendChild(fTl);
+
+    // schedule 7 dias (Fase 3)
+    const fSc = el('div', 'field');
+    const btSc = el('button', 'btn-big', '🕐 Editar schedule (dias da semana)');
+    const scBox = el('div');
+    btSc.onclick = async () => {
+      if (scBox.childNodes.length) { scBox.innerHTML = ''; return; } // toggle
+      try { await renderSchedule(o, scBox); } catch (e) { toast('❌ ' + e.message); }
+    };
+    fSc.appendChild(btSc); fSc.appendChild(scBox); box.appendChild(fSc);
+  }
+
+  const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  async function renderSchedule(o, scBox) {
+    const r = await api(`/api/adminpanel/operators/${o.id}/schedule`);
+    scBox.innerHTML = '';
+    const todayDow = new Date().getDay();
+    const rows = [];
+    r.days.forEach((d) => {
+      const row = el('div', 'sched-row' + (d.day_of_week === todayDow ? ' sched-today' : ''));
+      row.appendChild(el('span', 'sched-day', DOW_LABELS[d.day_of_week]));
+      const start = el('input'); start.type = 'time'; start.value = d.expected_start_time || '';
+      const end = el('input'); end.type = 'time'; end.value = d.expected_end_time || '';
+      const wk = el('input'); wk.type = 'checkbox'; wk.checked = d.is_workday !== false;
+      const note = el('input'); note.type = 'text'; note.placeholder = 'nota'; note.value = d.notes || ''; note.className = 'sched-note';
+      row.appendChild(start); row.appendChild(end);
+      const wkL = el('label', 'chk'); wkL.appendChild(wk); wkL.appendChild(el('span', null, 'trabalha')); row.appendChild(wkL);
+      row.appendChild(note);
+      scBox.appendChild(row);
+      rows.push({ dow: d.day_of_week, start, end, wk, note });
+    });
+    const save = async (list) => {
+      for (const x of list) {
+        const body = { expected_start_time: x.start.value || null, expected_end_time: x.end.value || null, is_workday: x.wk.checked, notes: x.note.value || null };
+        await api(`/api/adminpanel/operators/${o.id}/schedule/${x.dow}`, { method: 'PUT', body });
+      }
+    };
+    const bSave = el('button', 'btn-primary', '💾 Salvar schedule');
+    bSave.onclick = async () => { try { await save(rows); toast('✅ schedule salvo'); } catch (e) { toast('❌ ' + ({ end_before_start: 'Fim antes do início', bad_time: 'Hora inválida' }[e.message] || e.message)); } };
+    const bCopy = el('button', 'btn-sm', '📋 Aplicar Seg→Sex (copia Segunda)');
+    bCopy.onclick = async () => {
+      const mon = rows.find((x) => x.dow === 1);
+      [2, 3, 4, 5].forEach((dw) => { const t = rows.find((x) => x.dow === dw); if (t && mon) { t.start.value = mon.start.value; t.end.value = mon.end.value; t.wk.checked = mon.wk.checked; } });
+      toast('Copiado da Segunda (revise e salve)');
+    };
+    scBox.appendChild(bCopy); scBox.appendChild(bSave);
   }
 
   // ── notificações (inbox) ────────────────────────────────────

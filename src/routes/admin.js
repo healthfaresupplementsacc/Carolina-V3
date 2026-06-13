@@ -415,6 +415,55 @@ function createAdminRouter(deps = {}) {
     res.json({ events: r.rows });
   }));
 
+  // ── schedule por dia da semana (Fase 3) — owner+manager ─────
+  // Sob o gate /operators (requireAdmin). 0=Dom..6=Sáb.
+  router.get('/api/adminpanel/operators/:id/schedule', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad_id' });
+    const r = await db.query(
+      `SELECT day_of_week, to_char(expected_start_time,'HH24:MI') AS expected_start_time,
+              to_char(expected_end_time,'HH24:MI') AS expected_end_time, is_workday, notes
+       FROM v3.operator_schedules WHERE person_id = $1 ORDER BY day_of_week`, [id]);
+    const byDow = {}; r.rows.forEach((x) => { byDow[x.day_of_week] = x; });
+    // 7 dias, default null pros não-definidos
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      days.push(byDow[d] || { day_of_week: d, expected_start_time: null, expected_end_time: null, is_workday: null, notes: null });
+    }
+    res.json({ person_id: id, days });
+  }));
+  router.put('/api/adminpanel/operators/:id/schedule/:dow', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const dow = parseInt(req.params.dow, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'bad_params' });
+    const b = req.body || {};
+    const isWorkday = b.is_workday === undefined ? true : !!b.is_workday;
+    const start = b.expected_start_time ? String(b.expected_start_time) : null;
+    const end = b.expected_end_time ? String(b.expected_end_time) : null;
+    const tRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+    if (start && !tRe.test(start)) return res.status(400).json({ error: 'bad_time', field: 'start' });
+    if (end && !tRe.test(end)) return res.status(400).json({ error: 'bad_time', field: 'end' });
+    if (isWorkday && start && end && end <= start) return res.status(400).json({ error: 'end_before_start' });
+    const notes = b.notes ? String(b.notes).slice(0, 300) : null;
+    await db.query(
+      `INSERT INTO v3.operator_schedules (person_id, day_of_week, expected_start_time, expected_end_time, is_workday, notes, updated_by_admin_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (person_id, day_of_week) DO UPDATE
+         SET expected_start_time = EXCLUDED.expected_start_time, expected_end_time = EXCLUDED.expected_end_time,
+             is_workday = EXCLUDED.is_workday, notes = EXCLUDED.notes, updated_at = NOW(), updated_by_admin_id = EXCLUDED.updated_by_admin_id`,
+      [id, dow, start, end, isWorkday, notes, (req.admin && req.admin.id) || null]);
+    await audit('operator.schedule_changed', 'person', id, { day_of_week: dow, is_workday: isWorkday, start, end }, req);
+    res.json({ ok: true });
+  }));
+  router.delete('/api/adminpanel/operators/:id/schedule/:dow', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const dow = parseInt(req.params.dow, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'bad_params' });
+    await db.query('DELETE FROM v3.operator_schedules WHERE person_id = $1 AND day_of_week = $2', [id, dow]);
+    await audit('operator.schedule_removed', 'person', id, { day_of_week: dow }, req);
+    res.json({ ok: true });
+  }));
+
   // ── notifications inbox (Fase C) ────────────────────────────
   router.get('/api/adminpanel/notifications', h(async (req, res) => {
     const status = req.query.status === 'all' ? null : (req.query.status || 'pending');
