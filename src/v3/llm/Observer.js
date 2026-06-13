@@ -490,7 +490,8 @@ class Observer {
     await this.db.query(
       `UPDATE v3.messages
          SET llm_processed_at = NOW(), llm_result = $2::jsonb, llm_provider_used = $3,
-             events_created = $4, events_updated = $5, processing_error = NULL
+             events_created = $4, events_updated = $5, processing_error = NULL,
+             last_error = NULL
        WHERE id = $1`,
       [message.id, JSON.stringify(result), decision.provider_used || 'anthropic', created, updated]);
     await this._audit('observer.processed', message.id, {
@@ -585,14 +586,54 @@ class Observer {
   }
 
   async _markError(message, error) {
-    // llm_processed_at fica NULL → o worker re-tenta.
+    // llm_processed_at fica NULL → o worker re-tenta (até o limite abaixo).
     const errStr = String(error);
     await this.db.query(
-      'UPDATE v3.messages SET processing_error = $2 WHERE id = $1',
+      'UPDATE v3.messages SET processing_error = $2, last_error = $2, last_attempt_at = NOW() WHERE id = $1',
       [message.id, errStr.slice(0, 500)]);
     // Bloco 29/mai-noite #3 — alerta admin pra falhas persistentes.
     const kind = this._classifyWorkerError(errStr);
     if (kind) await this._maybeSendBillingAlert(kind, errStr);
+    // Fase A — DEAD-LETTER: 3+ tentativas falhas → sai da fila pra sempre.
+    // (processing_attempts foi incrementado no claim; message veio do RETURNING.)
+    const attempts = Number(message.processing_attempts || 0);
+    if (attempts >= 3) await this._deadLetter(message, errStr, attempts);
+  }
+
+  /** Fase A — marca dead-letter + audit + notification + aviso Carolina. */
+  async _deadLetter(message, errStr, attempts) {
+    try {
+      const upd = await this.db.query(
+        `UPDATE v3.messages SET dead_lettered_at = NOW()
+         WHERE id = $1 AND dead_lettered_at IS NULL RETURNING id`, [message.id]);
+      if (upd.rowCount === 0) return; // já dead-lettered (corrida)
+      await this.db.query(
+        `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+         VALUES ('llm_observer', NULL, 'message_dead_lettered', 'message', $1, $2::jsonb)`,
+        [message.id, JSON.stringify({ slack_ts: message.slack_ts, attempts, error: errStr.slice(0, 200) })]);
+      await this.db.query(
+        `INSERT INTO v3.notifications (type, payload, status)
+         VALUES ('dead_letter', $1::jsonb, 'pending')`,
+        [JSON.stringify({
+          message_id: message.id, slack_ts: message.slack_ts,
+          text: (message.raw_text || '').slice(0, 100),
+          error: errStr.slice(0, 200), attempts,
+        })]);
+      if (this.slack && this.slack.postAs) {
+        try {
+          await this.slack.postAs({
+            channel: this.alertAdminChannelId, sender: { name: 'Carolina' }, thread_ts: null,
+            text: `⚠️ Mensagem entrou em *dead-letter* após ${attempts} tentativas.\n`
+              + `ts: ${message.slack_ts}\n`
+              + `texto: ${(message.raw_text || '').slice(0, 100)}\n`
+              + `último erro: ${errStr.slice(0, 200)}`,
+          });
+        } catch (e) { console.error('[Observer] aviso dead-letter falhou:', e.message); }
+      }
+      console.error(`[Observer] msg#${message.id} DEAD-LETTERED após ${attempts} tentativas: ${errStr.slice(0, 120)}`);
+    } catch (e) {
+      console.error('[Observer] _deadLetter falhou:', e.message);
+    }
   }
 
   /** Bloco 29/mai-noite #3 — classifica erros do worker pra triggear alerta.
@@ -713,11 +754,18 @@ class Observer {
     if (this._ticking) return [];
     this._ticking = true;
     try {
+      // Fase A (dead-letter): msgs dead-lettered saem da fila pra sempre;
+      // cada claim incrementa processing_attempts (>=3 falhas → dead-letter
+      // no _markError). Antes disso uma msg envenenada re-tentava eternamente.
       const claimed = (await this.db.query(
-        `UPDATE v3.messages SET claimed_at = NOW()
+        `UPDATE v3.messages
+           SET claimed_at = NOW(),
+               processing_attempts = COALESCE(processing_attempts, 0) + 1,
+               last_attempt_at = NOW()
          WHERE id IN (
            SELECT id FROM v3.messages
            WHERE llm_processed_at IS NULL
+             AND dead_lettered_at IS NULL
              AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL '2 minutes')
            ORDER BY created_at
            LIMIT $1

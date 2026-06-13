@@ -164,13 +164,27 @@ async function orphans(db) {
 
 // ── [A6] diagnostics/queue ───────────────────────────────────
 async function queueDiag(db) {
-  const [pending, errored, cmds, last] = await Promise.all([
-    db.query(`SELECT COUNT(*)::int AS n, MIN(created_at) AS oldest FROM v3.messages WHERE llm_processed_at IS NULL`),
+  const [pending, errored, cmds, last, dead, atRisk, avgAtt] = await Promise.all([
+    db.query(`SELECT COUNT(*)::int AS n, MIN(created_at) AS oldest FROM v3.messages
+              WHERE llm_processed_at IS NULL AND dead_lettered_at IS NULL`),
     db.query(`SELECT COUNT(*)::int AS n FROM v3.messages
               WHERE processing_error IS NOT NULL AND processing_error <> 'deleted'
                 AND created_at > NOW() - INTERVAL '24 hours'`),
     db.query(`SELECT COUNT(*)::int AS n FROM v3.pending_commands WHERE status = 'pending'`),
     db.query('SELECT MAX(llm_processed_at) AS ts FROM v3.messages'),
+    db.query(`SELECT id, slack_ts, LEFT(raw_text, 100) AS text, last_error,
+                     ${edtTs('dead_lettered_at')} AS dead_lettered_at_edt
+              FROM v3.messages
+              WHERE dead_lettered_at > NOW() - INTERVAL '24 hours'
+              ORDER BY dead_lettered_at DESC LIMIT 50`),
+    db.query(`SELECT id, slack_ts, processing_attempts, LEFT(raw_text, 80) AS text, last_error
+              FROM v3.messages
+              WHERE llm_processed_at IS NULL AND dead_lettered_at IS NULL
+                AND processing_attempts >= 2
+              ORDER BY processing_attempts DESC LIMIT 20`),
+    db.query(`SELECT ROUND(AVG(processing_attempts), 2) AS avg FROM v3.messages
+              WHERE ${edtDate('created_at')} = (NOW() AT TIME ZONE '${EDT}')::date
+                AND llm_processed_at IS NOT NULL`),
   ]);
   const oldest = pending.rows[0].oldest;
   return {
@@ -179,6 +193,10 @@ async function queueDiag(db) {
     errored_messages_24h: errored.rows[0].n,
     pending_commands: cmds.rows[0].n,
     last_processed_ts: last.rows[0].ts,
+    dead_lettered_count_24h: dead.rowCount,
+    dead_lettered_last_24h: dead.rows,
+    msgs_at_risk: atRisk.rows,
+    avg_attempts_per_msg_today: avgAtt.rows[0] ? avgAtt.rows[0].avg : null,
   };
 }
 
