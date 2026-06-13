@@ -1,6 +1,6 @@
 'use strict';
 /* HEALTHFARE Admin Panel — operadores + inbox de notificações.
-   Auth: cookie HttpOnly setado pelo /api/admin/auth/login. */
+   Auth: cookie HttpOnly setado pelo /api/adminpanel/auth/login. */
 (function () {
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -33,13 +33,13 @@
   // ── login ───────────────────────────────────────────────────
   $('btn-login').onclick = async () => {
     try {
-      await api('/api/admin/auth/login', { method: 'POST', body: { password: $('pw').value } });
+      await api('/api/adminpanel/auth/login', { method: 'POST', body: { password: $('pw').value } });
       $('pw').value = ''; $('login-err').textContent = '';
       show('ops'); await loadOps(); refreshBadge();
     } catch (e) { $('login-err').textContent = e.message === 'wrong_password' ? 'Senha errada' : e.message; }
   };
   $('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-login').click(); });
-  $('btn-logout').onclick = async () => { try { await api('/api/admin/auth/logout', { method: 'POST' }); } catch (_) {} show('login'); };
+  $('btn-logout').onclick = async () => { try { await api('/api/adminpanel/auth/logout', { method: 'POST' }); } catch (_) {} show('login'); };
   $('tab-ops').onclick = async () => { show('ops'); await loadOps(); };
   $('tab-notifs').onclick = async () => { show('notifs'); await loadNotifs(); };
   $('btn-back').onclick = async () => { show('ops'); await loadOps(); };
@@ -54,7 +54,7 @@
     return 'há ' + Math.floor(m / 1440) + 'd';
   }
   async function loadOps() {
-    const r = await api('/api/admin/operators');
+    const r = await api('/api/adminpanel/operators');
     ops = r.operators;
     const box = $('ops-list'); box.innerHTML = '';
     ops.forEach((o) => {
@@ -91,7 +91,7 @@
     const btPin = el('button', 'btn-sm', 'Atualizar PIN');
     btPin.onclick = async () => {
       if (!/^\d{4}$/.test(inPin.value)) { toast('PIN precisa de 4 dígitos'); return; }
-      try { await api(`/api/admin/operators/${o.id}/pin`, { method: 'POST', body: { pin: inPin.value } }); toast('✅ PIN atualizado'); inPin.value = ''; }
+      try { await api(`/api/adminpanel/operators/${o.id}/pin`, { method: 'POST', body: { pin: inPin.value } }); toast('✅ PIN atualizado'); inPin.value = ''; }
       catch (e) { toast('❌ ' + e.message); }
     };
     rowPin.appendChild(inPin); rowPin.appendChild(btPin); fPin.appendChild(rowPin); box.appendChild(fPin);
@@ -105,7 +105,7 @@
     const btLg = el('button', 'btn-sm', 'Salvar');
     btLg.onclick = async () => {
       const v = inLg.value === '' ? null : parseInt(inLg.value, 10);
-      try { await api(`/api/admin/operators/${o.id}/auto-logoff`, { method: 'PUT', body: { seconds: v } }); toast('✅ Auto-logoff salvo'); }
+      try { await api(`/api/adminpanel/operators/${o.id}/auto-logoff`, { method: 'PUT', body: { seconds: v } }); toast('✅ Auto-logoff salvo'); }
       catch (e) { toast('❌ ' + e.message); }
     };
     rowLg.appendChild(inLg); rowLg.appendChild(btLg); fLg.appendChild(rowLg); box.appendChild(fLg);
@@ -115,7 +115,7 @@
     const btEx = el('button', 'btn-big', (o.count_exempt ? '✅' : '⬜') + ' Pode pular contagem de bottles (count exempt)');
     btEx.onclick = async () => {
       try {
-        const r = await api(`/api/admin/operators/${o.id}/count-exempt`, { method: 'PUT', body: { exempt: !o.count_exempt } });
+        const r = await api(`/api/adminpanel/operators/${o.id}/count-exempt`, { method: 'PUT', body: { exempt: !o.count_exempt } });
         o.count_exempt = r.count_exempt; btEx.innerHTML = (o.count_exempt ? '✅' : '⬜') + ' Pode pular contagem de bottles (count exempt)';
         toast('✅ salvo');
       } catch (e) { toast('❌ ' + e.message); }
@@ -132,7 +132,7 @@
         : `Reativar ${o.display_name}?`;
       if (!window.confirm(msg)) return;
       try {
-        await api(`/api/admin/operators/${o.id}/active`, { method: 'PUT', body: { active: !o.is_active } });
+        await api(`/api/adminpanel/operators/${o.id}/active`, { method: 'PUT', body: { active: !o.is_active } });
         toast('✅ feito'); show('ops'); await loadOps();
       } catch (e) { toast('❌ ' + e.message); }
     };
@@ -141,7 +141,7 @@
     const fFl = el('div', 'field');
     const btFl = el('button', 'btn-big btn-warn', '🚪 Forçar logout agora (mantém ativo)');
     btFl.onclick = async () => {
-      try { const r = await api(`/api/admin/operators/${o.id}/force-logout`, { method: 'POST', body: {} }); toast(`✅ ${r.sessions_closed} sessão(ões) encerrada(s)`); }
+      try { const r = await api(`/api/adminpanel/operators/${o.id}/force-logout`, { method: 'POST', body: {} }); toast(`✅ ${r.sessions_closed} sessão(ões) encerrada(s)`); }
       catch (e) { toast('❌ ' + e.message); }
     };
     fFl.appendChild(btFl); box.appendChild(fFl);
@@ -152,7 +152,7 @@
     const tlBox = el('div', 'cards');
     btTl.onclick = async () => {
       try {
-        const r = await api(`/api/admin/operators/${o.id}/events`);
+        const r = await api(`/api/adminpanel/operators/${o.id}/events`);
         tlBox.innerHTML = '';
         if (!r.events.length) tlBox.appendChild(el('div', 'sub', 'Nenhum event nos últimos 7 dias.'));
         r.events.forEach((ev) => tlBox.appendChild(el('div', 'card',
@@ -174,7 +174,7 @@
   }
   async function loadNotifs() {
     const status = $('f-status').value; const type = $('f-type').value;
-    const r = await api(`/api/admin/notifications?status=${status}&type=${type}`);
+    const r = await api(`/api/adminpanel/notifications?status=${status}&type=${type}`);
     updateBadge(r.pending_total);
     const box = $('notifs-list'); box.innerHTML = '';
     if (!r.notifications.length) box.appendChild(el('div', 'sub', 'Nada por aqui. 🎉'));
@@ -185,9 +185,9 @@
       if (n.status === 'pending') {
         const act = el('div', 'actions');
         const ok = el('button', 'ok', '✅ Aceitar');
-        ok.onclick = async () => { if (!window.confirm('Aceitar?')) return; try { await api(`/api/admin/notifications/${n.id}/accept`, { method: 'POST', body: {} }); toast('✅'); loadNotifs(); } catch (e) { toast('❌ ' + e.message); } };
+        ok.onclick = async () => { if (!window.confirm('Aceitar?')) return; try { await api(`/api/adminpanel/notifications/${n.id}/accept`, { method: 'POST', body: {} }); toast('✅'); loadNotifs(); } catch (e) { toast('❌ ' + e.message); } };
         const no = el('button', 'no', '❌ Ignorar');
-        no.onclick = async () => { if (!window.confirm('Ignorar (apaga o registro relacionado)?')) return; try { await api(`/api/admin/notifications/${n.id}/reject`, { method: 'POST', body: {} }); toast('✅'); loadNotifs(); } catch (e) { toast('❌ ' + e.message); } };
+        no.onclick = async () => { if (!window.confirm('Ignorar (apaga o registro relacionado)?')) return; try { await api(`/api/adminpanel/notifications/${n.id}/reject`, { method: 'POST', body: {} }); toast('✅'); loadNotifs(); } catch (e) { toast('❌ ' + e.message); } };
         act.appendChild(ok); act.appendChild(no);
         if (n.type === 'slack_event_not_on_page') {
           const ed = el('button', null, '📝 Editar');
@@ -199,7 +199,7 @@
             if (batch && batch.trim()) nd.batch = batch.trim();
             if (note && note.trim()) nd.note = note.trim();
             if (!Object.keys(nd).length) { toast('nada a mudar'); return; }
-            try { await api(`/api/admin/notifications/${n.id}/edit`, { method: 'POST', body: { new_data: nd } }); toast('✅ editado'); loadNotifs(); }
+            try { await api(`/api/adminpanel/notifications/${n.id}/edit`, { method: 'POST', body: { new_data: nd } }); toast('✅ editado'); loadNotifs(); }
             catch (e) { toast('❌ ' + e.message); }
           };
           act.appendChild(ed);
@@ -218,7 +218,7 @@
     b.classList.toggle('hidden', !n);
   }
   async function refreshBadge() {
-    try { const r = await api('/api/admin/notifications?status=pending&limit=1'); updateBadge(r.pending_total); } catch (_) {}
+    try { const r = await api('/api/adminpanel/notifications?status=pending&limit=1'); updateBadge(r.pending_total); } catch (_) {}
   }
   notifPoll = setInterval(() => { if (view === 'notifs') loadNotifs().catch(() => {}); else if (view !== 'login') refreshBadge(); }, 30000);
 

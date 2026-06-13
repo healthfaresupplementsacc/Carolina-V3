@@ -115,34 +115,34 @@ beforeEach(async () => {
   app.use('/', createAdminRouter({ db, slack, adminPassword: PW }));
   server = await new Promise((resolve) => { const x = app.listen(0, '127.0.0.1', () => resolve(x)); });
   base = `http://127.0.0.1:${server.address().port}`;
-  token = (await post('/api/admin/auth/login', { password: PW })).body.token;
+  token = (await post('/api/adminpanel/auth/login', { password: PW })).body.token;
 });
 afterAll(async () => { if (server) await new Promise((r) => server.close(r)); });
 
 describe('admin panel — auth', () => {
   test('login correto → token + cookie HttpOnly', async () => {
-    const r = await post('/api/admin/auth/login', { password: PW });
+    const r = await post('/api/adminpanel/auth/login', { password: PW });
     expect(r.status).toBe(200);
     expect(r.body.token).toBeTruthy();
     expect(r.headers.get('set-cookie')).toContain('HttpOnly');
   });
   test('login errado → 401; 4ª tentativa em 5min → 429', async () => {
-    expect((await post('/api/admin/auth/login', { password: 'x' })).status).toBe(401);
-    expect((await post('/api/admin/auth/login', { password: 'x' })).status).toBe(401);
+    expect((await post('/api/adminpanel/auth/login', { password: 'x' })).status).toBe(401);
+    expect((await post('/api/adminpanel/auth/login', { password: 'x' })).status).toBe(401);
     // 3 já usadas (1 do beforeEach ok + 2 erradas) → 4ª = 429
-    expect((await post('/api/admin/auth/login', { password: 'x' })).status).toBe(429);
+    expect((await post('/api/adminpanel/auth/login', { password: 'x' })).status).toBe(429);
   });
   test('endpoints sem token → 401; token expirado → 401', async () => {
-    expect((await get('/api/admin/operators')).status).toBe(401);
+    expect((await get('/api/adminpanel/operators')).status).toBe(401);
     const expired = signToken(PW, Date.now() - 1000);
-    expect((await get('/api/admin/operators', expired)).status).toBe(401);
+    expect((await get('/api/adminpanel/operators', expired)).status).toBe(401);
     expect(verifyToken(PW, signToken(PW, Date.now() + 60000), Date.now())).toBe(true);
   });
 });
 
 describe('admin panel — operators', () => {
   test('GET operators → lista com has_pin/sessões', async () => {
-    const r = await get('/api/admin/operators', token);
+    const r = await get('/api/adminpanel/operators', token);
     expect(r.status).toBe(200);
     const vitor = r.body.operators.find((o) => o.id === 4);
     expect(vitor.has_pin).toBe(true);
@@ -151,7 +151,7 @@ describe('admin panel — operators', () => {
     expect(bruno.has_pin).toBe(false);
   });
   test('PIN change → hash scrypt VÁLIDO gravado + audit', async () => {
-    const r = await post('/api/admin/operators/4/pin', { pin: '9999' }, token);
+    const r = await post('/api/adminpanel/operators/4/pin', { pin: '9999' }, token);
     expect(r.status).toBe(200);
     const p = mem.persons.find((x) => x.id === 4);
     expect(opAuth.verifyPin('9999', p.pin_salt, p.pin_hash)).toBe(true);
@@ -159,21 +159,21 @@ describe('admin panel — operators', () => {
     expect(mem.audits.some((a) => a.action === 'person.pin_changed')).toBe(true);
   });
   test('PIN inválido → 400', async () => {
-    expect((await post('/api/admin/operators/4/pin', { pin: '12' }, token)).status).toBe(400);
+    expect((await post('/api/adminpanel/operators/4/pin', { pin: '12' }, token)).status).toBe(400);
   });
   test('auto-logoff: 120 persiste; null desliga; 2 → 400', async () => {
-    expect((await put('/api/admin/operators/4/auto-logoff', { seconds: 120 }, token)).body.auto_logoff_seconds).toBe(120);
-    expect((await put('/api/admin/operators/4/auto-logoff', { seconds: null }, token)).body.auto_logoff_seconds).toBeNull();
-    expect((await put('/api/admin/operators/4/auto-logoff', { seconds: 2 }, token)).status).toBe(400);
+    expect((await put('/api/adminpanel/operators/4/auto-logoff', { seconds: 120 }, token)).body.auto_logoff_seconds).toBe(120);
+    expect((await put('/api/adminpanel/operators/4/auto-logoff', { seconds: null }, token)).body.auto_logoff_seconds).toBeNull();
+    expect((await put('/api/adminpanel/operators/4/auto-logoff', { seconds: 2 }, token)).status).toBe(400);
   });
   test('desativar → active=false + sessões fechadas (admin_force)', async () => {
-    const r = await put('/api/admin/operators/4/active', { active: false }, token);
+    const r = await put('/api/adminpanel/operators/4/active', { active: false }, token);
     expect(r.body.sessions_closed).toBe(1);
     expect(mem.sessions[0].logoff_reason).toBe('admin_force');
     expect(mem.persons.find((x) => x.id === 4).active).toBe(false);
   });
   test('force-logout sem desativar', async () => {
-    const r = await post('/api/admin/operators/4/force-logout', {}, token);
+    const r = await post('/api/adminpanel/operators/4/force-logout', {}, token);
     expect(r.body.sessions_closed).toBe(1);
     expect(mem.persons.find((x) => x.id === 4).active).toBe(true);
   });
@@ -181,30 +181,30 @@ describe('admin panel — operators', () => {
 
 describe('admin panel — notifications inbox (Fase C)', () => {
   test('GET default → só pending + pending_total', async () => {
-    const r = await get('/api/admin/notifications', token);
+    const r = await get('/api/adminpanel/notifications', token);
     expect(r.status).toBe(200);
     expect(r.body.notifications).toHaveLength(2);
     expect(r.body.pending_total).toBe(2);
   });
   test('filtro por type', async () => {
-    const r = await get('/api/admin/notifications?type=dead_letter', token);
+    const r = await get('/api/adminpanel/notifications?type=dead_letter', token);
     expect(r.body.notifications).toHaveLength(1);
     expect(r.body.notifications[0].type).toBe('dead_letter');
   });
   test('accept → status admin_accepted + chat.update na msg da Carolina', async () => {
-    const r = await post('/api/admin/notifications/7/accept', {}, token);
+    const r = await post('/api/adminpanel/notifications/7/accept', {}, token);
     expect(r.status).toBe(200);
     expect(mem.notifications[0].status).toBe('admin_accepted');
     expect(slack.updateMessage).toHaveBeenCalledTimes(1);
     expect(slack.updateMessage.mock.calls[0][0].ts).toBe('caro.7');
   });
   test('reject de slack órfão → soft-delete do event', async () => {
-    const r = await post('/api/admin/notifications/7/reject', {}, token);
+    const r = await post('/api/adminpanel/notifications/7/reject', {}, token);
     expect(r.status).toBe(200);
     expect(mem.eventsDeleted).toEqual([900]);
   });
   test('edit → UPDATE no event (batch resolvido) + status admin_edited + audit', async () => {
-    const r = await post('/api/admin/notifications/7/edit', { new_data: { batch: '0181', note: 'corrigido' } }, token);
+    const r = await post('/api/adminpanel/notifications/7/edit', { new_data: { batch: '0181', note: 'corrigido' } }, token);
     expect(r.status).toBe(200);
     expect(mem.notifications[0].status).toBe('admin_edited');
     expect(mem.eventsUpdated).toHaveLength(1);
@@ -212,12 +212,12 @@ describe('admin panel — notifications inbox (Fase C)', () => {
     expect(mem.audits.some((a) => a.action === 'notification_edited')).toBe(true);
   });
   test('edit com batch inexistente → 400; accept de já-resolvida → 404', async () => {
-    expect((await post('/api/admin/notifications/7/edit', { new_data: { batch: '9999' } }, token)).status).toBe(400);
-    await post('/api/admin/notifications/7/accept', {}, token);
-    expect((await post('/api/admin/notifications/7/accept', {}, token)).status).toBe(404);
+    expect((await post('/api/adminpanel/notifications/7/edit', { new_data: { batch: '9999' } }, token)).status).toBe(400);
+    await post('/api/adminpanel/notifications/7/accept', {}, token);
+    expect((await post('/api/adminpanel/notifications/7/accept', {}, token)).status).toBe(404);
   });
   test('dead_letter notification aparece e pode ser aceita (sem deletar event)', async () => {
-    const r = await post('/api/admin/notifications/8/accept', {}, token);
+    const r = await post('/api/adminpanel/notifications/8/accept', {}, token);
     expect(r.status).toBe(200);
     expect(mem.eventsDeleted).toHaveLength(0);
   });

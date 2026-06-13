@@ -1,26 +1,26 @@
 'use strict';
 /**
- * HEALTHFARE V3 — Admin Panel API (/api/admin/*). Fases B+C do bloco noturno.
+ * HEALTHFARE V3 — Admin Panel API (/api/adminpanel/*). Fases B+C do bloco noturno.
  *
  * NOVO path — NÃO toca o dashboard V4 admin existente (R8).
  *
- * Auth: ADMIN_PASSWORD (env) → POST /api/admin/auth/login → token HMAC
+ * Auth: ADMIN_PASSWORD (env) → POST /api/adminpanel/auth/login → token HMAC
  * stateless (8h) em cookie HttpOnly `hf_admin` (a UI usa cookie; clients
  * podem mandar Authorization: Bearer <token>). Rate-limit 3 tentativas/5min/IP.
  *
  * Operators:
- *   GET  /api/admin/operators                      lista + sessões/último event
- *   POST /api/admin/operators/:id/pin              {pin} re-hash scrypt
- *   PUT  /api/admin/operators/:id/auto-logoff      {seconds|null}
- *   PUT  /api/admin/operators/:id/count-exempt     {exempt}
- *   PUT  /api/admin/operators/:id/active           {active} (false força logout)
- *   POST /api/admin/operators/:id/force-logout
- *   GET  /api/admin/operators/:id/sessions         últimas 30d
- *   GET  /api/admin/operators/:id/events           últimos 7d (read-only)
+ *   GET  /api/adminpanel/operators                      lista + sessões/último event
+ *   POST /api/adminpanel/operators/:id/pin              {pin} re-hash scrypt
+ *   PUT  /api/adminpanel/operators/:id/auto-logoff      {seconds|null}
+ *   PUT  /api/adminpanel/operators/:id/count-exempt     {exempt}
+ *   PUT  /api/adminpanel/operators/:id/active           {active} (false força logout)
+ *   POST /api/adminpanel/operators/:id/force-logout
+ *   GET  /api/adminpanel/operators/:id/sessions         últimas 30d
+ *   GET  /api/adminpanel/operators/:id/events           últimos 7d (read-only)
  *
  * Notifications (Fase C):
- *   GET  /api/admin/notifications?status=&type=&limit=&offset=
- *   POST /api/admin/notifications/:id/accept|reject|edit
+ *   GET  /api/adminpanel/notifications?status=&type=&limit=&offset=
+ *   POST /api/adminpanel/notifications/:id/accept|reject|edit
  */
 const express = require('express');
 const crypto = require('crypto');
@@ -79,7 +79,7 @@ function createAdminRouter(deps = {}) {
 
   // ── auth ────────────────────────────────────────────────────
   const loginHits = new Map();
-  router.post('/api/admin/auth/login', h(async (req, res) => {
+  router.post('/api/adminpanel/auth/login', h(async (req, res) => {
     const ip = req.ip || 'unknown';
     const t = now();
     let e = loginHits.get(ip);
@@ -101,7 +101,7 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, token, expires_at: new Date(exp).toISOString() });
   }));
 
-  router.post('/api/admin/auth/logout', h(async (req, res) => {
+  router.post('/api/adminpanel/auth/logout', h(async (req, res) => {
     res.set('Set-Cookie', 'hf_admin=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax; Secure');
     res.json({ ok: true });
   }));
@@ -111,11 +111,11 @@ function createAdminRouter(deps = {}) {
     if (verifyToken(password, tokenFromReq(req), now())) return next();
     return res.status(401).json({ error: 'unauthorized' });
   };
-  router.use('/api/admin/operators', requireAdmin);
-  router.use('/api/admin/notifications', requireAdmin);
+  router.use('/api/adminpanel/operators', requireAdmin);
+  router.use('/api/adminpanel/notifications', requireAdmin);
 
   // ── operators ───────────────────────────────────────────────
-  router.get('/api/admin/operators', h(async (req, res) => {
+  router.get('/api/adminpanel/operators', h(async (req, res) => {
     const r = await db.query(`
       SELECT p.id, p.display_name, (p.pin_hash IS NOT NULL) AS has_pin,
              p.auto_logoff_seconds, p.count_exempt, p.active AS is_active,
@@ -131,7 +131,7 @@ function createAdminRouter(deps = {}) {
     res.json({ operators: r.rows });
   }));
 
-  router.post('/api/admin/operators/:id/pin', h(async (req, res) => {
+  router.post('/api/adminpanel/operators/:id/pin', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const pin = String((req.body && req.body.pin) || '');
     if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'bad_pin_format', detail: '4 dígitos' });
@@ -144,7 +144,7 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, id });
   }));
 
-  router.put('/api/admin/operators/:id/auto-logoff', h(async (req, res) => {
+  router.put('/api/adminpanel/operators/:id/auto-logoff', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const raw = req.body ? req.body.seconds : undefined;
     const seconds = raw === null ? null : parseInt(raw, 10);
@@ -159,7 +159,7 @@ function createAdminRouter(deps = {}) {
     res.json(r.rows[0]);
   }));
 
-  router.put('/api/admin/operators/:id/count-exempt', h(async (req, res) => {
+  router.put('/api/adminpanel/operators/:id/count-exempt', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const exempt = !!(req.body && req.body.exempt);
     const r = await db.query(
@@ -177,7 +177,7 @@ function createAdminRouter(deps = {}) {
     return r.rowCount;
   }
 
-  router.put('/api/admin/operators/:id/active', h(async (req, res) => {
+  router.put('/api/adminpanel/operators/:id/active', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const active = !!(req.body && req.body.active);
     const r = await db.query(
@@ -190,14 +190,14 @@ function createAdminRouter(deps = {}) {
     res.json({ id, active, sessions_closed: closed });
   }));
 
-  router.post('/api/admin/operators/:id/force-logout', h(async (req, res) => {
+  router.post('/api/adminpanel/operators/:id/force-logout', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const closed = await forceLogout(id);
     await audit('operator.force_logout', 'person', id, { sessions_closed: closed });
     res.json({ ok: true, sessions_closed: closed });
   }));
 
-  router.get('/api/admin/operators/:id/sessions', h(async (req, res) => {
+  router.get('/api/adminpanel/operators/:id/sessions', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const r = await db.query(`
       SELECT id, source, ip_address, created_at, last_activity_at, logged_out_at, logoff_reason
@@ -207,7 +207,7 @@ function createAdminRouter(deps = {}) {
     res.json({ sessions: r.rows });
   }));
 
-  router.get('/api/admin/operators/:id/events', h(async (req, res) => {
+  router.get('/api/adminpanel/operators/:id/events', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const r = await db.query(`
       SELECT e.id, at.slug, pb.batch_number, e.source,
@@ -225,7 +225,7 @@ function createAdminRouter(deps = {}) {
   }));
 
   // ── notifications inbox (Fase C) ────────────────────────────
-  router.get('/api/admin/notifications', h(async (req, res) => {
+  router.get('/api/adminpanel/notifications', h(async (req, res) => {
     const status = req.query.status === 'all' ? null : (req.query.status || 'pending');
     const type = (!req.query.type || req.query.type === 'all') ? null : String(req.query.type);
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
@@ -254,7 +254,7 @@ function createAdminRouter(deps = {}) {
   }
   const headlineOf = (p) => `${p.person || p.text || '?'} — ${p.slug || p.error || ''}${p.batch ? ' · ' + p.batch : ''}`;
 
-  router.post('/api/admin/notifications/:id/accept', h(async (req, res) => {
+  router.post('/api/adminpanel/notifications/:id/accept', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const notif = await loadPendingNotif(id);
     if (!notif) return res.status(404).json({ error: 'not_pending' });
@@ -264,7 +264,7 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, status: 'admin_accepted' });
   }));
 
-  router.post('/api/admin/notifications/:id/reject', h(async (req, res) => {
+  router.post('/api/adminpanel/notifications/:id/reject', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const notif = await loadPendingNotif(id);
     if (!notif) return res.status(404).json({ error: 'not_pending' });
@@ -280,7 +280,7 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, status: 'admin_rejected' });
   }));
 
-  router.post('/api/admin/notifications/:id/edit', h(async (req, res) => {
+  router.post('/api/adminpanel/notifications/:id/edit', h(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const notif = await loadPendingNotif(id);
     if (!notif) return res.status(404).json({ error: 'not_pending' });
