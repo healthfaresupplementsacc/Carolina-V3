@@ -115,6 +115,7 @@ function normalizeRaw(partial = {}, providerName = 'unknown') {
 function getProvider(name, opts = {}) {
   switch (String(name || 'anthropic').toLowerCase()) {
     case 'anthropic':     return new (require('./providers/AnthropicProvider'))(opts);
+    case 'gemini':        return new (require('./providers/GeminiProvider'))(opts);
     case 'mock':          return new (require('./providers/MockProvider'))(opts);
     case 'openai':        return new (require('./providers/OpenAIProvider'))(opts);
     case 'deterministic': return new (require('./providers/DeterministicProvider'))(opts);
@@ -122,6 +123,23 @@ function getProvider(name, opts = {}) {
   }
 }
 
+/**
+ * Provider de PRODUÇÃO conforme env (pivot 12/jun — custo):
+ *   LLM_PROVIDER=gemini (default) → Gemini Flash primário com fallback
+ *     automático pro Anthropic (3 falhas/5min → curto-circuito).
+ *   LLM_PROVIDER=anthropic        → Anthropic puro (rollback de 1 env var).
+ */
+function getProductionProvider(opts = {}) {
+  const FallbackProvider = require('./providers/FallbackProvider');
+  const choice = String(process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  if (choice === 'anthropic') return getProvider('anthropic', opts);
+  return new FallbackProvider({
+    primary: getProvider('gemini', opts),
+    fallback: getProvider('anthropic', opts),
+  });
+}
+
 module.exports = {
-  LLMProvider, getProvider, normalizeResult, normalizeRaw, ACTION_TYPES, CONFIDENCE_LEVELS,
+  LLMProvider, getProvider, getProductionProvider, normalizeResult, normalizeRaw,
+  ACTION_TYPES, CONFIDENCE_LEVELS,
 };

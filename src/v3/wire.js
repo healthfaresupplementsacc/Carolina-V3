@@ -13,7 +13,7 @@
  * LLM até chegar mensagem (webhook ligado ou backfill rodado).
  */
 const { makeV3Pool } = require('./utils/v3-pool');
-const { getProvider } = require('./llm/LLMProvider');
+const { getProductionProvider } = require('./llm/LLMProvider');
 const { PersonResolver } = require('./services/PersonResolver');
 const { PromptBuilder } = require('./llm/prompt-builder');
 const { EventService } = require('./services/EventService');
@@ -37,7 +37,10 @@ let _observer = null;
 function _init() {
   if (_pool) return;
   _pool = makeV3Pool();
-  const provider = getProvider('anthropic');
+  // Pivot 12/jun: LLM_PROVIDER=gemini (default) com fallback Anthropic
+  // automático; LLM_PROVIDER=anthropic = rollback de 1 env var.
+  const provider = getProductionProvider();
+  console.log('[V3] LLM provider: ' + provider.name);
   const eventService = new EventService({ db: _pool });
   const batchService = new BatchService({ db: _pool });
   // Bloco 30/mai-noite — CommandHandler pra comandos admin via @Carolina.
@@ -47,8 +50,15 @@ function _init() {
     productionChannelId: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
     adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
   });
+  // Deploy 3 — notificações do dedupe (✅/❌/📝 no admin-orin).
+  const { NotificationHandler } = require('./services/NotificationHandler');
+  const notificationHandler = new NotificationHandler({
+    db: _pool,
+    slack: { postAs: slackSender.postAs, updateMessage: slackSender.updateMessage },
+    adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+  });
   _svc = {
-    provider, eventService, batchService, commandHandler,
+    provider, eventService, batchService, commandHandler, notificationHandler,
     productionCountService: new ProductionCountService({ db: _pool }),
     goalService: new GoalService({ db: _pool }),
     personResolver: new PersonResolver({ db: _pool, provider }),
@@ -72,6 +82,7 @@ function mount(app) {
         adminChannelId,
         eventService: _svc.eventService,
         commandHandler: _svc.commandHandler,
+        notificationHandler: _svc.notificationHandler,
         signingSecret: process.env.SLACK_SIGNING_SECRET,
       });
       res.status(out.status).send(out.body);
@@ -147,6 +158,17 @@ async function startWorker() {
   // Bloco 30/mai-noite — cron de expiração de pending_commands.
   // Roda a cada 60s; marca status='expired' os com expires_at < NOW()
   // e posta timeout reply na thread. Pode desligar via env.
+  // Deploy 3 — dedupe watcher (Slack ↔ Operator Page). Liga só com a flag.
+  if (process.env.WORKER_DEDUPE_ENABLED === 'true') {
+    const { DedupeWatcher } = require('../workers/dedupe-watcher');
+    const watcher = new DedupeWatcher({
+      db: _pool,
+      slack: { postAs: slackSender.postAs },
+      adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+    });
+    watcher.start(60 * 1000);
+  }
+
   if (process.env.V3_PENDING_COMMANDS_CRON_DISABLED !== '1') {
     setInterval(async () => {
       try {

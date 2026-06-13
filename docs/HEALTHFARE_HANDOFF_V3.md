@@ -1,9 +1,45 @@
 # HEALTHFARE — HANDOFF V3 (OPERAÇÃO REAL)
 
-> **DOCUMENTO DE REFERÊNCIA** | 21 Maio 2026
+> **DOCUMENTO DE REFERÊNCIA** | 21 Maio 2026 · **ADENDO 12 Jun 2026 abaixo**
 > Base do Sprint 2 (Dashboard + Esperado-vs-Realizado + Chat com a Carolina)
 > Fundamentado no estudo direto do Slack de 14–21 Maio 2026 (operação real, não suposição)
 > Atualiza e supera o HANDOFF MASTER (18 Mai, era pré-V3)
+
+---
+
+## ⚡ ADENDO — ESTADO 12 JUN 2026 (pivot Operator Page + Gemini)
+
+**Mudança de arquitetura de input:** a **Operator Page** (`/op`, PIN 4
+dígitos por operador) virou o input PRIMÁRIO — botões touch-first
+escrevem DIRETO em `v3.events`/`v3.production_counts`
+(`source='operator_page'`, `confidence='high'`), **sem LLM**. O Slack
+continua como input ALTERNATIVO indefinidamente (Observer segue lendo);
+um **dedupe-watcher** (cron 60s) casa registros duplicados
+(pessoa+atividade+lote, ±2min) marcando o do Slack como
+`superseded_by_event_id`, e registros do Slack SEM correspondente na
+página viram notificação pro admin no #admin-orin (✅ aceita / ❌ ignora /
+📝 edita — ver `docs/ADMIN_NOTIFICATIONS.md`).
+
+**LLM:** provider primário agora é **Gemini 2.5 Flash (free tier, $0)**
+com **fallback automático pro Anthropic Sonnet** (3 falhas/5min →
+curto-circuito; `LLM_PROVIDER=anthropic` = rollback de 1 env var).
+Custo projetado: de ~$102/mês → **~$0-5/mês**. Quando o Bruno desligar o
+Slack pros operadores (plano em `docs/SLACK_CUTOFF_PLAN` — futuro),
+cai pra ~$0.
+
+**Entregas 12/jun (commits na v3-reset):** architect API read-only
+(11 endpoints, 2 tokens), Operator Page completa (migration 018:
+PIN scrypt, sessions, events.source, CHECK audit ampliado; cowork A+B;
+voice Web Speech; clock-out P5), fix voice diagnóstico, ajustes de UI
+(Almoço quick, Pausa exige nota), Gemini dual-provider, migration 020
+dedupe_links + worker + NotificationHandler. Docs:
+`OPERATOR_PAGE.md`, `ADMIN_NOTIFICATIONS.md`.
+
+**Persona Carolina:** INTOCADA (mulher carioca no canal de produção;
+admite ser AI só no admin chat). `silent_text` segue Bruno-only.
+
+*(O restante deste documento descreve o estado de 21/mai — segue válido
+como contexto da operação; onde conflitar com este adendo, vale o adendo.)*
 
 ---
 

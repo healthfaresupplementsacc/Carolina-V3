@@ -53,7 +53,7 @@ function verifySignature(rawBody, headers, signingSecret, nowMs) {
  * v3.messages. Só age sobre type=message no canal de produção.
  */
 async function handleEvent(payload, deps) {
-  const { db, productionChannelId, eventService, commandHandler } = deps;
+  const { db, productionChannelId, eventService, commandHandler, notificationHandler } = deps;
   const adminChannelId = deps.adminChannelId || 'C0B36DR5MP1';
   if (!payload || payload.type !== 'event_callback') return { handled: false, reason: 'not_event_callback' };
   const ev = payload.event || {};
@@ -74,18 +74,30 @@ async function handleEvent(payload, deps) {
     const carolinaMsgTs = item.ts;
     // Resolve reactor → person (deve ser admin com role owner/manager)
     const personR = await db.query(
-      `SELECT id, role FROM v3.persons
+      `SELECT id, role, display_name FROM v3.persons
        WHERE slack_user_id = $1 AND role IN ('owner','manager') AND deleted_at IS NULL`,
       [reactorSlackUserId]);
     if (personR.rows.length === 0) {
       return { handled: false, reason: 'reactor_not_admin' };
     }
     const reactorPersonId = personR.rows[0].id;
+    const reactorName = personR.rows[0].display_name;
+    // helper: se não era pending_command, tenta notificação do dedupe (Deploy 3)
+    const tryNotification = async () => {
+      if (!notificationHandler) return null;
+      const n = await notificationHandler.handleReaction({
+        carolinaMsgTs, emoji, reactorPersonId, reactorName, channel: item.channel,
+      });
+      return n.handled ? { handled: true, action: 'notification_' + n.action } : null;
+    };
     if (emoji === 'white_check_mark' || emoji === '+1' || emoji === 'heavy_check_mark') {
       const r = await commandHandler.confirmAndExecute({
         carolinaMsgTs, reactorSlackUserId, reactorPersonId, channel: item.channel,
       });
-      return { handled: r.handled === true, action: 'reaction_confirm', result: r };
+      if (r.handled === true) return { handled: true, action: 'reaction_confirm', result: r };
+      const n = await tryNotification();
+      if (n) return n;
+      return { handled: false, action: 'reaction_confirm', result: r };
     }
     if (emoji === 'x' || emoji === 'no_entry_sign' || emoji === 'red_circle') {
       // Cancela pending
@@ -101,8 +113,16 @@ async function handleEvent(payload, deps) {
             thread_ts: null, text: '🛑 Comando cancelado pelo admin.',
           });
         } catch (_) { /* não derruba */ }
+        return { handled: true, action: 'reaction_cancel' };
       }
-      return { handled: upd.rowCount > 0, action: 'reaction_cancel' };
+      const n = await tryNotification();
+      if (n) return n;
+      return { handled: false, action: 'reaction_cancel' };
+    }
+    if (emoji === 'memo' || emoji === 'pencil' || emoji === 'pencil2') {
+      const n = await tryNotification();
+      if (n) return n;
+      return { handled: false, reason: 'edit_without_notification' };
     }
     return { handled: false, reason: 'reaction_emoji_ignored' };
   }

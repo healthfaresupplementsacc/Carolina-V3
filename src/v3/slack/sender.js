@@ -217,8 +217,23 @@ async function addReaction(opts) {
   return { ok: true, channel: ch, ts: tsResolved, emoji: name };
 }
 
+/**
+ * Edita uma mensagem já postada pelo bot (chat.update). Usado pelo fluxo
+ * de notificações do dedupe (Carolina atualiza a própria msg com o status
+ * final ✅/❌/📝 — mantém o histórico no canal sem repostar).
+ * @returns { ok, channel, ts }
+ */
+async function updateMessage(opts) {
+  const { channel, ts, text, _slackClient } = opts || {};
+  if (!channel || !ts || !text) throw new Error('channel, ts e text obrigatórios');
+  const ch = resolveChannel(channel);
+  const c = _slackClient || client();
+  await c.chat.update({ channel: ch, ts: String(ts), text, mrkdwn: true });
+  return { ok: true, channel: ch, ts: String(ts) };
+}
+
 module.exports = {
-  postAs, addReaction,
+  postAs, addReaction, updateMessage,
   resolveChannel, parseSlackTs,
   extractFileObj, extractPermalink, extractPubSecret,
   CHANNEL_KEYS,

@@ -200,6 +200,26 @@ Cada item DEVE estar funcionando no v4 antes do switch:
 
 ---
 
+## ✅ ENTREGUE 12/JUN (blocão Operator Page + pivot custo)
+
+- Architect API read-only (11 endpoints, ARCHITECT_API_TOKEN/OPERATOR_PAGE_TOKEN)
+- Operator Page `/op` completa (migration 018, PIN scrypt, cowork A+B,
+  voice, clock-out P5) — input estruturado SEM LLM
+- Gemini 2.5 Flash primário (free, $0) + fallback Anthropic automático
+  (`LLM_PROVIDER`, FallbackProvider 3 falhas/5min)
+- Dedupe Slack↔página (migration 020, worker 60s, superseded_by) +
+  notificações Carolina ✅/❌/📝 no #admin-orin
+- Docs: OPERATOR_PAGE.md, ADMIN_NOTIFICATIONS.md, adendo no handoff
+
+## 🔴 TODO #2 — Admin UI pra gerenciar operadores (futuro, 4-6h)
+PINs (set/rotate), auto-logoff por operador, count_exempt, listar
+notifications pendentes. Hoje: scripts + endpoints existem, UI não.
+
+## 🔴 TODO #3 — Rotacionar GEMINI_API_KEY
+A key inicial foi exposta no chat (12/jun). Bruno gera nova em
+aistudio.google.com/apikey e seta direto no Railway (não passa por chat);
+CC confirma worker saudável depois. **Fazer logo.**
+
 ## 🔴 TODO #1 PÓS-DEPLOY-3 — retry infinito sem dead-letter (12/jun)
 
 **Risco**: msg que falha (llm_error, invalid_llm_response) fica com
