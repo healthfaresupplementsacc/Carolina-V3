@@ -1,0 +1,33 @@
+# Admin — Referência Rápida (HealthFare V3)
+
+**Painel admin:** `https://productionlineservice-production.up.railway.app/admin/`
+**Senha:** env var `ADMIN_PASSWORD` no Railway (Settings → Variables do ProductionLineService).
+Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio.
+
+## Operadores (aba 👷)
+| Quero… | Como |
+|---|---|
+| **Mudar PIN** | Gerenciar → digita 4 dígitos → "Atualizar PIN" (vale na hora; sessões abertas continuam) |
+| **Ajustar auto-logoff** | Gerenciar → segundos (5–3600) ou vazio = desligado |
+| **Deixar pular bottle count** | Gerenciar → toggle "count exempt" (hoje: só Bruno Sarmento) |
+| **Desativar operador** | Gerenciar → "🔴 Desativar" → derruba TODAS as sessões dele e bloqueia login. Histórico fica. Reativar = mesmo botão |
+| **Derrubar sessão sem desativar** | "🚪 Forçar logout agora" |
+| **Ver o que fez** | "📅 Ver timeline 7 dias" (read-only) |
+
+## Notificações (aba 🔔) — espelho do que a Carolina posta no #admin-orin
+- **🔔 Slack órfão**: alguém postou no Slack sem registrar na página → ✅ aceita o registro / ❌ apaga / 📝 edita (lote/nota).
+- **📊 Bottle count**: operador saiu com "Não sei" na contagem.
+- **⚠️ Dead-letter**: mensagem que falhou 3x no LLM (parou de gastar — investigar com calma).
+- Resolver aqui **ou** reagindo no Slack dá no mesmo (a msg da Carolina é atualizada nos dois casos).
+
+## Saúde do sistema (Architect API — token no Railway)
+```bash
+curl -H "Authorization: Bearer $ARCHITECT_API_TOKEN" https://.../api/v3/architect/health
+curl -H "Authorization: Bearer $ARCHITECT_API_TOKEN" https://.../api/v3/architect/diagnostics/queue
+curl -H "Authorization: Bearer $ARCHITECT_API_TOKEN" https://.../api/v3/architect/diagnostics/llm_metrics
+```
+`queue` mostra dead-letters e msgs em risco; `llm_metrics` mostra provider (Gemini grátis vs fallback Anthropic) e custo.
+
+## Rotação de chaves
+- **GEMINI_API_KEY**: gera nova em aistudio.google.com/apikey → Railway → Variables → substitui → redeploy automático. (⚠️ a inicial foi exposta — rotacionar!)
+- **ADMIN_PASSWORD / tokens**: mesmo caminho (Variables). PINs: pela própria aba Operadores.

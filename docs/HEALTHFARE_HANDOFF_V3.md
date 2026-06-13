@@ -38,6 +38,29 @@ dedupe_links + worker + NotificationHandler. Docs:
 **Persona Carolina:** INTOCADA (mulher carioca no canal de produção;
 admite ser AI só no admin chat). `silent_text` segue Bruno-only.
 
+**Bloco autônomo noturno (12→13/jun) — entregas adicionais:**
+- **Dead-letter de retry** (migration 021): msg que falha 3x no LLM sai
+  da fila (audit + notification + Carolina avisa) — fim do risco de
+  ~$20/dia por msg envenenada. Telemetria em
+  `/api/v3/architect/diagnostics/queue`.
+- **Admin Panel `/admin/`** (path novo; V4 intocado): senha
+  `ADMIN_PASSWORD` (Railway), gerenciar operadores (PIN, auto-logoff,
+  count-exempt, ativar/desativar, force-logout, timeline 7d) + **inbox
+  de notificações** (✅/❌/📝 espelhando o Slack). API: `/api/adminpanel/*`
+  (namespace novo — `/api/admin/*` era do V2 legado).
+- **query_status semântico** (BUG #4): "quem está na linha?" filtra
+  production_line; "formulando?", "limpeza?", "ordens?", nome de pessoa.
+- **Cleanup**: 26 scripts one-shot arquivados em `scripts/archive/`;
+  `.gitignore` protege `snapshots/` e config local.
+- **Stale check**: 0 events abertos >2 dias (base limpa).
+- Docs: `ADMIN_QUICK_REFERENCE.md`, `OPERATOR_CARD.md` (+ .html
+  printável pra colar na fábrica).
+
+**Rotina sugerida pro rollout:** rotacionar `GEMINI_API_KEY` (a inicial
+foi exposta) → liberar o Vitor na página → acompanhar 1-2 dias
+(#admin-orin + `/admin/` + `diagnostics/llm_metrics`) → liberar o resto
+→ quando confortável, desligar o Slack pros operadores (custo LLM ≈ $0).
+
 *(O restante deste documento descreve o estado de 21/mai — segue válido
 como contexto da operação; onde conflitar com este adendo, vale o adendo.)*
 

@@ -211,16 +211,25 @@ Cada item DEVE estar funcionando no v4 antes do switch:
   notificações Carolina ✅/❌/📝 no #admin-orin
 - Docs: OPERATOR_PAGE.md, ADMIN_NOTIFICATIONS.md, adendo no handoff
 
-## 🔴 TODO #2 — Admin UI pra gerenciar operadores (futuro, 4-6h)
-PINs (set/rotate), auto-logoff por operador, count_exempt, listar
-notifications pendentes. Hoje: scripts + endpoints existem, UI não.
+## ✅ ENTREGUE — bloco autônomo noturno 12→13/jun
+- ✅ TODO #1 dead-letter (migration 021, Observer, diagnostics/queue)
+- ✅ TODO #2 Admin Panel `/admin/` (operadores + inbox; API /api/adminpanel/*)
+- ✅ BUG #4 query_status semântico (parseQueryFilters)
+- ✅ Cleanup: scripts/archive (26), .gitignore snapshots
+- ✅ Stale check: 0 events >2d abertos
+- ✅ Docs: ADMIN_QUICK_REFERENCE, OPERATOR_CARD (.md + .html), handoff
 
-## 🔴 TODO #3 — Rotacionar GEMINI_API_KEY
-A key inicial foi exposta no chat (12/jun). Bruno gera nova em
-aistudio.google.com/apikey e seta direto no Railway (não passa por chat);
-CC confirma worker saudável depois. **Fazer logo.**
+## TODOs RESTANTES (pós-bloco)
+- 🔴 **Rotacionar GEMINI_API_KEY** (exposta no chat 12/jun) — Bruno gera em
+  aistudio.google.com/apikey e seta DIRETO no Railway; CC confirma depois.
+- ⚪ Voice Whisper fallback — só se Web Speech falhar na prática (hoje ok).
+- ⚪ Lookback report / operator analytics (futuro).
+- ⚪ Migration 017 Carolina configurável — bloco grande futuro (untracked
+  de propósito).
+- ⚪ Dedupe: match é por DONO do event (cowork cross-person não casa) —
+  limitação documentada, observar se incomoda na prática.
 
-## 🔴 TODO #1 PÓS-DEPLOY-3 — retry infinito sem dead-letter (12/jun)
+## 🗂️ HISTÓRICO — TODO #1 dead-letter (resolvido 13/jun, contexto abaixo)
 
 **Risco**: msg que falha (llm_error, invalid_llm_response) fica com
 `llm_processed_at=NULL` → re-claim a cada ~2min PARA SEMPRE (Observer.js
