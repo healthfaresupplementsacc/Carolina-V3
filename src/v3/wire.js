@@ -110,6 +110,18 @@ function mount(app) {
     const express2 = require('express');
     const path2 = require('path');
     app.use('/op', express2.static(path2.join(process.cwd(), 'src', 'op')));
+    // Fases B+C — Admin Panel (path NOVO; dashboard V4 intocado).
+    const adminPanel = require('../routes/admin');
+    app.use('/', adminPanel.createAdminRouter({
+      db: _pool,
+      slack: { postAs: slackSender.postAs, updateMessage: slackSender.updateMessage },
+    }));
+    const adminDir = path2.join(process.cwd(), 'src', 'admin');
+    app.use('/admin', express2.static(adminDir));
+    // SPA: /admin/operators e /admin/notifications servem o mesmo index
+    app.get(['/admin', '/admin/operators', '/admin/notifications'], (_req, res) => {
+      res.sendFile(path2.join(adminDir, 'index.html'));
+    });
   }
   // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
   app.use('/', dataApi.createDataRouter({ db: _pool }));
