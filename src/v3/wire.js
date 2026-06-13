@@ -194,6 +194,17 @@ async function startWorker() {
     }).start(30 * 60 * 1000);
   }
 
+  // Fase 4 — Carolina manda DM no dia seguinte pra quem esqueceu checkout.
+  // Off por padrão (não manda nada até habilitar).
+  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true') {
+    const { CarolinaForgottenDM } = require('../workers/carolina-forgotten-dm');
+    new CarolinaForgottenDM({
+      db: _pool, slack: { postAs: slackSender.postAs },
+      ordersChannel: process.env.V3_ORDERS_CHANNEL,
+      adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+    }).start(10 * 60 * 1000);
+  }
+
   // Fase D — session cleanup: fecha operator_sessions ociosas >8h (hard limit),
   // 1×/h. Não derruba sessões legítimas (last_activity < 8h). Loga quantas.
   setInterval(async () => {

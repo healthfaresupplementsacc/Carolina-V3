@@ -128,9 +128,37 @@
       dispatch('LOGIN_OK');
       startTimers();
       refreshIdle().catch(() => {});
+      // Fase 4 — colegas que passaram do horário e seguem logados
+      if (r.forgotten_check_prompts && r.forgotten_check_prompts.length) {
+        showForgottenPrompts(r.forgotten_check_prompts.slice(), 'login');
+      }
     } catch (e) {
       $('pin-error').textContent = e.status === 429 ? 'Muitas tentativas — espera 1 min' : 'PIN errado';
     }
+  }
+
+  // ── Fase 4: pergunta sobre colegas que talvez esqueceram o checkout ──
+  function showForgottenPrompts(queue, via) {
+    if (!queue.length) return;
+    const p = queue.shift();
+    const ov = el('div', 'fc-overlay');
+    const card = el('div', 'fc-card');
+    card.appendChild(el('div', 'fc-q', p.prompt_text));
+    const meta = [p.last_activity_at ? 'última atividade ' + p.last_activity_at : null, p.expected_end_time ? 'saída prevista ' + p.expected_end_time : null].filter(Boolean).join(' · ');
+    if (meta) card.appendChild(el('div', 'fc-meta', meta));
+    const resolve = async (stillWorking) => {
+      try { await api('/api/v3/op/forgotten-checkout/resolve', { method: 'POST', body: { person_id: p.person_id, still_working: stillWorking, discovered_via: via } }); }
+      catch (e) { toast('❌ ' + e.message); }
+      ov.remove();
+      showForgottenPrompts(queue, via); // próximo
+    };
+    const yes = el('button', 'btn-big btn-primary', '✅ Sim, ainda está trabalhando');
+    yes.onclick = () => resolve(true);
+    const no = el('button', 'btn-big', '❌ Não, fazer checkout dela');
+    no.onclick = () => { if (window.confirm(`Tem certeza? ${p.person_name} será deslogada automaticamente.`)) resolve(false); };
+    card.appendChild(yes); card.appendChild(no);
+    ov.appendChild(card);
+    document.body.appendChild(ov);
   }
 
   // ── IDLE data ────────────────────────────────────────────────

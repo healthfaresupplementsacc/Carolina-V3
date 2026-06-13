@@ -35,6 +35,11 @@ button { font: inherit; cursor: pointer; border: 0; border-radius: 14px; }
 /* "Outro (…)" de cada grupo — destaque âmbar, fundo claro p/ não competir
    com os tipos normais mas chamar atenção como atalho de catch-all */
 .btn-outro   { background: #fff7e6; border-color: #d99100; color: #8a5a00; }
+/* Fase 4 — overlay de "colega esqueceu o checkout?" */
+.fc-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.6); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.fc-card { background: #fff; border-radius: 16px; padding: 20px; max-width: 460px; width: 100%; }
+.fc-q { font-size: 21px; font-weight: 600; margin-bottom: 8px; }
+.fc-meta { font-size: 14px; color: #64748b; margin-bottom: 16px; }
 .btn-sm { min-height: 44px; padding: 8px 14px; font-size: 16px; background: #2c505f; color: #fff; }
 
 /* ── teclado PIN ── */

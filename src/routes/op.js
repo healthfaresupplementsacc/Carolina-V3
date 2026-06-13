@@ -105,10 +105,12 @@ function createOpRouter(deps = {}) {
       const session = await opAuth.createSession(db, { personId: person.id, ip, userAgent: req.headers['user-agent'] });
       await db.query('UPDATE v3.persons SET last_page_login_at = NOW() WHERE id = $1', [person.id]);
       await audit('op_login_success', 'person', person.id, { ip, session_id: session.id }, person.id);
+      const forgotten = await detectForgottenOperators(person.id);
       res.json({
         session_token: session.session_token,
         person: { id: person.id, display_name: person.display_name, role: person.role, count_exempt: !!person.count_exempt },
         auto_logoff_seconds: person.auto_logoff_seconds,
+        forgotten_check_prompts: forgotten,
       });
     } catch (e) {
       console.error('[op] login erro:', e.message);
@@ -130,6 +132,54 @@ function createOpRouter(deps = {}) {
       res.status(500).json({ error: 'internal', detail: e.message });
     }
   };
+
+  // ── Fase 4: detecta colegas que passaram do horário e seguem logados ──
+  // Usado no login/clock-out pra perguntar ao operador atual se o colega
+  // ainda trabalha. Nunca lança (retorna [] em erro) — não quebra login.
+  async function detectForgottenOperators(triggeringPersonId) {
+    try {
+      const r = await db.query(
+        `SELECT s.person_id, p.display_name,
+                to_char(sched.expected_end_time, 'HH24:MI') AS expected_end_time,
+                to_char(s.last_activity_at AT TIME ZONE '${EDT}', 'MM-DD HH12:MI AM') AS last_activity_edt,
+                at.display_name AS last_task, at.slug AS last_slug,
+                pr.canonical_name AS last_product, pb.batch_number
+         FROM v3.operator_sessions s
+         JOIN v3.persons p ON p.id = s.person_id
+         JOIN v3.operator_schedules sched
+           ON sched.person_id = s.person_id
+           AND sched.day_of_week = EXTRACT(DOW FROM (NOW() AT TIME ZONE '${EDT}'))::int
+         LEFT JOIN LATERAL (
+           SELECT activity_type_id, product_batch_id FROM v3.events
+           WHERE person_id = s.person_id AND deleted_at IS NULL
+           ORDER BY started_at DESC LIMIT 1
+         ) e ON true
+         LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         LEFT JOIN v3.products pr ON pr.id = pb.product_id
+         WHERE s.logged_out_at IS NULL
+           AND s.person_id <> $1
+           AND sched.is_workday = true
+           AND sched.expected_end_time IS NOT NULL
+           AND (NOW() AT TIME ZONE '${EDT}')::time > sched.expected_end_time
+           AND s.last_activity_at < NOW() - INTERVAL '15 minutes'`, [triggeringPersonId]);
+      const seen = new Set();
+      const prompts = [];
+      for (const x of r.rows) {
+        if (seen.has(x.person_id)) continue;
+        seen.add(x.person_id);
+        const taskTxt = x.last_task ? x.last_task.toLowerCase() : 'alguma tarefa';
+        const prod = x.last_product ? ` (${x.last_product}${x.batch_number ? ' ' + x.batch_number : ''})` : '';
+        prompts.push({
+          person_id: x.person_id, person_name: x.display_name,
+          last_task: x.last_task || null, last_product: x.last_product || null, batch: x.batch_number || null,
+          last_activity_at: x.last_activity_edt, expected_end_time: x.expected_end_time,
+          prompt_text: `${x.display_name} ainda está trabalhando em ${taskTxt}${prod}?`,
+        });
+      }
+      return prompts;
+    } catch (e) { console.error('[op] detectForgotten erro:', e.message); return []; }
+  }
 
   router.post('/api/v3/op/auth/logout', h(async (req, res) => {
     const token = req.headers['x-session-token'];
@@ -457,7 +507,82 @@ function createOpRouter(deps = {}) {
     await opAuth.closeSession(db, token, 'clock_out');
     await audit('op_clock_out', 'person', s.person_id,
       { closed_events: closed.rows.map((r2) => r2.id), counts_given: counts.length, unknown: unknownIds }, s.person_id);
-    res.json({ ok: true, closed_events: closed.rows.map((r2) => r2.id), unknown_notified: unknownIds.length });
+    const forgotten = await detectForgottenOperators(s.person_id);
+    res.json({ ok: true, closed_events: closed.rows.map((r2) => r2.id), unknown_notified: unknownIds.length, forgotten_check_prompts: forgotten });
+  }));
+
+  // ── Fase 4: resolve forgotten checkout (operador confirma se colega trabalha) ──
+  router.post('/api/v3/op/forgotten-checkout/resolve', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const b = req.body || {};
+    const personId = parseInt(b.person_id, 10);
+    const stillWorking = !!b.still_working;
+    const via = ['login', 'logout'].includes(b.discovered_via) ? b.discovered_via : 'login';
+    if (!Number.isFinite(personId) || personId === s.person_id) return res.status(400).json({ error: 'bad_person' });
+
+    // dados do suspeito: última atividade + horário esperado + última task
+    const info = await db.query(
+      `SELECT p.display_name, p.slack_user_id, s2.last_activity_at,
+              to_char(sched.expected_end_time, 'HH24:MI') AS expected_end_time,
+              at.display_name AS last_task, pr.canonical_name AS last_product, pb.batch_number,
+              to_char(s2.last_activity_at AT TIME ZONE '${EDT}', 'MM-DD HH12:MI AM') AS last_activity_edt
+       FROM v3.persons p
+       LEFT JOIN LATERAL (SELECT last_activity_at FROM v3.operator_sessions
+         WHERE person_id = p.id AND logged_out_at IS NULL ORDER BY last_activity_at DESC LIMIT 1) s2 ON true
+       LEFT JOIN v3.operator_schedules sched ON sched.person_id = p.id
+         AND sched.day_of_week = EXTRACT(DOW FROM (NOW() AT TIME ZONE '${EDT}'))::int
+       LEFT JOIN LATERAL (SELECT activity_type_id, product_batch_id FROM v3.events
+         WHERE person_id = p.id AND deleted_at IS NULL ORDER BY started_at DESC LIMIT 1) e ON true
+       LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE p.id = $1 LIMIT 1`, [personId]);
+    if (!info.rows[0]) return res.status(404).json({ error: 'person_not_found' });
+    const sus = info.rows[0];
+    const taskDesc = [sus.last_task, sus.last_product, sus.batch_number].filter(Boolean).join(' · ') || null;
+
+    if (stillWorking) {
+      // mantém logado; estende o benefício da dúvida (renova last_activity)
+      await db.query("UPDATE v3.operator_sessions SET last_activity_at = NOW() WHERE person_id = $1 AND logged_out_at IS NULL", [personId]);
+      await db.query(
+        `INSERT INTO v3.forgotten_checkouts (person_id, discovered_by_person_id, discovered_via, last_activity_at, last_task_description, expected_end_time, resolved_at, resolution)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'still_working')`,
+        [personId, s.person_id, via, sus.last_activity_at || null, taskDesc, sus.expected_end_time || null]);
+      await audit('forgotten_checkout.confirmed_working', 'person', personId, { by: s.person_id, via }, s.person_id);
+      return res.json({ ok: true, kept: true });
+    }
+
+    // still_working=false → cascade: fecha tasks no last_activity + logout + agenda DM + avisa admin
+    await db.query(
+      `UPDATE v3.events SET ended_at = COALESCE($2, NOW()), closed_reason = 'forgotten_checkout_cascade', updated_at = NOW()
+       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND is_long_running = false`,
+      [personId, sus.last_activity_at || null]);
+    await db.query(
+      `UPDATE v3.operator_sessions SET logged_out_at = COALESCE($2, NOW()), logoff_reason = 'forgotten_checkout_cascade'
+       WHERE person_id = $1 AND logged_out_at IS NULL`, [personId, sus.last_activity_at || null]);
+    const fc = await db.query(
+      `INSERT INTO v3.forgotten_checkouts
+         (person_id, discovered_by_person_id, discovered_via, last_activity_at, last_task_description,
+          expected_end_time, auto_logout_at, carolina_dm_scheduled_for, admin_alert_sent_at, resolution)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(),
+               ((((NOW() AT TIME ZONE '${EDT}')::date + 1) + TIME '08:30') AT TIME ZONE '${EDT}'),
+               NOW(), 'auto_logout')
+       RETURNING id, to_char(carolina_dm_scheduled_for AT TIME ZONE '${EDT}', 'MM-DD HH12:MI AM') AS dm_edt`,
+      [personId, s.person_id, via, sus.last_activity_at || null, taskDesc, sus.expected_end_time || null]);
+    if (slack && slack.postAs) {
+      try {
+        await slack.postAs({
+          channel: adminChannel, sender: { name: 'Carolina' }, thread_ts: null,
+          text: `🚨 Forgotten checkout: *${sus.display_name}* esqueceu de fazer checkout (descoberto por ${s.display_name} no ${via} de hoje).\n`
+            + `Última atividade: ${sus.last_activity_edt || '?'}\n`
+            + `Última task: ${taskDesc || '?'}\n`
+            + `Horário esperado de saída: ${sus.expected_end_time || '?'}\n`
+            + `Auto-checkout aplicado. Carolina avisará ${sus.display_name} amanhã 8:30am.`,
+        });
+      } catch (e) { console.error('[op] forgotten admin alert falhou:', e.message); }
+    }
+    await audit('forgotten_checkout.cascade', 'person', personId, { by: s.person_id, via, fc_id: fc.rows[0].id }, s.person_id);
+    res.json({ ok: true, logged_out: true, dm_scheduled_for: fc.rows[0].dm_edt });
   }));
 
   // ── admin: auto-logoff por operador ─────────────────────────
