@@ -164,12 +164,18 @@ function createOpRouter(deps = {}) {
       [event.product_id || null, event.product_batch_id || null, bottles, personId, event.id, unit || 'bottle']);
   }
 
+  // slugs cuja nota é OBRIGATÓRIA (pausa precisa de motivo — pedido Bruno 12/jun)
+  const NOTE_REQUIRED_SLUGS = new Set(['break']);
+
   // ── start ───────────────────────────────────────────────────
   router.post('/api/v3/op/event/start', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
     const { activity_slug, batch_number, cowork_with, note } = req.body || {};
     const act = await resolveActivity(String(activity_slug || ''));
     if (!act) return res.status(400).json({ error: 'unknown_activity_slug', slug: activity_slug || null });
+    if (NOTE_REQUIRED_SLUGS.has(act.slug) && !(note && String(note).trim())) {
+      return res.status(400).json({ error: 'note_required', detail: 'Pausa exige nota com o motivo.' });
+    }
     const batch = await resolveBatch(batch_number);
     if (batch_number && !batch) return res.status(400).json({ error: 'unknown_batch', batch_number });
     const cw = Array.isArray(cowork_with)

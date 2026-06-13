@@ -30,6 +30,7 @@ function makeMem() {
       { id: 3, slug: 'encapsulation', requires_product: true, active: true },
       { id: 10, slug: 'cleaning', requires_product: false, active: true },
       { id: 17, slug: 'lunch', requires_product: false, active: true },
+      { id: 16, slug: 'break', requires_product: false, active: true },
     ],
     batches: [
       { id: 39, batch_number: 'BR-2026-0190', product_id: 1, product: 'Magnesium Glycinate' },
@@ -302,6 +303,17 @@ describe('op API — events', () => {
     expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: '9999' } })).status).toBe(400);
     expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'voar' } })).status).toBe(400);
     expect((await post('/api/v3/op/event/start', { body: { activity_slug: 'cleaning' } })).status).toBe(401);
+  });
+
+  test('start break SEM nota → 400 note_required; COM nota → 200 (regra Pausa)', async () => {
+    const s = await login(4);
+    const r1 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'break' } });
+    expect(r1.status).toBe(400);
+    expect(r1.body.error).toBe('note_required');
+    const r2 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'break', note: '  ' } });
+    expect(r2.status).toBe(400);
+    const r3 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'break', note: 'água/banheiro' } });
+    expect(r3.status).toBe(200);
   });
 
   test('start com cowork_with (cowork A) — remove self da lista', async () => {

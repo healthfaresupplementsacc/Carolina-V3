@@ -23,22 +23,27 @@ const GROUPS = [
   ] },
   { key: 'limpeza', icon: '🧹', label: 'Limpeza / Suporte', items: [
     ['cleaning', 'Limpeza'], ['repair', 'Conserto de máquina'],
-    ['facility_maintenance', 'Manutenção do prédio'], ['organization', 'Organização'],
+    ['facility_maintenance', 'Manutenção'], ['organization', 'Organização'],
     ['machine_downtime', 'Máquina parada'],
   ] },
   { key: 'embalagem', icon: '📦', label: 'Embalagem / Ordens', items: [
     ['orders', 'Ordens'], ['order_printing', 'Impressão de ordens'],
     ['order_printing_2', '2ª impressão'], ['labeling', 'Colar labels'],
-    ['packaging', 'Embalagem'], ['box_closing', 'Fechar caixas'],
+    ['packaging', 'Embalagem'], ['clinic_shipment', 'Envio Clínica'],
     ['marketplace_prep', 'Trocar label / marketplace'],
   ] },
   { key: 'envio', icon: '🚚', label: 'Envio', items: [
-    ['shipping', 'Envio'], ['dc_shipment', 'Envio DC'], ['clinic_shipment', 'Envio Clínica'],
+    ['shipping', 'Envio'], ['dc_shipment', 'Envio DC'], ['box_closing', 'Fechar caixas'],
   ] },
   { key: 'outros', icon: '⋯', label: 'Outros', items: [
-    ['lunch', 'Almoço'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
+    ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
   ] },
 ];
+
+// Botões DIRETOS na tela "O que vai fazer?" (sem entrar em grupo)
+const QUICK = [['lunch', 'Almoço', '🍽️']];
+// Slugs cuja nota é OBRIGATÓRIA (validado também no servidor)
+const NOTE_REQUIRED = new Set(['break']);
 
 async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -51,8 +56,20 @@ async function main() {
     key: g.key, icon: g.icon, label: g.label,
     types: g.items
       .filter(([slug]) => bySlug.has(slug))
-      .map(([slug, label]) => ({ slug, label, requires_product: !!bySlug.get(slug).requires_product })),
+      .map(([slug, label]) => ({
+        slug, label,
+        requires_product: !!bySlug.get(slug).requires_product,
+        note_required: NOTE_REQUIRED.has(slug),
+      })),
   })).filter((g) => g.types.length);
+
+  const quick = QUICK
+    .filter(([slug]) => bySlug.has(slug))
+    .map(([slug, label, icon]) => ({
+      slug, label, icon,
+      requires_product: !!bySlug.get(slug).requires_product,
+      note_required: NOTE_REQUIRED.has(slug),
+    }));
 
   const sup = await c.query(`
     SELECT p.id, p.canonical_name, p.aliases, MAX(e.created_at) AS last_used_at
@@ -71,7 +88,7 @@ async function main() {
 
   const data = {
     generated_at: new Date().toISOString(),
-    groups,
+    groups, quick,
     supplements: sup.rows.map((r) => ({ id: r.id, canonical_name: r.canonical_name, aliases: r.aliases || [], last_used_at: r.last_used_at })),
     recent_batches: rb.rows,
   };

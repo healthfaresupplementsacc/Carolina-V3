@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-12T12:46:28.494Z",
+ "generated_at": "2026-06-13T00:24:42.843Z",
  "groups": [
   {
    "key": "linha",
@@ -9,22 +9,26 @@ window.HF_DATA = {
     {
      "slug": "production_line",
      "label": "Linha de produção",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "review",
      "label": "Revisão",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "counting",
      "label": "Contagem",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "line_changeover",
      "label": "Troca de linha",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     }
    ]
   },
@@ -36,22 +40,26 @@ window.HF_DATA = {
     {
      "slug": "formulation",
      "label": "Formulação",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "mixing",
      "label": "Mistura",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "encapsulation",
      "label": "Cápsulas / Tablets",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "material_handling",
      "label": "Preparo de material (peneira…)",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     }
    ]
   },
@@ -63,27 +71,32 @@ window.HF_DATA = {
     {
      "slug": "cleaning",
      "label": "Limpeza",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "repair",
      "label": "Conserto de máquina",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "facility_maintenance",
-     "label": "Manutenção do prédio",
-     "requires_product": false
+     "label": "Manutenção",
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "organization",
      "label": "Organização",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "machine_downtime",
      "label": "Máquina parada",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     }
    ]
   },
@@ -95,37 +108,44 @@ window.HF_DATA = {
     {
      "slug": "orders",
      "label": "Ordens",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "order_printing",
      "label": "Impressão de ordens",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "order_printing_2",
      "label": "2ª impressão",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "labeling",
      "label": "Colar labels",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "packaging",
      "label": "Embalagem",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
-     "slug": "box_closing",
-     "label": "Fechar caixas",
-     "requires_product": false
+     "slug": "clinic_shipment",
+     "label": "Envio Clínica",
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "marketplace_prep",
      "label": "Trocar label / marketplace",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     }
    ]
   },
@@ -137,17 +157,20 @@ window.HF_DATA = {
     {
      "slug": "shipping",
      "label": "Envio",
-     "requires_product": true
+     "requires_product": true,
+     "note_required": false
     },
     {
      "slug": "dc_shipment",
      "label": "Envio DC",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
-     "slug": "clinic_shipment",
-     "label": "Envio Clínica",
-     "requires_product": false
+     "slug": "box_closing",
+     "label": "Fechar caixas",
+     "requires_product": false,
+     "note_required": false
     }
    ]
   },
@@ -157,26 +180,33 @@ window.HF_DATA = {
    "label": "Outros",
    "types": [
     {
-     "slug": "lunch",
-     "label": "Almoço",
-     "requires_product": false
-    },
-    {
      "slug": "break",
      "label": "Pausa",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": true
     },
     {
      "slug": "meeting",
      "label": "Reunião",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     },
     {
      "slug": "training",
      "label": "Treinamento",
-     "requires_product": false
+     "requires_product": false,
+     "note_required": false
     }
    ]
+  }
+ ],
+ "quick": [
+  {
+   "slug": "lunch",
+   "label": "Almoço",
+   "icon": "🍽️",
+   "requires_product": false,
+   "note_required": false
   }
  ],
  "supplements": [
@@ -284,7 +314,7 @@ window.HF_DATA = {
     "benfo",
     "benfotiamine"
    ],
-   "last_used_at": "2026-06-09T17:37:06.488Z"
+   "last_used_at": "2026-06-12T20:39:41.056Z"
   },
   {
    "id": 23,
@@ -341,7 +371,7 @@ window.HF_DATA = {
     "capsaicina",
     "capsaicin"
    ],
-   "last_used_at": "2026-06-11T17:34:24.792Z"
+   "last_used_at": "2026-06-12T20:06:34.136Z"
   },
   {
    "id": 27,
@@ -364,7 +394,7 @@ window.HF_DATA = {
     "chromium picolinate",
     "picolinato de cromo"
    ],
-   "last_used_at": "2026-06-11T20:43:18.896Z"
+   "last_used_at": "2026-06-12T13:58:43.162Z"
   },
   {
    "id": 29,
@@ -453,7 +483,7 @@ window.HF_DATA = {
     "ginger root",
     "gengibre root"
    ],
-   "last_used_at": "2026-06-11T18:28:02.393Z"
+   "last_used_at": "2026-06-12T13:56:49.086Z"
   },
   {
    "id": 36,
@@ -629,7 +659,7 @@ window.HF_DATA = {
     "bisglicinato",
     "bisglycinate"
    ],
-   "last_used_at": "2026-06-09T17:29:37.417Z"
+   "last_used_at": "2026-06-12T20:56:54.336Z"
   },
   {
    "id": 49,
@@ -753,7 +783,7 @@ window.HF_DATA = {
     "phytosterols",
     "plant"
    ],
-   "last_used_at": "2026-06-11T22:20:14.651Z"
+   "last_used_at": "2026-06-12T20:23:46.138Z"
   },
   {
    "id": 57,
@@ -935,19 +965,44 @@ window.HF_DATA = {
  ],
  "recent_batches": [
   {
-   "batch_number": "0208",
-   "product_id": 56,
-   "last_used": "2026-06-11T22:20:14.651Z"
+   "batch_number": "0191",
+   "product_id": 8,
+   "last_used": "2026-06-12T20:56:54.336Z"
+  },
+  {
+   "batch_number": "BR-2026-0194",
+   "product_id": 2,
+   "last_used": "2026-06-12T20:39:41.056Z"
   },
   {
    "batch_number": "0207",
    "product_id": 56,
-   "last_used": "2026-06-11T21:15:34.180Z"
+   "last_used": "2026-06-12T20:23:46.138Z"
+  },
+  {
+   "batch_number": "0149",
+   "product_id": 26,
+   "last_used": "2026-06-12T20:06:34.136Z"
+  },
+  {
+   "batch_number": "0192",
+   "product_id": 8,
+   "last_used": "2026-06-12T16:54:46.701Z"
+  },
+  {
+   "batch_number": "0208",
+   "product_id": 56,
+   "last_used": "2026-06-12T15:39:38.252Z"
   },
   {
    "batch_number": "BR-2026-0168",
    "product_id": 28,
-   "last_used": "2026-06-11T20:43:18.896Z"
+   "last_used": "2026-06-12T13:58:43.162Z"
+  },
+  {
+   "batch_number": "0209",
+   "product_id": 5,
+   "last_used": "2026-06-12T13:56:49.086Z"
   },
   {
    "batch_number": "0201",
@@ -958,16 +1013,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0198",
    "product_id": 32,
    "last_used": "2026-06-11T19:06:13.825Z"
-  },
-  {
-   "batch_number": "0209",
-   "product_id": 5,
-   "last_used": "2026-06-11T18:28:02.393Z"
-  },
-  {
-   "batch_number": "0149",
-   "product_id": 26,
-   "last_used": "2026-06-11T17:34:24.792Z"
   },
   {
    "batch_number": "BR-2026-0184",
@@ -1013,11 +1058,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0195",
    "product_id": 60,
    "last_used": "2026-06-09T17:44:44.266Z"
-  },
-  {
-   "batch_number": "BR-2026-0194",
-   "product_id": 2,
-   "last_used": "2026-06-09T17:37:06.488Z"
   },
   {
    "batch_number": "BR-2026-0190",
@@ -1123,16 +1163,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0166",
    "product_id": 46,
    "last_used": "2026-05-28T13:49:59.926Z"
-  },
-  {
-   "batch_number": "BR-2026-0163",
-   "product_id": 17,
-   "last_used": "2026-05-27T18:28:31.200Z"
-  },
-  {
-   "batch_number": "BR-2026-0162",
-   "product_id": 15,
-   "last_used": "2026-05-26T19:00:44.042Z"
   }
  ]
 };

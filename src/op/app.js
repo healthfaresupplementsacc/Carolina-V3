@@ -165,6 +165,9 @@
     });
   }
   function labelOf(slug) {
+    for (const q of DATA.quick || []) {
+      if (q.slug === slug) return q.icon + ' ' + q.label;
+    }
     for (const grp of DATA.groups || []) {
       const t = (grp.types || []).find((x) => x.slug === slug);
       if (t) return grp.icon + ' ' + t.label;
@@ -188,6 +191,15 @@
     (DATA.groups || []).forEach((g) => {
       const b = el('button', 'btn-big', g.icon + '<br>' + g.label);
       b.onclick = () => dispatch('PICK_GROUP', g);
+      grid.appendChild(b);
+    });
+    // quick actions (ex.: Almoço) — pulam a escolha de grupo
+    (DATA.quick || []).forEach((q) => {
+      const b = el('button', 'btn-big btn-primary', q.icon + '<br>' + q.label);
+      b.onclick = () => {
+        dispatch('PICK_GROUP', { key: 'quick', icon: q.icon, label: q.label, types: [q] });
+        dispatch('PICK_TYPE', q);
+      };
       grid.appendChild(b);
     });
     modal('O que vai fazer?', grid, [cancelBtn()]);
@@ -317,9 +329,11 @@
       cwBox.appendChild(l);
     });
     box.appendChild(cwBox);
-    // nota + voz
-    box.appendChild(el('h2', null, '📝 Nota (opcional)'));
-    const ta = el('textarea'); ta.placeholder = 'Escreve ou usa o microfone…';
+    // nota + voz (obrigatória pra alguns tipos, ex.: Pausa)
+    const noteRequired = !!(draft.type && draft.type.note_required);
+    box.appendChild(el('h2', null, noteRequired ? '📝 Motivo (OBRIGATÓRIO)' : '📝 Nota (opcional)'));
+    const ta = el('textarea');
+    ta.placeholder = noteRequired ? 'Por que a pausa? (obrigatório)' : 'Escreve ou usa o microfone…';
     ta.value = draft.note || '';
     ta.oninput = () => { draft.note = ta.value; };
     box.appendChild(ta);
@@ -327,6 +341,11 @@
 
     const go = el('button', 'btn-primary', '▶ COMEÇAR');
     go.onclick = async () => {
+      if (noteRequired && !ta.value.trim()) {
+        toast('📝 Escreve o motivo da pausa antes de começar');
+        ta.focus();
+        return;
+      }
       go.disabled = true;
       try {
         await api('/api/v3/op/event/start', { method: 'POST', body: {
