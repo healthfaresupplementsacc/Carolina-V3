@@ -170,8 +170,12 @@ function createOpRouter(deps = {}) {
       [event.product_id || null, event.product_batch_id || null, bottles, personId, event.id, unit || 'bottle']);
   }
 
-  // slugs cuja nota é OBRIGATÓRIA (Fase 0: + impressão de ordens, especial, Outros)
-  const NOTE_REQUIRED_SLUGS = new Set(['break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training']);
+  // slugs cuja nota é OBRIGATÓRIA (Fase 0: + impressão de ordens, especial, Outros;
+  // patch outros-por-grupo: + os 5 "*_other", tarefa livre exige explicação).
+  const NOTE_REQUIRED_SLUGS = new Set([
+    'break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
+    'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
+  ]);
   // slugs que exigem quantidade de ordens (Fase 0)
   const ORDERS_REQUIRED_SLUGS = new Set(['order_printing', 'order_printing_2']);
 

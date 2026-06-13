@@ -244,7 +244,9 @@
   function renderPickType() {
     const grid = el('div', 'grid2');
     ((draft.group && draft.group.types) || []).forEach((t) => {
-      const b = el('button', 'btn-big', t.label);
+      // "Outro (…)" de cada grupo (e o catch-all especial) ganham destaque visual
+      const isOther = /_other$/.test(t.slug) || t.slug === 'special_task';
+      const b = el('button', 'btn-big' + (isOther ? ' btn-outro' : ''), t.label);
       b.onclick = () => dispatch('PICK_TYPE', t);
       grid.appendChild(b);
     });
@@ -418,7 +420,7 @@
     const noteRequired = !!(draft.type && draft.type.note_required);
     box.appendChild(el('h2', null, noteRequired ? '📝 Motivo (OBRIGATÓRIO)' : '📝 Nota (opcional)'));
     const ta = el('textarea');
-    ta.placeholder = noteRequired ? 'Por que a pausa? (obrigatório)' : 'Escreve ou usa o microfone…';
+    ta.placeholder = noteRequired ? 'Conta o que está fazendo (obrigatório) — ou usa o 🎤' : 'Escreve ou usa o microfone…';
     ta.value = draft.note || '';
     ta.oninput = () => { draft.note = ta.value; };
     box.appendChild(ta);

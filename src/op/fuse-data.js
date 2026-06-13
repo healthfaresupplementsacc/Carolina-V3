@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-13T17:34:20.129Z",
+ "generated_at": "2026-06-13T18:16:30.520Z",
  "groups": [
   {
    "key": "linha",
@@ -32,6 +32,13 @@ window.HF_DATA = {
      "label": "Troca de linha",
      "requires_product": false,
      "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "production_line_other",
+     "label": "✏️ Outro (Linha)",
+     "requires_product": false,
+     "note_required": true,
      "orders_required": false
     }
    ]
@@ -67,6 +74,13 @@ window.HF_DATA = {
      "label": "Preparo de material (peneira…)",
      "requires_product": false,
      "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "formulation_other",
+     "label": "✏️ Outro (Formulação)",
+     "requires_product": false,
+     "note_required": true,
      "orders_required": false
     }
    ]
@@ -109,6 +123,13 @@ window.HF_DATA = {
      "label": "Máquina parada",
      "requires_product": false,
      "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "cleaning_other",
+     "label": "✏️ Outro (Limpeza/Suporte)",
+     "requires_product": false,
+     "note_required": true,
      "orders_required": false
     }
    ]
@@ -159,6 +180,13 @@ window.HF_DATA = {
      "requires_product": true,
      "note_required": false,
      "orders_required": false
+    },
+    {
+     "slug": "packaging_other",
+     "label": "✏️ Outro (Embalagem)",
+     "requires_product": false,
+     "note_required": true,
+     "orders_required": false
     }
    ]
   },
@@ -193,6 +221,13 @@ window.HF_DATA = {
      "label": "Fechar caixas",
      "requires_product": false,
      "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "shipping_other",
+     "label": "✏️ Outro (Envio)",
+     "requires_product": false,
+     "note_required": true,
      "orders_required": false
     }
    ]

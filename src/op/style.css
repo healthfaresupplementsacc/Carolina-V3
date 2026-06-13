@@ -32,6 +32,9 @@ button { font: inherit; cursor: pointer; border: 0; border-radius: 14px; }
 .btn-primary { background: #0e7a4e; border-color: #0e7a4e; color: #fff; }
 .btn-danger  { background: #b3261e; border-color: #b3261e; color: #fff; }
 .btn-warn    { background: #b35c00; border-color: #b35c00; color: #fff; }
+/* "Outro (…)" de cada grupo — destaque âmbar, fundo claro p/ não competir
+   com os tipos normais mas chamar atenção como atalho de catch-all */
+.btn-outro   { background: #fff7e6; border-color: #d99100; color: #8a5a00; }
 .btn-sm { min-height: 44px; padding: 8px 14px; font-size: 16px; background: #2c505f; color: #fff; }
 
 /* ── teclado PIN ── */

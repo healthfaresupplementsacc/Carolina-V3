@@ -12,29 +12,37 @@ const fs = require('fs');
 const path = require('path');
 
 // grupos de UI: slug real → (grupo, label de exibição)
+// Cada grupo termina com um "✏️ Outro (…)" — task type livre, nota
+// obrigatória (migration 024). O grupo "outros" já tem o catch-all
+// special_task, então não recebe outro.
 const GROUPS = [
   { key: 'linha', icon: '🏭', label: 'Linha de Produção', items: [
     ['production_line', 'Linha de produção'], ['review', 'Revisão'],
     ['counting', 'Contagem'], ['line_changeover', 'Troca de linha'],
+    ['production_line_other', '✏️ Outro (Linha)'],
   ] },
   { key: 'formulacao', icon: '🧪', label: 'Formulação', items: [
     ['formulation', 'Formulação'], ['mixing', 'Mistura'],
     ['encapsulation', 'Cápsulas / Tablets'], ['material_handling', 'Preparo de material (peneira…)'],
+    ['formulation_other', '✏️ Outro (Formulação)'],
   ] },
   { key: 'limpeza', icon: '🧹', label: 'Limpeza / Suporte', items: [
     ['cleaning', 'Limpeza'], ['repair', 'Conserto de máquina'],
     ['facility_maintenance', 'Manutenção'], ['organization', 'Organização'],
     ['machine_downtime', 'Máquina parada'],
+    ['cleaning_other', '✏️ Outro (Limpeza/Suporte)'],
   ] },
   { key: 'embalagem', icon: '📦', label: 'Embalagem / Ordens', items: [
     ['orders', 'Ordens'], ['order_printing', 'Impressão de ordens'],
     ['order_printing_2', '2ª impressão'], ['labeling', 'Colar labels'],
     ['packaging', 'Embalagem'],
     ['marketplace_prep', 'Trocar label / marketplace'],
+    ['packaging_other', '✏️ Outro (Embalagem)'],
   ] },
   { key: 'envio', icon: '🚚', label: 'Envio', items: [
     ['shipping', 'Envio'], ['dc_shipment', 'Envio DC'],
     ['clinic_shipment', 'Envio Clínica'], ['box_closing', 'Fechar caixas'],
+    ['shipping_other', '✏️ Outro (Envio)'],
   ] },
   { key: 'outros', icon: '⋯', label: 'Outros', items: [
     ['special_task', '✨ Algo Especial'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
@@ -43,8 +51,12 @@ const GROUPS = [
 
 // Botões DIRETOS na tela "O que vai fazer?" (sem entrar em grupo)
 const QUICK = [['lunch', 'Almoço', '🍽️']];
-// Slugs cuja nota é OBRIGATÓRIA (validado também no servidor)
-const NOTE_REQUIRED = new Set(['break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training']);
+// Slugs cuja nota é OBRIGATÓRIA (validado também no servidor — op.js).
+// Os 5 "*_other" entram aqui: tarefa livre só faz sentido com explicação.
+const NOTE_REQUIRED = new Set([
+  'break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
+  'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
+]);
 // Slugs que exigem quantidade de ordens impressas
 const ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
 
