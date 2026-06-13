@@ -227,6 +227,23 @@ describe('admin panel — notifications inbox (Fase C)', () => {
   });
 });
 
+describe('admin panel — audit log (Fase C)', () => {
+  test('sem token → 401', async () => {
+    expect((await get('/api/adminpanel/audit')).status).toBe(401);
+  });
+  test('lista com join de actor_name + filtros', async () => {
+    const r = await get('/api/adminpanel/audit?actor_type=admin&action=login&limit=10', token);
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body.entries)).toBe(true);
+    // confere que os filtros viraram WHERE parametrizado
+    const call = db.query.mock.calls.find((c) => /FROM v3\.audit_log a LEFT JOIN/.test(String(c[0])));
+    expect(call).toBeTruthy();
+    expect(String(call[0])).toContain('a.actor_type = $1');
+    expect(call[1]).toContain('admin');
+    expect(call[1].some((v) => String(v).includes('login'))).toBe(true);
+  });
+});
+
 describe('admin panel — analytics (Fase B)', () => {
   test('summary sem token → 401', async () => {
     expect((await get('/api/adminpanel/analytics/summary')).status).toBe(401);

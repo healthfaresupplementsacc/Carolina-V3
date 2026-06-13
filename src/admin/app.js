@@ -26,10 +26,12 @@
     $('view-op-edit').classList.toggle('hidden', v !== 'op-edit');
     $('view-notifs').classList.toggle('hidden', v !== 'notifs');
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
+    $('view-audit').classList.toggle('hidden', v !== 'audit');
     $('hdr').classList.toggle('hidden', v === 'login');
     $('tab-ops').classList.toggle('active', v === 'ops' || v === 'op-edit');
     $('tab-notifs').classList.toggle('active', v === 'notifs');
     $('tab-analytics').classList.toggle('active', v === 'analytics');
+    $('tab-audit').classList.toggle('active', v === 'audit');
   }
 
   // ── login ───────────────────────────────────────────────────
@@ -46,6 +48,11 @@
   $('tab-notifs').onclick = async () => { show('notifs'); await loadNotifs(); };
   $('tab-analytics').onclick = async () => { show('analytics'); await loadAnalytics(); };
   $('a-range').onchange = loadAnalytics;
+  $('tab-audit').onclick = async () => { show('audit'); auditOffset = 0; await loadAudit(false); };
+  $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
+  let _auDeb = null;
+  $('au-action').oninput = () => { clearTimeout(_auDeb); _auDeb = setTimeout(async () => { auditOffset = 0; await loadAudit(false); }, 400); };
+  $('au-more').onclick = () => loadAudit(true);
   $('btn-back').onclick = async () => { show('ops'); await loadOps(); };
 
   // ── operadores ──────────────────────────────────────────────
@@ -263,6 +270,61 @@
     let html = '<table class="dt"><tr><th>Dia</th><th>Eventos</th><th>Bottles</th><th>Horas</th></tr>';
     s.daily_breakdown.slice().reverse().forEach((d) => { html += `<tr><td>${d.day}</td><td>${d.events}</td><td>${d.bottles}</td><td>${d.hours}</td></tr>`; });
     $('a-table').innerHTML = html + '</table>';
+  }
+
+  // ── audit log (Fase C) ──────────────────────────────────────
+  let auditOffset = 0;
+  const ACTION_LABEL = {
+    'person.pin_changed': (m) => 'Mudou PIN de ' + (m.target_id ? '#' + m.target_id : ''),
+    'person.pin_set': () => 'Definiu PIN',
+    'event.deleted': (m) => 'Apagou evento ev' + m.target_id,
+    'event.closed_via_carolina': (m) => 'Fechou ev' + m.target_id + ' (via Carolina)',
+    'carolina_admin_command': (m) => 'Comando Carolina',
+    'message_dead_lettered': (m) => 'Mensagem foi pra dead-letter',
+    'dedupe_matched': () => 'Match dedupe Slack↔página',
+    'dedupe_orphan_notified': () => 'Slack órfão → notificou admin',
+    'operator.auto_logoff_set': (m) => 'Ajustou auto-logoff',
+    'operator.active_set': (m) => 'Ativou/desativou operador',
+    'operator.force_logout': () => 'Forçou logout',
+    'notification_accepted': () => 'Aceitou notificação',
+    'notification_rejected': () => 'Ignorou notificação',
+    'notification_edited': () => 'Editou via notificação',
+    'admin_login_success': () => 'Login admin OK',
+    'admin_login_failed': () => 'Login admin falhou',
+    'op_login_success': () => 'Operador logou',
+    'op_clock_out': () => 'Operador saiu (fim do dia)',
+  };
+  function actionText(e) {
+    const f = ACTION_LABEL[e.action];
+    const base = f ? f({ ...e, ...(e.metadata || {}) }) : e.action.replace(/[._]/g, ' ');
+    return base;
+  }
+  async function loadAudit(append) {
+    if (!append) auditOffset = 0;
+    const qs = new URLSearchParams({ limit: '50', offset: String(auditOffset) });
+    if ($('au-actor').value) qs.set('actor_type', $('au-actor').value);
+    if ($('au-action').value.trim()) qs.set('action', $('au-action').value.trim());
+    let r;
+    try { r = await api('/api/adminpanel/audit?' + qs.toString()); } catch (e) { toast('❌ ' + e.message); return; }
+    const box = $('audit-list');
+    if (!append) box.innerHTML = '';
+    if (!r.entries.length && !append) box.appendChild(el('div', 'sub', 'Nenhum registro.'));
+    r.entries.forEach((e) => {
+      const c = el('div', 'card');
+      const who = e.actor_name ? e.actor_name : e.actor_type;
+      c.appendChild(el('div', 'row', `<span class="title">${actionText(e)}</span><span class="sub" title="${e.created_at}">${e.created_edt}</span>`));
+      c.appendChild(el('div', 'sub', `${who} · ${e.actor_type}${e.target_type ? ' · ' + e.target_type + (e.target_id ? ' #' + e.target_id : '') : ''}`));
+      if (e.metadata && Object.keys(e.metadata).length) {
+        const det = el('button', 'btn-sm', 'ver detalhes');
+        const pre = el('pre', 'sub', ''); pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;display:none;margin-top:8px';
+        pre.textContent = JSON.stringify(e.metadata, null, 2);
+        det.onclick = () => { pre.style.display = pre.style.display === 'none' ? 'block' : 'none'; };
+        c.appendChild(det); c.appendChild(pre);
+      }
+      box.appendChild(c);
+    });
+    auditOffset += r.entries.length;
+    $('au-more').classList.toggle('hidden', r.entries.length < 50);
   }
 
   show('login');

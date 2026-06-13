@@ -455,6 +455,30 @@ function createAdminRouter(deps = {}) {
     });
   }));
 
+  // ── audit log (Fase C) ──────────────────────────────────────
+  router.use('/api/adminpanel/audit', requireAdmin);
+  router.get('/api/adminpanel/audit', h(async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const conds = []; const vals = []; let i = 1;
+    if (req.query.actor_type) { conds.push(`a.actor_type = $${i++}`); vals.push(String(req.query.actor_type)); }
+    if (req.query.action) { conds.push(`a.action ILIKE $${i++}`); vals.push('%' + String(req.query.action) + '%'); }
+    if (req.query.target_type) { conds.push(`a.target_type = $${i++}`); vals.push(String(req.query.target_type)); }
+    if (req.query.target_id) { conds.push(`a.target_id = $${i++}`); vals.push(parseInt(req.query.target_id, 10)); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date_from || '')) { conds.push(`a.created_at >= $${i++}::date`); vals.push(req.query.date_from); }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date_to || '')) { conds.push(`a.created_at < ($${i++}::date + INTERVAL '1 day')`); vals.push(req.query.date_to); }
+    const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
+    vals.push(limit); const limI = i++; vals.push(offset); const offI = i++;
+    const r = await db.query(`
+      SELECT a.id, a.actor_type, a.actor_person_id, p.display_name AS actor_name,
+             a.action, a.target_type, a.target_id, a.metadata,
+             a.created_at, to_char(a.created_at AT TIME ZONE '${EDT}', 'MM-DD HH12:MI:SS AM') AS created_edt
+      FROM v3.audit_log a LEFT JOIN v3.persons p ON p.id = a.actor_person_id
+      ${where}
+      ORDER BY a.id DESC LIMIT $${limI} OFFSET $${offI}`, vals);
+    res.json({ entries: r.rows, limit, offset });
+  }));
+
   return router;
 }
 

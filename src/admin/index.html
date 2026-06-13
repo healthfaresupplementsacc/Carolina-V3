@@ -13,6 +13,7 @@
       <button id="tab-ops" class="tab active">👷 Operadores</button>
       <button id="tab-notifs" class="tab">🔔 Notificações <span id="notif-badge" class="badge hidden">0</span></button>
       <button id="tab-analytics" class="tab">📊 Analytics</button>
+      <button id="tab-audit" class="tab">📋 Histórico</button>
     </nav>
     <button id="btn-logout" class="btn-sm">Sair</button>
   </header>
@@ -43,6 +44,15 @@
       <div class="chart-box"><canvas id="chart-ops"></canvas></div>
       <div class="chart-box"><canvas id="chart-slugs"></canvas></div>
       <div id="a-table"></div>
+    </section>
+
+    <section id="view-audit" class="view hidden">
+      <div class="filters">
+        <select id="au-actor"><option value="">Todos os atores</option><option value="admin">admin</option><option value="operator_page">operator_page</option><option value="llm_observer">llm_observer</option><option value="dedupe_worker">dedupe_worker</option><option value="system">system</option></select>
+        <input id="au-action" type="text" placeholder="filtrar por ação…" style="flex:1">
+      </div>
+      <div id="audit-list" class="cards"></div>
+      <button id="au-more" class="btn-big hidden">Carregar mais</button>
     </section>
 
     <section id="view-notifs" class="view hidden">
