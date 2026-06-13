@@ -18,6 +18,8 @@ function makeMem() {
     notifications: [
       { id: 7, type: 'slack_event_not_on_page', status: 'pending', payload: { slack_event_id: 900, person: 'Vitor', slug: 'production_line', batch: 'BR-2026-0190' }, carolina_slack_ts: 'caro.7', created_at: new Date() },
       { id: 8, type: 'dead_letter', status: 'pending', payload: { message_id: 1, text: 'x', error: 'boom', attempts: 3 }, carolina_slack_ts: null, created_at: new Date() },
+      { id: 9, type: 'operator_long_idle', status: 'pending', payload: { session_id: 1, person: 'Vitor' }, carolina_slack_ts: 'caro.9', created_at: new Date() },
+      { id: 10, type: 'event_stale_no_close', status: 'pending', payload: { event_id: 900, person: 'Ana' }, carolina_slack_ts: 'caro.10', created_at: new Date() },
     ],
     eventsUpdated: [], eventsDeleted: [], audits: [],
   };
@@ -55,10 +57,20 @@ function makeDb(mem) {
         p.active = params[1];
         return resp([{ id: p.id, active: p.active }]);
       }
+      if (/UPDATE v3\.operator_sessions SET logged_out_at=NOW\(\), logoff_reason='admin_force' WHERE id=\$1/.test(s)) {
+        const sess = mem.sessions.find((x) => x.id === params[0] && !x.logged_out_at);
+        if (!sess) return resp([]);
+        sess.logged_out_at = new Date();
+        return resp([{ id: sess.id }]);
+      }
       if (/UPDATE v3\.operator_sessions SET logged_out_at=NOW\(\)/.test(s)) {
         const closed = mem.sessions.filter((x) => x.person_id === params[0] && !x.logged_out_at);
         closed.forEach((x) => { x.logged_out_at = new Date(); x.logoff_reason = 'admin_force'; });
         return resp(closed.map((x) => ({ id: x.id })));
+      }
+      if (/UPDATE v3\.events SET ended_at=NOW\(\), closed_reason='admin_close_via_notification'/.test(s)) {
+        mem.eventsUpdated.push({ closeEvent: params[0] });
+        return resp([{ id: params[0] }]);
       }
       if (/FROM v3\.operator_sessions WHERE person_id/.test(s)) return resp(mem.sessions.filter((x) => x.person_id === params[0]));
       if (/FROM v3\.events e LEFT JOIN v3\.activity_types/.test(s)) return resp([]);
@@ -211,8 +223,9 @@ describe('admin panel — notifications inbox (Fase C)', () => {
   test('GET default → só pending + pending_total', async () => {
     const r = await get('/api/adminpanel/notifications', token);
     expect(r.status).toBe(200);
-    expect(r.body.notifications).toHaveLength(2);
-    expect(r.body.pending_total).toBe(2);
+    expect(r.body.notifications.every((n) => n.status === 'pending')).toBe(true);
+    expect(r.body.pending_total).toBe(r.body.notifications.length);
+    expect(r.body.notifications.length).toBeGreaterThanOrEqual(2);
   });
   test('filtro por type', async () => {
     const r = await get('/api/adminpanel/notifications?type=dead_letter', token);
@@ -248,6 +261,19 @@ describe('admin panel — notifications inbox (Fase C)', () => {
     const r = await post('/api/adminpanel/notifications/8/accept', {}, token);
     expect(r.status).toBe(200);
     expect(mem.eventsDeleted).toHaveLength(0);
+  });
+  test('force-logout (operator_long_idle) → fecha sessão do payload + resolve', async () => {
+    const r = await post('/api/adminpanel/notifications/9/force-logout', {}, token);
+    expect(r.status).toBe(200);
+    expect(r.body.sessions_closed).toBe(1);
+    expect(mem.sessions.find((x) => x.id === 1).logged_out_at).toBeTruthy();
+    expect(mem.notifications.find((x) => x.id === 9).status).toBe('admin_accepted');
+  });
+  test('close-event (event_stale_no_close) → fecha o event do payload + resolve', async () => {
+    const r = await post('/api/adminpanel/notifications/10/close-event', {}, token);
+    expect(r.status).toBe(200);
+    expect(mem.eventsUpdated.some((u) => u.closeEvent === 900)).toBe(true);
+    expect(mem.notifications.find((x) => x.id === 10).status).toBe('admin_accepted');
   });
 });
 

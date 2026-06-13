@@ -362,6 +362,43 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, status: 'admin_edited', event_id: evId });
   }));
 
+  // ── ações das notifs proativas (Fase G) ────────────────────
+  router.post('/api/adminpanel/notifications/:id/force-logout', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const notif = await loadPendingNotif(id);
+    if (!notif) return res.status(404).json({ error: 'not_pending' });
+    const sid = notif.payload && notif.payload.session_id;
+    let closed = 0;
+    if (sid) {
+      const r = await db.query(
+        `UPDATE v3.operator_sessions SET logged_out_at=NOW(), logoff_reason='admin_force'
+         WHERE id=$1 AND logged_out_at IS NULL RETURNING id`, [sid]);
+      closed = r.rowCount;
+    }
+    await db.query(`UPDATE v3.notifications SET status='admin_accepted', resolved_at=NOW() WHERE id=$1`, [id]);
+    await audit('notification_force_logout', 'notification', id, { session_id: sid, closed });
+    await updateCarolinaMsg(notif, `💤 Logout forçado via painel — ${(notif.payload || {}).person || ''} (${closed} sessão)`);
+    res.json({ ok: true, sessions_closed: closed });
+  }));
+
+  router.post('/api/adminpanel/notifications/:id/close-event', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const notif = await loadPendingNotif(id);
+    if (!notif) return res.status(404).json({ error: 'not_pending' });
+    const evId = notif.payload && notif.payload.event_id;
+    let closed = false;
+    if (evId) {
+      const r = await db.query(
+        `UPDATE v3.events SET ended_at=NOW(), closed_reason='admin_close_via_notification', updated_at=NOW()
+         WHERE id=$1 AND ended_at IS NULL AND deleted_at IS NULL RETURNING id`, [evId]);
+      closed = r.rowCount > 0;
+    }
+    await db.query(`UPDATE v3.notifications SET status='admin_accepted', resolved_at=NOW() WHERE id=$1`, [id]);
+    await audit('notification_close_event', 'event', evId, { notification_id: id, closed });
+    await updateCarolinaMsg(notif, `⏱️ Fechado via painel — ev${evId}`);
+    res.json({ ok: true, closed });
+  }));
+
   // ── analytics (Fase B) ──────────────────────────────────────
   router.use('/api/adminpanel/analytics', requireAdmin, makeRateLimit({ limit: 60 }));
   const rangeDays = (r) => ({ '7d': 7, '30d': 30, '90d': 90 }[String(r)] || 7);

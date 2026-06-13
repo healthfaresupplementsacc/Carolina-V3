@@ -179,6 +179,15 @@ async function startWorker() {
   _observer.start(5000);
   console.log('[V3] Observer worker SHADOW ligado (tick 5s, bot=' + (botUserId || '?') + ')');
 
+  // Fase G — alertas proativos (idle/stale/anomaly). Liga via flag.
+  if (process.env.WORKER_PROACTIVE_ALERTS_ENABLED === 'true') {
+    const { ProactiveAlerts } = require('../workers/proactive-alerts');
+    new ProactiveAlerts({
+      db: _pool, slack: { postAs: slackSender.postAs },
+      adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+    }).start(30 * 60 * 1000);
+  }
+
   // Fase D — session cleanup: fecha operator_sessions ociosas >8h (hard limit),
   // 1×/h. Não derruba sessões legítimas (last_activity < 8h). Loga quantas.
   setInterval(async () => {

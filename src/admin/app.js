@@ -189,12 +189,15 @@
   }
 
   // ── notificações (inbox) ────────────────────────────────────
-  const ICONS = { slack_event_not_on_page: '🔔', unfilled_bottle_count: '📊', dead_letter: '⚠️', operator_long_idle: '💤' };
+  const ICONS = { slack_event_not_on_page: '🔔', unfilled_bottle_count: '📊', dead_letter: '⚠️', operator_long_idle: '💤', event_stale_no_close: '⏰', bottle_count_anomaly: '📊' };
   function notifSummary(n) {
     const p = n.payload || {};
     if (n.type === 'slack_event_not_on_page') return `<b>${p.person || '?'}</b> postou no Slack: "${(p.raw_slack_text || p.slug || '')}" — sem task na página`;
     if (n.type === 'unfilled_bottle_count') return `<b>${p.who_left || '?'}</b> saiu sem contar bottles de ${p.product || '?'} ${p.batch || ''}`;
     if (n.type === 'dead_letter') return `Msg em dead-letter (${p.attempts}x): "${p.text || ''}" — ${p.error || ''}`;
+    if (n.type === 'operator_long_idle') return `<b>${p.person || '?'}</b> logado sem atividade há ${p.idle_min}min`;
+    if (n.type === 'event_stale_no_close') return `Task ev${p.event_id} de <b>${p.person || '?'}</b> (${p.slug || '?'}) aberta há ${p.h_open}h`;
+    if (n.type === 'bottle_count_anomaly') return `Count anômalo: ${p.product || '?'} = ${p.bottles} bottles (média ${p.avg}, ${p.deviation_pct > 0 ? '+' : ''}${p.deviation_pct}%)`;
     return JSON.stringify(p).slice(0, 140);
   }
   async function loadNotifs() {
@@ -209,6 +212,24 @@
       c.appendChild(el('div', 'sub', notifSummary(n)));
       if (n.status === 'pending') {
         const act = el('div', 'actions');
+        const callAction = (verb, confirmMsg) => async () => {
+          if (confirmMsg && !window.confirm(confirmMsg)) return;
+          try { await api(`/api/adminpanel/notifications/${n.id}/${verb}`, { method: 'POST', body: {} }); toast('✅'); loadNotifs(); }
+          catch (e) { toast('❌ ' + e.message); }
+        };
+        // ações específicas por tipo
+        if (n.type === 'operator_long_idle') {
+          const ok = el('button', 'ok', '✅ ok'); ok.onclick = callAction('accept');
+          const fl = el('button', 'no', '💤 Force logout'); fl.onclick = callAction('force-logout', 'Forçar logout dessa sessão?');
+          act.appendChild(ok); act.appendChild(fl);
+          c.appendChild(act); box.appendChild(c); return;
+        }
+        if (n.type === 'event_stale_no_close') {
+          const ig = el('button', 'ok', '✅ ignora'); ig.onclick = callAction('accept');
+          const cl = el('button', 'no', '⏱️ fecha agora'); cl.onclick = callAction('close-event', 'Fechar essa task agora (ended_at=agora)?');
+          act.appendChild(ig); act.appendChild(cl);
+          c.appendChild(act); box.appendChild(c); return;
+        }
         const ok = el('button', 'ok', '✅ Aceitar');
         ok.onclick = async () => { if (!window.confirm('Aceitar?')) return; try { await api(`/api/adminpanel/notifications/${n.id}/accept`, { method: 'POST', body: {} }); toast('✅'); loadNotifs(); } catch (e) { toast('❌ ' + e.message); } };
         const no = el('button', 'no', '❌ Ignorar');
