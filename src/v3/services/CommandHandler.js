@@ -554,24 +554,78 @@ class CommandHandler {
     return { replyText: `✅ ev${eventId} ${field} atualizado.`, event_id: eventId };
   }
 
+  /**
+   * Fase E (BUG #4) — filtro SEMÂNTICO da pergunta: "quem está na linha?"
+   * filtra production_line; "formulando?" → grupo formulação; "limpeza?" →
+   * cleaning; nome de pessoa → filtra por pessoa. Sem keyword → tudo LIVE
+   * de flow=production (comportamento anterior). Função pura, testável.
+   * @param {string} question
+   * @param {Array<{id, display_name}>} persons
+   * @returns {{slugs: string[]|null, personId: number|null}}
+   */
+  static parseQueryFilters(question, persons = []) {
+    const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const q = norm(question);
+    const KEYWORDS = [
+      { re: /linha|producao|production/, slugs: ['production_line', 'review', 'counting', 'line_changeover'] },
+      { re: /formula|mistur|capsul|tablet|penera/, slugs: ['formulation', 'mixing', 'encapsulation', 'material_handling'] },
+      { re: /limpez|limpando|cleaning/, slugs: ['cleaning'] },
+      { re: /embalag|empacot|packing|packaging|label|ordens|orden/, slugs: ['packaging', 'labeling', 'orders', 'order_printing', 'order_printing_2', 'box_closing', 'marketplace_prep'] },
+      { re: /envio|shipping|enviando/, slugs: ['shipping', 'dc_shipment', 'clinic_shipment'] },
+      { re: /almoc|lunch|pausa|break/, slugs: ['lunch', 'break'] },
+    ];
+    let slugs = null;
+    for (const k of KEYWORDS) { if (k.re.test(q)) { slugs = k.slugs; break; } }
+    let personId = null;
+    for (const p of persons) {
+      const name = norm(p.display_name);
+      const first = name.split(/\s+/)[0];
+      if (first && first.length >= 3 && q.includes(first)) { personId = p.id; break; }
+    }
+    return { slugs, personId };
+  }
+
   async _executeQuery(parsed) {
     const q = (parsed.params && parsed.params.question) || '';
     const scope = parsed.params && parsed.params.scope;
     if (scope === 'current_production') {
+      // Fase E — filtros semânticos da pergunta (keyword + pessoa)
+      let filters = { slugs: null, personId: null };
+      try {
+        const pr = await this.db.query(
+          `SELECT id, display_name FROM v3.persons WHERE deleted_at IS NULL AND active = true`);
+        filters = CommandHandler.parseQueryFilters(q, pr.rows);
+      } catch (_) { /* sem filtro de pessoa se a query falhar */ }
+
+      const conds = ['e.deleted_at IS NULL', 'e.ended_at IS NULL'];
+      const vals = [];
+      if (filters.slugs) {
+        vals.push(filters.slugs);
+        conds.push(`at.slug = ANY($${vals.length}::text[])`);
+      } else {
+        conds.push(`at.flow = 'production'`); // comportamento original
+      }
+      if (filters.personId) {
+        vals.push(filters.personId);
+        conds.push(`(e.person_id = $${vals.length} OR e.cowork_with @> ARRAY[$${vals.length}]::int[])`);
+      }
       const r = await this.db.query(`
-        SELECT pr.canonical_name AS product, pb.batch_number,
-          array_agg(DISTINCT p.display_name) AS people,
-          MAX(e.started_at) AS latest
+        SELECT p.display_name AS person, at.slug, pr.canonical_name AS product,
+               pb.batch_number, e.started_at,
+               to_char(e.started_at AT TIME ZONE 'America/New_York', 'HH12:MI AM') AS started_edt
         FROM v3.events e
         LEFT JOIN v3.persons p ON p.id = e.person_id
         LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
         LEFT JOIN v3.products pr ON pr.id = pb.product_id
-        WHERE e.deleted_at IS NULL AND e.ended_at IS NULL AND at.flow = 'production'
-        GROUP BY pr.canonical_name, pb.batch_number ORDER BY latest DESC LIMIT 5`);
-      if (r.rows.length === 0) return 'Sem produção ativa agora.';
+        WHERE ${conds.join(' AND ')}
+        ORDER BY e.started_at DESC LIMIT 15`, vals);
+      if (r.rows.length === 0) {
+        return filters.slugs || filters.personId
+          ? 'Ninguém nessa atividade agora.' : 'Sem produção ativa agora.';
+      }
       return r.rows.map((row) =>
-        `• ${row.product || '?'} / ${row.batch_number || '—'} — ${(row.people || []).join(', ')}`
+        `• ${row.person || '?'} — ${row.slug || '?'}${row.product ? ' · ' + row.product : ''}${row.batch_number ? ' ' + row.batch_number : ''} (desde ${row.started_edt})`
       ).join('\n');
     }
     return `Query: "${q}" — TODO suportar mais scopes além de current_production.`;
