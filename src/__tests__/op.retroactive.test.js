@@ -93,6 +93,7 @@ describe('Parte B — admin retroactive (/api/adminpanel/operators/:id/retroacti
       if (/COUNT\(\*\)::int n FROM v3\.admin_users WHERE is_active = true/.test(s)) return resp([{ n: 0 }]); // emergência
       if (/FROM v3\.admin_sessions s JOIN v3\.admin_users u/.test(s)) return resp([]);
       if (/FROM v3\.activity_types WHERE slug = \$1 AND active = true/.test(s)) return resp([{ id: 10, slug: 'cleaning' }]);
+      if (/SELECT slug, display_name, requires_product, category FROM v3\.activity_types WHERE active = true/.test(s)) return resp([{ slug: 'cleaning', display_name: 'Limpeza', requires_product: false, category: 'support' }]);
       if (/AS not_future,.*AS within_7d,.*AS end_ok/.test(s)) {
         const st = Date.parse(params[0]); const en = params[1] ? Date.parse(params[1]) : null; const now = Date.now();
         return resp([{ not_future: st <= now, within_7d: st >= now - 7 * 864e5, end_ok: en == null || (en > st && en <= now) }]);
@@ -127,5 +128,14 @@ describe('Parte B — admin retroactive (/api/adminpanel/operators/:id/retroacti
   });
   test('mais de 7 dias atrás → 400 too_old', async () => {
     expect((await add({ activity_slug: 'cleaning', started_at: hoursAgo(24 * 8), admin_justification: 'x' })).body.error).toBe('too_old');
+  });
+  test('GET activity-types SEM token → 401 (gated)', async () => {
+    const r = await fetch(base + '/api/adminpanel/activity-types');
+    expect(r.status).toBe(401);
+  });
+  test('GET activity-types COM token → 200', async () => {
+    const r = await fetch(base + '/api/adminpanel/activity-types', { headers: { Authorization: 'Bearer ' + token } });
+    expect(r.status).toBe(200);
+    expect((await r.json()).activities[0].slug).toBe('cleaning');
   });
 });

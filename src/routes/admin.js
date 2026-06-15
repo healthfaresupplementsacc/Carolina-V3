@@ -513,8 +513,8 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true, event_id: ins.rows[0].id, status: 'created' });
   }));
 
-  // catálogo de activity_types pro form de retroactive admin
-  router.get('/api/adminpanel/activity-types', h(async (req, res) => {
+  // catálogo de activity_types pro form de retroactive admin (gated)
+  router.get('/api/adminpanel/activity-types', requireAdmin, h(async (req, res) => {
     const r = await db.query('SELECT slug, display_name, requires_product, category FROM v3.activity_types WHERE active = true ORDER BY display_name');
     res.json({ activities: r.rows.map((a) => ({ ...a, note_required: ADMIN_NOTE_REQUIRED.has(a.slug), orders_required: ADMIN_ORDERS_REQUIRED.has(a.slug) })) });
   }));
