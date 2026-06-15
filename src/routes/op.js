@@ -264,6 +264,50 @@ function createOpRouter(deps = {}) {
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
 
+  // ── retroactive check-in (task esquecida) — operador, SÓ HOJE ───────────
+  // started_at não pode ser futuro nem de outro dia (G8: dias anteriores só admin).
+  router.post('/api/v3/op/event/retroactive', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const { activity_slug, batch_number, cowork_with, note, started_at, ended_at } = req.body || {};
+    const act = await resolveActivity(String(activity_slug || ''));
+    if (!act) return res.status(400).json({ error: 'unknown_activity_slug', slug: activity_slug || null });
+    if (!started_at) return res.status(400).json({ error: 'started_at_required' });
+    if (NOTE_REQUIRED_SLUGS.has(act.slug) && !(note && String(note).trim())) return res.status(400).json({ error: 'note_required' });
+    let ordersPrinted = null;
+    if (ORDERS_REQUIRED_SLUGS.has(act.slug)) {
+      ordersPrinted = parseInt(req.body && req.body.orders_printed, 10);
+      if (!Number.isFinite(ordersPrinted) || ordersPrinted <= 0) return res.status(400).json({ error: 'orders_printed_required' });
+    }
+    // validação de tempo no DB (evita ciladas de TZ no JS)
+    const tv = await db.query(
+      `SELECT ($1::timestamptz <= NOW()) AS not_future,
+              (($1::timestamptz AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS same_day,
+              ($2::timestamptz IS NULL OR ($2::timestamptz > $1::timestamptz AND $2::timestamptz <= NOW())) AS end_ok`,
+      [started_at, ended_at || null]);
+    const v = tv.rows[0];
+    if (!v.not_future) return res.status(400).json({ error: 'started_at_future' });
+    if (!v.same_day) return res.status(400).json({ error: 'started_at_not_today', detail: 'Operador só adiciona tasks de hoje. Dias anteriores: peça ao admin.' });
+    if (!v.end_ok) return res.status(400).json({ error: 'ended_at_invalid', detail: 'Fim deve ser depois do início e não pode ser futuro.' });
+    const batch = await resolveBatch(batch_number);
+    if (batch_number && !batch) return res.status(400).json({ error: 'unknown_batch', batch_number });
+    const cw = Array.isArray(cowork_with)
+      ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id) : [];
+    const ins = await db.query(
+      `INSERT INTO v3.events
+         (person_id, activity_type_id, product_batch_id, started_at, ended_at, description,
+          cowork_with, confidence, source, orders_printed, closed_reason)
+       VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7::int[], 'high', 'operator_page_retroactive', $8,
+               CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END)
+       RETURNING id, started_at, ended_at`,
+      [s.person_id, act.id, batch ? batch.id : null, started_at, ended_at || null,
+        note ? String(note).slice(0, 500) : null, cw, ordersPrinted]);
+    const ev = ins.rows[0];
+    const gapMin = await db.query("SELECT ROUND(EXTRACT(EPOCH FROM (NOW() - $1::timestamptz))/60)::int g", [started_at]);
+    await audit('event.retroactive_create', 'event', ev.id,
+      { slug: act.slug, retroactive: true, gap_minutes: gapMin.rows[0].g, ended: !!ended_at, batch: batch ? batch.batch_number : null }, s.person_id);
+    res.json({ ok: true, event_id: ev.id, status: 'created' });
+  }));
+
   // ── end ─────────────────────────────────────────────────────
   async function loadOwnedOpenEvent(req, res, s) {
     const id = parseInt(req.params.id, 10);

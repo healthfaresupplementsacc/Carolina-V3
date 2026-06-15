@@ -623,8 +623,90 @@
     modal('🚪 Fim do dia', box, foot);
   }
 
+  // ── retroactive check-in (task esquecida) — Parte B ─────────
+  function showRetroactiveFlow() {
+    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; };
+    const isoFromTime = (hhmm) => {
+      if (!hhmm) return null;
+      const now = new Date(); const [h, m] = hhmm.split(':').map(Number);
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0).toISOString();
+    };
+    // grupos + quick (lunch) como pseudo-grupo
+    const groups = (DATA.groups || []).slice();
+    if ((DATA.quick || []).length) groups.push({ key: '__quick', icon: '🍽️', label: 'Direto', types: DATA.quick });
+
+    const ov = el('div', 'fc-overlay'); const card = el('div', 'fc-card');
+    card.appendChild(el('div', 'fc-q', '🕐 Adicionar task que esqueci'));
+    const gsel = el('select'); gsel.appendChild(opt('', '— grupo —'));
+    groups.forEach((g) => gsel.appendChild(opt(g.key, g.icon + ' ' + g.label)));
+    const tsel = el('select'); tsel.appendChild(opt('', '— tarefa —'));
+    const cond = el('div');
+    const batchInp = el('input'); batchInp.placeholder = 'Lote (4 dígitos)'; batchInp.inputMode = 'numeric';
+    const noteTa = el('textarea'); noteTa.placeholder = 'Conta o que você fez';
+    const ordersInp = el('input'); ordersInp.type = 'number'; ordersInp.min = '1'; ordersInp.placeholder = 'qtd ordens';
+    const startInp = el('input'); startInp.type = 'time';
+    const endWrap = el('div'); const endChk = el('input'); endChk.type = 'checkbox';
+    const endInp = el('input'); endInp.type = 'time'; endInp.disabled = true;
+    endChk.onchange = () => { endInp.disabled = !endChk.checked; };
+    let curType = null;
+    const field = (lbl, inp) => { const f = el('div', 'field'); f.appendChild(el('label', null, lbl)); f.appendChild(inp); return f; };
+    function renderCond() {
+      cond.innerHTML = '';
+      if (!curType) return;
+      if (curType.requires_product) cond.appendChild(field('📦 Lote (se aplicável)', batchInp));
+      if (curType.note_required) cond.appendChild(field('📝 Nota (obrigatória)', noteTa));
+      if (curType.orders_required) cond.appendChild(field('🔢 Quantas ordens', ordersInp));
+    }
+    gsel.onchange = () => {
+      tsel.innerHTML = ''; tsel.appendChild(opt('', '— tarefa —'));
+      const g = groups.find((x) => x.key === gsel.value);
+      (g ? g.types : []).forEach((t) => tsel.appendChild(opt(t.slug, t.label)));
+      curType = null; renderCond();
+    };
+    tsel.onchange = () => {
+      const g = groups.find((x) => x.key === gsel.value);
+      curType = (g ? g.types : []).find((t) => t.slug === tsel.value) || null;
+      renderCond();
+    };
+    card.appendChild(field('Grupo', gsel));
+    card.appendChild(field('Tarefa', tsel));
+    card.appendChild(cond);
+    card.appendChild(field('🕐 Começou (hora de hoje)', startInp));
+    const endL = el('label', 'chk'); endL.appendChild(endChk); endL.appendChild(el('span', null, 'Já terminei (escolher hora)'));
+    endWrap.appendChild(endL); endWrap.appendChild(endInp); card.appendChild(field('Fim', endWrap));
+
+    const go = el('button', 'btn-big btn-primary', '✔ Adicionar');
+    go.onclick = async () => {
+      if (!curType) { toast('Escolhe a tarefa'); return; }
+      if (curType.note_required && !noteTa.value.trim()) { toast('📝 Conta o que fez'); return; }
+      if (curType.orders_required && !(parseInt(ordersInp.value, 10) > 0)) { toast('🔢 Informe a quantidade'); return; }
+      if (!startInp.value) { toast('🕐 Informe a hora de início'); return; }
+      const started = isoFromTime(startInp.value);
+      const ended = endChk.checked ? isoFromTime(endInp.value) : null;
+      if (endChk.checked && !endInp.value) { toast('Informe a hora de fim'); return; }
+      if (ended && ended <= started) { toast('Fim tem que ser depois do início'); return; }
+      try {
+        await api('/api/v3/op/event/retroactive', { method: 'POST', body: {
+          activity_slug: curType.slug,
+          batch_number: (curType.requires_product && batchInp.value.trim()) ? batchInp.value.trim() : undefined,
+          note: noteTa.value.trim() || undefined,
+          orders_printed: curType.orders_required ? parseInt(ordersInp.value, 10) : undefined,
+          started_at: started, ended_at: ended,
+        } });
+        toast('✅ Task adicionada'); ov.remove(); refreshIdle().catch(() => {});
+      } catch (e) {
+        const M = { started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra adicionar de hoje (peça ao escritório)', ended_at_invalid: 'Hora de fim inválida', note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade', unknown_batch: 'Lote não encontrado' };
+        toast('❌ ' + (M[e.message] || e.message));
+      }
+    };
+    const cancel = el('button', 'btn-big', '✕ Cancelar'); cancel.onclick = () => ov.remove();
+    card.appendChild(go); card.appendChild(cancel);
+    ov.appendChild(card); document.body.appendChild(ov);
+  }
+
   // ── bindings ────────────────────────────────────────────────
   $('btn-new').onclick = () => dispatch('START_NEW');
+  $('btn-retro').onclick = () => showRetroactiveFlow();
   $('btn-note').onclick = openNote;
   $('btn-clockout').onclick = openClockOut;
   $('btn-switch').onclick = () => doLogout('manual');

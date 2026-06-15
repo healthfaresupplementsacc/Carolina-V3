@@ -224,6 +224,67 @@
       try { await renderSchedule(o, scBox); } catch (e) { toast('❌ ' + e.message); }
     };
     fSc.appendChild(btSc); fSc.appendChild(scBox); box.appendChild(fSc);
+
+    // retroactive — adicionar task em nome do operador (Parte B)
+    const fRetro = el('div', 'field');
+    const btRetro = el('button', 'btn-big', `🕐 Adicionar task pra ${o.display_name}`);
+    const retroBox = el('div');
+    btRetro.onclick = async () => {
+      if (retroBox.childNodes.length) { retroBox.innerHTML = ''; return; }
+      try { await renderRetroForm(o, retroBox); } catch (e) { toast('❌ ' + e.message); }
+    };
+    fRetro.appendChild(btRetro); fRetro.appendChild(retroBox); box.appendChild(fRetro);
+  }
+
+  async function renderRetroForm(o, box) {
+    const cat = await api('/api/adminpanel/activity-types');
+    box.innerHTML = '';
+    box.appendChild(el('div', 'sub', 'Adiciona uma task que não foi registrada (até 7 dias atrás). Exige justificativa — fica no audit.'));
+    const sel = el('select'); sel.appendChild(Object.assign(document.createElement('option'), { value: '', textContent: '— tarefa —' }));
+    cat.activities.forEach((a) => { const op = document.createElement('option'); op.value = a.slug; op.textContent = a.display_name; op._a = a; sel.appendChild(op); });
+    const cond = el('div');
+    const batchInp = el('input'); batchInp.placeholder = 'Lote (4 dígitos)';
+    const noteInp = el('input'); noteInp.placeholder = 'Nota';
+    const ordersInp = el('input'); ordersInp.type = 'number'; ordersInp.min = '1'; ordersInp.placeholder = 'qtd ordens';
+    let curA = null;
+    const fld = (lbl, inp) => { const f = el('div', 'field'); f.appendChild(el('label', null, lbl)); f.appendChild(inp); return f; };
+    sel.onchange = () => {
+      curA = (cat.activities.find((a) => a.slug === sel.value)) || null;
+      cond.innerHTML = '';
+      if (curA && curA.requires_product) cond.appendChild(fld('Lote', batchInp));
+      if (curA && curA.note_required) cond.appendChild(fld('Nota (obrigatória)', noteInp));
+      if (curA && curA.orders_required) cond.appendChild(fld('Qtd ordens', ordersInp));
+    };
+    const dateInp = el('input'); dateInp.type = 'date';
+    const startInp = el('input'); startInp.type = 'time';
+    const endInp = el('input'); endInp.type = 'time';
+    const just = el('input'); just.placeholder = 'Justificativa (ex: sistema não registrou check-in da Ana às 9:15)';
+    box.appendChild(fld('Tarefa', sel)); box.appendChild(cond);
+    box.appendChild(fld('Data', dateInp)); box.appendChild(fld('Início (hora)', startInp));
+    box.appendChild(fld('Fim (hora, opcional)', endInp)); box.appendChild(fld('Justificativa', just));
+    const go = el('button', 'btn-big btn-primary', '✔ Adicionar');
+    go.onclick = async () => {
+      if (!curA) { toast('Escolhe a tarefa'); return; }
+      if (!dateInp.value || !startInp.value) { toast('Data e hora de início'); return; }
+      if (!just.value.trim()) { toast('Justificativa obrigatória'); return; }
+      if (curA.note_required && !noteInp.value.trim()) { toast('Nota obrigatória'); return; }
+      const startIso = new Date(dateInp.value + 'T' + startInp.value).toISOString();
+      const endIso = endInp.value ? new Date(dateInp.value + 'T' + endInp.value).toISOString() : null;
+      try {
+        await api(`/api/adminpanel/operators/${o.id}/retroactive-event`, { method: 'POST', body: {
+          activity_slug: curA.slug,
+          batch_number: (curA.requires_product && batchInp.value.trim()) ? batchInp.value.trim() : undefined,
+          note: noteInp.value.trim() || undefined,
+          orders_printed: curA.orders_required ? parseInt(ordersInp.value, 10) : undefined,
+          started_at: startIso, ended_at: endIso, admin_justification: just.value.trim(),
+        } });
+        toast('✅ Task adicionada'); box.innerHTML = '';
+      } catch (e) {
+        const M = { too_old: 'Máximo 7 dias atrás', started_at_future: 'Hora no futuro', ended_at_invalid: 'Fim inválido', justification_required: 'Justificativa obrigatória', unknown_batch: 'Lote não encontrado' };
+        toast('❌ ' + (M[e.message] || e.message));
+      }
+    };
+    box.appendChild(go);
   }
 
   const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];

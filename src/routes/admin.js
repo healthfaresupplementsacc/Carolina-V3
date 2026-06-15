@@ -464,6 +464,61 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true });
   }));
 
+  // ── retroactive event POR admin (em nome do operador) — Parte B ─────────
+  // Permite até 7 dias atrás (G8). Exige justificativa (transparência, G5).
+  const ADMIN_NOTE_REQUIRED = new Set(['break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
+    'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other', 'label_change', 'label_repair']);
+  const ADMIN_ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
+  router.post('/api/adminpanel/operators/:id/retroactive-event', h(async (req, res) => {
+    const personId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(personId)) return res.status(400).json({ error: 'bad_id' });
+    const b = req.body || {};
+    const justification = b.admin_justification ? String(b.admin_justification).trim() : '';
+    if (!justification) return res.status(400).json({ error: 'justification_required', detail: 'Admin precisa justificar.' });
+    if (!b.started_at) return res.status(400).json({ error: 'started_at_required' });
+    const actr = await db.query('SELECT id, slug FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [String(b.activity_slug || '')]);
+    if (!actr.rows[0]) return res.status(400).json({ error: 'unknown_activity_slug' });
+    const act = actr.rows[0];
+    if (ADMIN_NOTE_REQUIRED.has(act.slug) && !(b.note && String(b.note).trim())) return res.status(400).json({ error: 'note_required' });
+    let ordersPrinted = null;
+    if (ADMIN_ORDERS_REQUIRED.has(act.slug)) {
+      ordersPrinted = parseInt(b.orders_printed, 10);
+      if (!Number.isFinite(ordersPrinted) || ordersPrinted <= 0) return res.status(400).json({ error: 'orders_printed_required' });
+    }
+    const tv = await db.query(
+      `SELECT ($1::timestamptz <= NOW()) AS not_future,
+              ($1::timestamptz >= NOW() - INTERVAL '7 days') AS within_7d,
+              ($2::timestamptz IS NULL OR ($2::timestamptz > $1::timestamptz AND $2::timestamptz <= NOW())) AS end_ok`,
+      [b.started_at, b.ended_at || null]);
+    const v = tv.rows[0];
+    if (!v.not_future) return res.status(400).json({ error: 'started_at_future' });
+    if (!v.within_7d) return res.status(400).json({ error: 'too_old', detail: 'Máximo 7 dias atrás.' });
+    if (!v.end_ok) return res.status(400).json({ error: 'ended_at_invalid' });
+    let batchId = null; let batchNum = null;
+    if (b.batch_number) {
+      const br = await db.query("SELECT id, batch_number FROM v3.product_batches WHERE batch_number = $1 OR batch_number = 'BR-2026-' || $1 ORDER BY id DESC LIMIT 1", [String(b.batch_number)]);
+      if (!br.rows[0]) return res.status(400).json({ error: 'unknown_batch' });
+      batchId = br.rows[0].id; batchNum = br.rows[0].batch_number;
+    }
+    const ins = await db.query(
+      `INSERT INTO v3.events
+         (person_id, activity_type_id, product_batch_id, started_at, ended_at, description,
+          confidence, source, orders_printed, closed_reason)
+       VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, 'high', 'admin_retroactive', $7,
+               CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'admin_retroactive_close' END)
+       RETURNING id`,
+      [personId, act.id, batchId, b.started_at, b.ended_at || null, b.note ? String(b.note).slice(0, 500) : null, ordersPrinted]);
+    await audit('event.retroactive_create_by_admin', 'event', ins.rows[0].id,
+      { person_id: personId, slug: act.slug, justification, ended: !!b.ended_at, batch: batchNum, retroactive: true }, req);
+    res.json({ ok: true, event_id: ins.rows[0].id, status: 'created' });
+  }));
+
+  // catálogo de activity_types pro form de retroactive admin
+  router.get('/api/adminpanel/activity-types', h(async (req, res) => {
+    const r = await db.query('SELECT slug, display_name, requires_product, category FROM v3.activity_types WHERE active = true ORDER BY display_name');
+    res.json({ activities: r.rows.map((a) => ({ ...a, note_required: ADMIN_NOTE_REQUIRED.has(a.slug), orders_required: ADMIN_ORDERS_REQUIRED.has(a.slug) })) });
+  }));
+
   // ── notifications inbox (Fase C) ────────────────────────────
   router.get('/api/adminpanel/notifications', h(async (req, res) => {
     const status = req.query.status === 'all' ? null : (req.query.status || 'pending');

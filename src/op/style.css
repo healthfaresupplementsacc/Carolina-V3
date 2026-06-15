@@ -40,6 +40,9 @@ button { font: inherit; cursor: pointer; border: 0; border-radius: 14px; }
 .fc-card { background: #fff; border-radius: 16px; padding: 20px; max-width: 460px; width: 100%; }
 .fc-q { font-size: 21px; font-weight: 600; margin-bottom: 8px; }
 .fc-meta { font-size: 14px; color: #64748b; margin-bottom: 16px; }
+.btn-retro { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.fc-card .field { margin: 8px 0; }
+.fc-card select, .fc-card input[type=time], .fc-card input[type=number], .fc-card textarea { width: 100%; padding: 8px; font-size: 17px; }
 .btn-sm { min-height: 44px; padding: 8px 14px; font-size: 16px; background: #2c505f; color: #fff; }
 
 /* ── teclado PIN ── */
