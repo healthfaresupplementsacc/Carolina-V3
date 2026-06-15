@@ -5,7 +5,7 @@
      sempre — operadores não viam updates. Bump de CACHE invalida o antigo.
    - API: network-first sem cache (dados frescos).
    - POST offline: tratado no app (offline-queue.js). */
-const CACHE = 'hf-op-v2';
+const CACHE = 'hf-op-v3';
 const SHELL = [
   '/op/', '/op/index.html', '/op/style.css', '/op/app.js',
   '/op/state-machine.js', '/op/fuse-data.js', '/op/offline-queue.js',

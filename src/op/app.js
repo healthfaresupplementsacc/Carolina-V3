@@ -9,10 +9,6 @@
 
   let state = SM.INITIAL;
   let draft = SM.emptyDraft();
-  // retro: horário retroativo escolhido p/ a task atual (null = "começa agora").
-  // { slug, started_at: ISO, ended_at: ISO|null }. Unifica o fluxo: a única
-  // diferença é se o operador escolheu hora ou não.
-  let retro = null;
   let session = null;            // { token, person:{id,display_name,count_exempt}, auto_logoff_seconds }
   let pinBuf = '';
   let myTasks = [];
@@ -314,30 +310,13 @@
   }
 
   function renderPickType() {
-    retro = null; // lista de tasks recarregada = nova escolha, zera horário retroativo
     const grid = el('div', 'grid2');
     ((draft.group && draft.group.types) || []).forEach((t) => {
       // "Outro (…)" de cada grupo (e o catch-all especial) ganham destaque visual
       const isOther = /_other$/.test(t.slug) || t.slug === 'special_task';
-      const wrap = el('div', 'type-wrap');
       const b = el('button', 'btn-big' + (isOther ? ' btn-outro' : ''), t.label);
       b.onclick = () => dispatch('PICK_TYPE', t);
-      wrap.appendChild(b);
-      // link discreto "Task esquecida?" → time-picker inline (por task)
-      const forgot = el('button', 'forgot-link', '🕐 Task esquecida? definir horário');
-      const picker = el('div', 'inline-picker hidden');
-      forgot.onclick = () => { picker.classList.toggle('hidden'); };
-      buildTimePicker(picker, (iso) => {
-        // iso válido escolhido → marca retroativo p/ ESTA task e muda o botão
-        retro = { slug: t.slug, started_at: iso, ended_at: null };
-        b.textContent = '▶ ' + t.label + ' — começou ' + fmtIsoTime(iso);
-        b.classList.add('btn-primary');
-      }, () => { // limpou/invalidou
-        if (retro && retro.slug === t.slug) retro = null;
-        b.textContent = t.label; b.classList.remove('btn-primary');
-      });
-      wrap.appendChild(forgot); wrap.appendChild(picker);
-      grid.appendChild(wrap);
+      grid.appendChild(b);
     });
     modal((draft.group ? draft.group.icon + ' ' + draft.group.label : ''), grid, [backBtn(), cancelBtn()]);
   }
@@ -475,24 +454,43 @@
 
   function renderConfirm() {
     const box = el('div');
-    const isRetro = !!(retro && draft.type && retro.slug === draft.type.slug && retro.started_at);
+    let startedOverride = null; // ISO se "Esqueci de marcar" com hora válida; null = Agora
     const lines = [
       labelOf(draft.type && draft.type.slug),
       draft.supplement ? '📦 ' + draft.supplement.canonical_name : null,
       draft.batch ? '🔢 Lote ' + draft.batch.batch_number : null,
-      isRetro ? '🕐 Começou às ' + fmtIsoTime(retro.started_at) : null,
     ].filter(Boolean);
     box.appendChild(el('div', 'card mine', '<div class="grow"><div class="title">' + lines.join('</div><div class="sub">') + '</div></div>'));
-    // cowork A
+
+    // ⏰ Quando começou? (ENTRE o card e o cowork) — Agora (default) | Esqueci
+    box.appendChild(el('h2', null, '⏰ Quando começou?'));
+    const modeRow = el('div', 'grid2');
+    const bNow = el('button', 'btn-big btn-primary', '▶️ Agora');
+    const bForgot = el('button', 'btn-big', '🕐 Esqueci de marcar');
+    const picker = el('div', 'inline-picker hidden');
+    let pickerBuilt = false;
+    const refreshGo = () => { go.textContent = startedOverride ? ('▶ COMEÇAR ÀS ' + fmtIsoTime(startedOverride).toUpperCase()) : '▶ COMEÇAR'; };
+    const setMode = (forgot) => {
+      bNow.classList.toggle('btn-primary', !forgot);
+      bForgot.classList.toggle('btn-primary', forgot);
+      if (forgot) {
+        if (!pickerBuilt) { pickerBuilt = true; buildTimePicker(picker, (iso) => { startedOverride = iso; refreshGo(); }, () => { startedOverride = null; refreshGo(); }); }
+        picker.classList.remove('hidden');
+      } else { picker.classList.add('hidden'); startedOverride = null; refreshGo(); }
+    };
+    bNow.onclick = () => setMode(false);
+    bForgot.onclick = () => setMode(true);
+    modeRow.appendChild(bNow); modeRow.appendChild(bForgot);
+    box.appendChild(modeRow); box.appendChild(picker);
+
+    // cowork
     box.appendChild(el('h2', null, '👥 Tem alguém junto?'));
     const cwBox = el('div');
     team.filter((o) => o.id !== session.person.id).forEach((o) => {
       const l = el('label', 'chk');
       const c = el('input'); c.type = 'checkbox'; c.value = o.id;
       c.checked = draft.cowork.includes(o.id);
-      c.onchange = () => {
-        draft.cowork = c.checked ? [...draft.cowork, o.id] : draft.cowork.filter((x) => x !== o.id);
-      };
+      c.onchange = () => { draft.cowork = c.checked ? [...draft.cowork, o.id] : draft.cowork.filter((x) => x !== o.id); };
       l.appendChild(c);
       l.appendChild(el('span', null, o.display_name + (o.online ? ' 🟢' : ' ⚪') + (o.current_slug ? ' (em ' + labelOf(o.current_slug) + ')' : '')));
       cwBox.appendChild(l);
@@ -507,7 +505,7 @@
       ordersInput.oninput = () => { draft.orders_printed = ordersInput.value; };
       box.appendChild(ordersInput);
     }
-    // nota + voz (obrigatória pra alguns tipos, ex.: Pausa)
+    // nota + voz
     const noteRequired = !!(draft.type && draft.type.note_required);
     box.appendChild(el('h2', null, noteRequired ? '📝 Motivo (OBRIGATÓRIO)' : '📝 Nota (opcional)'));
     const ta = el('textarea');
@@ -517,62 +515,62 @@
     box.appendChild(ta);
     box.appendChild(voiceRow(ta));
 
-    // retroativo: "Já terminou essa task?" → time picker de fim (opcional)
-    if (isRetro) {
-      box.appendChild(el('h2', null, '✔ Já terminou essa task?'));
-      const endPick = el('div', 'inline-picker hidden');
-      let endBuilt = false;
-      const buildEndPicker = () => {
-        if (endBuilt) return; endBuilt = true;
-        buildTimePicker(endPick, (iso) => { retro.ended_at = iso; }, () => { retro.ended_at = null; }, { minIso: retro.started_at });
-      };
-      const choices = el('div', 'grid2');
-      const yes = el('button', 'btn-big', 'Sim — escolher hora de fim');
-      const no = el('button', 'btn-big btn-primary', 'Não — ainda fazendo'); // default
-      yes.onclick = () => { buildEndPicker(); endPick.classList.remove('hidden'); yes.classList.add('btn-primary'); no.classList.remove('btn-primary'); };
-      no.onclick = () => { endPick.classList.add('hidden'); retro.ended_at = null; no.classList.add('btn-primary'); yes.classList.remove('btn-primary'); };
-      choices.appendChild(yes); choices.appendChild(no);
-      box.appendChild(choices); box.appendChild(endPick);
-    }
-
-    const go = el('button', 'btn-primary', isRetro ? ('▶ Começar às ' + fmtIsoTime(retro.started_at)) : '▶ COMEÇAR');
-    go.onclick = async () => {
-      if (noteRequired && !ta.value.trim()) {
-        toast('📝 Conta o que está acontecendo (ou usa 🎤) antes de começar');
-        ta.focus();
-        return;
-      }
-      const ordersN = ordersInput ? parseInt(ordersInput.value, 10) : null;
-      if (ordersRequired && (!Number.isFinite(ordersN) || ordersN <= 0)) {
-        toast('🔢 Informe quantas ordens (número maior que 0)');
-        if (ordersInput) ordersInput.focus();
-        return;
-      }
-      go.disabled = true;
+    const baseBody = () => ({
+      activity_slug: draft.type.slug,
+      batch_number: draft.batch ? draft.batch.batch_number : null,
+      cowork_with: draft.cowork,
+      note: ta.value.trim() || null,
+      orders_printed: ordersRequired ? parseInt(ordersInput.value, 10) : undefined,
+    });
+    async function doSubmit(endedOverride) {
       try {
-        const body = {
-          activity_slug: draft.type.slug,
-          batch_number: draft.batch ? draft.batch.batch_number : null,
-          cowork_with: draft.cowork,
-          note: ta.value.trim() || null,
-          orders_printed: ordersRequired ? ordersN : undefined,
-        };
-        if (isRetro) {
-          body.started_at = retro.started_at; body.ended_at = retro.ended_at || null;
-          await api('/api/v3/op/event/retroactive', { method: 'POST', body });
-          toast('✅ Task adicionada (' + fmtIsoTime(retro.started_at) + ')');
+        if (startedOverride) {
+          await api('/api/v3/op/event/retroactive', { method: 'POST', body: Object.assign(baseBody(), { started_at: startedOverride, ended_at: endedOverride || null }) });
+          toast('✅ Task adicionada (' + fmtIsoTime(startedOverride) + ')');
         } else {
-          await api('/api/v3/op/event/start', { method: 'POST', body });
+          await api('/api/v3/op/event/start', { method: 'POST', body: baseBody() });
           toast('✅ Tarefa iniciada!');
         }
-        retro = null;
         dispatch('CONFIRM_OK');
         refreshIdle().catch(() => {});
       } catch (e) {
-        go.disabled = false;
-        const M = { started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra adicionar de hoje', ended_at_invalid: 'Hora de fim inválida', note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade' };
+        const M = { started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra hoje (dias anteriores: fala com o admin)', ended_at_invalid: 'Hora de fim inválida', note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade' };
         toast('❌ ' + (M[e.message] || e.message));
+        throw e;
       }
+    }
+    // "Já terminou?" — só quando started_at customizado (design: pergunta APÓS COMEÇAR)
+    function askFinished() {
+      const b = el('div');
+      b.appendChild(el('div', 'card mine', '<div class="title">' + labelOf(draft.type.slug) + ' · começou ' + fmtIsoTime(startedOverride) + '</div>'));
+      b.appendChild(el('h2', null, '✔ Já terminou essa task?'));
+      const endPick = el('div', 'inline-picker hidden');
+      let endedOverride = null; let built = false; let mode = 'no';
+      const row = el('div', 'grid2');
+      const yes = el('button', 'btn-big', 'Sim — escolher hora de fim');
+      const no = el('button', 'btn-big btn-primary', 'Não — ainda fazendo');
+      yes.onclick = () => { mode = 'yes'; if (!built) { built = true; buildTimePicker(endPick, (iso) => { endedOverride = iso; }, () => { endedOverride = null; }, { minIso: startedOverride }); } endPick.classList.remove('hidden'); yes.classList.add('btn-primary'); no.classList.remove('btn-primary'); };
+      no.onclick = () => { mode = 'no'; endedOverride = null; endPick.classList.add('hidden'); no.classList.add('btn-primary'); yes.classList.remove('btn-primary'); };
+      row.appendChild(yes); row.appendChild(no);
+      b.appendChild(row); b.appendChild(endPick);
+      const confirm = el('button', 'btn-primary', '✔ Adicionar');
+      confirm.onclick = async () => {
+        if (mode === 'yes' && !endedOverride) { toast('Escolhe a hora de fim (ou marca "ainda fazendo")'); return; }
+        confirm.disabled = true;
+        try { await doSubmit(endedOverride); } catch (_) { confirm.disabled = false; }
+      };
+      const back = el('button', 'btn-sm', '← Voltar'); back.onclick = () => renderConfirm();
+      modal('Já terminou?', b, [back, confirm]);
+    }
+
+    const go = el('button', 'btn-primary', '▶ COMEÇAR');
+    go.onclick = async () => {
+      if (noteRequired && !ta.value.trim()) { toast('📝 Conta o que está acontecendo (ou usa 🎤) antes de começar'); ta.focus(); return; }
+      const ordersN = ordersInput ? parseInt(ordersInput.value, 10) : null;
+      if (ordersRequired && (!Number.isFinite(ordersN) || ordersN <= 0)) { toast('🔢 Informe quantas ordens (número maior que 0)'); if (ordersInput) ordersInput.focus(); return; }
+      if (startedOverride) { askFinished(); return; } // pergunta "já terminou?" antes de inserir
+      go.disabled = true;
+      try { await doSubmit(null); } catch (_) { go.disabled = false; }
     };
     modal('Confirma?', box, [backBtn(), cancelBtn(), go]);
   }
