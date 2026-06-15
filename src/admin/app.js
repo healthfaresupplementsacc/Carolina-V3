@@ -276,13 +276,16 @@
   }
   async function loadNotifs() {
     const status = $('f-status').value; const type = $('f-type').value;
-    const r = await api(`/api/adminpanel/notifications?status=${status}&type=${type}`);
+    const origin = $('f-origin') ? $('f-origin').value : 'all';
+    const r = await api(`/api/adminpanel/notifications?status=${status}&type=${type}&origin=${origin}`);
     updateBadge(r.pending_total);
     const box = $('notifs-list'); box.innerHTML = '';
     if (!r.notifications.length) box.appendChild(el('div', 'sub', 'Nada por aqui. 🎉'));
     r.notifications.forEach((n) => {
       const c = el('div', 'card');
-      c.appendChild(el('div', 'row', `<span class="title">${ICONS[n.type] || '🔸'} ${n.type.replace(/_/g, ' ')}</span><span class="sub">${n.created_edt} · ${n.status}</span>`));
+      const dm = n.delivery_method === 'admin_inbox_only' ? ' <span class="pill warn" title="silenciado — não foi pro Slack">🔕 só inbox</span>'
+        : n.delivery_method === 'slack_and_inbox' ? ' <span class="pill on" title="Carolina postou no Slack">📢</span>' : '';
+      c.appendChild(el('div', 'row', `<span class="title">${ICONS[n.type] || '🔸'} ${n.type.replace(/_/g, ' ')}${dm}</span><span class="sub">${n.created_edt} · ${n.status}</span>`));
       c.appendChild(el('div', 'sub', notifSummary(n)));
       if (n.status === 'pending') {
         const act = el('div', 'actions');
@@ -331,6 +334,7 @@
   }
   $('f-status').onchange = loadNotifs;
   $('f-type').onchange = loadNotifs;
+  if ($('f-origin')) $('f-origin').onchange = loadNotifs;
 
   function updateBadge(n) {
     const b = $('notif-badge');

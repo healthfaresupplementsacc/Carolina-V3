@@ -37,7 +37,7 @@ function makeDedupeDb({ slackEvents = [], pageEvents = [] } = {}) {
         return resp([]);
       }
       if (/INSERT INTO v3\.notifications/.test(s)) {
-        const n = { id: mem.notifSeq++, payload: JSON.parse(params[0]), status: 'pending', carolina_slack_ts: null };
+        const n = { id: mem.notifSeq++, payload: JSON.parse(params[0]), status: 'pending', carolina_slack_ts: null, delivery_method: params[1] || 'slack_and_inbox' };
         mem.notifications.push(n);
         return resp([{ id: n.id }]);
       }
@@ -131,6 +131,40 @@ describe('DedupeWatcher', () => {
     const r2 = await w.tick();
     expect(r2.scanned).toBe(0); // candidato sumiu (notificado)
     expect(db.mem.notifications).toHaveLength(1);
+  });
+
+  // ── silent mode (patch silent-mode) ──
+  test('SILENT MODE: cria notification (admin_inbox_only) e NÃO posta no Slack', async () => {
+    const db = makeDedupeDb({ slackEvents: [mkSlackEv({ age_s: 200 })], pageEvents: [] });
+    const slack = { postAs: jest.fn(async () => ({ ts: 'caro.x' })) };
+    const w = new DedupeWatcher({ db, slack, adminChannelId: 'C_ADMIN', silentMode: true });
+    const r = await w.tick();
+    expect(r.notified).toBe(1);
+    expect(db.mem.notifications).toHaveLength(1);
+    expect(db.mem.notifications[0].delivery_method).toBe('admin_inbox_only');
+    expect(slack.postAs).not.toHaveBeenCalled();            // Carolina silenciada
+    expect(db.mem.notifications[0].carolina_slack_ts).toBeNull();
+  });
+  test('NÃO-silent (default): posta no Slack e marca slack_and_inbox', async () => {
+    const db = makeDedupeDb({ slackEvents: [mkSlackEv({ age_s: 200 })], pageEvents: [] });
+    const slack = { postAs: jest.fn(async () => ({ ts: 'caro.y' })) };
+    const w = new DedupeWatcher({ db, slack, adminChannelId: 'C_ADMIN', silentMode: false });
+    const r = await w.tick();
+    expect(r.notified).toBe(1);
+    expect(slack.postAs).toHaveBeenCalledTimes(1);
+    expect(db.mem.notifications[0].delivery_method).toBe('slack_and_inbox');
+    expect(db.mem.notifications[0].carolina_slack_ts).toBe('caro.y');
+  });
+  test('SILENT MODE não afeta o MATCH (continua casando + superseded)', async () => {
+    const slackEv = mkSlackEv();
+    const db = makeDedupeDb({
+      slackEvents: [slackEv],
+      pageEvents: [{ id: 800, person_id: 4, activity_type_id: 5, product_batch_id: 39, started_at_epoch: new Date('2026-06-12T15:01:00Z').getTime() / 1000 }],
+    });
+    const w = new DedupeWatcher({ db, slack: { postAs: jest.fn() }, adminChannelId: 'C_ADMIN', silentMode: true });
+    const r = await w.tick();
+    expect(r.matched).toBe(1);
+    expect(slackEv.superseded).toBe(800);
   });
 });
 

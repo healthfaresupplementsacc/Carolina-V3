@@ -29,6 +29,11 @@ class DedupeWatcher {
     this.db = deps.db;
     this.slack = deps.slack || null;
     this.adminChannelId = deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+    // Silent mode: continua matchando + criando notifications, mas NÃO posta
+    // no Slack (evita spam enquanto operadores não migraram pra /op/).
+    this.silentMode = deps.silentMode !== undefined
+      ? deps.silentMode
+      : (process.env.WORKER_DEDUPE_NOTIFICATIONS_SILENT_MODE === 'true');
     this._ticking = false;
     this._timer = null;
   }
@@ -104,17 +109,19 @@ class DedupeWatcher {
         // sem match: só notifica quando a janela de ±120s já fechou
         if (Number(ev.age_s) < MATCH_WINDOW_S) continue;
 
+        const deliveryMethod = this.silentMode ? 'admin_inbox_only' : 'slack_and_inbox';
         const notif = await this.db.query(
-          `INSERT INTO v3.notifications (type, payload, status)
-           VALUES ('slack_event_not_on_page', $1::jsonb, 'pending') RETURNING id`,
+          `INSERT INTO v3.notifications (type, payload, status, delivery_method)
+           VALUES ('slack_event_not_on_page', $1::jsonb, 'pending', $2) RETURNING id`,
           [JSON.stringify({
             slack_event_id: ev.id, person: ev.display_name, slug: ev.slug,
             batch: ev.batch_number, started_at: ev.started_at,
             raw_slack_text: (ev.description || '').slice(0, 200),
-          })]);
+          }), deliveryMethod]);
         const notifId = notif.rows[0].id;
         let carolinaTs = null;
-        if (this.slack && this.slack.postAs) {
+        // silent mode: registra no inbox, NÃO posta no Slack
+        if (!this.silentMode && this.slack && this.slack.postAs) {
           try {
             const r = await this.slack.postAs({
               channel: this.adminChannelId, sender: { name: 'Carolina' }, thread_ts: null,
@@ -128,7 +135,7 @@ class DedupeWatcher {
             }
           } catch (e) { console.error('[dedupe] post Carolina falhou:', e.message); }
         }
-        await this._audit('dedupe_orphan_notified', ev.id, { notification_id: notifId, carolina_ts: carolinaTs });
+        await this._audit('dedupe_orphan_notified', ev.id, { notification_id: notifId, carolina_ts: carolinaTs, delivery_method: deliveryMethod });
         notified += 1;
       }
       return { scanned: candidates.rowCount, matched, notified };

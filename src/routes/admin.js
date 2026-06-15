@@ -468,16 +468,20 @@ function createAdminRouter(deps = {}) {
   router.get('/api/adminpanel/notifications', h(async (req, res) => {
     const status = req.query.status === 'all' ? null : (req.query.status || 'pending');
     const type = (!req.query.type || req.query.type === 'all') ? null : String(req.query.type);
+    // filtro de origem (silent mode): all | slack | inbox
+    const origin = req.query.origin === 'slack' ? 'slack_and_inbox'
+      : req.query.origin === 'inbox' ? 'admin_inbox_only' : null;
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const r = await db.query(`
       SELECT id, type, payload, status, admin_action_by, admin_response_text,
-             carolina_slack_ts, created_at, resolved_at,
+             carolina_slack_ts, delivery_method, created_at, resolved_at,
              to_char(created_at AT TIME ZONE '${EDT}', 'MM-DD HH12:MI AM') AS created_edt
       FROM v3.notifications
       WHERE ($1::text IS NULL OR status = $1)
         AND ($2::text IS NULL OR type = $2)
-      ORDER BY id DESC LIMIT $3 OFFSET $4`, [status, type, limit, offset]);
+        AND ($3::text IS NULL OR delivery_method = $3)
+      ORDER BY id DESC LIMIT $4 OFFSET $5`, [status, type, origin, limit, offset]);
     const pend = await db.query(`SELECT COUNT(*)::int AS n FROM v3.notifications WHERE status='pending'`);
     res.json({ notifications: r.rows, pending_total: pend.rows[0].n });
   }));
