@@ -14,6 +14,23 @@ Roles e permissões: ver [ADMIN_ROLES.md](ADMIN_ROLES.md).
 - **📋 Histórico**: agora filtra por role (manager não vê ações sensíveis); owner exporta CSV e busca nos detalhes.
 - **Forgotten checkout**: quem chega de manhã confirma se colega esqueceu de sair — ver [FORGOTTEN_CHECKOUTS.md](FORGOTTEN_CHECKOUTS.md).
 
+## Silenciar spam da Carolina no #admin-orin
+Enquanto os operadores não migraram pra `/op/`, toda msg do Slack vira
+notificação. Pra **manter o matching mas calar a Carolina** no Slack, setar no
+Railway (Variables do ProductionLineService):
+- `WORKER_DEDUPE_ENABLED=true` (religa o worker/matching)
+- `WORKER_DEDUPE_NOTIFICATIONS_SILENT_MODE=true` (não posta no Slack)
+
+As notificações continuam aparecendo na aba **🔔 Notificações** com badge **🔕 só inbox**.
+Filtro "origem" separa o que foi pro Slack (📢) do que foi silenciado (🔕).
+Quando todos migrarem pra página, é só setar `SILENT_MODE=false` pra Carolina voltar a avisar.
+
+## Adicionar task em nome de um operador (check-in retroativo)
+Operadores → ⚙️ Gerenciar o operador → **🕐 Adicionar task pra [Nome]**.
+Escolhe tarefa, lote/nota se pedir, **data (até 7 dias atrás)** + hora de início/fim,
+e uma **justificativa obrigatória** (ex.: "sistema não registrou check-in da Ana às 9:15").
+Fica registrado no Histórico como `event.retroactive_create_by_admin`.
+
 ## Operadores (aba 👷)
 | Quero… | Como |
 |---|---|

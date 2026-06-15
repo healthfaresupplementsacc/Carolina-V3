@@ -611,6 +611,18 @@ Toda atividade detectada vira registro. Mesmo as ambíguas/incompletas (marca co
 - **Histórico filtrado por role** + export CSV (owner).
 - **Worker flags** (off por padrão): `WORKER_FORGOTTEN_DM_ENABLED`.
 
+## ADENDO 2 — Patch silent-mode + retroactive (15/jun 2026)
+
+- **Silent mode do dedupe** (migration 030, `notifications.delivery_method`):
+  `WORKER_DEDUPE_NOTIFICATIONS_SILENT_MODE=true` mantém o matching Slack↔página
+  mas a Carolina **não posta no #admin-orin** (notificação fica só no inbox,
+  badge 🔕). Resolve o spam enquanto operadores não migraram. Religar com
+  `=false`.
+- **Retroactive check-in**: operador adiciona "task que esqueci" (só hoje) em
+  `/op/`; admin adiciona em nome do operador até 7 dias atrás (justificativa
+  obrigatória) no card do operador. sources `operator_page_retroactive` /
+  `admin_retroactive`; audits `event.retroactive_create[_by_admin]`.
+
 ---
 
 **FIM DO HANDOFF V3.**

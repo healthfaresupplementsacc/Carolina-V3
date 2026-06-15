@@ -54,6 +54,14 @@ No topo aparece **🔴 offline** se a internet cair. Pode continuar
 trabalhando: o que você registrar fica guardado e **envia sozinho**
 quando a internet voltar (aparece "🟢 X p/ sincronizar").
 
+## 🕐 ESQUECEU DE REGISTRAR? (adicionar task que esqueci)
+Na tela inicial, toca **🕐 Adicionar task que esqueci** (botão azul).
+- Escolhe o **grupo** e a **tarefa** (igual ao normal).
+- Preenche **lote/nota** se a tarefa pedir.
+- Diz a **hora que começou** (de hoje) e, se já acabou, a **hora que terminou**.
+- Confirma. Pronto — a task entra com o horário certo.
+Só dá pra adicionar tarefas **de hoje**. Esqueceu de ontem? Fala com o escritório.
+
 ## ⚠️ SE A PÁGINA TRAVAR
 **Posta no Slack normal** ("S: comecei…", "F: terminei…") **e avisa o Bruno.**
 Nada se perde — o sistema lê o Slack também.
