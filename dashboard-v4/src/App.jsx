@@ -108,6 +108,27 @@ function App() {
   return <AuthedApp onLogout={() => { clearPin(); setAuthed(false); }} />;
 }
 
+// Strip abaixo do topbar: link da página dos operadores (pros admins acharem
+// fácil + mandar). NÃO mostra PINs (não hardcodar credencial no bundle commitado;
+// PINs são hash, não recuperáveis — gerencie na aba Operadores do /admin/).
+function OperatorLinkBar() {
+  const opUrl = window.location.origin + '/op/';
+  const [copied, setCopied] = React.useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(opUrl); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch (_) { window.prompt('Copia o link:', opUrl); }
+  };
+  return (
+    <div className="op-link-bar">
+      <span>👷 Página dos operadores:</span>
+      <code>{opUrl}</code>
+      <button className="btn" onClick={copy}>{copied ? '✅ Copiado' : '📋 Copiar'}</button>
+      <a className="btn" href={opUrl} target="_blank" rel="noreferrer">Abrir ↗</a>
+      <span className="op-link-hint">Entram com PIN de 4 dígitos · esqueceu o PIN de alguém? Redefina na aba Operadores do <a href="/admin/" target="_blank" rel="noreferrer">/admin/</a></span>
+    </div>
+  );
+}
+
 // ── App pós-auth — onde os hooks de dado real moram ─────
 function AuthedApp({ onLogout }) {
   // Routing by hash
@@ -383,6 +404,7 @@ function AuthedApp({ onLogout }) {
         onLogout={onLogout}
         ack={ack}
       />
+      <OperatorLinkBar/>
       <main className="main">
         <div className="main-inner">{pageNode}</div>
       </main>

@@ -610,3 +610,12 @@ textarea.input { resize: vertical; min-height: 70px; font-family: inherit; }
 
 /* Tweaks scoped */
 [data-tw-panel] { z-index: 1000; }
+
+/* Strip do link da página dos operadores (abaixo do topbar) */
+.op-link-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 20px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  font-size: 13px; color: var(--text-2); }
+.op-link-bar code { background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 8px; font-size: 13px; color: var(--text-1); }
+.op-link-bar .op-link-hint { color: var(--text-3); margin-left: auto; }
+.op-link-bar .op-link-hint a { color: var(--hf-leaf-700); }

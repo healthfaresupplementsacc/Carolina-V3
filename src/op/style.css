@@ -40,9 +40,19 @@ button { font: inherit; cursor: pointer; border: 0; border-radius: 14px; }
 .fc-card { background: #fff; border-radius: 16px; padding: 20px; max-width: 460px; width: 100%; }
 .fc-q { font-size: 21px; font-weight: 600; margin-bottom: 8px; }
 .fc-meta { font-size: 14px; color: #64748b; margin-bottom: 16px; }
-.btn-retro { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
-.fc-card .field { margin: 8px 0; }
-.fc-card select, .fc-card input[type=time], .fc-card input[type=number], .fc-card textarea { width: 100%; padding: 8px; font-size: 17px; }
+/* time picker inline por task (retroactive unificado) */
+.type-wrap { margin: 0 0 10px; }
+.type-wrap .btn-big { margin: 0; }
+.forgot-link { display: block; width: 100%; margin: 2px 0 0; padding: 4px 0; border: 0; background: transparent; color: #94a3b8; font-size: 13px; cursor: pointer; text-align: left; }
+.forgot-link:hover { color: #475569; }
+.inline-picker { padding: 8px 0 4px; }
+.inline-picker.hidden { display: none; }
+.tp-row { display: flex; gap: 8px; align-items: center; }
+.tp-row select { padding: 8px; font-size: 18px; flex: 1; }
+.tp-ap { padding: 8px 14px; font-size: 18px; font-weight: 700; background: #2c505f; color: #fff; border: 0; border-radius: 8px; min-width: 64px; }
+.tp-status { font-size: 14px; margin-top: 4px; min-height: 18px; }
+.tp-status.bad { color: #b3261e; font-weight: 600; }
+.tp-status.ok { color: #0e7a4e; font-weight: 600; }
 .btn-sm { min-height: 44px; padding: 8px 14px; font-size: 16px; background: #2c505f; color: #fff; }
 
 /* ── teclado PIN ── */

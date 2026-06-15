@@ -9,6 +9,10 @@
 
   let state = SM.INITIAL;
   let draft = SM.emptyDraft();
+  // retro: horário retroativo escolhido p/ a task atual (null = "começa agora").
+  // { slug, started_at: ISO, ended_at: ISO|null }. Unifica o fluxo: a única
+  // diferença é se o operador escolheu hora ou não.
+  let retro = null;
   let session = null;            // { token, person:{id,display_name,count_exempt}, auto_logoff_seconds }
   let pinBuf = '';
   let myTasks = [];
@@ -269,14 +273,71 @@
     });
     modal('O que vai fazer?', grid, [cancelBtn()]);
   }
+  // ── time picker inline (Bruno's design) — hora 1-12 / min / AM-PM ──
+  function todayIso(h12, min, ampm) {
+    let h = h12 % 12; if (ampm === 'PM') h += 12;
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate(), h, min, 0, 0).toISOString();
+  }
+  function fmtIsoTime(iso) {
+    const d = new Date(iso); let h = d.getHours(); const m = d.getMinutes();
+    const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return h + ':' + String(m).padStart(2, '0') + ' ' + ap;
+  }
+  // container, onValid(iso), onClear(), opts{minIso}. Validação ao vivo.
+  function buildTimePicker(container, onValid, onClear, opts) {
+    const minIso = opts && opts.minIso;
+    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; };
+    const hSel = el('select', 'tp-h'); hSel.appendChild(opt('', 'h'));
+    for (let i = 1; i <= 12; i++) hSel.appendChild(opt(String(i), String(i)));
+    const mSel = el('select', 'tp-m');
+    ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].forEach((m) => mSel.appendChild(opt(m, ':' + m)));
+    let ampm = (new Date()).getHours() >= 12 ? 'PM' : 'AM';
+    const apBtn = el('button', 'tp-ap', ampm); apBtn.type = 'button';
+    apBtn.onclick = () => { ampm = ampm === 'AM' ? 'PM' : 'AM'; apBtn.textContent = ampm; validate(); };
+    const status = el('div', 'tp-status');
+    function validate() {
+      if (!hSel.value) { status.textContent = ''; status.className = 'tp-status'; onClear(); return; }
+      const iso = todayIso(parseInt(hSel.value, 10), parseInt(mSel.value, 10), ampm);
+      if (new Date(iso).getTime() > Date.now()) {
+        status.textContent = '⛔ Não pode ser no futuro'; status.className = 'tp-status bad'; onClear();
+      } else if (minIso && new Date(iso).getTime() <= new Date(minIso).getTime()) {
+        status.textContent = '⛔ Tem que ser depois do início'; status.className = 'tp-status bad'; onClear();
+      } else {
+        status.textContent = '✅ ' + fmtIsoTime(iso); status.className = 'tp-status ok'; onValid(iso);
+      }
+    }
+    hSel.onchange = validate; mSel.onchange = validate;
+    const row = el('div', 'tp-row');
+    row.appendChild(hSel); row.appendChild(mSel); row.appendChild(apBtn);
+    container.appendChild(row); container.appendChild(status);
+  }
+
   function renderPickType() {
+    retro = null; // lista de tasks recarregada = nova escolha, zera horário retroativo
     const grid = el('div', 'grid2');
     ((draft.group && draft.group.types) || []).forEach((t) => {
       // "Outro (…)" de cada grupo (e o catch-all especial) ganham destaque visual
       const isOther = /_other$/.test(t.slug) || t.slug === 'special_task';
+      const wrap = el('div', 'type-wrap');
       const b = el('button', 'btn-big' + (isOther ? ' btn-outro' : ''), t.label);
       b.onclick = () => dispatch('PICK_TYPE', t);
-      grid.appendChild(b);
+      wrap.appendChild(b);
+      // link discreto "Task esquecida?" → time-picker inline (por task)
+      const forgot = el('button', 'forgot-link', '🕐 Task esquecida? definir horário');
+      const picker = el('div', 'inline-picker hidden');
+      forgot.onclick = () => { picker.classList.toggle('hidden'); };
+      buildTimePicker(picker, (iso) => {
+        // iso válido escolhido → marca retroativo p/ ESTA task e muda o botão
+        retro = { slug: t.slug, started_at: iso, ended_at: null };
+        b.textContent = '▶ ' + t.label + ' — começou ' + fmtIsoTime(iso);
+        b.classList.add('btn-primary');
+      }, () => { // limpou/invalidou
+        if (retro && retro.slug === t.slug) retro = null;
+        b.textContent = t.label; b.classList.remove('btn-primary');
+      });
+      wrap.appendChild(forgot); wrap.appendChild(picker);
+      grid.appendChild(wrap);
     });
     modal((draft.group ? draft.group.icon + ' ' + draft.group.label : ''), grid, [backBtn(), cancelBtn()]);
   }
@@ -414,10 +475,12 @@
 
   function renderConfirm() {
     const box = el('div');
+    const isRetro = !!(retro && draft.type && retro.slug === draft.type.slug && retro.started_at);
     const lines = [
       labelOf(draft.type && draft.type.slug),
       draft.supplement ? '📦 ' + draft.supplement.canonical_name : null,
       draft.batch ? '🔢 Lote ' + draft.batch.batch_number : null,
+      isRetro ? '🕐 Começou às ' + fmtIsoTime(retro.started_at) : null,
     ].filter(Boolean);
     box.appendChild(el('div', 'card mine', '<div class="grow"><div class="title">' + lines.join('</div><div class="sub">') + '</div></div>'));
     // cowork A
@@ -454,7 +517,25 @@
     box.appendChild(ta);
     box.appendChild(voiceRow(ta));
 
-    const go = el('button', 'btn-primary', '▶ COMEÇAR');
+    // retroativo: "Já terminou essa task?" → time picker de fim (opcional)
+    if (isRetro) {
+      box.appendChild(el('h2', null, '✔ Já terminou essa task?'));
+      const endPick = el('div', 'inline-picker hidden');
+      let endBuilt = false;
+      const buildEndPicker = () => {
+        if (endBuilt) return; endBuilt = true;
+        buildTimePicker(endPick, (iso) => { retro.ended_at = iso; }, () => { retro.ended_at = null; }, { minIso: retro.started_at });
+      };
+      const choices = el('div', 'grid2');
+      const yes = el('button', 'btn-big', 'Sim — escolher hora de fim');
+      const no = el('button', 'btn-big btn-primary', 'Não — ainda fazendo'); // default
+      yes.onclick = () => { buildEndPicker(); endPick.classList.remove('hidden'); yes.classList.add('btn-primary'); no.classList.remove('btn-primary'); };
+      no.onclick = () => { endPick.classList.add('hidden'); retro.ended_at = null; no.classList.add('btn-primary'); yes.classList.remove('btn-primary'); };
+      choices.appendChild(yes); choices.appendChild(no);
+      box.appendChild(choices); box.appendChild(endPick);
+    }
+
+    const go = el('button', 'btn-primary', isRetro ? ('▶ Começar às ' + fmtIsoTime(retro.started_at)) : '▶ COMEÇAR');
     go.onclick = async () => {
       if (noteRequired && !ta.value.trim()) {
         toast('📝 Conta o que está acontecendo (ou usa 🎤) antes de começar');
@@ -469,17 +550,29 @@
       }
       go.disabled = true;
       try {
-        await api('/api/v3/op/event/start', { method: 'POST', body: {
+        const body = {
           activity_slug: draft.type.slug,
           batch_number: draft.batch ? draft.batch.batch_number : null,
           cowork_with: draft.cowork,
           note: ta.value.trim() || null,
           orders_printed: ordersRequired ? ordersN : undefined,
-        } });
-        toast('✅ Tarefa iniciada!');
+        };
+        if (isRetro) {
+          body.started_at = retro.started_at; body.ended_at = retro.ended_at || null;
+          await api('/api/v3/op/event/retroactive', { method: 'POST', body });
+          toast('✅ Task adicionada (' + fmtIsoTime(retro.started_at) + ')');
+        } else {
+          await api('/api/v3/op/event/start', { method: 'POST', body });
+          toast('✅ Tarefa iniciada!');
+        }
+        retro = null;
         dispatch('CONFIRM_OK');
         refreshIdle().catch(() => {});
-      } catch (e) { go.disabled = false; toast('❌ ' + e.message); }
+      } catch (e) {
+        go.disabled = false;
+        const M = { started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra adicionar de hoje', ended_at_invalid: 'Hora de fim inválida', note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade' };
+        toast('❌ ' + (M[e.message] || e.message));
+      }
     };
     modal('Confirma?', box, [backBtn(), cancelBtn(), go]);
   }
@@ -623,90 +716,8 @@
     modal('🚪 Fim do dia', box, foot);
   }
 
-  // ── retroactive check-in (task esquecida) — Parte B ─────────
-  function showRetroactiveFlow() {
-    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; return o; };
-    const isoFromTime = (hhmm) => {
-      if (!hhmm) return null;
-      const now = new Date(); const [h, m] = hhmm.split(':').map(Number);
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0).toISOString();
-    };
-    // grupos + quick (lunch) como pseudo-grupo
-    const groups = (DATA.groups || []).slice();
-    if ((DATA.quick || []).length) groups.push({ key: '__quick', icon: '🍽️', label: 'Direto', types: DATA.quick });
-
-    const ov = el('div', 'fc-overlay'); const card = el('div', 'fc-card');
-    card.appendChild(el('div', 'fc-q', '🕐 Adicionar task que esqueci'));
-    const gsel = el('select'); gsel.appendChild(opt('', '— grupo —'));
-    groups.forEach((g) => gsel.appendChild(opt(g.key, g.icon + ' ' + g.label)));
-    const tsel = el('select'); tsel.appendChild(opt('', '— tarefa —'));
-    const cond = el('div');
-    const batchInp = el('input'); batchInp.placeholder = 'Lote (4 dígitos)'; batchInp.inputMode = 'numeric';
-    const noteTa = el('textarea'); noteTa.placeholder = 'Conta o que você fez';
-    const ordersInp = el('input'); ordersInp.type = 'number'; ordersInp.min = '1'; ordersInp.placeholder = 'qtd ordens';
-    const startInp = el('input'); startInp.type = 'time';
-    const endWrap = el('div'); const endChk = el('input'); endChk.type = 'checkbox';
-    const endInp = el('input'); endInp.type = 'time'; endInp.disabled = true;
-    endChk.onchange = () => { endInp.disabled = !endChk.checked; };
-    let curType = null;
-    const field = (lbl, inp) => { const f = el('div', 'field'); f.appendChild(el('label', null, lbl)); f.appendChild(inp); return f; };
-    function renderCond() {
-      cond.innerHTML = '';
-      if (!curType) return;
-      if (curType.requires_product) cond.appendChild(field('📦 Lote (se aplicável)', batchInp));
-      if (curType.note_required) cond.appendChild(field('📝 Nota (obrigatória)', noteTa));
-      if (curType.orders_required) cond.appendChild(field('🔢 Quantas ordens', ordersInp));
-    }
-    gsel.onchange = () => {
-      tsel.innerHTML = ''; tsel.appendChild(opt('', '— tarefa —'));
-      const g = groups.find((x) => x.key === gsel.value);
-      (g ? g.types : []).forEach((t) => tsel.appendChild(opt(t.slug, t.label)));
-      curType = null; renderCond();
-    };
-    tsel.onchange = () => {
-      const g = groups.find((x) => x.key === gsel.value);
-      curType = (g ? g.types : []).find((t) => t.slug === tsel.value) || null;
-      renderCond();
-    };
-    card.appendChild(field('Grupo', gsel));
-    card.appendChild(field('Tarefa', tsel));
-    card.appendChild(cond);
-    card.appendChild(field('🕐 Começou (hora de hoje)', startInp));
-    const endL = el('label', 'chk'); endL.appendChild(endChk); endL.appendChild(el('span', null, 'Já terminei (escolher hora)'));
-    endWrap.appendChild(endL); endWrap.appendChild(endInp); card.appendChild(field('Fim', endWrap));
-
-    const go = el('button', 'btn-big btn-primary', '✔ Adicionar');
-    go.onclick = async () => {
-      if (!curType) { toast('Escolhe a tarefa'); return; }
-      if (curType.note_required && !noteTa.value.trim()) { toast('📝 Conta o que fez'); return; }
-      if (curType.orders_required && !(parseInt(ordersInp.value, 10) > 0)) { toast('🔢 Informe a quantidade'); return; }
-      if (!startInp.value) { toast('🕐 Informe a hora de início'); return; }
-      const started = isoFromTime(startInp.value);
-      const ended = endChk.checked ? isoFromTime(endInp.value) : null;
-      if (endChk.checked && !endInp.value) { toast('Informe a hora de fim'); return; }
-      if (ended && ended <= started) { toast('Fim tem que ser depois do início'); return; }
-      try {
-        await api('/api/v3/op/event/retroactive', { method: 'POST', body: {
-          activity_slug: curType.slug,
-          batch_number: (curType.requires_product && batchInp.value.trim()) ? batchInp.value.trim() : undefined,
-          note: noteTa.value.trim() || undefined,
-          orders_printed: curType.orders_required ? parseInt(ordersInp.value, 10) : undefined,
-          started_at: started, ended_at: ended,
-        } });
-        toast('✅ Task adicionada'); ov.remove(); refreshIdle().catch(() => {});
-      } catch (e) {
-        const M = { started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra adicionar de hoje (peça ao escritório)', ended_at_invalid: 'Hora de fim inválida', note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade', unknown_batch: 'Lote não encontrado' };
-        toast('❌ ' + (M[e.message] || e.message));
-      }
-    };
-    const cancel = el('button', 'btn-big', '✕ Cancelar'); cancel.onclick = () => ov.remove();
-    card.appendChild(go); card.appendChild(cancel);
-    ov.appendChild(card); document.body.appendChild(ov);
-  }
-
   // ── bindings ────────────────────────────────────────────────
   $('btn-new').onclick = () => dispatch('START_NEW');
-  $('btn-retro').onclick = () => showRetroactiveFlow();
   $('btn-note').onclick = openNote;
   $('btn-clockout').onclick = openClockOut;
   $('btn-switch').onclick = () => doLogout('manual');

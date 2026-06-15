@@ -131,9 +131,20 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
           <Icon name="plus" size={15}/> Novo registro
         </button>
       )}
+      {/* 🔧 gear → Painel Admin (nova aba). ANTES o gear estava no botão de
+          logout (Icon config) e deslogava — bug. Agora gear = admin. */}
+      <a className="icon-btn" href="/admin/" target="_blank" rel="noreferrer"
+         title="Painel Admin (/admin/, nova aba)" aria-label="Admin">
+        <Icon name="config" size={17}/>
+      </a>
+      {/* 👷 Página dos Operadores (nova aba) */}
+      <a className="icon-btn" href="/op/" target="_blank" rel="noreferrer"
+         title="Página dos Operadores (/op/, nova aba)" aria-label="Operadores">
+        <Icon name="people" size={17}/>
+      </a>
       {onLogout && (
         <button className="icon-btn" title="Sair (limpar PIN)" aria-label="Logout" onClick={onLogout}>
-          <Icon name="config" size={17}/>
+          <Icon name="x" size={17}/>
         </button>
       )}
     </header>

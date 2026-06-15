@@ -1,11 +1,11 @@
 'use strict';
-/* HEALTHFARE Operator Page — Service Worker (Fase F).
-   - Cacheia o shell estático (carrega offline).
-   - Network-first pras chamadas de API (sempre tenta a rede; cai pro cache
-     só pra navegação/estáticos offline).
-   - O fluxo de POST offline é tratado no app (offline-queue.js) — não aqui,
-     pra ficar simples e confiável (Background Sync é instável). */
-const CACHE = 'hf-op-v1';
+/* HEALTHFARE Operator Page — Service Worker (Fase F; rev. network-first).
+   - Shell estático: NETWORK-FIRST (online sempre pega o código novo; cai pro
+     cache só offline). Antes era cache-first, o que servia app.js velho pra
+     sempre — operadores não viam updates. Bump de CACHE invalida o antigo.
+   - API: network-first sem cache (dados frescos).
+   - POST offline: tratado no app (offline-queue.js). */
+const CACHE = 'hf-op-v2';
 const SHELL = [
   '/op/', '/op/index.html', '/op/style.css', '/op/app.js',
   '/op/state-machine.js', '/op/fuse-data.js', '/op/offline-queue.js',
@@ -27,12 +27,12 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).catch(() => new Response(JSON.stringify({ offline: true }), { status: 503, headers: { 'Content-Type': 'application/json' } })));
     return;
   }
-  // estáticos: cache-first com atualização em background
+  // estáticos: NETWORK-FIRST (atualiza o cache) → cache → index.html (offline)
   e.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((resp) => {
+    fetch(req).then((resp) => {
       const copy = resp.clone();
       caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
       return resp;
-    }).catch(() => caches.match('/op/index.html')))
+    }).catch(() => caches.match(req).then((hit) => hit || caches.match('/op/index.html')))
   );
 });
