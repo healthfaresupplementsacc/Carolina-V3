@@ -30,6 +30,7 @@ const GROUPS = [
     ['cleaning', 'Limpeza'], ['repair', 'Conserto de máquina'],
     ['facility_maintenance', 'Manutenção'], ['organization', 'Organização'],
     ['machine_downtime', 'Máquina parada'],
+    ['label_change', '🏷️ Troca de label'], ['label_repair', '🔧 Conserto de label'],
     ['cleaning_other', '✏️ Outro (Limpeza/Suporte)'],
   ] },
   { key: 'embalagem', icon: '📦', label: 'Embalagem / Ordens', items: [
@@ -56,6 +57,7 @@ const QUICK = [['lunch', 'Almoço', '🍽️']];
 const NOTE_REQUIRED = new Set([
   'break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
   'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
+  'label_change', 'label_repair',
 ]);
 // Slugs que exigem quantidade de ordens impressas
 const ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);

@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-13T18:16:30.520Z",
+ "generated_at": "2026-06-15T16:35:03.355Z",
  "groups": [
   {
    "key": "linha",
@@ -123,6 +123,20 @@ window.HF_DATA = {
      "label": "Máquina parada",
      "requires_product": false,
      "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "label_change",
+     "label": "🏷️ Troca de label",
+     "requires_product": false,
+     "note_required": true,
+     "orders_required": false
+    },
+    {
+     "slug": "label_repair",
+     "label": "🔧 Conserto de label",
+     "requires_product": false,
+     "note_required": true,
      "orders_required": false
     },
     {
@@ -383,7 +397,7 @@ window.HF_DATA = {
     "benfo",
     "benfotiamine"
    ],
-   "last_used_at": "2026-06-12T20:39:41.056Z"
+   "last_used_at": "2026-06-15T14:02:05.797Z"
   },
   {
    "id": 23,
@@ -463,7 +477,7 @@ window.HF_DATA = {
     "chromium picolinate",
     "picolinato de cromo"
    ],
-   "last_used_at": "2026-06-12T13:58:43.162Z"
+   "last_used_at": "2026-06-15T15:16:05.221Z"
   },
   {
    "id": 29,
@@ -852,7 +866,7 @@ window.HF_DATA = {
     "phytosterols",
     "plant"
    ],
-   "last_used_at": "2026-06-12T20:23:46.138Z"
+   "last_used_at": "2026-06-15T14:13:35.693Z"
   },
   {
    "id": 57,
@@ -1005,7 +1019,7 @@ window.HF_DATA = {
     "vita b2",
     "vitab2"
    ],
-   "last_used_at": "2026-06-10T19:23:37.600Z"
+   "last_used_at": "2026-06-15T15:47:57.118Z"
   },
   {
    "id": 68,
@@ -1033,6 +1047,26 @@ window.HF_DATA = {
   }
  ],
  "recent_batches": [
+  {
+   "batch_number": "0206",
+   "product_id": 67,
+   "last_used": "2026-06-15T15:47:57.118Z"
+  },
+  {
+   "batch_number": "BR-2026-0168",
+   "product_id": 28,
+   "last_used": "2026-06-15T15:16:05.221Z"
+  },
+  {
+   "batch_number": "BR-2026-0207",
+   "product_id": 56,
+   "last_used": "2026-06-15T14:13:35.693Z"
+  },
+  {
+   "batch_number": "BR-2026-0212",
+   "product_id": 2,
+   "last_used": "2026-06-15T14:02:05.797Z"
+  },
   {
    "batch_number": "0191",
    "product_id": 8,
@@ -1064,11 +1098,6 @@ window.HF_DATA = {
    "last_used": "2026-06-12T15:39:38.252Z"
   },
   {
-   "batch_number": "BR-2026-0168",
-   "product_id": 28,
-   "last_used": "2026-06-12T13:58:43.162Z"
-  },
-  {
    "batch_number": "0209",
    "product_id": 5,
    "last_used": "2026-06-12T13:56:49.086Z"
@@ -1087,11 +1116,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0184",
    "product_id": 56,
    "last_used": "2026-06-10T22:41:20.875Z"
-  },
-  {
-   "batch_number": "0206",
-   "product_id": 67,
-   "last_used": "2026-06-10T19:23:37.600Z"
   },
   {
    "batch_number": "0203",
@@ -1222,16 +1246,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0174",
    "product_id": 14,
    "last_used": "2026-05-29T21:02:52.625Z"
-  },
-  {
-   "batch_number": "BR-2026-0164",
-   "product_id": 13,
-   "last_used": "2026-05-28T15:37:40.592Z"
-  },
-  {
-   "batch_number": "BR-2026-0166",
-   "product_id": 46,
-   "last_used": "2026-05-28T13:49:59.926Z"
   }
  ]
 };

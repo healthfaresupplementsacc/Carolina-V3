@@ -45,3 +45,16 @@ describe('outros por grupo — config build-fuse-data', () => {
     OTHERS.forEach((slug) => expect(segment).not.toContain(`'${slug}'`));
   });
 });
+
+describe('label tasks — grupo Limpeza/Suporte', () => {
+  const LABELS = ['label_change', 'label_repair'];
+  test('label_change e label_repair estão no grupo limpeza', () => {
+    const start = SRC.indexOf("key: 'limpeza'");
+    const segment = SRC.slice(start, SRC.indexOf("key: 'embalagem'"));
+    LABELS.forEach((slug) => expect(segment).toContain(`'${slug}'`));
+  });
+  test('label tasks estão em NOTE_REQUIRED', () => {
+    const m = SRC.match(/const NOTE_REQUIRED = new Set\(\[([\s\S]*?)\]\)/);
+    LABELS.forEach((slug) => expect(m[1]).toContain(`'${slug}'`));
+  });
+});

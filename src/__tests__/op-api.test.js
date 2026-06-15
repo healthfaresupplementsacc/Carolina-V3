@@ -35,6 +35,7 @@ function makeMem() {
       { id: 20, slug: 'order_printing_2', requires_product: false, active: true },
       { id: 29, slug: 'special_task', requires_product: false, active: true },
       { id: 30, slug: 'production_line_other', requires_product: false, active: true },
+      { id: 31, slug: 'label_change', requires_product: false, active: true },
     ],
     batches: [
       { id: 39, batch_number: 'BR-2026-0190', product_id: 1, product: 'Magnesium Glycinate' },
@@ -349,6 +350,13 @@ describe('op API — events', () => {
     const r2 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line_other', note: 'ajustando esteira fora do padrão' } });
     expect(r2.status).toBe(200);
     expect(r2.body.event.slug).toBe('production_line_other');
+  });
+  test('Label — label_change SEM nota → 400 note_required; COM → 200', async () => {
+    const s = await login(4);
+    expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'label_change' } })).body.error).toBe('note_required');
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'label_change', note: 'troca de label lote 0190' } });
+    expect(r.status).toBe(200);
+    expect(r.body.event.slug).toBe('label_change');
   });
 
   test('start break SEM nota → 400 note_required; COM nota → 200 (regra Pausa)', async () => {
