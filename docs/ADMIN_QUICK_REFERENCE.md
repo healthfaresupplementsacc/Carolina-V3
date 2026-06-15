@@ -6,6 +6,12 @@ Sessão dura 8h; 3 tentativas erradas = 5 min de bloqueio. PINs ficam em env var
 (`ADMIN_PIN_*`). `ADMIN_PASSWORD` só funciona em emergência (antes do 1º admin).
 Roles e permissões: ver [ADMIN_ROLES.md](ADMIN_ROLES.md).
 
+## Link da página dos operadores
+No topo do painel tem **👷 Página operadores ↗** (abre em nova aba) e, na aba
+**Operadores**, um banner com o **link completo + botão Copiar** — pra mandar pros
+operadores quando pedirem, e pra você acessar a página deles se precisar checar
+alguma reclamação.
+
 ## Abas novas (bloco final)
 - **📈 Métricas**: Hoje/Operador/Tasks/Targets/Tendências/Anomalias/Rankings/Insights
   (+ 💰 Finance só pra owner — salário não é salvo). Guia: [METRICS_GUIDE.md](METRICS_GUIDE.md).

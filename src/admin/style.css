@@ -7,8 +7,13 @@ nav { display: flex; gap: 8px; }
 .tab { font: inherit; border: 0; border-radius: 10px; padding: 8px 14px; background: #2c505f; color: #fff; cursor: pointer; }
 .tab.active { background: #0e7a4e; }
 .badge { background: #b3261e; border-radius: 999px; padding: 1px 8px; font-size: 13px; margin-left: 4px; }
-.who { font-size: 14px; opacity: .9; margin-left: auto; }
+.who { font-size: 14px; opacity: .9; }
+.op-link-hdr { margin-left: auto; color: #fff; background: #1d4ed8; padding: 6px 12px; border-radius: 10px; text-decoration: none; font-size: 14px; white-space: nowrap; }
+.op-link-hdr:hover { background: #1e40af; }
 .tab.hidden { display: none; }
+.op-banner { background: #eef4ff; border: 1px solid #c7d7fe; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+.op-banner-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.op-banner code { background: #fff; border: 1px solid #c7d7fe; border-radius: 6px; padding: 4px 8px; font-size: 15px; }
 .sched-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #eef2f4; flex-wrap: wrap; }
 .sched-row .sched-day { width: 42px; font-weight: 700; }
 .sched-row input[type=time] { padding: 4px; }

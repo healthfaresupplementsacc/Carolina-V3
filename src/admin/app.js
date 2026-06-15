@@ -795,5 +795,18 @@
     $('au-more').classList.toggle('hidden', r.entries.length < 50);
   }
 
+  // ── link da página dos operadores (pros admins acharem fácil) ──
+  (function initOpLink() {
+    const opUrl = window.location.origin + '/op/';
+    if ($('op-url')) $('op-url').textContent = opUrl;
+    if ($('op-open')) $('op-open').href = opUrl;
+    if ($('op-link-hdr')) $('op-link-hdr').href = opUrl;
+    const copyBtn = $('op-copy');
+    if (copyBtn) copyBtn.onclick = async () => {
+      try { await navigator.clipboard.writeText(opUrl); toast('✅ Link copiado'); }
+      catch (_) { window.prompt('Copia o link:', opUrl); }
+    };
+  }());
+
   show('login');
 }());

@@ -18,6 +18,7 @@
       <button id="tab-admins" class="tab hidden">👥 Admins</button>
       <button id="tab-audit" class="tab">📋 Histórico</button>
     </nav>
+    <a id="op-link-hdr" class="op-link-hdr" href="/op/" target="_blank" rel="noopener" title="Abrir a página dos operadores">👷 Página operadores ↗</a>
     <span id="who" class="who"></span>
     <button id="btn-logout" class="btn-sm">Sair</button>
   </header>
@@ -35,6 +36,15 @@
     </section>
 
     <section id="view-ops" class="view hidden">
+      <div id="op-link-banner" class="op-banner">
+        <div class="op-banner-row">
+          <span>👷 Link da página dos operadores:</span>
+          <code id="op-url">/op/</code>
+          <button id="op-copy" class="btn-sm">📋 Copiar</button>
+          <a id="op-open" class="btn-sm" href="/op/" target="_blank" rel="noopener">Abrir ↗</a>
+        </div>
+        <div class="sub">Manda esse link pros operadores (favoritar no Chrome da fábrica). Eles entram com o PIN de 4 dígitos.</div>
+      </div>
       <div id="ops-list" class="cards"></div>
     </section>
 
