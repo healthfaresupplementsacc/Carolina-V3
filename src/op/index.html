@@ -2,61 +2,37 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>HealthFare — Produção</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f4c92">
+  <title>HealthFare — Linha de Produção</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared/hf-design.css">
+  <link rel="stylesheet" href="/op/style.css">
   <link rel="manifest" href="/op/manifest.json">
-  <meta name="theme-color" content="#0e7a4e">
-  <link rel="apple-touch-icon" href="/op/icon.svg">
+  <link rel="apple-touch-icon" href="/op/assets/healthfare-logo.png">
 </head>
 <body>
-  <!-- header sticky (só logado) -->
-  <header id="hdr" class="hidden">
-    <span id="hdr-user">👤 —</span>
-    <span id="hdr-timer" class="timer"></span>
-    <span id="conn" class="timer" title="conexão"></span>
-    <span class="hdr-actions">
-      <button id="btn-install" class="btn-sm hidden">📱 Instalar</button>
-      <button id="btn-clockout" class="btn-sm btn-warn">Sair (fim do dia)</button>
-      <button id="btn-switch" class="btn-sm">Trocar</button>
-    </span>
-  </header>
+  <!-- raiz única; app.v4.js renderiza tudo (login/home/flow/overlays/settings) -->
+  <div id="hf-root"></div>
 
-  <main id="main">
-    <!-- LOGIN -->
-    <section id="view-login" class="view">
-      <h1>HealthFare<br><small>Linha de Produção</small></h1>
-      <div id="pin-dots" class="pin-dots">····</div>
-      <div id="pin-error" class="pin-error"></div>
-      <div class="keypad" id="keypad"></div>
-    </section>
-
-    <!-- IDLE -->
-    <section id="view-idle" class="view hidden">
-      <button id="btn-new" class="btn-big btn-primary">➕ Iniciar Tarefa</button>
-      <h2>📋 Minhas tarefas</h2>
-      <div id="my-tasks" class="cards"></div>
-      <h2>👥 Tasks da equipe agora</h2>
-      <div id="team-tasks" class="cards"></div>
-      <button id="btn-note" class="btn-big">📝 Nota / 🎤 Voz</button>
-    </section>
-  </main>
-
-  <!-- modal genérico -->
-  <div id="modal" class="modal hidden">
-    <div class="modal-box">
-      <div id="modal-title" class="modal-title"></div>
-      <div id="modal-body" class="modal-body"></div>
-      <div id="modal-foot" class="modal-foot"></div>
-    </div>
-  </div>
-
-  <div id="toast" class="toast hidden"></div>
-
-  <script src="config.js"></script>
-  <script src="fuse-data.js"></script>
-  <script src="state-machine.js"></script>
-  <script src="offline-queue.js"></script>
-  <script src="app.js"></script>
+  <!-- dados estáticos + módulos (reaproveitados do app atual) -->
+  <script src="/op/config.js"></script>
+  <script src="/op/fuse-data.js"></script>
+  <script src="/op/state-machine.js"></script>
+  <script src="/op/offline-queue.js"></script>
+  <script src="/shared/hf-design.js"></script>
+  <script src="/op/app.js"></script>
+  <script>
+    // registra o service worker v4 (network-first + reload em update)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/op/sw.js').catch(function () {});
+      var _reloaded = false;
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        if (e.data === 'sw-updated' && !_reloaded) { _reloaded = true; /* próxima navegação já pega o novo */ }
+      });
+    }
+  </script>
 </body>
 </html>

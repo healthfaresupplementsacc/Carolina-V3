@@ -16,11 +16,12 @@
 const CSP = [
   "default-src 'self'",
   "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'", // Chart.js + handlers inline da UI
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // redesign: Manrope/Sora
   "img-src 'self' data:",
   "media-src 'self' blob:",
   "connect-src 'self'",
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com", // redesign: woff2 das fontes
+
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

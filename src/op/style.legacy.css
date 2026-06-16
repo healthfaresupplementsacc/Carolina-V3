@@ -1,0 +1,124 @@
+/* HEALTHFARE Operator Page — touch-first: alvos ≥60px, fontes ≥18px,
+   alto contraste. Operadores com pouca leitura: ícone + pouca palavra. */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 19px; background: #f2f5f7; color: #14323f;
+}
+.hidden { display: none !important; }
+
+header {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: #14323f; color: #fff; padding: 12px 14px; font-size: 18px;
+}
+header .timer { font-variant-numeric: tabular-nums; opacity: .85; }
+.hdr-actions { display: flex; gap: 8px; }
+
+main { max-width: 720px; margin: 0 auto; padding: 16px 14px 40px; }
+.view h1 { text-align: center; margin: 28px 0 18px; font-size: 34px; line-height: 1.15; }
+.view h1 small { font-size: 20px; font-weight: 400; color: #4b6a77; }
+h2 { font-size: 20px; margin: 22px 0 10px; color: #2c505f; }
+
+/* ── botões ── */
+button { font: inherit; cursor: pointer; border: 0; border-radius: 14px; }
+.btn-big {
+  display: block; width: 100%; min-height: 68px; margin: 10px 0;
+  font-size: 23px; font-weight: 600; background: #fff; color: #14323f;
+  border: 2px solid #c8d6dc; box-shadow: 0 2px 4px rgba(0,0,0,.06);
+}
+.btn-big:active { transform: scale(.985); }
+.btn-primary { background: #0e7a4e; border-color: #0e7a4e; color: #fff; }
+.btn-danger  { background: #b3261e; border-color: #b3261e; color: #fff; }
+.btn-warn    { background: #b35c00; border-color: #b35c00; color: #fff; }
+/* "Outro (…)" de cada grupo — destaque âmbar, fundo claro p/ não competir
+   com os tipos normais mas chamar atenção como atalho de catch-all */
+.btn-outro   { background: #fff7e6; border-color: #d99100; color: #8a5a00; }
+/* Fase 4 — overlay de "colega esqueceu o checkout?" */
+.fc-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.6); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.fc-card { background: #fff; border-radius: 16px; padding: 20px; max-width: 460px; width: 100%; }
+.fc-q { font-size: 21px; font-weight: 600; margin-bottom: 8px; }
+.fc-meta { font-size: 14px; color: #64748b; margin-bottom: 16px; }
+/* time picker inline por task (retroactive unificado) */
+.type-wrap { margin: 0 0 10px; }
+.type-wrap .btn-big { margin: 0; }
+.forgot-link { display: block; width: 100%; margin: 2px 0 0; padding: 4px 0; border: 0; background: transparent; color: #94a3b8; font-size: 13px; cursor: pointer; text-align: left; }
+.forgot-link:hover { color: #475569; }
+.inline-picker { padding: 8px 0 4px; }
+.inline-picker.hidden { display: none; }
+.tp-row { display: flex; gap: 8px; align-items: center; }
+.tp-row select { padding: 8px; font-size: 18px; flex: 1; }
+.tp-ap { padding: 8px 14px; font-size: 18px; font-weight: 700; background: #2c505f; color: #fff; border: 0; border-radius: 8px; min-width: 64px; }
+.tp-status { font-size: 14px; margin-top: 4px; min-height: 18px; }
+.tp-status.bad { color: #b3261e; font-weight: 600; }
+.tp-status.ok { color: #0e7a4e; font-weight: 600; }
+.btn-sm { min-height: 44px; padding: 8px 14px; font-size: 16px; background: #2c505f; color: #fff; }
+
+/* ── teclado PIN ── */
+.pin-dots { text-align: center; font-size: 48px; letter-spacing: 18px; margin: 8px 0 4px; min-height: 60px; }
+.pin-error { text-align: center; color: #b3261e; min-height: 28px; font-weight: 600; }
+.keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  max-width: 360px; margin: 8px auto;
+}
+.keypad button {
+  min-height: 76px; font-size: 30px; font-weight: 700;
+  background: #fff; border: 2px solid #c8d6dc; border-radius: 16px;
+}
+.keypad button:active { background: #dcebf1; }
+
+/* ── cards de task ── */
+.cards { display: flex; flex-direction: column; gap: 10px; }
+.card {
+  background: #fff; border: 2px solid #c8d6dc; border-radius: 14px;
+  padding: 14px; display: flex; align-items: center; gap: 12px;
+}
+.card .grow { flex: 1; min-width: 0; }
+.card .title { font-weight: 700; font-size: 20px; }
+.card .sub { color: #4b6a77; font-size: 16px; margin-top: 2px; }
+.card button { min-height: 56px; padding: 0 18px; font-size: 18px; font-weight: 700; }
+.card.mine { border-color: #0e7a4e; }
+
+/* ── modal ── */
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(10, 30, 40, .55); display: flex; align-items: flex-end; justify-content: center;
+}
+.modal-box {
+  background: #f2f5f7; width: 100%; max-width: 720px; max-height: 92vh;
+  border-radius: 18px 18px 0 0; padding: 18px 16px 26px; overflow-y: auto;
+}
+.modal-title { font-size: 23px; font-weight: 800; margin-bottom: 14px; }
+.modal-foot { display: flex; gap: 10px; margin-top: 16px; }
+.modal-foot button { flex: 1; min-height: 60px; font-size: 20px; font-weight: 700; }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.grid2 .btn-big { margin: 0; min-height: 86px; font-size: 21px; }
+
+input[type="text"], input[type="number"], input[type="tel"], textarea {
+  width: 100%; min-height: 58px; font-size: 21px; padding: 10px 14px;
+  border: 2px solid #c8d6dc; border-radius: 12px; background: #fff;
+}
+textarea { min-height: 90px; }
+.list-pick { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.list-pick button { text-align: left; padding: 14px; min-height: 60px; font-size: 20px; background:#fff; border:2px solid #c8d6dc; }
+
+.chk { display: flex; align-items: center; gap: 12px; min-height: 56px; font-size: 20px; padding: 6px 4px; }
+.chk input { width: 30px; height: 30px; }
+
+.voice-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.voice-row .mic { min-width: 76px; min-height: 58px; font-size: 26px; background: #fff; border: 2px solid #c8d6dc; }
+.voice-row .mic.rec { background: #b3261e; color: #fff; border-color: #b3261e; animation: pulse 1s infinite; }
+.voice-lang { min-height: 44px; font-size: 15px; background:#e3edf1; border:1px solid #c8d6dc; padding: 4px 10px; }
+@keyframes pulse { 50% { opacity: .6; } }
+
+.toast {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  background: #14323f; color: #fff; padding: 14px 22px; border-radius: 12px;
+  font-size: 19px; z-index: 200; max-width: 92vw; text-align: center;
+}
+.muted { color: #4b6a77; font-size: 16px; }
+.missing-row { background: #fff; border: 2px solid #c8d6dc; border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+.missing-row .title { font-weight: 700; font-size: 19px; }
+.missing-row input { margin-top: 8px; }

@@ -1,38 +1,53 @@
 'use strict';
-/* HEALTHFARE Operator Page — Service Worker (Fase F; rev. network-first).
-   - Shell estático: NETWORK-FIRST (online sempre pega o código novo; cai pro
-     cache só offline). Antes era cache-first, o que servia app.js velho pra
-     sempre — operadores não viam updates. Bump de CACHE invalida o antigo.
-   - API: network-first sem cache (dados frescos).
-   - POST offline: tratado no app (offline-queue.js). */
-const CACHE = 'hf-op-v3';
+/* HEALTHFARE Operator Page — Service Worker v4 (redesign).
+   - hf-op-v4: bump força clientes a pegar a nova versão (activate purga antigos).
+   - Shell HTML/JS/CSS: NETWORK-FIRST (online sempre pega código novo; cai pro
+     cache offline). API: network-first sem cache. Imagens/fontes: CACHE-FIRST
+     (raramente mudam; carregam rápido + offline).
+   - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
+   - Quando trocar index.v4 → index ativo, este vira sw.js. */
+const CACHE = 'hf-op-v4';
 const SHELL = [
-  '/op/', '/op/index.html', '/op/style.css', '/op/app.js',
-  '/op/state-machine.js', '/op/fuse-data.js', '/op/offline-queue.js',
-  '/op/config.js', '/op/manifest.json', '/op/icon.svg',
+  '/op/', '/op/index.html', '/op/app.js', '/op/style.css',
+  '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',
+  '/op/manifest.json',
+  '/shared/hf-design.css', '/shared/hf-design.js',
+  '/op/assets/healthfare-logo.png',
 ];
+const IMG_RE = /\.(png|webp|jpg|jpeg|svg|woff2?)$/i;
+const FONT_RE = /fonts\.(googleapis|gstatic)\.com/;
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.filter(Boolean))).then(() => self.skipWaiting()).catch(() => {}));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()).catch(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(
+    caches.keys()
+      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll())
+      .then((cls) => cls.forEach((c) => { try { c.postMessage('sw-updated'); } catch (_) {} }))
+  );
 });
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET') return; // POSTs vão direto pra rede (queue é no app)
+  if (req.method !== 'GET') return; // POSTs → rede (offline queue é no app)
   const url = new URL(req.url);
   if (url.pathname.startsWith('/api/')) {
-    // network-first: tenta rede, sem cache de API (dados sempre frescos)
     e.respondWith(fetch(req).catch(() => new Response(JSON.stringify({ offline: true }), { status: 503, headers: { 'Content-Type': 'application/json' } })));
     return;
   }
-  // estáticos: NETWORK-FIRST (atualiza o cache) → cache → index.html (offline)
+  // imagens + fontes: cache-first com atualização em background
+  if (IMG_RE.test(url.pathname) || FONT_RE.test(url.host)) {
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((resp) => {
+      const copy = resp.clone(); caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {}); return resp;
+    }).catch(() => hit)));
+    return;
+  }
+  // shell HTML/JS/CSS: network-first → cache → index
   e.respondWith(
     fetch(req).then((resp) => {
-      const copy = resp.clone();
-      caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-      return resp;
+      const copy = resp.clone(); caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {}); return resp;
     }).catch(() => caches.match(req).then((hit) => hit || caches.match('/op/index.html')))
   );
 });

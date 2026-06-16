@@ -5,9 +5,9 @@
    fica pro smoke em prod (SHELL_QUEUE). */
 const fs = require('fs');
 const path = require('path');
-const APP = fs.readFileSync(path.join(__dirname, '..', 'op', 'app.v4.js'), 'utf8');
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'op', 'index.v4.html'), 'utf8');
-const SW = fs.readFileSync(path.join(__dirname, '..', 'op', 'sw.v4.js'), 'utf8');
+const APP = fs.readFileSync(path.join(__dirname, '..', 'op', 'app.js'), 'utf8');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'op', 'index.html'), 'utf8');
+const SW = fs.readFileSync(path.join(__dirname, '..', 'op', 'sw.js'), 'utf8');
 
 // endpoints que o backend op.js realmente expõe (fonte da verdade)
 const REAL = [
@@ -78,7 +78,7 @@ describe('op v4 — html + sw', () => {
   test('index.v4 carrega fontes + hf-design + app.v4 + theme azul', () => {
     expect(HTML).toContain('Manrope');
     expect(HTML).toContain('/shared/hf-design.css');
-    expect(HTML).toContain('/op/app.v4.js');
+    expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
   test('sw.v4 é hf-op-v4 network-first', () => {
