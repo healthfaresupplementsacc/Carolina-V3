@@ -1,0 +1,88 @@
+'use strict';
+/* Redesign /op v4 — guard de integridade do source (testEnvironment=node, sem jsdom;
+   app.v4.js é browser-only). Garante: todos os screens/handlers/endpoints existem,
+   retroactive vive no CONFIRM, e NENHUM endpoint inventado (R6). Behavioral real
+   fica pro smoke em prod (SHELL_QUEUE). */
+const fs = require('fs');
+const path = require('path');
+const APP = fs.readFileSync(path.join(__dirname, '..', 'op', 'app.v4.js'), 'utf8');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'op', 'index.v4.html'), 'utf8');
+const SW = fs.readFileSync(path.join(__dirname, '..', 'op', 'sw.v4.js'), 'utf8');
+
+// endpoints que o backend op.js realmente expõe (fonte da verdade)
+const REAL = [
+  '/api/v3/op/auth/login', '/api/v3/op/auth/logout', '/api/v3/op/auth/heartbeat',
+  '/api/v3/op/event/start', '/api/v3/op/event/retroactive', '/api/v3/op/event/', // :id/end, :id/join
+  '/api/v3/op/note', '/api/v3/op/voice/upload', '/api/v3/op/active-operators',
+  '/api/v3/op/missing-bottle-counts', '/api/v3/op/clock-out', '/api/v3/op/forgotten-checkout/resolve',
+  '/api/v3/architect/person/',
+];
+
+describe('op v4 — screens e handlers', () => {
+  test('login: keypad + dots + submitPin', () => {
+    expect(APP).toContain('function loginHTML');
+    expect(APP).toContain("data-act=\"pinkey\"");
+    expect(APP).toContain('function submitPin');
+  });
+  test('home: hero/ring/CTA/mine/team/note', () => {
+    expect(APP).toContain('function homeHTML');
+    expect(APP).toContain('Iniciar Tarefa');
+    expect(APP).toContain('stroke-dasharray'); // ring
+    expect(APP).toContain('Minhas tarefas');
+    expect(APP).toContain('Equipe agora');
+  });
+  test('flow: group→type→supp→batch→confirm→finished', () => {
+    ['flowGroup', 'flowType', 'flowSupp', 'flowBatch', 'flowConfirm', 'flowFinished'].forEach((fn) => expect(APP).toContain('function ' + fn));
+  });
+  test('confirm tem "Quando começou?" (Agora/Esqueci) — retroactive no lugar certo', () => {
+    const conf = APP.slice(APP.indexOf('function flowConfirm'), APP.indexOf('function flowFinished'));
+    expect(conf).toContain('Quando começou?');
+    expect(conf).toContain('modeNow');
+    expect(conf).toContain('modeForgot');
+  });
+  test('overlays: finish/join/note/clock/forgotten', () => {
+    ['finish', 'join', 'note', 'clock', 'forgotten'].forEach((t) => expect(APP).toContain("o.type === '" + t + "'"));
+  });
+  test('settings: mantras/lang/phase/density/aging', () => {
+    expect(APP).toContain('function settingsHTML');
+    ['toggleMantras', 'setLang', 'setPhase', 'setDens', 'toggleAging', 'agingStep'].forEach((a) => expect(APP).toContain(a + ':'));
+  });
+  test('ACT handlers principais definidos', () => {
+    ['pinkey', 'startFlow', 'pickGroup', 'pickType', 'pickSupp', 'confirmStart', 'commitRetro', 'doFinish', 'doJoin', 'saveNote', 'doClockOut', 'forgottenYes', 'forgottenNo', 'voice'].forEach((a) => expect(APP).toContain(a + ':'));
+  });
+});
+
+describe('op v4 — wiring de API (sem inventar endpoint)', () => {
+  test('usa /event/start E /event/retroactive conforme started_at', () => {
+    expect(APP).toContain("'/api/v3/op/event/retroactive'");
+    expect(APP).toContain("'/api/v3/op/event/start'");
+    expect(APP).toContain('startedAt ? '); // ternário escolhe o path
+  });
+  test('todo /api/v3/op/ usado é endpoint REAL', () => {
+    const used = APP.match(/\/api\/v3\/(op|architect)\/[a-z0-9/_:+.${}'"\- ]*/gi) || [];
+    used.forEach((u) => {
+      // normaliza: corta em template/interpolação/aspas
+      const base = u.replace(/['"`].*$/, '').replace(/\$\{.*$/, '').replace(/' \+.*$/, '');
+      const ok = REAL.some((r) => base.indexOf(r) === 0 || r.indexOf(base) === 0 || base.indexOf(r) >= 0);
+      expect(ok).toBe(true);
+    });
+  });
+  test('voice é Web Speech → nota (sem upload no v4; documentado)', () => {
+    expect(APP).toContain('SpeechRecognition');
+    // v4 não chama /voice/upload (escopo: transcript-to-note); ver SHELL_QUEUE
+    expect(APP).not.toContain('/voice/upload');
+  });
+});
+
+describe('op v4 — html + sw', () => {
+  test('index.v4 carrega fontes + hf-design + app.v4 + theme azul', () => {
+    expect(HTML).toContain('Manrope');
+    expect(HTML).toContain('/shared/hf-design.css');
+    expect(HTML).toContain('/op/app.v4.js');
+    expect(HTML).toContain('#0f4c92');
+  });
+  test('sw.v4 é hf-op-v4 network-first', () => {
+    expect(SW).toContain("'hf-op-v4'");
+    expect(SW).toContain('NETWORK-FIRST');
+  });
+});
