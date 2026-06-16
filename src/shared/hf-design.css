@@ -1,0 +1,103 @@
+/* ============================================================
+   HealthFare Design System — fonte única de verdade visual.
+   Derivado do redesign do Claude Design (HealthFare Linha.dc.html).
+   Vanilla, sem framework. Importado por /op, /admin, /admin/metrics, /dashboard-v4.
+   Identidade: AZUL #0f4c92 + VERDE #44ae4f · Manrope (corpo) + Sora (display) · glass.
+   ============================================================ */
+
+/* fontes: preconnect no <head> da página; aqui o @import como fallback */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap');
+
+:root {
+  /* cores HealthFare */
+  --hf-blue-deep: #0f4c92;   --hf-blue-mid: #2f7ae0;   --hf-blue-soft: #3a86ee;   --hf-blue-dark: #1f5fd0;
+  --hf-green-leaf: #44ae4f;  --hf-green-bright: #19c277; --hf-green-dark: #0e7a4e; --hf-green-light: #3cc878;
+  --hf-teal: #1b8f8f;
+  --hf-red: #b3261e;         --hf-red-light: #cf463c;
+  --hf-orange: #b35c00;      --hf-orange-light: #d97712;
+  /* texto */
+  --hf-text-primary: #0c2545; --hf-text-secondary: #42566f; --hf-text-muted: #5a6e87;
+  --hf-text-soft: #6c819b;    --hf-text-faded: #8195ab;
+  /* superfícies */
+  --hf-bg-app: #e9f0f8;
+  --hf-bg-glass: rgba(255,255,255,.66);
+  --hf-bg-glass-strong: rgba(255,255,255,.86);
+  --hf-border-glass: rgba(255,255,255,.8);
+  --hf-border-subtle: rgba(15,40,90,.07);
+  --hf-border-medium: rgba(15,40,90,.14);
+  /* sombras */
+  --hf-shadow-sm: 0 10px 26px -18px rgba(15,40,90,.4);
+  --hf-shadow-md: 0 30px 70px -34px rgba(15,40,90,.42);
+  --hf-shadow-lg: 0 50px 110px -40px rgba(12,37,69,.6);
+  /* tipografia */
+  --hf-font-body: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --hf-font-display: 'Sora', 'Manrope', system-ui, sans-serif;
+  /* raios */
+  --hf-r-sm: 8px; --hf-r-md: 14px; --hf-r-lg: 20px; --hf-r-xl: 26px; --hf-r-pill: 34px;
+  /* accent dinâmico (operador/produto sobrescreve via inline) */
+  --accent: #0e7a4e;
+  /* ambient (atualizado por JS: --day hora do dia, --energy tasks ativas, --pulse) */
+  --day: .5; --energy: .3; --pulse: 0; --hf-ambient: 1;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+::selection { background: rgba(47,122,224,.2); }
+input, textarea, button, select { font-family: inherit; }
+textarea { resize: none; }
+
+/* scrollbar custom */
+.hf-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.hf-scroll::-webkit-scrollbar-thumb { background: rgba(15,40,90,.16); border-radius: 99px; }
+
+/* ── keyframes ───────────────────────────────────────────── */
+@keyframes hfPop { 0%{opacity:0;transform:scale(.94)} 100%{opacity:1;transform:scale(1)} }
+@keyframes hfRise { 0%{opacity:0;transform:translateY(14px)} 100%{opacity:1;transform:translateY(0)} }
+@keyframes hfFade { 0%{opacity:0} 100%{opacity:1} }
+@keyframes hfFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+@keyframes hfShake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-7px)} 40%,80%{transform:translateX(7px)} }
+@keyframes hfSheen { 0%{transform:translateX(-120%)} 100%{transform:translateX(220%)} }
+@keyframes hfPulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+@keyframes hfMantra { 0%{opacity:0;transform:translateY(8px)} 12%,82%{opacity:1;transform:translateY(0)} 100%{opacity:0;transform:translateY(-8px)} }
+@keyframes driftA { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(36px,-30px) rotate(8deg)} }
+@keyframes driftB { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(-44px,28px) rotate(-7deg)} }
+@keyframes driftC { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(28px,40px) rotate(6deg)} }
+@keyframes driftD { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(-30px,-38px) rotate(-9deg)} }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* ── ambient layer (4 círculos de gradiente à deriva) ──────── */
+.hf-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.hf-ambient .blob { position: absolute; border-radius: 50%; }
+.hf-ambient .b1 { width: 62vmax; height: 62vmax; left: -16vmax; top: -20vmax; background: radial-gradient(circle, var(--hf-blue-mid), transparent 68%); filter: blur(60px); opacity: calc((0.14 + 0.34*var(--day) + 0.16*var(--energy) + 0.1*var(--pulse)) * var(--hf-ambient)); animation: driftA 26s ease-in-out infinite alternate; }
+.hf-ambient .b2 { width: 58vmax; height: 58vmax; right: -18vmax; top: 8vmax; background: radial-gradient(circle, var(--hf-green-leaf), transparent 66%); filter: blur(64px); opacity: calc((0.12 + 0.32*var(--day) + 0.18*var(--energy) + 0.1*var(--pulse)) * var(--hf-ambient)); animation: driftB 30s ease-in-out infinite alternate; }
+.hf-ambient .b3 { width: 54vmax; height: 54vmax; left: 24vmax; bottom: -24vmax; background: radial-gradient(circle, var(--hf-teal), transparent 70%); filter: blur(66px); opacity: calc((0.1 + 0.26*var(--day) + 0.14*var(--energy)) * var(--hf-ambient)); animation: driftC 34s ease-in-out infinite alternate; }
+.hf-ambient .b4 { width: 40vmax; height: 40vmax; right: 18vmax; bottom: -12vmax; background: radial-gradient(circle, var(--hf-blue-deep), transparent 72%); filter: blur(70px); opacity: calc((0.08 + 0.2*var(--day)) * var(--hf-ambient)); animation: driftD 38s ease-in-out infinite alternate; }
+
+/* ── glass surfaces ────────────────────────────────────────── */
+.hf-glass { background: var(--hf-bg-glass); backdrop-filter: blur(22px) saturate(1.4); -webkit-backdrop-filter: blur(22px) saturate(1.4); border: 1px solid var(--hf-border-glass); border-radius: var(--hf-r-xl); box-shadow: var(--hf-shadow-md), inset 0 1px 0 rgba(255,255,255,.85); }
+.hf-glass-strong { background: var(--hf-bg-glass-strong); backdrop-filter: blur(30px) saturate(1.5); -webkit-backdrop-filter: blur(30px) saturate(1.5); border: 1px solid rgba(255,255,255,.85); border-radius: 30px; box-shadow: var(--hf-shadow-lg), inset 0 1px 0 rgba(255,255,255,.9); }
+.hf-card { background: var(--hf-bg-glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--hf-border-glass); border-radius: var(--hf-r-lg); box-shadow: var(--hf-shadow-sm); }
+
+/* ── botões ────────────────────────────────────────────────── */
+.hf-btn { font-family: var(--hf-font-display); font-weight: 700; cursor: pointer; border: 0; border-radius: var(--hf-r-md); display: inline-flex; align-items: center; justify-content: center; gap: 10px; transition: transform .12s ease; }
+.hf-btn:active { transform: scale(.97); }
+.hf-btn-primary { color: #fff; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, var(--hf-green-bright)) 0%, var(--accent) 100%); box-shadow: 0 26px 50px -18px color-mix(in srgb, var(--accent) 60%, transparent), inset 0 1px 0 rgba(255,255,255,.3); }
+.hf-btn-secondary { color: #fff; background: linear-gradient(135deg, var(--hf-blue-soft), var(--hf-blue-dark)); box-shadow: 0 18px 38px -18px rgba(31,95,208,.6); }
+.hf-btn-ghost { color: var(--hf-text-secondary); background: rgba(255,255,255,.62); backdrop-filter: blur(14px); border: 1px solid var(--hf-border-glass); box-shadow: var(--hf-shadow-sm); }
+.hf-btn-destructive { color: #fff; background: linear-gradient(135deg, var(--hf-red-light), var(--hf-red)); box-shadow: 0 12px 26px -14px rgba(179,38,30,.7); }
+.hf-btn-warn { color: #fff; background: linear-gradient(135deg, var(--hf-orange-light), var(--hf-orange)); box-shadow: 0 12px 26px -14px rgba(179,92,0,.6); }
+.hf-btn-lunch { color: #fff; background: linear-gradient(135deg, var(--hf-green-light), var(--hf-green-dark)); box-shadow: 0 18px 38px -18px rgba(14,122,78,.7); }
+/* sheen interno (envolva o conteúdo do botão num span.hf-sheen) */
+.hf-sheen { position: absolute; top: 0; left: 0; width: 40%; height: 100%; background: linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent); animation: hfSheen 5s ease-in-out infinite; pointer-events: none; }
+
+/* ── inputs / chips ────────────────────────────────────────── */
+.hf-input { width: 100%; font-family: var(--hf-font-body); font-size: 19px; padding: 14px 16px; min-height: 58px; border: 1px solid var(--hf-border-medium); border-radius: var(--hf-r-md); background: rgba(255,255,255,.9); color: var(--hf-text-primary); }
+.hf-input:focus { outline: none; border-color: var(--hf-blue-soft); box-shadow: 0 0 0 3px rgba(58,134,238,.18); }
+.hf-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--hf-font-display); font-weight: 700; font-size: 13px; padding: 5px 12px; border-radius: var(--hf-r-pill); }
+.hf-chip-blue { background: rgba(47,122,224,.12); color: var(--hf-blue-deep); }
+.hf-chip-green { background: rgba(68,174,79,.14); color: var(--hf-green-dark); }
+.hf-chip-amber { background: rgba(217,118,18,.14); color: var(--hf-orange); }
+
+/* ── mantra flutuante ─────────────────────────────────────── */
+.hf-mantra { font-family: var(--hf-font-display); font-weight: 600; font-size: clamp(13px,1.5vw,18px); color: #4a6485; text-align: center; max-width: 760px; text-shadow: 0 1px 14px rgba(255,255,255,.7); animation: hfMantra 7s ease-in-out infinite; }

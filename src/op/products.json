@@ -1,0 +1,31 @@
+{
+  "_note": "Mapeia nome de produto (canonical + aliases) → arquivo da foto da bottle em assets/bottles/. Só 10 produtos têm foto oficial; o resto cai no fallback '?'. Match é case-insensitive e por inclusão (ver app.v4.js bottleFor()).",
+  "exact": {
+    "Benfotiamine": "benfotiamine.png",
+    "Berberine": "berberine.png",
+    "Activated Charcoal": "charcoal.png",
+    "NAD+ Celluvance": "nad.png",
+    "Acetyl L-Carnitine": "l-carnitine.png",
+    "Plant Sterols": "plant-sterols.png",
+    "Rutin": "rutin.png",
+    "White Kidney Bean": "white-kidney.png",
+    "Chlorophyll": "chlorophyll.png",
+    "Ashwagandha": "ashwagandha.png"
+  },
+  "aliases": {
+    "benfo": "benfotiamine.png",
+    "charcoal": "charcoal.png",
+    "carvao": "charcoal.png",
+    "nad": "nad.png",
+    "celluvance": "nad.png",
+    "carnitine": "l-carnitine.png",
+    "l-carnitine": "l-carnitine.png",
+    "plant sterol": "plant-sterols.png",
+    "white kidney": "white-kidney.png",
+    "kidney bean": "white-kidney.png",
+    "chlorophyll": "chlorophyll.png",
+    "clorofila": "chlorophyll.png",
+    "ashwa": "ashwagandha.png",
+    "berberine": "berberine.png"
+  }
+}

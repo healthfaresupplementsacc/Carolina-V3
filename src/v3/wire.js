@@ -126,6 +126,8 @@ function mount(app) {
   {
     const express2 = require('express');
     const path2 = require('path');
+    // Redesign: design system compartilhado (/op, /admin, /admin/metrics, /dashboard-v4).
+    app.use('/shared', express2.static(path2.join(process.cwd(), 'src', 'shared')));
     app.use('/op', express2.static(path2.join(process.cwd(), 'src', 'op')));
     // Fases B+C — Admin Panel (path NOVO; dashboard V4 intocado).
     const adminPanel = require('../routes/admin');
