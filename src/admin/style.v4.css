@@ -1,0 +1,55 @@
+/* HEALTHFARE /admin — camada de reskin v4 (Fase 6).
+   ADITIVO: importar DEPOIS de style.css no index pra sobrepor com a identidade
+   HF (Manrope/Sora, azul+verde, glass, raios). Não muda HTML/JS do admin. */
+@import url('/shared/hf-design.css');
+
+body { font-family: var(--hf-font-body) !important; background: var(--hf-bg-app) !important; color: var(--hf-text-primary); }
+h1, h2, .modal-title, .big, .metric .big { font-family: var(--hf-font-display) !important; }
+
+/* header → navbar glass azul */
+header { background: linear-gradient(120deg, #0f4c92, #1f5fd0) !important; color: #fff; box-shadow: var(--hf-shadow-sm); }
+.tab { background: rgba(255,255,255,.14) !important; color: #fff !important; border-radius: 12px !important; font-weight: 700; }
+.tab.active { background: var(--hf-green-leaf) !important; color: #fff !important; }
+.who { color: rgba(255,255,255,.9) !important; }
+
+/* cards / views → glass */
+.card, .metric, .chart-box, .missing-row, .op-banner {
+  background: var(--hf-bg-glass-strong) !important; border: 1px solid var(--hf-border-glass) !important;
+  border-radius: var(--hf-r-lg) !important; box-shadow: var(--hf-shadow-sm) !important;
+}
+.card .title { font-family: var(--hf-font-display); color: var(--hf-text-primary); }
+.sub, .muted { color: var(--hf-text-muted) !important; }
+
+/* botões → variants HF */
+.btn-big, .btn-primary { border-radius: var(--hf-r-md) !important; font-family: var(--hf-font-display); }
+.btn-primary { background: linear-gradient(135deg, var(--hf-green-bright), var(--hf-green-dark)) !important; border: 0 !important; color: #fff !important; box-shadow: 0 14px 30px -16px rgba(14,122,78,.6); }
+.btn-danger { background: linear-gradient(135deg, var(--hf-red-light), var(--hf-red)) !important; border: 0 !important; }
+.btn-warn { background: linear-gradient(135deg, var(--hf-orange-light), var(--hf-orange)) !important; border: 0 !important; }
+.btn-sm { background: #2c505f !important; border-radius: 10px !important; }
+.op-link-hdr { background: var(--hf-green-leaf) !important; }
+
+/* inputs */
+input, select, textarea { border-radius: var(--hf-r-md) !important; border-color: var(--hf-border-medium) !important; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--hf-blue-soft) !important; box-shadow: 0 0 0 3px rgba(58,134,238,.18); }
+
+/* pills / badges */
+.pill { border-radius: var(--hf-r-pill) !important; }
+.pill.on { background: rgba(68,174,79,.16) !important; color: var(--hf-green-dark) !important; }
+
+/* login card glass */
+#view-login { display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 8vh; }
+#view-login input { max-width: 320px; }
+
+/* tabela datas */
+.dt { border-radius: var(--hf-r-md); overflow: hidden; }
+.dt th { background: rgba(15,76,146,.08); color: var(--hf-blue-deep); font-family: var(--hf-font-display); }
+
+/* ── /admin/metrics (mesma SPA; Fase 7) ── */
+.subnav { gap: 8px; }
+.subtab { border-radius: var(--hf-r-pill) !important; font-family: var(--hf-font-display); font-weight: 700; border-color: var(--hf-border-medium) !important; }
+.subtab.active { background: linear-gradient(135deg, var(--hf-blue-soft), var(--hf-blue-dark)) !important; border: 0 !important; }
+.metric-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.metric { padding: 16px 18px; min-width: 120px; }
+.metric .big { font-family: var(--hf-font-display) !important; font-weight: 800 !important; color: var(--hf-blue-deep); }
+.metric .lbl { color: var(--hf-text-muted); font-size: 13px; }
+.chart-box { padding: 14px; }

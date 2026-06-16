@@ -1,0 +1,25 @@
+/* HEALTHFARE /dashboard-v4 — reskin v4 (Fase 8, conservador).
+   NÃO importado/buildado ainda (ver SHELL_QUEUE): importar em main.jsx +
+   `vite build` SÓ após revisão — reskin do V4 mexe num app que funciona (S4
+   diz /op é prioridade; V4 pode ficar parcial). Toque leve: fontes HF + accents
+   azul/verde, sem reestruturar layout/tokens próprios do V4. */
+
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap');
+
+:root {
+  --hf-blue-deep: #0f4c92; --hf-green-leaf: #44ae4f; --hf-green-bright: #19c277;
+}
+
+/* tipografia HealthFare por cima dos tokens do V4 */
+body, .app, .main, .card { font-family: 'Manrope', system-ui, sans-serif; }
+h1, h2, h3, .page-title h1, .kpi .num, .num, .stat-value { font-family: 'Sora', system-ui, sans-serif; }
+
+/* accents azul/verde nos elementos de marca/ação (sem trocar o tema base) */
+.btn.primary, .btn-primary { background: linear-gradient(135deg, var(--hf-green-bright), var(--hf-green-leaf)) !important; border: 0 !important; color: #fff !important; }
+.pill.live .dot, .dot.live { background: var(--hf-green-leaf) !important; }
+.op-link-bar code { border-color: rgba(15,76,146,.25) !important; }
+.op-link-bar .op-link-hint a { color: var(--hf-green-leaf) !important; }
+a { color: var(--hf-blue-deep); }
+
+/* leve realce de marca no topbar (mantém o glass existente) */
+.topbar .page-title h1 { color: var(--hf-blue-deep); }

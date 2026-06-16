@@ -72,6 +72,20 @@ railway up --detach
 git push origin v3-reset --tags
 ```
 
+## 7) Ativar reskin /admin (Fase 6-7) — aditivo, reversível
+Adicionar no `<head>` de `src/admin/index.html` (DEPOIS de style.css):
+```html
+<link rel="stylesheet" href="/admin/style.v4.css">
+```
+(cobre /admin + /admin/metrics, mesma SPA). Deploy + conferir login/abas/métricas.
+
+## 8) Ativar reskin /dashboard-v4 (Fase 8) — SÓ após revisão
+```js
+// dashboard-v4/src/main.jsx: import './redesign-v4.css';
+cd dashboard-v4 && node node_modules/vite/bin/vite.js build  # gera public/dashboard-v4
+```
+Conferir que o V4 não quebrou (layout/charts). Reskin é leve (fontes+accents).
+
 ## Pendências / decisões registradas
 - **Otimização de imagem pulada** (R6). PNGs servidos como estão + `loading="lazy"`.
 - **Fases 6–8** (/admin, /admin/metrics, /dashboard-v4): `style.v4.css` por surface — reskin aditivo, importa `hf-design.css`. Fazer depois do /op estável (S4).
