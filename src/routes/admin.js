@@ -899,6 +899,116 @@ function createAdminRouter(deps = {}) {
     });
   }));
 
+  // 1b) Linha de Produção — hoje (Metas em curso / Produção / Throughput / Exceções)
+  router.get('/api/adminpanel/metrics/production-line', h(async (req, res) => {
+    const goals = await db.query(
+      `SELECT e.id, p.display_name AS operator, pr.canonical_name AS product, pb.batch_number,
+              ROUND(EXTRACT(EPOCH FROM (NOW() - e.started_at)) / 60)::int AS elapsed_min
+       FROM v3.events e
+       JOIN v3.persons p ON p.id = e.person_id
+       JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE at.slug = 'production_line' AND e.ended_at IS NULL AND e.deleted_at IS NULL
+         AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+       ORDER BY e.started_at`);
+    const byProduct = await db.query(
+      `SELECT pr.canonical_name AS product, SUM(pc.bottles)::int AS total
+       FROM v3.production_counts pc
+       JOIN v3.events e ON e.id = pc.source_event_id
+       JOIN v3.activity_types at ON at.id = e.activity_type_id
+       JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE at.slug = 'production_line' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL
+         AND (e.ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+       GROUP BY pr.canonical_name ORDER BY total DESC`);
+    const tpOverall = await db.query(
+      `SELECT ROUND(AVG(bpm)::numeric, 1) AS avg_bpm, ROUND(MAX(bpm)::numeric, 1) AS peak_bpm, COUNT(*)::int AS runs
+       FROM (SELECT pc.bottles / NULLIF(EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60, 0) AS bpm
+             FROM v3.production_counts pc
+             JOIN v3.events e ON e.id = pc.source_event_id
+             JOIN v3.activity_types at ON at.id = e.activity_type_id
+             WHERE at.slug = 'production_line' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL
+               AND (e.ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) t`);
+    const tpByOp = await db.query(
+      `SELECT p.display_name AS operator,
+              ROUND(AVG(pc.bottles / NULLIF(EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60, 0))::numeric, 1) AS avg_bpm,
+              COUNT(*)::int AS runs
+       FROM v3.production_counts pc
+       JOIN v3.events e ON e.id = pc.source_event_id
+       JOIN v3.activity_types at ON at.id = e.activity_type_id
+       JOIN v3.persons p ON p.id = e.person_id
+       WHERE at.slug = 'production_line' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL
+         AND (e.ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+       GROUP BY p.display_name ORDER BY avg_bpm DESC NULLS LAST`);
+    const exceptions = await db.query(
+      `SELECT e.id, p.display_name AS operator, pr.canonical_name AS product, pb.batch_number,
+              e.exception_reason, to_char(e.ended_at AT TIME ZONE '${EDT}', 'HH12:MI AM') AS ended_at
+       FROM v3.events e
+       JOIN v3.persons p ON p.id = e.person_id
+       JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE at.slug = 'production_line' AND e.exception_no_count = true AND e.deleted_at IS NULL
+         AND (e.ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+         AND NOT EXISTS (SELECT 1 FROM v3.production_counts pc WHERE pc.source_event_id = e.id AND pc.deleted_at IS NULL)
+       ORDER BY e.ended_at DESC`);
+    const tot = byProduct.rows.reduce((a, r) => a + Number(r.total || 0), 0);
+    const ov = tpOverall.rows[0] || {};
+    res.json({
+      goals_in_progress: goals.rows,
+      production_today: { total: tot, by_product: byProduct.rows },
+      throughput: {
+        avg_bpm: ov.avg_bpm != null ? Number(ov.avg_bpm) : null,
+        peak_bpm: ov.peak_bpm != null ? Number(ov.peak_bpm) : null,
+        avg_bph: ov.avg_bpm != null ? Math.round(Number(ov.avg_bpm) * 60) : null,
+        peak_bph: ov.peak_bpm != null ? Math.round(Number(ov.peak_bpm) * 60) : null,
+        runs: ov.runs || 0, by_operator: tpByOp.rows,
+      },
+      exceptions: exceptions.rows,
+    });
+  }));
+
+  // 1c) resolver exceção (admin informa a contagem real depois)
+  router.post('/api/adminpanel/exceptions/:eventId/resolve', requireAdmin, makeRateLimit({ limit: 60 }), h(async (req, res) => {
+    const eventId = parseInt(req.params.eventId, 10);
+    const bottles = parseInt((req.body || {}).bottles, 10);
+    if (!Number.isFinite(eventId)) return res.status(400).json({ error: 'bad_id' });
+    if (!(Number.isFinite(bottles) && bottles >= 0)) return res.status(400).json({ error: 'bottles_required', detail: 'Informe a contagem (número >= 0).' });
+    const evr = await db.query(
+      `SELECT e.id, e.person_id, e.product_batch_id, e.exception_no_count, pb.product_id,
+              pr.canonical_name AS product, pb.batch_number
+       FROM v3.events e
+       JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE e.id = $1 AND at.slug = 'production_line' AND e.deleted_at IS NULL LIMIT 1`, [eventId]);
+    const ev = evr.rows[0];
+    if (!ev) return res.status(404).json({ error: 'event_not_found' });
+    if (!ev.exception_no_count) return res.status(400).json({ error: 'not_an_exception' });
+    const exists = await db.query('SELECT 1 FROM v3.production_counts WHERE source_event_id = $1 AND deleted_at IS NULL LIMIT 1', [eventId]);
+    if (exists.rowCount) return res.status(409).json({ error: 'already_counted' });
+    await db.query(
+      `INSERT INTO v3.production_counts
+         (product_id, product_batch_id, bottles, reported_at, production_date,
+          reported_by_person_id, source_event_id, unit, confidence, notes)
+       VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'bottle', 'medium', $6)`,
+      [ev.product_id || null, ev.product_batch_id || null, bottles, ev.person_id, eventId,
+        'exceção resolvida por ' + (req.admin ? req.admin.name : 'admin')]);
+    await audit('exception.resolved', 'event', eventId, { bottles, product: ev.product, batch: ev.batch_number }, req);
+    if (slack && slack.postAs) {
+      try {
+        await slack.postAs({
+          channel: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
+          sender: { name: 'HealthFare Tracker (Sistema)', icon: ':package:' }, thread_ts: null,
+          text: '✅ *Contagem registrada:* ' + bottles + ' bottles (' + (ev.product || '—') + ' lote ' + (ev.batch_number || '—') + '). Adicionado por ' + (req.admin ? req.admin.name : 'admin') + '.',
+          unfurl_links: false, unfurl_media: false,
+        });
+      } catch (e) { console.error('[admin] confirmação exceção falhou:', e.message); }
+    }
+    res.json({ ok: true, bottles });
+  }));
+
   // 2) Por operador (drill-down)
   router.get('/api/adminpanel/metrics/operator/:id', h(async (req, res) => {
     const id = parseInt(req.params.id, 10); const d = mRange(req);

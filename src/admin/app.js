@@ -469,12 +469,14 @@
 
   // ── métricas (Fase 5) ───────────────────────────────────────
   let metricsSub = 'hoje';
+  let linhaTimer = null; // auto-refresh da aba Linha (60s)
   const mchart = {};
   function mDrawChart(id, cfg) { if (!window.Chart) return; if (mchart[id]) mchart[id].destroy(); mchart[id] = new window.Chart($(id).getContext('2d'), cfg); }
   function mMetric(big, lbl) { const d = el('div', 'metric'); d.appendChild(el('div', 'big', String(big))); d.appendChild(el('div', 'lbl', lbl)); return d; }
   async function loadMetrics(sub) {
     metricsSub = sub || 'hoje';
-    const SUBS = [['hoje', '🎯 Hoje'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
+    clearInterval(linhaTimer); // sai da aba Linha → para o auto-refresh
+    const SUBS = [['hoje', '🎯 Hoje'], ['linha', '🏭 Linha'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
     if (isOwner()) SUBS.push(['finance', '💰 Finance']);
     const nav = $('metrics-subnav'); nav.innerHTML = '';
     SUBS.forEach(([k, lbl]) => { const b = el('button', 'subtab' + (k === metricsSub ? ' active' : ''), lbl); b.onclick = () => loadMetrics(k); nav.appendChild(b); });
@@ -499,6 +501,56 @@
         c.appendChild(el('h2', null, '⏰ Tasks abertas há +1h'));
         r.tasks_open_long.forEach((t) => c.appendChild(el('div', 'card', `<div class="sub">ev${t.id} · ${t.display_name} · ${t.task || '?'} · ${t.hours_open}h</div>`)));
       }
+    },
+    linha: async (c) => {
+      const draw = async () => {
+        const r = await api('/api/adminpanel/metrics/production-line');
+        c.innerHTML = '';
+        const cards = el('div', 'metric-cards');
+        cards.appendChild(mMetric(r.goals_in_progress.length, '🎯 Metas em curso'));
+        cards.appendChild(mMetric(Number(r.production_today.total).toLocaleString('pt-BR'), '📦 Bottles hoje'));
+        cards.appendChild(mMetric(r.throughput.avg_bpm == null ? '—' : r.throughput.avg_bpm, '⚡ Bottles/min (méd)'));
+        cards.appendChild(mMetric(r.throughput.avg_bph == null ? '—' : r.throughput.avg_bph, '⚡ Bottles/hora (méd)'));
+        c.appendChild(cards);
+        // 🎯 Metas em curso
+        c.appendChild(el('h2', null, '🎯 Metas em Curso'));
+        if (!r.goals_in_progress.length) c.appendChild(el('div', 'sub', 'Nenhuma linha de produção aberta agora.'));
+        r.goals_in_progress.forEach((g) => c.appendChild(el('div', 'card', `<div class="row"><span class="title">${g.product || '?'} · ${g.batch_number || '—'}</span><span class="sub">${g.operator} · há ${g.elapsed_min} min</span></div>`)));
+        // 📦 Produção hoje por produto
+        if (r.production_today.by_product.length) {
+          c.appendChild(el('h2', null, '📦 Produção Hoje · por produto'));
+          r.production_today.by_product.forEach((p) => c.appendChild(el('div', 'card', `<div class="row"><span class="title">${p.product}</span><span class="sub">${Number(p.total).toLocaleString('pt-BR')} bottles</span></div>`)));
+        }
+        // ⚡ Throughput por operador
+        if (r.throughput.by_operator.length) {
+          c.appendChild(el('h2', null, '⚡ Bottles/Minuto · por operador'));
+          c.appendChild(el('div', 'sub', `Pico: ${r.throughput.peak_bpm == null ? '—' : r.throughput.peak_bpm} b/min · ${r.throughput.runs} corridas hoje`));
+          r.throughput.by_operator.forEach((o) => c.appendChild(el('div', 'card', `<div class="row"><span class="title">${o.operator}</span><span class="sub">${o.avg_bpm == null ? '—' : o.avg_bpm} b/min · ${Math.round((o.avg_bpm || 0) * 60)} b/h · ${o.runs}x</span></div>`)));
+        }
+        // ⚠️ Exceções hoje
+        c.appendChild(el('h2', null, '⚠️ Exceções Hoje · sem contagem'));
+        if (!r.exceptions.length) c.appendChild(el('div', 'sub', 'Nenhuma exceção pendente hoje. 🎉'));
+        r.exceptions.forEach((ex) => {
+          const card = el('div', 'card');
+          card.appendChild(el('div', 'row', `<span class="title">${ex.product || '?'} · ${ex.batch_number || '—'}</span><span class="sub">${ex.operator} · ${ex.ended_at}</span>`));
+          card.appendChild(el('div', 'sub', `Motivo: “${ex.exception_reason || ''}”`));
+          const act = el('div', 'actions');
+          const b = el('button', 'ok', '✏️ Registrar contagem');
+          b.onclick = async () => {
+            const v = window.prompt(`Quantas bottles de ${ex.product || '?'} (lote ${ex.batch_number || '—'})?`);
+            if (v == null) return;
+            const n = parseInt(v, 10);
+            if (!(n >= 0)) { toast('❌ número inválido'); return; }
+            try { await api(`/api/adminpanel/exceptions/${ex.id}/resolve`, { method: 'POST', body: { bottles: n } }); toast('✅ contagem registrada'); draw(); }
+            catch (e) { toast('❌ ' + e.message); }
+          };
+          act.appendChild(b); card.appendChild(act);
+          c.appendChild(card);
+        });
+      };
+      await draw();
+      clearInterval(linhaTimer); // auto-refresh 60s só enquanto a aba Linha está aberta
+      linhaTimer = setInterval(() => { if (view === 'metrics' && metricsSub === 'linha') draw().catch(() => {}); else clearInterval(linhaTimer); }, 60000);
     },
     operador: async (c) => {
       if (!ops.length) { try { ops = (await api('/api/adminpanel/operators')).operators; } catch (_) {} }

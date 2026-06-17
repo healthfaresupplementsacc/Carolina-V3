@@ -610,12 +610,37 @@
   function overlayKey() {
     var o = S.overlay; if (!o) return '';
     if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
+    if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0); // exc toggle re-monta
     return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
   function cardOpen(maxw, center, extra) { return '<div class="hf-scroll" style="width:' + maxw + 'px; max-width:94%; max-height:828px; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + (extra || '') + '">'; }
+  // overlay FINISH específico da production_line: bottles obrigatório OU exceção
+  function finishProdInner(o) {
+    var sub = (o.product ? esc(o.product) : '') + (o.batch ? (o.product ? ' · ' : '') + esc(o.batch) : '');
+    var checkBox = '<span style="flex:none; width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center; border:2px solid ' + (o.exc ? '#b35c00' : 'rgba(15,40,90,.3)') + '; background:' + (o.exc ? '#b35c00' : 'transparent') + '; color:#fff;">' + (o.exc ? svgr(CHECK, 15, 3.4) : '') + '</span>';
+    var goBg = o.exc ? 'linear-gradient(135deg,#d97712,#b35c00)' : 'linear-gradient(135deg,#cf463c,#b3261e)';
+    var h = cardOpen(480);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(ICONS.factory, 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: Linha de Produção</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
+    h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas bottles foram produzidas?</div><input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="ex: 754" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
+    h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#8195ab;">(será notificado em Orders &amp; Inventory)</span></span></button>';
+    if (o.exc) {
+      h += '<div style="margin-top:14px; animation:hfRise .3s ease both;">'
+        + '<div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#b35c00; margin-bottom:8px;">Explique por que você não tem a contagem *</div>'
+        + '<textarea data-input="finReason" data-focus="finReason" placeholder="Ex: a balança quebrou no meio do lote…" style="width:100%; min-height:80px; font-size:16px; padding:13px 15px; border:1px solid rgba(179,92,0,.3); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.reason || '') + '</textarea>'
+        + '<div style="display:flex; justify-content:flex-end; margin-top:8px;">' + voiceBtn('finishReason') + '</div>'
+        + '<div style="display:flex; align-items:center; gap:8px; margin-top:10px; background:rgba(179,92,0,.08); border-left:3px solid #b35c00; padding:12px; border-radius:12px; font-size:12.5px; color:#8a5a00; font-weight:600;">' + svgr(WARN, 16, 2) + 'Esta mensagem será enviada para Orders &amp; Inventory automaticamente.</div>'
+        + '</div>';
+    }
+    h += '<div style="font-size:14px; font-weight:600; color:#42566f; margin:16px 0 8px;">Nota final adicional (opcional)</div>';
+    h += '<textarea data-input="finNote" placeholder="Observações finais…" style="width:100%; min-height:64px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
+    h += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.6; border:0; background:' + goBg + '; color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + (o.exc ? svgr(WARN, 18, 2) + 'Finalizar com Exceção' : svgr(CHECK, 19, 2.6) + 'Finalizar Linha') + '</button></div>';
+    h += '</div>';
+    return h;
+  }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'finish' && o.slug === 'production_line') return finishProdInner(o);
     if (o.type === 'finish') {
       var inner = cardOpen(460) + '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
       if (o.needsCount) inner += '<div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantos bottles saíram? (pode deixar vazio)</div><input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" placeholder="ex: 746" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none; margin-bottom:14px;">';
@@ -658,16 +683,21 @@
   function alertKey() { var a = S.alert; return a ? 'alert:' + a.title + '|' + a.message : ''; }
   function alertInner() {
     var a = S.alert || {};
+    var okBtn = '<button data-act="alertOk" id="hf-alert-ok" style="' + (a.cancel ? 'flex:1.5;' : 'width:100%;') + ' min-height:56px; border:0; border-radius:16px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-family:\'Sora\',sans-serif; font-weight:700; font-size:18px; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7);">' + esc(a.okLabel || 'Entendi') + '</button>';
+    var btns = a.cancel
+      ? '<div style="display:flex; gap:11px; margin-top:24px;"><button data-act="alertCancel" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:16px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(a.cancel) + '</button>' + okBtn + '</div>'
+      : '<div style="margin-top:24px;">' + okBtn + '</div>';
     return '<div style="width:min(94vw,460px); background:rgba(255,255,255,.95); backdrop-filter:blur(28px) saturate(1.5); border:3px solid #b3261e; border-radius:28px; padding:clamp(28px,4vw,40px); box-shadow:0 50px 110px -40px rgba(179,38,30,.5); text-align:center; animation:hfPop .35s cubic-bezier(.2,.8,.2,1) both, hfShake .4s .1s both;">'
       + '<span style="display:inline-flex; align-items:center; justify-content:center; color:#b3261e; margin-bottom:6px;">' + svgr(WARN, 64, 2) + '</span>'
       + '<div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:24px; color:#b3261e;">' + esc(a.title || 'Atenção') + '</div>'
       + '<div style="font-family:\'Manrope\',sans-serif; font-weight:500; font-size:17px; color:#0c2545; line-height:1.5; margin-top:16px;">' + esc(a.message || '') + '</div>'
-      + '<button data-act="closeAlert" id="hf-alert-ok" style="width:100%; min-height:56px; margin-top:24px; border:0; border-radius:16px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-family:\'Sora\',sans-serif; font-weight:700; font-size:18px; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7);">' + esc(a.okLabel || 'Entendi') + '</button>'
+      + btns
       + '</div>';
   }
   var alertResolve = null;
+  // showAlert resolve(true) = confirmou (OK/Enter); resolve(false) = cancelou/dismiss.
   function showAlert(opts) { S.alert = opts || {}; render(); return new Promise(function (res) { alertResolve = res; }); }
-  function closeAlert() { if (!S.alert) return; S.alert = null; render(); var r = alertResolve; alertResolve = null; if (r) r(); }
+  function closeAlert(result) { if (!S.alert) return; S.alert = null; render(); var r = alertResolve; alertResolve = null; if (r) r(result === true); }
 
   // ── SETTINGS (admin) ───────────────────────────────────────
   function settingsKey() { return 'settings:' + JSON.stringify(S.settings); }
@@ -720,12 +750,13 @@
     if (SR) {
       try {
         var r = new SR(); r.lang = 'pt-BR'; r.continuous = true; r.interimResults = true;
-        var base = target === 'flow' ? (S.flow && S.flow.note || '') : (S.overlay && S.overlay.note || '');
+        var base = target === 'flow' ? (S.flow && S.flow.note || '') : (target === 'finishReason' ? (S.overlay && S.overlay.reason || '') : (S.overlay && S.overlay.note || ''));
         r.onresult = function (e) {
           var t = ''; for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
           var val = (base ? base + ' ' : '') + t;
           // cirúrgico: atualiza o textarea-alvo direto, mantém estado, SEM render
           if (target === 'flow' && S.flow) { S.flow.note = val; var ta = LYR.flow.el.querySelector('[data-input="note"]'); if (ta) ta.value = val; }
+          else if (target === 'finishReason' && S.overlay) { S.overlay.reason = val; var tr = LYR.overlay.el.querySelector('[data-input="finReason"]'); if (tr) tr.value = val; }
           else if (S.overlay) { S.overlay.note = val; var ta2 = LYR.overlay.el.querySelector('[data-input="ovNote"]'); if (ta2) ta2.value = val; }
         };
         r.onerror = function () {}; r.start(); sr = r;
@@ -781,7 +812,7 @@
     finishedNo: function () { S.flow.finished = 'no'; render(); },
     finishedYes: function () { S.flow.finished = 'yes'; if (!S.flow.endH) { S.flow.endH = String(new Date().getHours() % 12 || 12); S.flow.endAP = new Date().getHours() >= 12 ? 'PM' : 'AM'; } render(); },
     commitRetro: function () { commitRetro(); },
-    finish: function (id) { var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {}; S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '' }; render(); },
+    finish: function (id) { var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {}; S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '', exc: false, reason: '' }; render(); },
     doFinish: function () { doFinish(); },
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
     doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function () { S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
@@ -801,7 +832,9 @@
     forgottenYes: function () { resolveForgotten(true); },
     forgottenNo: function () { resolveForgotten(false); },
     voice: function (target) { if (S.voice.on) stopVoice(); else startVoice(target); },
-    closeAlert: function () { closeAlert(); },
+    alertOk: function () { closeAlert(true); },
+    alertCancel: function () { closeAlert(false); },
+    toggleExc: function () { if (S.overlay) { S.overlay.exc = !S.overlay.exc; render(); } },
     toggleMantras: function () { S.settings.mantras = !S.settings.mantras; saveSettings(); render(); },
     setLang: function (v) { S.settings.mantraLang = v; saveSettings(); render(); },
     setPhase: function (v) { S.settings.dayPhase = v; saveSettings(); render(); },
@@ -854,8 +887,39 @@
     });
   }
   function doFinish() {
-    var o = S.overlay; var body = { bottles: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
-    api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function () { S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice(); toast('Tarefa finalizada · +1 hoje'); loadData(); }).catch(function (e) { toast(e.message); });
+    var o = S.overlay;
+    if (o.slug === 'production_line') {
+      if (!o.exc) {
+        if (!(parseInt(o.bottles, 10) >= 1)) {
+          showAlert({ title: 'Contagem obrigatória', message: 'Você precisa informar quantas bottles foram produzidas. Se não souber, marque a exceção e explique por quê.', okLabel: 'Entendi' }).then(function () { var i = LYR.overlay.el.querySelector('[data-input="finBottles"]'); if (i) i.focus(); });
+          return;
+        }
+      } else {
+        if ((o.reason || '').trim().length < 10) {
+          showAlert({ title: 'Motivo obrigatório', message: 'Como você não tem a contagem, é obrigatório explicar o motivo (mín. 10 caracteres). Esta mensagem será enviada para Orders & Inventory.', okLabel: 'Entendi' }).then(function () { var t = LYR.overlay.el.querySelector('[data-input="finReason"]'); if (t) t.focus(); });
+          return;
+        }
+        showAlert({ title: 'Confirmar exceção', message: 'Você está fechando SEM contagem de bottles. Uma mensagem será enviada para Orders & Inventory com o seu motivo. Confirmar?', okLabel: 'Sim, finalizar com exceção', cancel: 'Voltar' }).then(function (ok) { if (ok) postFinish(o); });
+        return;
+      }
+    }
+    postFinish(o);
+  }
+  function postFinish(o) {
+    var body;
+    if (o.slug === 'production_line' && o.exc) {
+      body = { exception_no_count: true, exception_reason: (o.reason || '').trim(), note: (o.note || '').trim() || null };
+    } else {
+      body = { bottles: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
+    }
+    api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function () {
+      S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
+      toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
+      loadData();
+    }).catch(function (e) {
+      var M = { bottles_required: 'Informe quantas bottles', exception_reason_required: 'Explique o motivo (mín. 10 caracteres)' };
+      toast(M[e.message] || e.message);
+    });
   }
   function openClock() {
     api('/api/v3/op/missing-bottle-counts').then(function (info) {
@@ -894,6 +958,7 @@
     else if (k === 'note') { S.flow.note = v; }
     else if (k === 'ovNote') { S.overlay.note = v; }
     else if (k === 'finBottles') { S.overlay.bottles = v; }
+    else if (k === 'finReason') { S.overlay.reason = v; }
     else if (k === 'finNote') { S.overlay.note = v; }
     else if (k === 'clockCount') { S.overlay.counts = S.overlay.counts || {}; S.overlay.counts[el.dataset.arg] = v; }
   });
@@ -905,9 +970,10 @@
   var keyCount = 0, keyTimer = null;
   document.addEventListener('keydown', function (e) {
     if (!S.alert) return;
-    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); closeAlert(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); closeAlert(true); return; }   // Enter = confirma
+    if (e.key === 'Escape') { e.preventDefault(); closeAlert(false); return; } // Esc = cancela/fecha
     keyCount++; clearTimeout(keyTimer); keyTimer = setTimeout(function () { keyCount = 0; }, 1500);
-    if (keyCount >= 3) { closeAlert(); keyCount = 0; }
+    if (keyCount >= 3) { closeAlert(false); keyCount = 0; } // qualquer tecla 3x = fecha
   });
 
   // ── timers (tick CIRÚRGICO — sem render() → sem flicker) ───

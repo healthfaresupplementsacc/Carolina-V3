@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v9 network-first', () => {
-    expect(SW).toContain("'hf-op-v9'");
+  test('sw é hf-op-v10 network-first', () => {
+    expect(SW).toContain("'hf-op-v10'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -176,7 +176,7 @@ describe('op — patch UX (3 bugs)', () => {
   test('BUG3 alerta vermelho central: showAlert + 4 dismissals + reuso nas validações', () => {
     expect(APP).toContain('function showAlert');
     expect(APP).toContain('function closeAlert');
-    expect(APP).toContain("data-act=\"closeAlert\"");
+    expect(APP).toContain("data-act=\"alertOk\"");
     expect(APP).toContain('#hf-alert-ok');                       // foco no OK
     expect(APP).toContain('#b3261e');                            // vermelho forte
     // 4 caminhos de dismissal: clique (closeAlert), Enter, Esc, 3 teclas
@@ -188,5 +188,25 @@ describe('op — patch UX (3 bugs)', () => {
     expect(APP).toContain("showAlert({ title: 'Quantidade obrigatória'");
     // foco volta pro campo após dismiss
     expect(APP).toContain('flowNoteHighlight');
+  });
+});
+
+describe('op — production_line finish (bottles obrigatório + exceção)', () => {
+  test('overlay específico da production_line com checkbox de exceção + voz + aviso', () => {
+    expect(APP).toContain('function finishProdInner');
+    expect(APP).toContain("o.type === 'finish' && o.slug === 'production_line'"); // roteia overlay novo
+    expect(APP).toContain('Quantas bottles foram produzidas?');
+    expect(APP).toContain("data-act=\"toggleExc\"");                 // checkbox exceção
+    expect(APP).toContain('Exceção: não tenho o número');
+    expect(APP).toContain("data-input=\"finReason\"");                // textarea motivo
+    expect(APP).toContain("voiceBtn('finishReason')");                // voz no motivo
+    expect(APP).toContain('Orders &amp; Inventory');                  // aviso de envio
+  });
+  test('doFinish: alerta se sem contagem / sem motivo, e confirma exceção antes de POST', () => {
+    expect(APP).toContain('function postFinish');
+    expect(APP).toContain("showAlert({ title: 'Contagem obrigatória'");
+    expect(APP).toContain("showAlert({ title: 'Confirmar exceção'");
+    expect(APP).toContain('exception_no_count: true');                // body da exceção
+    expect(APP).toContain('exception_reason:');
   });
 });

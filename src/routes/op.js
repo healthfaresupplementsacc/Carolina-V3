@@ -41,6 +41,8 @@ function createOpRouter(deps = {}) {
   const operatorToken = deps.operatorToken !== undefined ? deps.operatorToken : process.env.OPERATOR_PAGE_TOKEN;
   const adminPin = deps.adminPin !== undefined ? deps.adminPin : (process.env.ADMIN_PIN || '510510');
   const adminChannel = deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+  // canal orders-and-inventory (operadores veem) — aviso de exceção da linha
+  const productionChannel = deps.productionChannelId || process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
   const slack = deps.slack || null; // { postAs }
   const now = deps.now || (() => Date.now());
   const bf = deps.bruteForce || null; // Fase D brute-force guard
@@ -326,26 +328,85 @@ function createOpRouter(deps = {}) {
     return ev;
   }
 
+  // aviso de exceção (production_line fechada SEM contagem) → orders-and-inventory.
+  // É voz do SISTEMA (não a Carolina). Síncrono no close: NÃO passa pelo worker
+  // dedupe, então ignora o silent-mode (é alerta operacional, não nudge).
+  async function notifyProductionException(ev, reason, s) {
+    if (!slack || !slack.postAs) return;
+    let d = {};
+    try {
+      const r = await db.query(
+        `SELECT p.display_name AS operator, pr.canonical_name AS product, pb.batch_number,
+                ROUND(EXTRACT(EPOCH FROM (NOW() - e.started_at)) / 60)::int AS duration_min
+         FROM v3.events e
+         JOIN v3.persons p ON p.id = e.person_id
+         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         LEFT JOIN v3.products pr ON pr.id = pb.product_id
+         WHERE e.id = $1 LIMIT 1`, [ev.id]);
+      d = r.rows[0] || {};
+    } catch (e) { console.error('[op] detalhes exceção falharam:', e.message); }
+    const text =
+      '⚠️ *Linha de Produção fechada sem contagem*\n\n' +
+      '*Operador(a):* ' + (d.operator || s.display_name || '?') + '\n' +
+      '*Produto:* ' + (d.product || '—') + '\n' +
+      '*Lote:* ' + (d.batch_number || '—') + '\n' +
+      '*Duração:* ' + (d.duration_min != null ? d.duration_min + ' min' : '—') + '\n' +
+      '*Motivo informado:* "' + reason + '"\n\n' +
+      '_Notificação automática — favor verificar contagem com o operador quando possível._';
+    try {
+      await slack.postAs({
+        channel: productionChannel,
+        sender: { name: 'HealthFare Tracker (Sistema)', icon: ':package:' },
+        thread_ts: null, text, unfurl_links: false, unfurl_media: false,
+      });
+      await audit('slack.notification.production_exception', 'event', ev.id, { channel: productionChannel }, s.person_id);
+    } catch (e) { console.error('[op] aviso exceção falhou:', e.message); }
+  }
+
   router.post('/api/v3/op/event/:id/end', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
     const ev = await loadOwnedOpenEvent(req, res, s); if (!ev) return;
     if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
-    const { bottles, unit, note } = req.body || {};
+    const body = req.body || {};
+    const { unit, note } = body;
+    // aceita bottles OU bottles_count (alias)
+    const bottlesRaw = body.bottles != null ? body.bottles : body.bottles_count;
+    const b = parseInt(bottlesRaw, 10);
+    const isProd = ev.slug === 'production_line';
+    const exception = isProd && (body.exception_no_count === true || body.exception_no_count === 'true');
+    const reason = exception ? String(body.exception_reason || '').trim() : null;
+
+    // ── validação server-side (só production_line; outros slugs: bottles opcional) ──
+    if (isProd) {
+      if (!exception) {
+        if (!(Number.isFinite(b) && b > 0)) {
+          return res.status(400).json({ error: 'bottles_required', detail: 'Informe quantas bottles foram produzidas (ou marque a exceção).' });
+        }
+      } else if (reason.length < 10) {
+        return res.status(400).json({ error: 'exception_reason_required', detail: 'Explique por que não tem a contagem (mín. 10 caracteres).' });
+      }
+    }
+
     await db.query(
       `UPDATE v3.events
        SET ended_at = NOW(), closed_reason = 'operator_page',
            description = CASE WHEN $2::text IS NULL THEN description
                               ELSE COALESCE(description, '') || ' | fim: ' || $2 END,
-           updated_at = NOW()
-       WHERE id = $1`, [ev.id, note ? String(note).slice(0, 300) : null]);
+           exception_no_count = $3, exception_reason = $4, updated_at = NOW()
+       WHERE id = $1`, [ev.id, note ? String(note).slice(0, 300) : null, exception, exception ? reason.slice(0, 500) : null]);
+
     let countCreated = false;
-    const b = parseInt(bottles, 10);
-    if (Number.isFinite(b) && b > 0) {
+    if (!exception && Number.isFinite(b) && b > 0) {
       await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
       countCreated = true;
     }
-    await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null }, s.person_id);
-    res.json({ ok: true, event_id: ev.id, count_created: countCreated });
+    if (exception) {
+      await audit('event.end_with_exception', 'event', ev.id, { slug: ev.slug, exception_reason: reason }, s.person_id);
+      await notifyProductionException(ev, reason, s);
+    } else {
+      await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null, slug: ev.slug }, s.person_id);
+    }
+    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception });
   }));
 
   // ── join (cowork B) ─────────────────────────────────────────

@@ -140,8 +140,20 @@ function makeFakeDb(mem) {
       }
       if (/UPDATE v3\.events SET ended_at = NOW\(\), closed_reason = 'operator_page'/.test(s)) {
         const ev = mem.events.find((x) => x.id === params[0]);
-        if (ev) { ev.ended_at = new Date(); ev.closed_reason = 'operator_page'; if (params[1]) ev.description = (ev.description || '') + ' | fim: ' + params[1]; }
+        if (ev) {
+          ev.ended_at = new Date(); ev.closed_reason = 'operator_page';
+          if (params[1]) ev.description = (ev.description || '') + ' | fim: ' + params[1];
+          ev.exception_no_count = params[2]; ev.exception_reason = params[3];
+        }
         return resp([]);
+      }
+      // detalhes p/ aviso de exceção (production_line sem contagem)
+      if (/p\.display_name AS operator, pr\.canonical_name AS product/.test(s)) {
+        const ev = mem.events.find((x) => x.id === params[0]);
+        if (!ev) return resp([]);
+        const p = mem.persons.find((x) => x.id === ev.person_id) || {};
+        const b = mem.batches.find((x) => x.id === ev.product_batch_id) || {};
+        return resp([{ operator: p.display_name, product: b.product || null, batch_number: b.batch_number || null, duration_min: 12 }]);
       }
       if (/UPDATE v3\.events SET cowork_with = array_append/.test(s)) {
         const ev = mem.events.find((x) => x.id === params[0] && !x.deleted_at && !x.ended_at
@@ -452,6 +464,69 @@ describe('op API — events', () => {
     expect(vitor.online).toBe(true);
     expect(vitor.current_slug).toBe('production_line');
     expect(vitor.current_batch).toBe('BR-2026-0190');
+  });
+});
+
+// ─── production_line: bottles obrigatório + exceção (migration 031) ──
+describe('op API — production_line bottles/exceção', () => {
+  async function startProd(session) {
+    const st = await post('/api/v3/op/event/start', { session, body: { activity_slug: 'production_line', batch_number: '0190' } });
+    return st.body.event.id;
+  }
+  test('end SEM bottles e SEM exceção → 400 bottles_required', async () => {
+    const s = await login(4); const id = await startProd(s);
+    const r = await post(`/api/v3/op/event/${id}/end`, { session: s, body: {} });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('bottles_required');
+    expect(mem.events.find((e) => e.id === id).ended_at).toBeNull(); // não fechou
+  });
+  test('exceção COM motivo curto → 400 exception_reason_required', async () => {
+    const s = await login(4); const id = await startProd(s);
+    const r = await post(`/api/v3/op/event/${id}/end`, { session: s, body: { exception_no_count: true, exception_reason: 'curto' } });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('exception_reason_required');
+  });
+  test('exceção válida → 200, SEM count, flags no event, Slack SISTEMA no canal produção + audits', async () => {
+    const s = await login(4); const id = await startProd(s);
+    const r = await post(`/api/v3/op/event/${id}/end`, { session: s, body: { exception_no_count: true, exception_reason: 'balança quebrada, sem como contar agora' } });
+    expect(r.status).toBe(200);
+    expect(r.body.exception).toBe(true);
+    expect(r.body.count_created).toBe(false);
+    expect(mem.counts).toHaveLength(0);
+    const ev = mem.events.find((e) => e.id === id);
+    expect(ev.exception_no_count).toBe(true);
+    expect(ev.exception_reason).toContain('balança');
+    expect(slack.postAs).toHaveBeenCalledTimes(1);
+    const call = slack.postAs.mock.calls[0][0];
+    expect(call.channel).toBe('C09UNBXFRKK'); // orders-and-inventory (não admin)
+    expect(call.sender).toMatchObject({ name: 'HealthFare Tracker (Sistema)', icon: ':package:' }); // NÃO é Carolina
+    expect(call.text).toContain('sem contagem');
+    expect(call.text).toContain('Magnesium Glycinate');
+    expect(mem.audits.some((a) => a.action === 'event.end_with_exception')).toBe(true);
+    expect(mem.audits.some((a) => a.action === 'slack.notification.production_exception')).toBe(true);
+  });
+  test('end normal com bottles → 200, count criado, sem exceção, SEM Slack', async () => {
+    const s = await login(4); const id = await startProd(s);
+    const r = await post(`/api/v3/op/event/${id}/end`, { session: s, body: { bottles: 500 } });
+    expect(r.status).toBe(200);
+    expect(r.body.count_created).toBe(true);
+    expect(r.body.exception).toBe(false);
+    expect(mem.counts[0]).toMatchObject({ bottles: 500, source_event_id: id });
+    expect(slack.postAs).not.toHaveBeenCalled();
+  });
+  test('aceita bottles_count (alias do bottles)', async () => {
+    const s = await login(4); const id = await startProd(s);
+    const r = await post(`/api/v3/op/event/${id}/end`, { session: s, body: { bottles_count: 333 } });
+    expect(r.status).toBe(200);
+    expect(mem.counts[0]).toMatchObject({ bottles: 333 });
+  });
+  test('OUTRO slug (cleaning) end SEM bottles → 200 (comportamento atual intocado)', async () => {
+    const s = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'cleaning' } });
+    const r = await post(`/api/v3/op/event/${st.body.event.id}/end`, { session: s, body: {} });
+    expect(r.status).toBe(200);
+    expect(r.body.exception).toBe(false);
+    expect(slack.postAs).not.toHaveBeenCalled();
   });
 });
 
