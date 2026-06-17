@@ -1015,9 +1015,11 @@
     document.documentElement.setAttribute('data-hf-viewport', vw + 'x' + vh);
   }
   // aviso de girar SÓ em dispositivo TOUCH (não em PC com janela estreita) + portrait pequeno.
+  // Sinal confiável: '(pointer: coarse)' = ponteiro primário é o dedo. Desktop com
+  // mouse/trackpad = 'fine'. (maxTouchPoints/ontouchstart dão falso-positivo:
+  // headless reporta 10 e laptops touchscreen têm o trackpad como primário.)
   function isTouchDevice() {
-    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
-      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   }
   function shouldShowRotate() {
     if (!isTouchDevice()) return false;

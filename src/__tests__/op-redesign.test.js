@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v11 network-first', () => {
-    expect(SW).toContain("'hf-op-v11'");
+  test('sw é hf-op-v12 network-first', () => {
+    expect(SW).toContain("'hf-op-v12'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -127,8 +127,7 @@ describe('op — patch 3 bugs (rotate touch / ambiente full-viewport / admin res
     expect(APP).toContain('function isTouchDevice');
     expect(APP).toContain('function shouldShowRotate');
     expect(APP).toContain('function updateRotateState');
-    expect(APP).toContain("'ontouchstart' in window");
-    expect(APP).toContain('navigator.maxTouchPoints');
+    expect(APP).toContain("matchMedia('(pointer: coarse)')"); // sinal confiável (não maxTouchPoints)
     expect(CSS).not.toContain('@media (orientation: portrait)'); // não decide mais por CSS/tamanho
   });
   test('BUG2: ambiente no #hf-stage full-viewport (z0) + canvas transparente (z1)', () => {
