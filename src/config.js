@@ -16,6 +16,13 @@ module.exports = {
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   },
+  // EMS Production API (read-only). A CHAVE fica só no servidor (segredo do Railway);
+  // nunca em código/commit/chat. base URL é público (o gate é a chave).
+  ems: {
+    apiKey: process.env.EMS_PRODUCTION_API_KEY || null,
+    baseUrl: process.env.EMS_PRODUCTION_API_BASE
+      || 'https://kxhlickgghqnuykdjgsr.supabase.co/functions/v1/production-api',
+  },
   app: {
     port: parseInt(process.env.PORT) || 3000,
     env: process.env.NODE_ENV || 'development',
