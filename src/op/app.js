@@ -180,8 +180,8 @@
   var AMBIENT = null, MANTRA = null, shellBuilt = false, ambientDensity = null;
   var LYR = {}; // name -> { el, on, key }
   function bootShell() {
+    // #hf-ambient vive no #hf-stage (full viewport), fora do canvas — não recriar aqui.
     ROOT.innerHTML =
-      '<div id="hf-ambient"></div>' +
       '<div id="hf-mantra-wrap"></div>' +
       '<div id="hf-main">' +
         '<div id="scr-login" class="hf-layer"></div>' +
@@ -253,10 +253,10 @@
   function buildAmbient() {
     if (!AMBIENT) return;
     var blobs =
-      '<div style="position:absolute; width:900px; height:900px; left:-230px; top:-290px; border-radius:50%; background:radial-gradient(circle, #2f7ae0, transparent 68%); filter:blur(60px); opacity:calc(0.14 + 0.34*var(--day,.5) + 0.16*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
-      '<div style="position:absolute; width:840px; height:840px; right:-260px; top:115px; border-radius:50%; background:radial-gradient(circle, #44ae4f, transparent 66%); filter:blur(64px); opacity:calc(0.12 + 0.32*var(--day,.5) + 0.18*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
-      '<div style="position:absolute; width:780px; height:780px; left:345px; bottom:-345px; border-radius:50%; background:radial-gradient(circle, #1b8f8f, transparent 70%); filter:blur(66px); opacity:calc(0.1 + 0.26*var(--day,.5) + 0.14*var(--energy,.3));"></div>' +
-      '<div style="position:absolute; width:580px; height:580px; right:260px; bottom:-175px; border-radius:50%; background:radial-gradient(circle, #0f4c92, transparent 72%); filter:blur(70px); opacity:calc(0.08 + 0.2*var(--day,.5));"></div>';
+      '<div style="position:absolute; width:62vmax; height:62vmax; left:-16vmax; top:-20vmax; border-radius:50%; background:radial-gradient(circle, #2f7ae0, transparent 68%); filter:blur(60px); opacity:calc(0.14 + 0.34*var(--day,.5) + 0.16*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
+      '<div style="position:absolute; width:58vmax; height:58vmax; right:-18vmax; top:8vmax; border-radius:50%; background:radial-gradient(circle, #44ae4f, transparent 66%); filter:blur(64px); opacity:calc(0.12 + 0.32*var(--day,.5) + 0.18*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
+      '<div style="position:absolute; width:54vmax; height:54vmax; left:24vmax; bottom:-24vmax; border-radius:50%; background:radial-gradient(circle, #1b8f8f, transparent 70%); filter:blur(66px); opacity:calc(0.1 + 0.26*var(--day,.5) + 0.14*var(--energy,.3));"></div>' +
+      '<div style="position:absolute; width:40vmax; height:40vmax; right:18vmax; bottom:-12vmax; border-radius:50%; background:radial-gradient(circle, #0f4c92, transparent 72%); filter:blur(70px); opacity:calc(0.08 + 0.2*var(--day,.5));"></div>';
     AMBIENT.innerHTML = blobs + ambientBottles() + capsules();
     ambientDensity = S.settings.density;
   }
@@ -282,10 +282,12 @@
   }
   function render() {
     if (!shellBuilt) bootShell();
-    ROOT.style.setProperty('--accent', accent());
-    ROOT.style.setProperty('--day', dayFrac().toFixed(3));
-    ROOT.style.setProperty('--energy', energyVal().toFixed(3));
-    ROOT.style.setProperty('--pulse', S.pulse.toFixed(3));
+    // vars no <html> → herdadas pelo #hf-ambient (no stage) E pelo #hf-canvas
+    var RS = document.documentElement.style;
+    RS.setProperty('--accent', accent());
+    RS.setProperty('--day', dayFrac().toFixed(3));
+    RS.setProperty('--energy', energyVal().toFixed(3));
+    RS.setProperty('--pulse', S.pulse.toFixed(3));
     if (ambientDensity !== S.settings.density) buildAmbient();
     // mantra (fixa no rodapé; só na home e quando ligada)
     MANTRA.innerHTML = (S.settings.mantras && S.screen === 'home')
@@ -983,7 +985,7 @@
     tClock = setInterval(function () {
       S.now = Date.now();
       S.pulse = Math.max(0, S.pulse - 0.06);
-      ROOT.style.setProperty('--pulse', S.pulse.toFixed(3));
+      document.documentElement.style.setProperty('--pulse', S.pulse.toFixed(3));
       if (S.session && S.logoffLeft != null) {
         S.logoffLeft -= 1;
         if (S.logoffLeft <= 0) { doLogout('auto_timeout'); return; }
@@ -1006,19 +1008,39 @@
   var DESIGN_W = 1440, DESIGN_H = 900, SCALE_MAX = 1.25, SCALE_MIN = 0.35;
   function fitCanvas() {
     var vw = window.innerWidth, vh = window.innerHeight;
-    // portrait em tela pequena: o CSS @media mostra o aviso de girar; não escala
-    if (vh > vw && Math.min(vw, vh) <= 1024) return;
     var scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
     var f = Math.min(Math.max(scale, SCALE_MIN), SCALE_MAX);
     if (ROOT) ROOT.style.transform = 'scale(' + f + ')';
     document.documentElement.setAttribute('data-hf-scale', f.toFixed(2));
     document.documentElement.setAttribute('data-hf-viewport', vw + 'x' + vh);
   }
+  // aviso de girar SÓ em dispositivo TOUCH (não em PC com janela estreita) + portrait pequeno.
+  function isTouchDevice() {
+    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
+      (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  }
+  function shouldShowRotate() {
+    if (!isTouchDevice()) return false;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    return vh > vw && Math.min(vw, vh) <= 900; // só portrait em tela pequena (tablet/celular)
+  }
+  function updateRotateState() {
+    var prompt = document.getElementById('hf-rotate-prompt');
+    var stage = document.getElementById('hf-stage');
+    if (shouldShowRotate()) {
+      if (prompt) prompt.style.display = 'flex';
+      if (stage) stage.style.display = 'none';
+    } else {
+      if (prompt) prompt.style.display = 'none';
+      if (stage) stage.style.display = 'flex';
+      fitCanvas();
+    }
+  }
   var _fitT = null;
-  window.addEventListener('resize', function () { clearTimeout(_fitT); _fitT = setTimeout(fitCanvas, 50); });
-  window.addEventListener('orientationchange', function () { setTimeout(fitCanvas, 200); });
+  window.addEventListener('resize', function () { clearTimeout(_fitT); _fitT = setTimeout(updateRotateState, 50); });
+  window.addEventListener('orientationchange', function () { setTimeout(updateRotateState, 200); });
 
   // boot
   render();
-  fitCanvas();
+  updateRotateState();
 }());

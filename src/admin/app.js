@@ -404,6 +404,11 @@
   }
   async function refreshBadge() {
     try { const r = await api('/api/adminpanel/notifications?status=pending&limit=1'); updateBadge(r.pending_total); } catch (_) {}
+    refreshExcBadge();
+  }
+  async function refreshExcBadge() {
+    const b = $('exc-badge'); if (!b) return;
+    try { const r = await api('/api/adminpanel/metrics/exceptions-count'); b.textContent = r.count; b.classList.toggle('hidden', !r.count); } catch (_) {}
   }
   notifPoll = setInterval(() => { if (view === 'notifs') loadNotifs().catch(() => {}); else if (view !== 'login') refreshBadge(); }, 30000);
 
@@ -535,16 +540,27 @@
           card.appendChild(el('div', 'row', `<span class="title">${ex.product || '?'} · ${ex.batch_number || '—'}</span><span class="sub">${ex.operator} · ${ex.ended_at}</span>`));
           card.appendChild(el('div', 'sub', `Motivo: “${ex.exception_reason || ''}”`));
           const act = el('div', 'actions');
-          const b = el('button', 'ok', '✏️ Registrar contagem');
-          b.onclick = async () => {
-            const v = window.prompt(`Quantas bottles de ${ex.product || '?'} (lote ${ex.batch_number || '—'})?`);
-            if (v == null) return;
-            const n = parseInt(v, 10);
-            if (!(n >= 0)) { toast('❌ número inválido'); return; }
-            try { await api(`/api/adminpanel/exceptions/${ex.id}/resolve`, { method: 'POST', body: { bottles: n } }); toast('✅ contagem registrada'); draw(); }
-            catch (e) { toast('❌ ' + e.message); }
+          const addBtn = el('button', 'ok', '➕ Adicionar contagem');
+          // form inline (clica direto no event e adiciona — sem modal separado)
+          const inStyle = 'width:100%; min-height:44px; margin-bottom:8px; padding:8px 12px; border:1px solid #cdd8e3; border-radius:10px; font-size:15px;';
+          const form = el('div'); form.style.cssText = 'display:none; margin-top:10px;';
+          const inB = document.createElement('input'); inB.type = 'number'; inB.min = '0'; inB.placeholder = 'Quantos bottles? (ex: 754)'; inB.style.cssText = inStyle;
+          const inN = document.createElement('input'); inN.type = 'text'; inN.placeholder = 'Nota: como você obteve a contagem'; inN.style.cssText = inStyle;
+          const fa = el('div', 'actions');
+          const save = el('button', 'ok', '✓ Registrar');
+          const cancel = el('button', 'no', 'Cancelar');
+          fa.appendChild(cancel); fa.appendChild(save);
+          form.appendChild(inB); form.appendChild(inN); form.appendChild(fa);
+          addBtn.onclick = () => { const open = form.style.display !== 'none'; form.style.display = open ? 'none' : 'block'; if (!open) inB.focus(); };
+          cancel.onclick = () => { form.style.display = 'none'; };
+          save.onclick = async () => {
+            const n = parseInt(inB.value, 10);
+            if (!(n >= 0)) { toast('❌ informe um número válido'); inB.focus(); return; }
+            save.disabled = true;
+            try { await api(`/api/adminpanel/exceptions/${ex.id}/resolve`, { method: 'POST', body: { bottles_count: n, admin_note: inN.value || '' } }); toast('✅ contagem registrada'); refreshExcBadge(); draw(); }
+            catch (e) { save.disabled = false; toast('❌ ' + e.message); }
           };
-          act.appendChild(b); card.appendChild(act);
+          act.appendChild(addBtn); card.appendChild(act); card.appendChild(form);
           c.appendChild(card);
         });
       };

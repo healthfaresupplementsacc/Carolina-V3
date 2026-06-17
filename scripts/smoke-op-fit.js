@@ -56,8 +56,8 @@ function expScale(w, h) { return Math.min(Math.max(Math.min(w / 1440, h / 900), 
     await page.screenshot({ path: 'docs/design/screenshots/v9-fit-' + vp.w + 'x' + vp.h + '.png' });
   }
 
-  // portrait 800x1280: aviso de girar visível, palco escondido
-  await page.setViewport({ width: 800, height: 1280 });
+  // portrait 800x1280 TOUCH: aviso de girar visível, palco escondido (rotate é touch-only)
+  await page.setViewport({ width: 800, height: 1280, hasTouch: true, isMobile: true });
   await page.goto(URL, { waitUntil: 'networkidle2', timeout: 45000 });
   await sleep(400);
   out.portrait = await page.evaluate(() => {

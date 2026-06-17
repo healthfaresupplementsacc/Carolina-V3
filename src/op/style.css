@@ -6,28 +6,34 @@
    — quebrariam o canvas fixo). As CSS vars (--day/--energy/--pulse/--accent)
    ficam no #hf-canvas. Keyframes copiados do design. */
 
+:root { --day: .5; --energy: .3; --pulse: 0; --accent: #0e7a4e; }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { width: 100%; height: 100%; overflow: hidden; }
-body { font-family: 'Manrope', system-ui, sans-serif; color: #0c2545; background: linear-gradient(180deg, #0f4c92 0%, #0c1d3a 100%); }
+body { font-family: 'Manrope', system-ui, sans-serif; color: #0c2545; background: linear-gradient(160deg, #eef4fb 0%, #e6eef8 55%, #e9f1ec 100%); }
 ::selection { background: rgba(47,122,224,.2); }
 input, textarea, button, select { font-family: inherit; }
 textarea { resize: none; }
 
-/* palco = viewport; centraliza o canvas escalado */
-#hf-stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-
-/* canvas = design fixo 1440x900; transform:scale() vem do JS (fitCanvas) */
-#hf-canvas {
-  width: 1440px; height: 900px; position: relative; overflow: hidden;
-  transform-origin: center center;
+/* palco = viewport; gradiente claro do design por toda a tela. Centraliza o canvas. */
+#hf-stage {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
   background: linear-gradient(160deg, #eef4fb 0%, #e6eef8 55%, #e9f1ec 100%);
-  box-shadow: 0 30px 100px -30px rgba(0,0,0,.5);
-  --day: .5; --energy: .3; --pulse: 0; --accent: #0e7a4e;
 }
 
-/* aviso de girar (portrait em tela pequena) */
+/* AMBIENTE: cobre 100% da viewport (z0) — nunca corta, seja qual for o aspect ratio.
+   Fica ATRÁS do canvas transparente, então o conteúdo de vidro o desfoca (glass). */
+#hf-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+
+/* canvas = design fixo 1440x900 escalado (transform via JS). TRANSPARENTE: deixa
+   o ambiente full-viewport aparecer atrás do conteúdo (preserva o vidro-sobre-bottles). */
+#hf-canvas {
+  width: 1440px; height: 900px; position: relative; overflow: visible;
+  transform-origin: center center; background: transparent; z-index: 1;
+}
+
+/* aviso de girar — JS decide quando mostrar (só em touch + portrait pequeno) */
 #hf-rotate-prompt {
-  position: fixed; inset: 0; z-index: 9999;
+  position: fixed; inset: 0; z-index: 9999; display: none;
   background: linear-gradient(180deg, #0f4c92 0%, #0c1d3a 100%);
   align-items: center; justify-content: center; text-align: center;
   color: #fff; font-family: 'Sora', sans-serif;
@@ -36,14 +42,8 @@ textarea { resize: none; }
 .rotate-content svg { animation: rotateHint 2s ease-in-out infinite; }
 .rotate-text { font-size: 22px; font-weight: 600; line-height: 1.4; }
 @keyframes rotateHint { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-90deg); } }
-/* portrait em tela pequena (tablet/telefone em pé): mostra o aviso, esconde o palco */
-@media (orientation: portrait) and (max-width: 1024px) {
-  #hf-rotate-prompt { display: flex !important; }
-  #hf-stage { display: none !important; }
-}
 
-/* ambiente atrás (z0), conteúdo à frente — tudo dentro do canvas */
-#hf-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+/* conteúdo à frente — empilhado dentro do canvas */
 #hf-main { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; }
 
 /* ── camadas persistentes (CROSS-FADE, anti-blink) ──────────

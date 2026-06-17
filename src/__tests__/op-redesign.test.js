@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v10 network-first', () => {
-    expect(SW).toContain("'hf-op-v10'");
+  test('sw é hf-op-v11 network-first', () => {
+    expect(SW).toContain("'hf-op-v11'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -95,13 +95,13 @@ describe('op — fit-to-viewport (canvas fixo 1440x900 escalado)', () => {
     expect(HTML).toContain('id="hf-rotate-prompt"');
     expect(HTML).toContain('Gire o dispositivo');
   });
-  test('CSS: canvas fixo 1440x900 + transform-origin + media portrait', () => {
+  test('CSS: canvas fixo 1440x900 + transform-origin + ambiente full-viewport no stage', () => {
     expect(CSS).toContain('#hf-canvas');
     expect(CSS).toContain('width: 1440px');
     expect(CSS).toContain('height: 900px');
     expect(CSS).toContain('transform-origin');
-    expect(CSS).toContain('@media (orientation: portrait)');
     expect(CSS).toContain('#hf-stage');
+    expect(CSS).toContain('#hf-ambient'); // ambiente cobre a viewport (fora do canvas)
   });
   test('JS: fitCanvas com escala min(vw/1440,vh/900) cap [0.35,1.25] + listeners', () => {
     expect(APP).toContain('function fitCanvas');
@@ -114,9 +114,39 @@ describe('op — fit-to-viewport (canvas fixo 1440x900 escalado)', () => {
     expect(APP).toContain("addEventListener('orientationchange'");
     expect(APP).toContain("getElementById('hf-canvas')"); // ROOT é o canvas
   });
-  test('sem unidades de viewport que quebram o canvas fixo (dvh/vmax)', () => {
-    expect(APP).not.toContain('dvh');
-    expect(APP).not.toContain('vmax');
+  test('conteúdo do canvas sem dvh (quebraria o fixo); vmax só no ambiente full-viewport', () => {
+    expect(APP).not.toContain('dvh'); // telas/modais em px fixos (canvas 1440x900)
+    // vmax agora é VÁLIDO: os blobs do ambiente vivem no #hf-stage (viewport), não no canvas
+  });
+});
+
+describe('op — patch 3 bugs (rotate touch / ambiente full-viewport / admin resolve)', () => {
+  const CSS = fs.readFileSync(path.join(__dirname, '..', 'op', 'style.css'), 'utf8');
+  const ADM = fs.readFileSync(path.join(__dirname, '..', 'admin', 'app.js'), 'utf8');
+  test('BUG1: aviso de girar só em TOUCH + portrait pequeno (não em PC estreito)', () => {
+    expect(APP).toContain('function isTouchDevice');
+    expect(APP).toContain('function shouldShowRotate');
+    expect(APP).toContain('function updateRotateState');
+    expect(APP).toContain("'ontouchstart' in window");
+    expect(APP).toContain('navigator.maxTouchPoints');
+    expect(CSS).not.toContain('@media (orientation: portrait)'); // não decide mais por CSS/tamanho
+  });
+  test('BUG2: ambiente no #hf-stage full-viewport (z0) + canvas transparente (z1)', () => {
+    expect(HTML).toContain('id="hf-ambient"');
+    // #hf-ambient vem ANTES de #hf-canvas dentro do #hf-stage (cobre a viewport atrás)
+    expect(HTML.indexOf('id="hf-ambient"')).toBeLessThan(HTML.indexOf('id="hf-canvas"'));
+    expect(CSS).toContain('background: transparent'); // canvas transparente → ambiente aparece
+    expect(APP).toContain('#hf-ambient vive no #hf-stage'); // bootShell não recria o ambiente no canvas
+    expect(APP).toContain('var RS = document.documentElement.style'); // vars no <html> p/ herdar
+  });
+  test('BUG3: admin badge de exceções + resolve com nota + endpoint de contagem', () => {
+    const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'routes', 'admin.js'), 'utf8');
+    expect(adminRoutes).toContain('/api/adminpanel/metrics/exceptions-count');
+    expect(adminRoutes).toContain('admin_note'); // nota do admin
+    expect(ADM).toContain('exc-badge');
+    expect(ADM).toContain('refreshExcBadge');
+    expect(ADM).toContain('➕ Adicionar contagem');            // form inline (não window.prompt)
+    expect(ADM).toContain('bottles_count: n, admin_note:');     // inline form posta contagem + nota
   });
 });
 

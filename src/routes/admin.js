@@ -972,7 +972,9 @@ function createAdminRouter(deps = {}) {
   // 1c) resolver exceção (admin informa a contagem real depois)
   router.post('/api/adminpanel/exceptions/:eventId/resolve', requireAdmin, makeRateLimit({ limit: 60 }), h(async (req, res) => {
     const eventId = parseInt(req.params.eventId, 10);
-    const bottles = parseInt((req.body || {}).bottles, 10);
+    const body = req.body || {};
+    const bottles = parseInt(body.bottles != null ? body.bottles : body.bottles_count, 10);
+    const adminNote = String(body.admin_note || body.note || '').trim().slice(0, 300);
     if (!Number.isFinite(eventId)) return res.status(400).json({ error: 'bad_id' });
     if (!(Number.isFinite(bottles) && bottles >= 0)) return res.status(400).json({ error: 'bottles_required', detail: 'Informe a contagem (número >= 0).' });
     const evr = await db.query(
@@ -994,19 +996,29 @@ function createAdminRouter(deps = {}) {
           reported_by_person_id, source_event_id, unit, confidence, notes)
        VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'bottle', 'medium', $6)`,
       [ev.product_id || null, ev.product_batch_id || null, bottles, ev.person_id, eventId,
-        'exceção resolvida por ' + (req.admin ? req.admin.name : 'admin')]);
-    await audit('exception.resolved', 'event', eventId, { bottles, product: ev.product, batch: ev.batch_number }, req);
+        'exceção resolvida por ' + (req.admin ? req.admin.name : 'admin') + (adminNote ? ': ' + adminNote : '')]);
+    await audit('exception.resolved', 'event', eventId, { bottles, product: ev.product, batch: ev.batch_number, admin_note: adminNote || null }, req);
     if (slack && slack.postAs) {
       try {
         await slack.postAs({
           channel: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
           sender: { name: 'HealthFare Tracker (Sistema)', icon: ':package:' }, thread_ts: null,
-          text: '✅ *Contagem registrada:* ' + bottles + ' bottles (' + (ev.product || '—') + ' lote ' + (ev.batch_number || '—') + '). Adicionado por ' + (req.admin ? req.admin.name : 'admin') + '.',
+          text: '✅ *Contagem registrada:* ' + bottles + ' bottles (' + (ev.product || '—') + ' lote ' + (ev.batch_number || '—') + '). Adicionado por ' + (req.admin ? req.admin.name : 'admin') + '.' + (adminNote ? ' Nota: “' + adminNote + '”' : ''),
           unfurl_links: false, unfurl_media: false,
         });
       } catch (e) { console.error('[admin] confirmação exceção falhou:', e.message); }
     }
     res.json({ ok: true, bottles });
+  }));
+
+  // 1d) contagem de exceções pendentes (badge no header — barato, p/ poll de 30s)
+  router.get('/api/adminpanel/metrics/exceptions-count', h(async (req, res) => {
+    const r = await db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+       WHERE at.slug = 'production_line' AND e.exception_no_count = true AND e.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM v3.production_counts pc WHERE pc.source_event_id = e.id AND pc.deleted_at IS NULL)`);
+    res.json({ count: r.rows[0].count });
   }));
 
   // 2) Por operador (drill-down)

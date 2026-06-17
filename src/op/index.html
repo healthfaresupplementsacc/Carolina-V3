@@ -23,9 +23,11 @@
     </div>
   </div>
 
-  <!-- palco ocupa a viewport (fundo azul HF); o canvas é o design fixo 1440x900
-       escalado por transform pra caber 100% sem scroll. app.js preenche #hf-canvas. -->
+  <!-- palco ocupa a viewport; o AMBIENTE (blobs+bottles+cápsulas) cobre 100% da
+       viewport (z0) pra NUNCA cortar em telas de aspect ratio diferente; o canvas
+       é o design 1440x900 escalado (transparente, z1) por cima. app.js preenche os dois. -->
   <div id="hf-stage">
+    <div id="hf-ambient"></div>
     <div id="hf-canvas"></div>
   </div>
 
