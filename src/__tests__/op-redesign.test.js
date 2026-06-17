@@ -81,8 +81,31 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw.v4 é hf-op-v4 network-first', () => {
-    expect(SW).toContain("'hf-op-v4'");
+  test('sw é hf-op-v5 network-first', () => {
+    expect(SW).toContain("'hf-op-v5'");
     expect(SW).toContain('NETWORK-FIRST');
+  });
+});
+
+describe('op v4 — 3 bugfixes críticos', () => {
+  test('anti-flicker: shell persistente + tick cirúrgico (sem render() no relógio)', () => {
+    expect(APP).toContain('function bootShell');
+    expect(APP).toContain('MAIN.innerHTML');           // render() só mexe no #hf-main
+    // o tick de 1s NÃO chama render() — atualiza só textos por id
+    const tick = APP.slice(APP.indexOf('tClock = setInterval'), APP.indexOf('tBeat = setInterval'));
+    expect(tick).toContain("getElementById('hf-clock')");
+    expect(tick).toContain("getElementById('hf-logoff')");
+    expect(tick).not.toContain('render()');
+  });
+  test('floaters: bottles+cápsulas renderizados uma vez no ambient', () => {
+    expect(APP).toContain('function renderFloaters');
+    expect(APP).toContain('/op/assets/bottles/');
+    expect(APP).toContain('D.floaters(');
+  });
+  test('RBAC: gear/settings gated por adminUI (operador comum não vê)', () => {
+    expect(APP).toContain('function adminUI');
+    expect(APP).toContain("['admin', 'owner', 'manager'].indexOf");
+    expect(APP).toContain("adminUI() ? iconBtn('toggleSettings'"); // gear condicional
+    expect(APP).toContain('S.settingsOpen && adminUI()');           // dropdown gated
   });
 });

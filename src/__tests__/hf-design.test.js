@@ -55,6 +55,15 @@ describe('hf-design helpers', () => {
     expect(Number(night['--day'])).toBeLessThan(0.1);
     expect(Number(night['--energy'])).toBe(0);
   });
+  test('floaters: count por densidade, bottles válidos', () => {
+    expect(D.floaters(8)).toHaveLength(8);
+    expect(D.floaters(14)).toHaveLength(14);
+    expect(D.floaters(22).length).toBeLessThanOrEqual(22);
+    var f = D.floaters(14);
+    f.filter(function (x) { return x.k === 'b'; }).forEach(function (x) { expect(D.BOTTLE_FILES[x.b]).toBeTruthy(); });
+    expect(f.some(function (x) { return x.k === 'b'; })).toBe(true); // tem bottle
+    expect(f.some(function (x) { return x.k === 'c'; })).toBe(true); // tem cápsula
+  });
   test('mantra cicla por idioma', () => {
     expect(D.mantra('pt', 0)).toBe('Cada lote conta.');
     expect(D.mantra('en', 0)).toBe('Every batch counts.');

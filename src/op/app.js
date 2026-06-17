@@ -114,24 +114,60 @@
   }
   function densityMul() { return ({ low: 0.5, medium: 1, high: 1.5 })[S.settings.density] || 1; }
 
-  // ── RENDER raiz ────────────────────────────────────────────
+  // ── SHELL persistente (ANTI-FLICKER) ───────────────────────
+  // ROOT contém: #hf-ambient (renderizado UMA vez — blobs+floaters, nunca
+  // recriado), #hf-mantra-wrap e #hf-main. render() reescreve SÓ #hf-main +
+  // ajusta CSS vars no ROOT. O tick de 1s NÃO chama render() (era a causa do
+  // flicker — reconstruía o DOM inteiro a cada segundo).
+  var MAIN = null, MANTRA = null, AMBIENT = null, shellBuilt = false, floatersDensity = null;
+  function bootShell() {
+    ROOT.innerHTML = '<div id="hf-ambient" class="hf-ambient"></div><div id="hf-mantra-wrap"></div><div id="hf-main"></div>';
+    AMBIENT = document.getElementById('hf-ambient');
+    MANTRA = document.getElementById('hf-mantra-wrap');
+    MAIN = document.getElementById('hf-main');
+    renderFloaters();
+    shellBuilt = true;
+  }
+  function renderFloaters() {
+    if (!AMBIENT) return;
+    var dens = S.settings.density;
+    var count = ({ low: 8, medium: 14, high: 22 })[dens] || 14;
+    var h = '<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>';
+    D.floaters(count).forEach(function (f) {
+      var anim = 'animation:' + f.d + ' ' + f.t + 's ease-in-out ' + (f.dl || 0) + 's infinite alternate;';
+      if (f.k === 'b') {
+        h += '<img src="/op/assets/bottles/' + D.BOTTLE_FILES[f.b] + '.png" loading="lazy" alt="" style="position:absolute;left:' + f.x + '%;top:' + f.y + '%;width:' + f.s + 'px;height:auto;opacity:' + f.o + ';filter:blur(.5px);pointer-events:none;' + anim + '">';
+      } else {
+        // cápsula CSS (pílula alongada, gradiente azul→verde, leve)
+        h += '<div style="position:absolute;left:' + f.x + '%;top:' + f.y + '%;width:' + f.s + 'px;height:' + Math.round(f.s * 0.42) + 'px;border-radius:999px;background:linear-gradient(90deg,#2f7ae0 0 50%,#44ae4f 50% 100%);opacity:' + f.o + ';filter:blur(.4px);pointer-events:none;transform:rotate(' + (f.r || 0) + 'deg);box-shadow:inset 0 1px 2px rgba(255,255,255,.5);' + anim + '"></div>';
+      }
+    });
+    AMBIENT.innerHTML = h;
+    floatersDensity = dens;
+  }
+  function adminUI() { return S.session && ['admin', 'owner', 'manager'].indexOf(S.session.person.role) >= 0; }
+
+  // ── RENDER (só #hf-main; shell/ambient persistem) ──────────
   function render() {
-    var bg = S.screen === 'login' ? 'hf-bg-login' : 'hf-bg-app';
+    if (!shellBuilt) bootShell();
+    ROOT.className = S.screen === 'login' ? 'hf-bg-login' : 'hf-bg-app';
     var amb = D.ambientVars(new Date(), S.myTasks.length);
-    var rootStyle = '--accent:' + accent() + ';--day:' + amb['--day'] + ';--energy:' + amb['--energy'] + ';--hf-ambient:' + densityMul() + ';';
-    var html = '<div class="' + bg + '" style="position:relative;min-height:100dvh;display:flex;flex-direction:column;' + rootStyle + '">';
-    html += ambientHTML();
-    if (S.settings.mantras && S.screen === 'home') html += '<div style="position:fixed;bottom:clamp(14px,2.4vh,24px);left:0;right:0;z-index:4;display:flex;justify-content:center;pointer-events:none;padding:0 16px;"><div class="hf-mantra">' + esc(curMantra()) + '</div></div>';
+    ROOT.style.setProperty('--accent', accent());
+    ROOT.style.setProperty('--day', amb['--day']);
+    ROOT.style.setProperty('--energy', amb['--energy']);
+    ROOT.style.setProperty('--hf-ambient', String(densityMul()));
+    if (floatersDensity !== S.settings.density) renderFloaters(); // só rebuild se densidade mudou
+    MANTRA.innerHTML = (S.settings.mantras && S.screen === 'home') ? '<div style="position:fixed;bottom:clamp(14px,2.4vh,24px);left:0;right:0;z-index:4;display:flex;justify-content:center;pointer-events:none;padding:0 16px;"><div class="hf-mantra">' + esc(curMantra()) + '</div></div>' : '';
+    var html = '';
     if (S.session) html += topbarHTML();
     if (S.screen === 'login') html += loginHTML();
     if (S.screen === 'home') html += homeHTML();
     if (S.flow) html += flowHTML();
     if (S.overlay) html += overlayHTML();
-    if (S.settingsOpen) html += settingsHTML();
+    if (S.settingsOpen && adminUI()) html += settingsHTML();
     if (S.toast) html += '<div style="position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:90;background:#0c2545;color:#fff;padding:14px 24px;border-radius:16px;font-weight:600;font-size:15px;box-shadow:0 20px 50px -16px rgba(12,37,69,.7);animation:hfPop .3s ease both;max-width:92vw;text-align:center;">' + esc(S.toast) + '</div>';
-    html += '</div>';
-    ROOT.innerHTML = html;
-    if (S._focus) { var f = ROOT.querySelector('[data-focus="' + S._focus + '"]'); if (f) { f.focus(); try { var v = f.value; f.value = ''; f.value = v; } catch (e) {} } }
+    MAIN.innerHTML = html;
+    if (S._focus) { var f = MAIN.querySelector('[data-focus="' + S._focus + '"]'); if (f) { f.focus(); try { var v = f.value; f.value = ''; f.value = v; } catch (e) {} } }
   }
   function ambientHTML() {
     return '<div class="hf-ambient"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div></div>';
@@ -139,12 +175,12 @@
 
   function topbarHTML() {
     var p = S.session.person;
-    var logoff = S.logoffLeft != null ? '<span style="font-size:12px;color:#5a6e87;font-weight:600;margin-right:4px;">logoff ' + S.logoffLeft + 's</span>' : '';
+    var logoff = '<span id="hf-logoff" style="font-size:12px;color:#5a6e87;font-weight:600;margin-right:4px;">' + (S.logoffLeft != null ? 'logoff ' + S.logoffLeft + 's' : '') + '</span>';
     return '<div style="position:relative;z-index:6;display:flex;align-items:center;gap:14px;padding:clamp(12px,1.6vw,18px) clamp(14px,2.6vw,30px);">'
       + '<span style="display:inline-flex;align-items:center;padding:9px 17px;border-radius:17px;background:rgba(255,255,255,.8);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.9);box-shadow:0 12px 30px -16px rgba(15,40,90,.5);"><img src="/op/assets/healthfare-logo.png" alt="HealthFare" style="height:clamp(34px,3.2vw,46px);width:auto;display:block;"></span>'
       + '<div style="flex:1;"></div>' + logoff
       + '<div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.7);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.8);border-radius:999px;padding:7px 14px 7px 9px;box-shadow:0 8px 24px -14px rgba(15,40,90,.4);"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(140deg,#2f7ae0,#0f4c92);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;">' + esc(D.initials(p.display_name)) + '</div><span style="font-weight:700;font-size:14px;color:#0c2545;white-space:nowrap;">' + esc(p.display_name) + '</span><span style="width:8px;height:8px;border-radius:50%;background:#21a85b;box-shadow:0 0 0 3px rgba(33,168,91,.18);animation:hfPulse 2.4s ease-in-out infinite;margin-left:2px;"></span></div>'
-      + iconBtn('toggleSettings', 'Ajustes', ICONS.gear || 'M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z', '#42566f', 'rgba(255,255,255,.62)')
+      + (adminUI() ? iconBtn('toggleSettings', 'Ajustes (admin)', ICONS.gear || 'M12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6z', '#42566f', 'rgba(255,255,255,.62)') : '')
       + iconBtn('clockout', 'Sair (fim do dia)', 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9', '#b35c00', 'rgba(255,247,234,.82)')
       + iconBtn('logout', 'Trocar operador', 'M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3', '#42566f', 'rgba(255,255,255,.62)')
       + '</div>';
@@ -178,7 +214,7 @@
       + '<div style="width:min(100%,1120px);margin:0 auto;display:flex;flex-direction:column;gap:clamp(16px,2vw,22px);">';
     // hero
     h += '<div class="hf-glass" style="animation:hfRise .5s ease both;display:grid;grid-template-columns:1fr auto;gap:24px;align-items:center;border-radius:30px;padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px);">'
-      + '<div style="min-width:0;"><div style="font-size:14px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:' + accent() + ';opacity:.9;">' + esc(ph) + ' · ' + D.clockStr(new Date()) + '</div>'
+      + '<div style="min-width:0;"><div style="font-size:14px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:' + accent() + ';opacity:.9;">' + esc(ph) + ' · <span id="hf-clock">' + D.clockStr(new Date()) + '</span></div>'
       + '<div style="font-family:var(--hf-font-display);font-weight:700;font-size:clamp(28px,4.4vw,46px);line-height:1.05;margin:6px 0 4px;color:#0c2545;">' + esc(D.greeting(ph)) + ', ' + esc(p.display_name) + '</div>'
       + '<div style="font-size:15px;color:#5a6e87;text-transform:capitalize;font-weight:500;">' + esc(D.dateStr(new Date())) + '</div></div>'
       + '<div style="position:relative;width:clamp(118px,13vw,150px);height:clamp(118px,13vw,150px);display:flex;align-items:center;justify-content:center;"><svg viewBox="0 0 120 120" style="width:100%;height:100%;transform:rotate(-90deg);"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(15,40,90,.1)" stroke-width="11"></circle><circle cx="60" cy="60" r="52" fill="none" stroke="' + accent() + '" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + dash + '" style="transition:stroke-dasharray .8s;"></circle></svg><div style="position:absolute;text-align:center;"><div style="font-family:var(--hf-font-display);font-weight:800;font-size:clamp(26px,3vw,34px);color:#0c2545;line-height:1;">' + S.completedToday + '</div><div style="font-size:12px;font-weight:600;color:#8195ab;">de ' + S.goal + ' hoje</div></div></div></div>';
@@ -620,11 +656,19 @@
     stopTimers();
     tClock = setInterval(function () {
       S.now = Date.now();
-      if (S.session && S.logoffLeft != null) { S.logoffLeft -= 1; if (S.logoffLeft <= 0) { doLogout('auto_timeout'); return; } }
-      if (S.screen === 'home' || S.session) render();
+      // ATUALIZAÇÃO CIRÚRGICA (sem re-render geral → sem flicker): só nós de texto
+      if (S.session && S.logoffLeft != null) {
+        S.logoffLeft -= 1;
+        if (S.logoffLeft <= 0) { doLogout('auto_timeout'); return; }
+        var lg = document.getElementById('hf-logoff'); if (lg) lg.textContent = 'logoff ' + S.logoffLeft + 's';
+      }
+      var ck = document.getElementById('hf-clock'); if (ck) ck.textContent = D.clockStr(new Date());
     }, 1000);
     tBeat = setInterval(function () { if (S.session) api('/api/v3/op/auth/heartbeat', { method: 'POST' }).catch(function () {}); }, 45000);
-    tMantra = setInterval(function () { S.mantraIdx = (S.mantraIdx + 1) % MANTRAS.length; if (S.settings.mantras && S.screen === 'home') render(); }, 7000);
+    tMantra = setInterval(function () {
+      S.mantraIdx = (S.mantraIdx + 1) % MANTRAS.length;
+      if (S.settings.mantras && S.screen === 'home' && MANTRA) { var m = MANTRA.querySelector('.hf-mantra'); if (m) { m.textContent = curMantra(); m.style.animation = 'none'; void m.offsetWidth; m.style.animation = 'hfMantra 7s ease-in-out infinite'; } }
+    }, 7000);
   }
   function stopTimers() { clearInterval(tClock); clearInterval(tBeat); clearInterval(tMantra); S.logoffLeft = null; }
 

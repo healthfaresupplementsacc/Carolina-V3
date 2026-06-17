@@ -5,8 +5,11 @@
 html, body { height: 100%; }
 body { font-family: var(--hf-font-body); background: var(--hf-bg-app); color: var(--hf-text-primary); overflow: hidden; }
 
-/* raiz: coluna que ocupa a viewport; o fundo azul do login vem inline no rootStyle */
+/* raiz: coluna que ocupa a viewport. #hf-ambient (absolute, z0) atrás;
+   #hf-main (z3) à frente. Shell persistente → sem flicker (render() só mexe no main). */
 #hf-root { position: relative; min-height: 100dvh; display: flex; flex-direction: column; }
+#hf-root > .hf-ambient { position: absolute; inset: 0; z-index: 0; }
+#hf-main { position: relative; z-index: 3; flex: 1; display: flex; flex-direction: column; min-height: 100dvh; }
 
 /* fundo do app conforme o screen (classe trocada pelo app.v4.js) */
 .hf-bg-login { background:

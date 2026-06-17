@@ -76,5 +76,35 @@
     return arr[(i == null ? 0 : i) % arr.length];
   }
 
-  return { phaseOfDay, greeting, clockStr, dateStr, initials, statusDot, ageBadge, operatorAccent, productAccent, ambientVars, mantra, MANTRAS, ACCENTS };
+  // ── ambient floaters (bottles + cápsulas à deriva no fundo) ──
+  var BOTTLE_FILES = ['ashwagandha', 'benfotiamine', 'berberine', 'charcoal', 'chlorophyll', 'l-carnitine', 'nad', 'plant-sterols', 'rutin', 'white-kidney'];
+  // 22 floaters curados (x/y % espalhados, drift/duração variados, opacidade baixa).
+  // kind 'b' = bottle (usa BOTTLE_FILES[i]), 'c' = cápsula (CSS). count fatia por densidade.
+  var FLOATERS = [
+    { k: 'b', b: 0, x: 6, y: 12, s: 74, d: 'driftA', t: 15, dl: 0, o: 0.15 },
+    { k: 'c', x: 20, y: 64, s: 30, d: 'driftC', t: 12, dl: 1, o: 0.16, r: 40 },
+    { k: 'b', b: 1, x: 83, y: 18, s: 60, d: 'driftB', t: 17, dl: 2, o: 0.14 },
+    { k: 'c', x: 70, y: 40, s: 24, d: 'driftD', t: 13, dl: 0.5, o: 0.18, r: -25 },
+    { k: 'b', b: 2, x: 46, y: 78, s: 66, d: 'driftC', t: 18, dl: 1.5, o: 0.13 },
+    { k: 'c', x: 12, y: 38, s: 26, d: 'driftB', t: 14, dl: 2.5, o: 0.15, r: 70 },
+    { k: 'b', b: 3, x: 90, y: 68, s: 56, d: 'driftA', t: 16, dl: 0.8, o: 0.14 },
+    { k: 'c', x: 56, y: 14, s: 22, d: 'driftD', t: 12, dl: 3, o: 0.17, r: 10 },
+    { k: 'b', b: 4, x: 30, y: 28, s: 50, d: 'driftB', t: 19, dl: 1.2, o: 0.12 },
+    { k: 'c', x: 78, y: 84, s: 28, d: 'driftA', t: 13, dl: 2, o: 0.16, r: -50 },
+    { k: 'b', b: 5, x: 60, y: 58, s: 62, d: 'driftC', t: 15, dl: 0.3, o: 0.13 },
+    { k: 'c', x: 38, y: 48, s: 24, d: 'driftB', t: 14, dl: 1.8, o: 0.15, r: 30 },
+    { k: 'b', b: 6, x: 16, y: 86, s: 58, d: 'driftD', t: 17, dl: 2.2, o: 0.12 },
+    { k: 'c', x: 92, y: 44, s: 26, d: 'driftC', t: 12, dl: 0.6, o: 0.17, r: -15 },
+    { k: 'b', b: 7, x: 72, y: 8, s: 52, d: 'driftA', t: 18, dl: 1.4, o: 0.13 },
+    { k: 'c', x: 4, y: 60, s: 22, d: 'driftD', t: 13, dl: 2.8, o: 0.16, r: 55 },
+    { k: 'b', b: 8, x: 50, y: 36, s: 48, d: 'driftB', t: 16, dl: 0.9, o: 0.12 },
+    { k: 'c', x: 86, y: 28, s: 28, d: 'driftC', t: 14, dl: 1.6, o: 0.15, r: -40 },
+    { k: 'b', b: 9, x: 24, y: 6, s: 54, d: 'driftA', t: 19, dl: 2.4, o: 0.12 },
+    { k: 'c', x: 64, y: 90, s: 24, d: 'driftB', t: 12, dl: 0.4, o: 0.17, r: 20 },
+    { k: 'b', b: 0, x: 40, y: 66, s: 46, d: 'driftD', t: 17, dl: 1.1, o: 0.11 },
+    { k: 'c', x: 8, y: 84, s: 26, d: 'driftC', t: 13, dl: 3.2, o: 0.15, r: -60 },
+  ];
+  function floaters(count) { var n = Math.max(0, Math.min(FLOATERS.length, count || 14)); return FLOATERS.slice(0, n); }
+
+  return { phaseOfDay, greeting, clockStr, dateStr, initials, statusDot, ageBadge, operatorAccent, productAccent, ambientVars, mantra, MANTRAS, ACCENTS, floaters, BOTTLE_FILES };
 }));
