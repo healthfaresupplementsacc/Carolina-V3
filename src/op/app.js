@@ -24,7 +24,7 @@
   var DATA = window.HF_DATA || { groups: [], quick: [], supplements: [], recent_batches: [] };
   var SM = window.HFStateMachine; var D = window.HFDesign;
   var Q = window.HFOfflineQueue || null;
-  var ROOT = document.getElementById('hf-root');
+  var ROOT = document.getElementById('hf-canvas'); // design fixo 1440x900 (escalado por fitCanvas)
 
   // ── ícones (paths SVG — cópia exata do design) ─────────────
   var ICONS = {
@@ -253,10 +253,10 @@
   function buildAmbient() {
     if (!AMBIENT) return;
     var blobs =
-      '<div style="position:absolute; width:62vmax; height:62vmax; left:-16vmax; top:-20vmax; border-radius:50%; background:radial-gradient(circle, #2f7ae0, transparent 68%); filter:blur(60px); opacity:calc(0.14 + 0.34*var(--day,.5) + 0.16*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
-      '<div style="position:absolute; width:58vmax; height:58vmax; right:-18vmax; top:8vmax; border-radius:50%; background:radial-gradient(circle, #44ae4f, transparent 66%); filter:blur(64px); opacity:calc(0.12 + 0.32*var(--day,.5) + 0.18*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
-      '<div style="position:absolute; width:54vmax; height:54vmax; left:24vmax; bottom:-24vmax; border-radius:50%; background:radial-gradient(circle, #1b8f8f, transparent 70%); filter:blur(66px); opacity:calc(0.1 + 0.26*var(--day,.5) + 0.14*var(--energy,.3));"></div>' +
-      '<div style="position:absolute; width:40vmax; height:40vmax; right:18vmax; bottom:-12vmax; border-radius:50%; background:radial-gradient(circle, #0f4c92, transparent 72%); filter:blur(70px); opacity:calc(0.08 + 0.2*var(--day,.5));"></div>';
+      '<div style="position:absolute; width:900px; height:900px; left:-230px; top:-290px; border-radius:50%; background:radial-gradient(circle, #2f7ae0, transparent 68%); filter:blur(60px); opacity:calc(0.14 + 0.34*var(--day,.5) + 0.16*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
+      '<div style="position:absolute; width:840px; height:840px; right:-260px; top:115px; border-radius:50%; background:radial-gradient(circle, #44ae4f, transparent 66%); filter:blur(64px); opacity:calc(0.12 + 0.32*var(--day,.5) + 0.18*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
+      '<div style="position:absolute; width:780px; height:780px; left:345px; bottom:-345px; border-radius:50%; background:radial-gradient(circle, #1b8f8f, transparent 70%); filter:blur(66px); opacity:calc(0.1 + 0.26*var(--day,.5) + 0.14*var(--energy,.3));"></div>' +
+      '<div style="position:absolute; width:580px; height:580px; right:260px; bottom:-175px; border-radius:50%; background:radial-gradient(circle, #0f4c92, transparent 72%); filter:blur(70px); opacity:calc(0.08 + 0.2*var(--day,.5));"></div>';
     AMBIENT.innerHTML = blobs + ambientBottles() + capsules();
     ambientDensity = S.settings.density;
   }
@@ -289,7 +289,7 @@
     if (ambientDensity !== S.settings.density) buildAmbient();
     // mantra (fixa no rodapé; só na home e quando ligada)
     MANTRA.innerHTML = (S.settings.mantras && S.screen === 'home')
-      ? '<div style="position:fixed; bottom:clamp(14px,2.4vh,24px); left:0; right:0; z-index:4; display:flex; justify-content:center; pointer-events:none; padding:0 16px;"><div id="hf-mantra-text" style="animation:hfMantra 7s ease-in-out infinite; font-family:\'Sora\',sans-serif; font-weight:600; font-size:clamp(13px,1.5vw,18px); letter-spacing:.01em; color:#4a6485; text-align:center; max-width:760px; text-shadow:0 1px 14px rgba(255,255,255,.7);">' + esc(curMantra()) + '</div></div>'
+      ? '<div style="position:absolute; bottom:24px; left:0; right:0; z-index:4; display:flex; justify-content:center; pointer-events:none; padding:0 16px;"><div id="hf-mantra-text" style="animation:hfMantra 7s ease-in-out infinite; font-family:\'Sora\',sans-serif; font-weight:600; font-size:18px; letter-spacing:.01em; color:#4a6485; text-align:center; max-width:760px; text-shadow:0 1px 14px rgba(255,255,255,.7);">' + esc(curMantra()) + '</div></div>'
       : '';
 
     mountLayer('login', S.screen === 'login', loginInner, 'login|' + S.pin.length + '|' + S.pinError + '|' + (S.shake ? 1 : 0));
@@ -364,7 +364,7 @@
     var circ = 2 * Math.PI * 52; var frac = Math.min(1, S.goal ? S.completedToday / S.goal : 0);
     var dash = (circ * frac).toFixed(1) + ' ' + circ.toFixed(1);
     var h = topbarHTML();
-    h += '<div class="hf-scroll" style="position:relative; z-index:3; flex:1; overflow-y:auto; padding:clamp(6px,1vw,12px) clamp(14px,3vw,32px) clamp(60px,8vh,90px);">'
+    h += '<div class="hf-scroll" style="position:relative; z-index:3; flex:1; overflow-y:auto; padding:12px 32px 40px;">'
       + '<div style="width:min(100%,1120px); margin:0 auto; display:flex; flex-direction:column; gap:clamp(16px,2vw,22px);">';
     // hero
     h += '<div style="display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
@@ -456,7 +456,7 @@
     }).join('');
   }
   function flowShellHTML() {
-    return '<div class="hf-scroll" style="position:relative; width:min(97vw,800px); max-height:94dvh; overflow-y:auto; background:rgba(255,255,255,.84); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:30px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6), inset 0 1px 0 rgba(255,255,255,.9); animation:hfPop .35s cubic-bezier(.2,.8,.2,1) both;">'
+    return '<div class="hf-scroll" style="position:relative; width:800px; max-width:97%; max-height:846px; overflow-y:auto; background:rgba(255,255,255,.84); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:30px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6), inset 0 1px 0 rgba(255,255,255,.9); animation:hfPop .35s cubic-bezier(.2,.8,.2,1) both;">'
       + '<div style="position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:14px; padding:clamp(16px,2.4vw,22px) clamp(18px,2.8vw,28px); background:linear-gradient(rgba(255,255,255,.86), rgba(255,255,255,.5)); backdrop-filter:blur(10px); border-bottom:1px solid rgba(15,40,90,.07); border-radius:30px 30px 0 0;"><div id="flow-crumbs" style="flex:1; display:flex; align-items:center; gap:clamp(8px,1.4vw,16px); flex-wrap:wrap; min-width:0;"></div><button data-act="cancelFlow" title="Cancelar" aria-label="Cancelar" style="flex:none; width:40px; height:40px; border-radius:50%; border:1px solid rgba(15,40,90,.12); background:rgba(255,255,255,.7); color:#6c819b; cursor:pointer; display:flex; align-items:center; justify-content:center;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 20, 2.2) + '</button></div>'
       + '<div id="flow-body" style="padding:clamp(18px,2.6vw,28px);"></div></div>';
   }
@@ -511,7 +511,7 @@
     });
     return '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:16px;">Qual suplemento?</div>'
       + '<div style="position:relative; margin-bottom:14px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#8195ab;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.query || '') + '" data-input="query" data-focus="query" placeholder="Digite o nome do suplemento…" style="width:100%; min-height:58px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>'
-      + '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:42dvh; overflow-y:auto;">' + rows + '</div>'
+      + '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:378px; overflow-y:auto;">' + rows + '</div>'
       + '<div style="display:flex; gap:11px; margin-top:18px;">' + backBtn() + '</div>';
   }
   function flowBatch() {
@@ -613,7 +613,7 @@
     return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
-  function cardOpen(maxw, center, extra) { return '<div class="hf-scroll" style="width:min(94vw,' + maxw + 'px); max-height:92dvh; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + (extra || '') + '">'; }
+  function cardOpen(maxw, center, extra) { return '<div class="hf-scroll" style="width:' + maxw + 'px; max-width:94%; max-height:828px; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + (extra || '') + '">'; }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
     if (o.type === 'finish') {
@@ -936,6 +936,23 @@
   window.addEventListener('online', function () { S.online = true; if (Q && Q.flush) Q.flush(function (item) { return fetch(item.path, { method: 'POST', headers: { Authorization: 'Bearer ' + CFG.pageToken, 'X-Session-Token': item.sessionToken || (S.session && S.session.token), 'Content-Type': 'application/json' }, body: JSON.stringify(item.body) }).then(function (r) { return r.ok; }); }).then(function () { loadData(); }); });
   window.addEventListener('offline', function () { S.online = false; });
 
+  // ── FIT-TO-VIEWPORT: escala o canvas 1440x900 pra caber 100% (sem scroll) ──
+  var DESIGN_W = 1440, DESIGN_H = 900, SCALE_MAX = 1.25, SCALE_MIN = 0.35;
+  function fitCanvas() {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    // portrait em tela pequena: o CSS @media mostra o aviso de girar; não escala
+    if (vh > vw && Math.min(vw, vh) <= 1024) return;
+    var scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
+    var f = Math.min(Math.max(scale, SCALE_MIN), SCALE_MAX);
+    if (ROOT) ROOT.style.transform = 'scale(' + f + ')';
+    document.documentElement.setAttribute('data-hf-scale', f.toFixed(2));
+    document.documentElement.setAttribute('data-hf-viewport', vw + 'x' + vh);
+  }
+  var _fitT = null;
+  window.addEventListener('resize', function () { clearTimeout(_fitT); _fitT = setTimeout(fitCanvas, 50); });
+  window.addEventListener('orientationchange', function () { setTimeout(fitCanvas, 200); });
+
   // boot
   render();
+  fitCanvas();
 }());

@@ -81,9 +81,42 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v7 network-first', () => {
-    expect(SW).toContain("'hf-op-v7'");
+  test('sw é hf-op-v9 network-first', () => {
+    expect(SW).toContain("'hf-op-v9'");
     expect(SW).toContain('NETWORK-FIRST');
+  });
+});
+
+describe('op — fit-to-viewport (canvas fixo 1440x900 escalado)', () => {
+  const CSS = fs.readFileSync(path.join(__dirname, '..', 'op', 'style.css'), 'utf8');
+  test('estrutura palco/canvas + aviso de girar no HTML', () => {
+    expect(HTML).toContain('id="hf-stage"');
+    expect(HTML).toContain('id="hf-canvas"');
+    expect(HTML).toContain('id="hf-rotate-prompt"');
+    expect(HTML).toContain('Gire o dispositivo');
+  });
+  test('CSS: canvas fixo 1440x900 + transform-origin + media portrait', () => {
+    expect(CSS).toContain('#hf-canvas');
+    expect(CSS).toContain('width: 1440px');
+    expect(CSS).toContain('height: 900px');
+    expect(CSS).toContain('transform-origin');
+    expect(CSS).toContain('@media (orientation: portrait)');
+    expect(CSS).toContain('#hf-stage');
+  });
+  test('JS: fitCanvas com escala min(vw/1440,vh/900) cap [0.35,1.25] + listeners', () => {
+    expect(APP).toContain('function fitCanvas');
+    expect(APP).toContain('DESIGN_W = 1440');
+    expect(APP).toContain('DESIGN_H = 900');
+    expect(APP).toContain('SCALE_MAX = 1.25');
+    expect(APP).toContain('SCALE_MIN = 0.35');
+    expect(APP).toContain("ROOT.style.transform = 'scale(");
+    expect(APP).toContain("addEventListener('resize'");
+    expect(APP).toContain("addEventListener('orientationchange'");
+    expect(APP).toContain("getElementById('hf-canvas')"); // ROOT é o canvas
+  });
+  test('sem unidades de viewport que quebram o canvas fixo (dvh/vmax)', () => {
+    expect(APP).not.toContain('dvh');
+    expect(APP).not.toContain('vmax');
   });
 });
 

@@ -1,33 +1,54 @@
-/* HEALTHFARE /op — base + keyframes FIÉIS ao design (HealthFare Linha.dc.html).
-   O design usa estilos inline em cada elemento; aqui ficam só os resets,
-   o gradiente do root, os keyframes (copiados do <helmet><style> do .dc.html)
-   e o scroll. O shell persistente (#hf-ambient/#hf-mantra-wrap/#hf-main) evita
-   flicker: render() reescreve só #hf-main; o ambiente é montado uma vez. */
+/* HEALTHFARE /op — FIT-TO-VIEWPORT.
+   O design é um canvas FIXO de 1440x900 (#hf-canvas) escalado por
+   transform:scale() pra caber 100% em qualquer tela, sem scroll de página.
+   O palco (#hf-stage) ocupa a viewport com fundo azul HF (letterbox). Tudo
+   que é tamanho dentro do canvas é fixo em px (unidades de viewport — dvh/vmax
+   — quebrariam o canvas fixo). As CSS vars (--day/--energy/--pulse/--accent)
+   ficam no #hf-canvas. Keyframes copiados do design. */
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; }
-body { font-family: 'Manrope', system-ui, sans-serif; background: #e9f0f8; overflow: hidden; color: #0c2545; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { font-family: 'Manrope', system-ui, sans-serif; color: #0c2545; background: linear-gradient(180deg, #0f4c92 0%, #0c1d3a 100%); }
 ::selection { background: rgba(47,122,224,.2); }
 input, textarea, button, select { font-family: inherit; }
 textarea { resize: none; }
 
-/* raiz = rootStyle do design: coluna que ocupa a viewport, gradiente claro,
-   ambiente atrás (z0) e conteúdo à frente. As CSS vars (--day/--energy/--pulse
-   /--accent) são ajustadas pelo app a cada render/tick (sem rebuild do DOM). */
-#hf-root {
-  position: relative; min-height: 100dvh; width: 100%; overflow: hidden;
-  display: flex; flex-direction: column;
+/* palco = viewport; centraliza o canvas escalado */
+#hf-stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+
+/* canvas = design fixo 1440x900; transform:scale() vem do JS (fitCanvas) */
+#hf-canvas {
+  width: 1440px; height: 900px; position: relative; overflow: hidden;
+  transform-origin: center center;
   background: linear-gradient(160deg, #eef4fb 0%, #e6eef8 55%, #e9f1ec 100%);
+  box-shadow: 0 30px 100px -30px rgba(0,0,0,.5);
   --day: .5; --energy: .3; --pulse: 0; --accent: #0e7a4e;
 }
+
+/* aviso de girar (portrait em tela pequena) */
+#hf-rotate-prompt {
+  position: fixed; inset: 0; z-index: 9999;
+  background: linear-gradient(180deg, #0f4c92 0%, #0c1d3a 100%);
+  align-items: center; justify-content: center; text-align: center;
+  color: #fff; font-family: 'Sora', sans-serif;
+}
+.rotate-content { display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.rotate-content svg { animation: rotateHint 2s ease-in-out infinite; }
+.rotate-text { font-size: 22px; font-weight: 600; line-height: 1.4; }
+@keyframes rotateHint { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-90deg); } }
+/* portrait em tela pequena (tablet/telefone em pé): mostra o aviso, esconde o palco */
+@media (orientation: portrait) and (max-width: 1024px) {
+  #hf-rotate-prompt { display: flex !important; }
+  #hf-stage { display: none !important; }
+}
+
+/* ambiente atrás (z0), conteúdo à frente — tudo dentro do canvas */
 #hf-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
-#hf-main { position: relative; z-index: 3; flex: 1; display: flex; flex-direction: column; min-height: 100dvh; }
+#hf-main { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; }
 
 /* ── camadas persistentes (CROSS-FADE, anti-blink) ──────────
-   Cada tela/modal vive SEMPRE no DOM. A troca de tela é um
-   cross-fade de opacidade (220ms): a antiga some enquanto a nova
-   aparece — nunca há frame vazio (= sem flash). visibility só
-   esconde DEPOIS do fade (delay), pra não cortar a transição. */
+   Cada tela/modal vive SEMPRE no DOM. Troca = cross-fade de opacidade
+   (220ms): a antiga some enquanto a nova aparece — nunca há frame vazio. */
 .hf-layer {
   opacity: 0; visibility: hidden; pointer-events: none; will-change: opacity;
   transition: opacity 220ms ease-out, visibility 0s linear 220ms;
@@ -36,17 +57,17 @@ textarea { resize: none; }
   opacity: 1; visibility: visible; pointer-events: auto;
   transition: opacity 220ms ease-out, visibility 0s linear 0s;
 }
-/* telas-base (login/home) ocupam o #hf-main inteiro, empilhadas */
+/* telas-base (login/home) ocupam o canvas inteiro, empilhadas */
 #scr-login { position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center; padding: 24px; }
 #scr-home  { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; }
-/* modais centrados sobre tudo; o backdrop É a própria camada (faz hfFade junto) */
-.hf-modal { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-#lyr-flow    { z-index: 40; padding: clamp(10px,3vw,28px); background: rgba(12,30,55,.42); backdrop-filter: blur(7px); }
+/* modais centrados sobre tudo (absolutos no canvas; o backdrop É a camada) */
+.hf-modal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+#lyr-flow    { z-index: 40; padding: 28px; background: rgba(12,30,55,.42); backdrop-filter: blur(7px); }
 #lyr-overlay { z-index: 45; padding: 18px; background: rgba(12,30,55,.42); backdrop-filter: blur(7px); }
 #lyr-alert   { z-index: 60; padding: 18px; background: rgba(179,38,30,.18); backdrop-filter: blur(6px); }
-#lyr-settings { position: fixed; inset: 0; z-index: 50; }
+#lyr-settings { position: absolute; inset: 0; z-index: 50; }
 /* toast some/aparece com fade (nunca bloqueia) */
-#hf-toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 90; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 220ms ease-out, visibility 0s linear 220ms; }
+#hf-toast { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 90; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 220ms ease-out, visibility 0s linear 220ms; }
 #hf-toast.on { opacity: 1; visibility: visible; transition: opacity 220ms ease-out; }
 
 /* scrollbar discreta (igual ao .hf-scroll do design) */
