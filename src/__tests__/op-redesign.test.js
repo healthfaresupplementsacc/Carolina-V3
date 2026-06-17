@@ -20,12 +20,12 @@ const REAL = [
 
 describe('op v4 — screens e handlers', () => {
   test('login: keypad + dots + submitPin', () => {
-    expect(APP).toContain('function loginHTML');
+    expect(APP).toContain('function loginInner');
     expect(APP).toContain("data-act=\"pinkey\"");
     expect(APP).toContain('function submitPin');
   });
   test('home: hero/ring/CTA/mine/team/note', () => {
-    expect(APP).toContain('function homeHTML');
+    expect(APP).toContain('function homeInner');
     expect(APP).toContain('Iniciar Tarefa');
     expect(APP).toContain('stroke-dasharray'); // ring
     expect(APP).toContain('Minhas tarefas');
@@ -44,7 +44,7 @@ describe('op v4 — screens e handlers', () => {
     ['finish', 'join', 'note', 'clock', 'forgotten'].forEach((t) => expect(APP).toContain("o.type === '" + t + "'"));
   });
   test('settings: mantras/lang/phase/density/aging', () => {
-    expect(APP).toContain('function settingsHTML');
+    expect(APP).toContain('function settingsInner');
     ['toggleMantras', 'setLang', 'setPhase', 'setDens', 'toggleAging', 'agingStep'].forEach((a) => expect(APP).toContain(a + ':'));
   });
   test('ACT handlers principais definidos', () => {
@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v6 network-first', () => {
-    expect(SW).toContain("'hf-op-v6'");
+  test('sw é hf-op-v7 network-first', () => {
+    expect(SW).toContain("'hf-op-v7'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -90,7 +90,8 @@ describe('op v4 — html + sw', () => {
 describe('op v4 — 3 bugfixes críticos', () => {
   test('anti-flicker: shell persistente + tick cirúrgico (sem render() no relógio)', () => {
     expect(APP).toContain('function bootShell');
-    expect(APP).toContain('MAIN.innerHTML');           // render() só mexe no #hf-main
+    expect(APP).toContain('function mountLayer');      // camadas persistentes
+    expect(APP).toContain("classList.add('on')");      // cross-fade via classe .on
     // o tick de 1s NÃO chama render() — atualiza só textos por id
     const tick = APP.slice(APP.indexOf('tClock = setInterval'), APP.indexOf('tBeat = setInterval'));
     expect(tick).toContain("getElementById('hf-clock')");
@@ -110,5 +111,49 @@ describe('op v4 — 3 bugfixes críticos', () => {
     expect(APP).toContain("['admin', 'owner', 'manager'].indexOf");
     expect(APP).toContain("adminUI() ? iconBtn('toggleSettings'"); // gear condicional
     expect(APP).toContain('S.settingsOpen && adminUI()');           // dropdown gated
+  });
+});
+
+describe('op — patch UX (3 bugs)', () => {
+  const CSS = fs.readFileSync(path.join(__dirname, '..', 'op', 'style.css'), 'utf8');
+
+  test('BUG1 cross-fade: camadas persistentes com transição de opacidade', () => {
+    // todas as telas/modais vivem sempre no DOM (criadas no bootShell)
+    ['scr-login', 'scr-home', 'lyr-flow', 'lyr-overlay', 'lyr-settings', 'lyr-alert'].forEach((id) => expect(APP).toContain(id));
+    expect(CSS).toContain('.hf-layer');
+    expect(CSS).toContain('transition: opacity 220ms');          // cross-fade 220ms
+    expect(CSS).toContain('.hf-layer.on');
+    // flow não re-popa por passo: casca montada uma vez, corpo trocado
+    expect(APP).toContain('function mountFlow');
+    expect(APP).toContain('#flow-body');
+    expect(APP).toContain("querySelector('#flow-body')");
+  });
+
+  test('BUG2 voz steady: timer/transcript cirúrgicos (sem render no setInterval)', () => {
+    expect(APP).toContain("getElementById('voice-timer')");      // timer via textContent
+    // o setInterval da voz NÃO chama render() — só textContent
+    const vi = APP.slice(APP.indexOf('function startVoice'), APP.indexOf('function stopVoice'));
+    const loop = vi.slice(vi.indexOf('voiceTimer = setInterval'), vi.indexOf('if (SR)'));
+    expect(loop).toContain('textContent');
+    expect(loop).not.toContain('render()');
+    // transcript escreve direto no textarea-alvo (sem render)
+    expect(vi).toContain("querySelector('[data-input=\"note\"]')");
+  });
+
+  test('BUG3 alerta vermelho central: showAlert + 4 dismissals + reuso nas validações', () => {
+    expect(APP).toContain('function showAlert');
+    expect(APP).toContain('function closeAlert');
+    expect(APP).toContain("data-act=\"closeAlert\"");
+    expect(APP).toContain('#hf-alert-ok');                       // foco no OK
+    expect(APP).toContain('#b3261e');                            // vermelho forte
+    // 4 caminhos de dismissal: clique (closeAlert), Enter, Esc, 3 teclas
+    expect(APP).toContain("e.key === 'Enter'");
+    expect(APP).toContain("e.key === 'Escape'");
+    expect(APP).toContain('keyCount >= 3');
+    // validações usam showAlert (não mais toast discreto)
+    expect(APP).toContain("showAlert({ title: 'Motivo obrigatório'");
+    expect(APP).toContain("showAlert({ title: 'Quantidade obrigatória'");
+    // foco volta pro campo após dismiss
+    expect(APP).toContain('flowNoteHighlight');
   });
 });

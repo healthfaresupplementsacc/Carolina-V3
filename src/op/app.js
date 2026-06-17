@@ -5,11 +5,19 @@
    estilos inline exatos, ambiente (4 blobs de marca + bottles reais à deriva
    com drop-shadow + cápsulas de gel REAIS com pó/sheen/seam e ciclo de cor),
    motor de cor (dia/energia/pulse), todas as telas e overlays.
-   Plumbing (API/handlers/timers/offline) PRESERVADO do app funcional:
+
+   ARQUITETURA ANTI-BLINK (patch UX):
+   - Cada tela/modal é uma CAMADA persistente no DOM; troca = cross-fade de
+     opacidade (220ms). Nunca há frame vazio → sem flash branco/escuro.
+   - mount+patch: a casca de cada camada é montada UMA vez (anim de entrada
+     toca uma vez); updates internos (PIN, passos do flow, voz) são cirúrgicos.
+   - Ambiente (blobs/bottles/cápsulas) montado uma vez e NUNCA muda opacidade
+     nas transições.
+
+   Plumbing (API/handlers/timers/offline) PRESERVADO:
      auth/login·logout·heartbeat, architect/person/:id/today, active-operators,
      event/start·retroactive·:id/end·:id/join, note, missing-bottle-counts,
      clock-out, forgotten-checkout/resolve.
-   Shell persistente + tick cirúrgico = sem flicker.
    ============================================================ */
 (function () {
   var CFG = window.HF_OP_CONFIG || { pageToken: '' };
@@ -71,7 +79,6 @@
     for (var a in (PRODUCTS.aliases || {})) if (n.indexOf(a) >= 0) return '/op/assets/bottles/' + PRODUCTS.aliases[a];
     return null;
   }
-  // bottles do ambiente (mesma ordem do design)
   var BOTTLE_FILES = ['benfotiamine', 'berberine', 'nad', 'l-carnitine', 'plant-sterols', 'rutin', 'white-kidney', 'chlorophyll', 'ashwagandha', 'charcoal'];
 
   // ── settings (localStorage por device) ─────────────────────
@@ -85,10 +92,9 @@
     screen: 'login', pin: '', pinError: '', shake: false,
     session: null, now: Date.now(), logoffLeft: null,
     myTasks: [], team: [], completedToday: 0, goal: 8, pulse: 0, online: navigator.onLine,
-    flow: null, overlay: null, settingsOpen: false, settings: loadSettings(),
+    flow: null, overlay: null, settingsOpen: false, alert: null, settings: loadSettings(),
     mantraIdx: 0, mantraLangTick: 0, toast: '', voice: { on: false, secs: 0, target: null }, _focus: null,
   };
-  function setState(patch) { Object.assign(S, typeof patch === 'function' ? patch(S) : patch); render(); }
 
   // ── API (Bearer pageToken + X-Session-Token + offline queue) ─
   function api(path, opts) {
@@ -120,9 +126,7 @@
   // ── helpers de markup ──────────────────────────────────────
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function sty(o) { var s = ''; for (var k in o) { if (!o.hasOwnProperty(k)) continue; var kk = k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }); s += kk + ':' + o[k] + ';'; } return s; }
-  // SVG path-único (tiles/ícones de tarefa)
   function svg(path, sz, sw) { sz = sz || 24; sw = sw || 1.8; return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + sw + '" stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"></path></svg>'; }
-  // SVG cru (polyline/polygon/circle/line — colados do design)
   function svgr(inner, sz, sw, fill) { sz = sz || 24; return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 24 24" fill="' + (fill || 'none') + '" stroke="' + (fill === 'currentColor' ? 'none' : 'currentColor') + '" stroke-width="' + (sw || 1.8) + '" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>'; }
   var CHECK = '<polyline points="20 6 9 17 4 12"></polyline>';
   var PLAY = '<polygon points="6 4 20 12 6 20 6 4"></polygon>';
@@ -131,8 +135,9 @@
   var MIC = '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line>';
   var EDITP = '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path>';
   var DOOR = '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>';
+  var WARN = '<path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>';
 
-  function accent() { return '#0e7a4e'; } // verde-ação da marca (accent do design)
+  function accent() { return '#0e7a4e'; }
 
   function curMantra() {
     var m = MANTRAS[S.mantraIdx % MANTRAS.length];
@@ -141,7 +146,7 @@
     return m[lang] || m.pt;
   }
 
-  // ── motor de cor (dia / energia / pulse) — do design ───────
+  // ── motor de cor (dia / energia / pulse) ───────────────────
   function dayFrac() {
     var ph = S.settings.dayPhase || 'auto';
     if (ph === 'morning') return 0.18;
@@ -157,7 +162,6 @@
   function clockNow() { return new Date(S.now).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); }
   function dateNow() { return new Date(S.now).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' }); }
 
-  // aging (alerta de duração — admin, off por padrão)
   function ageState(startIso) {
     if (!S.settings.aging) return 'ok';
     var mins = (S.now - Date.parse(startIso)) / 60000;
@@ -173,12 +177,26 @@
   // ════════════════════════════════════════════════════════════
   // AMBIENTE (montado UMA vez; rebuild só se densidade mudar)
   // ════════════════════════════════════════════════════════════
-  var MAIN = null, MANTRA = null, AMBIENT = null, shellBuilt = false, ambientDensity = null;
+  var AMBIENT = null, MANTRA = null, shellBuilt = false, ambientDensity = null;
+  var LYR = {}; // name -> { el, on, key }
   function bootShell() {
-    ROOT.innerHTML = '<div id="hf-ambient"></div><div id="hf-mantra-wrap"></div><div id="hf-main"></div>';
+    ROOT.innerHTML =
+      '<div id="hf-ambient"></div>' +
+      '<div id="hf-mantra-wrap"></div>' +
+      '<div id="hf-main">' +
+        '<div id="scr-login" class="hf-layer"></div>' +
+        '<div id="scr-home" class="hf-layer"></div>' +
+        '<div id="lyr-flow" class="hf-layer hf-modal"></div>' +
+        '<div id="lyr-overlay" class="hf-layer hf-modal"></div>' +
+        '<div id="lyr-settings" class="hf-layer"></div>' +
+        '<div id="lyr-alert" class="hf-layer hf-modal"></div>' +
+      '</div>' +
+      '<div id="hf-toast"></div>';
     AMBIENT = document.getElementById('hf-ambient');
     MANTRA = document.getElementById('hf-mantra-wrap');
-    MAIN = document.getElementById('hf-main');
+    ['login', 'home', 'flow', 'overlay', 'settings', 'alert'].forEach(function (n) {
+      LYR[n] = { el: document.getElementById(n === 'login' || n === 'home' ? 'scr-' + n : 'lyr-' + n), on: false, key: null };
+    });
     buildAmbient();
     shellBuilt = true;
   }
@@ -234,7 +252,6 @@
   }
   function buildAmbient() {
     if (!AMBIENT) return;
-    // 4 blobs de marca (opacidade segue --day/--energy/--pulse) + bottles + cápsulas
     var blobs =
       '<div style="position:absolute; width:62vmax; height:62vmax; left:-16vmax; top:-20vmax; border-radius:50%; background:radial-gradient(circle, #2f7ae0, transparent 68%); filter:blur(60px); opacity:calc(0.14 + 0.34*var(--day,.5) + 0.16*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
       '<div style="position:absolute; width:58vmax; height:58vmax; right:-18vmax; top:8vmax; border-radius:50%; background:radial-gradient(circle, #44ae4f, transparent 66%); filter:blur(64px); opacity:calc(0.12 + 0.32*var(--day,.5) + 0.18*var(--energy,.3) + 0.1*var(--pulse,0));"></div>' +
@@ -246,8 +263,23 @@
   function adminUI() { return S.session && ['admin', 'owner', 'manager'].indexOf(S.session.person.role) >= 0; }
 
   // ════════════════════════════════════════════════════════════
-  // RENDER (só #hf-main; ambiente/shell persistem → sem flicker)
+  // RENDER (camadas persistentes + cross-fade; sem rebuild global)
   // ════════════════════════════════════════════════════════════
+  // monta a casca de uma camada UMA vez por key (anim de entrada toca 1x);
+  // liga/desliga via classe .on (CSS faz o cross-fade). onMount roda no build.
+  function mountLayer(name, on, htmlFn, key, onMount) {
+    var L = LYR[name]; if (!L) return;
+    if (on) {
+      var rebuilt = false;
+      if (!L.on || L.key !== key) { L.el.innerHTML = htmlFn(); L.key = key; rebuilt = true; }
+      if (!L.on) { L.el.classList.add('on'); L.on = true; }
+      if (rebuilt && onMount) onMount(L.el);
+    } else if (L.on) { L.el.classList.remove('on'); L.on = false; }
+  }
+  function restoreFocus(scope) {
+    if (!S._focus) return; var fo = scope.querySelector('[data-focus="' + S._focus + '"]'); if (!fo) return;
+    fo.focus(); try { var v = fo.value; fo.value = ''; fo.value = v; } catch (e) {}
+  }
   function render() {
     if (!shellBuilt) bootShell();
     ROOT.style.setProperty('--accent', accent());
@@ -259,16 +291,19 @@
     MANTRA.innerHTML = (S.settings.mantras && S.screen === 'home')
       ? '<div style="position:fixed; bottom:clamp(14px,2.4vh,24px); left:0; right:0; z-index:4; display:flex; justify-content:center; pointer-events:none; padding:0 16px;"><div id="hf-mantra-text" style="animation:hfMantra 7s ease-in-out infinite; font-family:\'Sora\',sans-serif; font-weight:600; font-size:clamp(13px,1.5vw,18px); letter-spacing:.01em; color:#4a6485; text-align:center; max-width:760px; text-shadow:0 1px 14px rgba(255,255,255,.7);">' + esc(curMantra()) + '</div></div>'
       : '';
-    var html = '';
-    if (S.session) html += topbarHTML();
-    if (S.screen === 'login') html += loginHTML();
-    if (S.screen === 'home') html += homeHTML();
-    if (S.flow) html += flowHTML();
-    if (S.overlay) html += overlayHTML();
-    if (S.settingsOpen && adminUI()) html += settingsHTML();
-    if (S.toast) html += '<div style="position:fixed; bottom:26px; left:50%; transform:translateX(-50%); z-index:90; background:#0c2545; color:#fff; padding:14px 24px; border-radius:16px; font-weight:600; font-size:15px; box-shadow:0 20px 50px -16px rgba(12,37,69,.7); animation:hfPop .3s ease both; max-width:92vw; text-align:center;">' + esc(S.toast) + '</div>';
-    MAIN.innerHTML = html;
-    if (S._focus) { var fo = MAIN.querySelector('[data-focus="' + S._focus + '"]'); if (fo) { fo.focus(); try { var v = fo.value; fo.value = ''; fo.value = v; } catch (e) {} } }
+
+    mountLayer('login', S.screen === 'login', loginInner, 'login|' + S.pin.length + '|' + S.pinError + '|' + (S.shake ? 1 : 0));
+    mountLayer('home', S.screen === 'home', homeInner, homeKey());
+    mountFlow();
+    mountLayer('overlay', !!S.overlay, overlayInner, overlayKey(), function (el) { restoreFocus(el); });
+    mountLayer('settings', S.settingsOpen && adminUI(), settingsInner, settingsKey());
+    mountLayer('alert', !!S.alert, alertInner, alertKey(), function (el) { var b = el.querySelector('#hf-alert-ok'); if (b) b.focus(); });
+    setToast();
+  }
+  function setToast() {
+    var t = document.getElementById('hf-toast'); if (!t) return;
+    if (S.toast) { t.innerHTML = '<div style="background:#0c2545; color:#fff; padding:14px 24px; border-radius:16px; font-weight:600; font-size:15px; box-shadow:0 20px 50px -16px rgba(12,37,69,.7); max-width:92vw; text-align:center;">' + esc(S.toast) + '</div>'; t.classList.add('on'); }
+    else { t.classList.remove('on'); }
   }
 
   // ── TOPBAR ─────────────────────────────────────────────────
@@ -289,8 +324,8 @@
       + '</div></div>';
   }
 
-  // ── LOGIN ──────────────────────────────────────────────────
-  function loginHTML() {
+  // ── LOGIN (só o card; #scr-login centraliza) ───────────────
+  function loginInner() {
     var ac = accent();
     var dots = '';
     for (var i = 0; i < 4; i++) {
@@ -308,37 +343,41 @@
       else st = base + 'border:1px solid rgba(255,255,255,.85); color:#0c2545; background:rgba(255,255,255,.72); box-shadow:0 10px 24px -16px rgba(15,40,90,.5);';
       kp += '<button data-act="pinkey" data-arg="' + k + '" style="' + st + '">' + k + '</button>';
     });
-    return '<div style="position:relative; z-index:5; flex:1; display:flex; align-items:center; justify-content:center; padding:24px;">'
-      + '<div style="animation:hfPop .5s cubic-bezier(.2,.8,.2,1) both; width:min(94vw,420px); background:rgba(255,255,255,.66); backdrop-filter:blur(26px) saturate(1.5); border:1px solid rgba(255,255,255,.8); border-radius:34px; padding:clamp(26px,4vw,40px) clamp(22px,3.6vw,36px); box-shadow:0 40px 90px -36px rgba(15,40,90,.5), inset 0 1px 0 rgba(255,255,255,.9); text-align:center;">'
+    return '<div style="width:min(94vw,420px); background:rgba(255,255,255,.66); backdrop-filter:blur(26px) saturate(1.5); border:1px solid rgba(255,255,255,.8); border-radius:34px; padding:clamp(26px,4vw,40px) clamp(22px,3.6vw,36px); box-shadow:0 40px 90px -36px rgba(15,40,90,.5), inset 0 1px 0 rgba(255,255,255,.9); text-align:center;">'
       + '<img src="/op/assets/healthfare-logo.png" alt="HealthFare" style="height:clamp(46px,7vw,58px); width:auto; margin:0 auto 10px;">'
       + '<div style="font-family:\'Sora\',sans-serif; font-weight:600; font-size:14px; letter-spacing:.16em; text-transform:uppercase; color:#6c819b; margin-bottom:22px;">Linha de Produção</div>'
       + '<div style="' + (S.shake ? 'animation:hfShake .4s;' : '') + '"><div style="display:flex; justify-content:center; gap:16px; margin-bottom:10px;">' + dots + '</div></div>'
       + '<div style="min-height:22px; color:#c0352b; font-weight:700; font-size:14px; margin-bottom:14px;">' + esc(S.pinError) + '</div>'
       + '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:clamp(10px,1.8vw,15px); max-width:320px; margin:0 auto;">' + kp + '</div>'
       + '<div style="margin-top:22px; font-size:12.5px; color:#8195ab; font-weight:500;">Toque seu PIN de 4 dígitos para entrar</div>'
-      + '</div></div>';
+      + '</div>';
   }
 
-  // ── HOME ───────────────────────────────────────────────────
-  function homeHTML() {
+  // ── HOME (topbar + conteúdo rolável) ───────────────────────
+  function homeKey() {
+    var t = (S.myTasks || []).map(function (x) { return x.id + ':' + x.slug + ':' + (x.batch_number || ''); }).join(',');
+    var tm = (S.team || []).map(function (o) { return o.id + ':' + (o.current_event_id || '') + ':' + (o.online ? 1 : 0) + ':' + (o.current_slug || '') + ':' + (o.current_batch || ''); }).join(',');
+    return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0);
+  }
+  function homeInner() {
     var p = S.session.person; var ac = accent();
     var circ = 2 * Math.PI * 52; var frac = Math.min(1, S.goal ? S.completedToday / S.goal : 0);
     var dash = (circ * frac).toFixed(1) + ' ' + circ.toFixed(1);
-    var h = '<div class="hf-scroll" style="position:relative; z-index:3; flex:1; overflow-y:auto; padding:clamp(6px,1vw,12px) clamp(14px,3vw,32px) clamp(60px,8vh,90px);">'
+    var h = topbarHTML();
+    h += '<div class="hf-scroll" style="position:relative; z-index:3; flex:1; overflow-y:auto; padding:clamp(6px,1vw,12px) clamp(14px,3vw,32px) clamp(60px,8vh,90px);">'
       + '<div style="width:min(100%,1120px); margin:0 auto; display:flex; flex-direction:column; gap:clamp(16px,2vw,22px);">';
     // hero
-    h += '<div style="animation:hfRise .5s ease both; display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
+    h += '<div style="display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
       + '<div style="min-width:0;"><div style="font-size:14px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:' + ac + '; opacity:.9;">' + esc(phaseLabel()) + ' · <span id="hf-clock">' + esc(clockNow()) + '</span></div>'
       + '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(28px,4.4vw,46px); line-height:1.05; margin:6px 0 4px; color:#0c2545;">' + esc(greetingTxt()) + ', ' + esc(p.display_name) + '</div>'
       + '<div style="font-size:15px; color:#5a6e87; text-transform:capitalize; font-weight:500;">' + esc(dateNow()) + '</div></div>'
       + '<div style="position:relative; width:clamp(118px,13vw,150px); height:clamp(118px,13vw,150px); display:flex; align-items:center; justify-content:center;"><svg viewBox="0 0 120 120" style="width:100%; height:100%; transform:rotate(-90deg);"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(15,40,90,.1)" stroke-width="11"></circle><circle cx="60" cy="60" r="52" fill="none" stroke="' + ac + '" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + dash + '" style="transition:stroke-dasharray .8s cubic-bezier(.2,.8,.2,1); filter:drop-shadow(0 0 6px rgba(14,122,78,.4));"></circle></svg>'
       + '<div style="position:absolute; text-align:center;"><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:clamp(26px,3vw,34px); color:#0c2545; line-height:1;">' + S.completedToday + '</div><div style="font-size:12px; font-weight:600; color:#8195ab;">de ' + S.goal + ' hoje</div></div></div></div>';
     // CTA
-    h += '<button data-act="startFlow" style="animation:hfRise .55s ease both; position:relative; overflow:hidden; border:0; cursor:pointer; border-radius:26px; padding:clamp(22px,2.8vw,30px) 28px; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #19c277) 0%, var(--accent) 100%); color:#fff; box-shadow:0 26px 50px -18px color-mix(in srgb, var(--accent) 60%, transparent), inset 0 1px 0 rgba(255,255,255,.3); display:flex; align-items:center; justify-content:center; gap:16px;"><span style="position:absolute; top:0; left:0; width:40%; height:100%; background:linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent); animation:hfSheen 5s ease-in-out infinite; pointer-events:none;"></span><span style="display:flex; align-items:center; justify-content:center; width:clamp(40px,4.4vw,52px); height:clamp(40px,4.4vw,52px); border-radius:50%; background:rgba(255,255,255,.2);">' + svgr('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 26, 2.4) + '</span><span style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(20px,2.6vw,27px); letter-spacing:.01em;">Iniciar Tarefa</span></button>';
-    // duas colunas
+    h += '<button data-act="startFlow" style="position:relative; overflow:hidden; border:0; cursor:pointer; border-radius:26px; padding:clamp(22px,2.8vw,30px) 28px; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #19c277) 0%, var(--accent) 100%); color:#fff; box-shadow:0 26px 50px -18px color-mix(in srgb, var(--accent) 60%, transparent), inset 0 1px 0 rgba(255,255,255,.3); display:flex; align-items:center; justify-content:center; gap:16px;"><span style="position:absolute; top:0; left:0; width:40%; height:100%; background:linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent); animation:hfSheen 5s ease-in-out infinite; pointer-events:none;"></span><span style="display:flex; align-items:center; justify-content:center; width:clamp(40px,4.4vw,52px); height:clamp(40px,4.4vw,52px); border-radius:50%; background:rgba(255,255,255,.2);">' + svgr('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 26, 2.4) + '</span><span style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(20px,2.6vw,27px); letter-spacing:.01em;">Iniciar Tarefa</span></button>';
+    // colunas
     h += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:clamp(16px,2vw,22px);">';
-    // mine
-    h += '<div style="animation:hfRise .6s ease both;"><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr('<path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>', 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Minhas tarefas</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
+    h += '<div><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr('<path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>', 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Minhas tarefas</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
     if (!S.myTasks.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#8195ab; font-weight:500; font-size:14px;">Nenhuma tarefa aberta. Toque em Iniciar Tarefa.</div>';
     S.myTasks.forEach(function (t) {
       var a = ageState(t.started_at); var ag = AGE[a];
@@ -351,8 +390,7 @@
         + '</div><button data-act="finish" data-arg="' + t.id + '" style="flex:none; border:0; cursor:pointer; border-radius:14px; padding:13px 18px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-weight:700; font-size:14px; box-shadow:0 12px 26px -14px rgba(179,38,30,.7); display:flex; align-items:center; gap:7px;">' + svgr(CHECK, 17, 2.4) + 'Finalizar</button></div>';
     });
     h += '</div></div>';
-    // team
-    h += '<div style="animation:hfRise .65s ease both;"><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr(PEOPLE, 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Equipe agora</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
+    h += '<div><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr(PEOPLE, 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Equipe agora</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
     var others = (S.team || []).filter(function (o) { return o.id !== p.id && o.current_event_id; });
     if (!others.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#8195ab; font-weight:500; font-size:14px;">Ninguém com tarefa aberta agora.</div>';
     others.forEach(function (o) {
@@ -368,7 +406,6 @@
         + '</div>';
     });
     h += '</div></div></div>';
-    // nota rápida
     h += '<button data-act="note" style="align-self:center; margin-top:2px; border:1px solid rgba(255,255,255,.8); cursor:pointer; border-radius:16px; padding:13px 22px; background:rgba(255,255,255,.55); backdrop-filter:blur(14px); color:#42566f; font-weight:600; font-size:14px; display:flex; align-items:center; gap:10px; box-shadow:0 10px 26px -18px rgba(15,40,90,.4);">' + svgr(EDITP, 18, 1.8) + 'Nota rápida / Voz</button>';
     h += '</div></div>';
     return h;
@@ -385,15 +422,18 @@
     var qq = (DATA.quick || []).find(function (x) { return x.slug === slug; }); return qq || { slug: slug };
   }
 
-  // boot inicial (antes do resto das funções? não — render no fim)
-  // ── render() já definido; funções de fluxo/overlay/settings abaixo ──
-  /* eslint-disable no-use-before-define */
-
-  window.__HF_RENDER = render; // debug
-
   // ════════════════════════════════════════════════════════════
-  // FLOW (group → type → supp → batch → confirm → finished)
+  // FLOW — casca montada UMA vez; crumbs + corpo trocam por dentro
+  // (sem re-pop do modal a cada passo = sem blink)
   // ════════════════════════════════════════════════════════════
+  function mountFlow() {
+    var L = LYR.flow;
+    if (S.flow) {
+      if (!L.on) { L.el.innerHTML = flowShellHTML(); L.el.classList.add('on'); L.on = true; }
+      var cr = L.el.querySelector('#flow-crumbs'); if (cr) cr.innerHTML = crumbHTML(S.flow);
+      var bd = L.el.querySelector('#flow-body'); if (bd) { bd.innerHTML = flowBody(S.flow); restoreFocus(bd); }
+    } else if (L.on) { L.el.classList.remove('on'); L.on = false; }
+  }
   function flowCrumbs(f) {
     var step = f.step, rp = !!f.requires_product;
     var c = [
@@ -415,18 +455,19 @@
       return '<div style="display:flex; align-items:center; gap:7px;"><span style="' + sty(dot) + '">' + (c.done ? svgr(CHECK, 12, 3.4) : '') + '</span><span style="' + sty(txt) + '">' + esc(c.label) + '</span></div>';
     }).join('');
   }
-  function flowHTML() {
-    var f = S.flow; var body = '';
-    if (f.step === 'group') body = flowGroup();
-    else if (f.step === 'type') body = flowType();
-    else if (f.step === 'supp') body = flowSupp();
-    else if (f.step === 'batch') body = flowBatch();
-    else if (f.step === 'confirm') body = flowConfirm();
-    else if (f.step === 'finished') body = flowFinished();
-    return '<div style="position:fixed; inset:0; z-index:40; background:rgba(12,30,55,.42); backdrop-filter:blur(7px); display:flex; align-items:center; justify-content:center; padding:clamp(10px,3vw,28px); animation:hfFade .25s ease both;">'
-      + '<div class="hf-scroll" style="position:relative; width:min(97vw,800px); max-height:94dvh; overflow-y:auto; background:rgba(255,255,255,.84); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:30px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6), inset 0 1px 0 rgba(255,255,255,.9); animation:hfPop .35s cubic-bezier(.2,.8,.2,1) both;">'
-      + '<div style="position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:14px; padding:clamp(16px,2.4vw,22px) clamp(18px,2.8vw,28px); background:linear-gradient(rgba(255,255,255,.86), rgba(255,255,255,.5)); backdrop-filter:blur(10px); border-bottom:1px solid rgba(15,40,90,.07); border-radius:30px 30px 0 0;"><div style="flex:1; display:flex; align-items:center; gap:clamp(8px,1.4vw,16px); flex-wrap:wrap; min-width:0;">' + crumbHTML(f) + '</div><button data-act="cancelFlow" title="Cancelar" aria-label="Cancelar" style="flex:none; width:40px; height:40px; border-radius:50%; border:1px solid rgba(15,40,90,.12); background:rgba(255,255,255,.7); color:#6c819b; cursor:pointer; display:flex; align-items:center; justify-content:center;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 20, 2.2) + '</button></div>'
-      + '<div style="padding:clamp(18px,2.6vw,28px);">' + body + '</div></div></div>';
+  function flowShellHTML() {
+    return '<div class="hf-scroll" style="position:relative; width:min(97vw,800px); max-height:94dvh; overflow-y:auto; background:rgba(255,255,255,.84); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:30px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6), inset 0 1px 0 rgba(255,255,255,.9); animation:hfPop .35s cubic-bezier(.2,.8,.2,1) both;">'
+      + '<div style="position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:14px; padding:clamp(16px,2.4vw,22px) clamp(18px,2.8vw,28px); background:linear-gradient(rgba(255,255,255,.86), rgba(255,255,255,.5)); backdrop-filter:blur(10px); border-bottom:1px solid rgba(15,40,90,.07); border-radius:30px 30px 0 0;"><div id="flow-crumbs" style="flex:1; display:flex; align-items:center; gap:clamp(8px,1.4vw,16px); flex-wrap:wrap; min-width:0;"></div><button data-act="cancelFlow" title="Cancelar" aria-label="Cancelar" style="flex:none; width:40px; height:40px; border-radius:50%; border:1px solid rgba(15,40,90,.12); background:rgba(255,255,255,.7); color:#6c819b; cursor:pointer; display:flex; align-items:center; justify-content:center;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 20, 2.2) + '</button></div>'
+      + '<div id="flow-body" style="padding:clamp(18px,2.6vw,28px);"></div></div>';
+  }
+  function flowBody(f) {
+    if (f.step === 'group') return flowGroup();
+    if (f.step === 'type') return flowType();
+    if (f.step === 'supp') return flowSupp();
+    if (f.step === 'batch') return flowBatch();
+    if (f.step === 'confirm') return flowConfirm();
+    if (f.step === 'finished') return flowFinished();
+    return '';
   }
   var tileBase = 'display:flex; flex-direction:column; align-items:center; justify-content:center; gap:11px; padding:20px 12px; border-radius:22px; cursor:pointer; text-align:center; transition:transform .1s; font-family:\'Manrope\',sans-serif; color:#0c2545;';
   function flowGroup() {
@@ -487,14 +528,12 @@
     var noteReq = !!meta.note_required; var ordersReq = !!meta.orders_required;
     var ac = accent();
     var h = '<div style="display:flex; align-items:center; gap:14px; background:rgba(255,255,255,.66); border:1px solid rgba(15,40,90,.1); border-left:4px solid var(--accent); border-radius:20px; padding:16px; margin-bottom:20px;"><span style="flex:none; width:50px; height:50px; border-radius:15px; background:color-mix(in srgb, var(--accent) 13%, white); color:var(--accent); display:flex; align-items:center; justify-content:center;">' + svg(iconPath(f.slug), 26, 1.7) + '</span><div style="flex:1; min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:18px; color:#0c2545;">' + esc(labelOf(f.slug)) + '</div><div style="display:flex; flex-wrap:wrap; gap:7px; margin-top:6px;">' + (f.supplement ? chip('blue', f.supplement, '<path d="M21 8l-9-5-9 5 9 5 9-5z"></path><path d="M3 8v8l9 5 9-5V8"></path>') : '') + (f.batch ? chip('green', f.batch, '<line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line>') : '') + '</div></div></div>';
-    // quando começou
     h += sectionLabel('Quando começou?', CLOCK, 2.1);
     h += '<div style="display:flex; gap:11px; margin-bottom:14px;"><button data-act="modeNow" style="' + segBtn(!f.forgot, ac) + '">' + svgr(PLAY, 14, 0, 'currentColor') + 'Agora</button><button data-act="modeForgot" style="' + segBtn(f.forgot, ac) + '">' + svgr(CLOCK, 15, 2.1) + 'Esqueci de marcar</button></div>';
     if (f.forgot) {
       var ss = startStatus(f);
       h += '<div style="background:rgba(15,40,90,.04); border-radius:16px; padding:14px; margin-bottom:18px;"><div style="display:flex; gap:9px; align-items:center;">' + timeSelect('tpH', f.tpH, 'h') + timeSelect('tpM', f.tpM, 'm') + '<button data-act="toggleAP" style="flex:none; min-width:70px; min-height:52px; font-size:16px; font-weight:800; font-family:\'Sora\',sans-serif; background:#2c505f; color:#fff; border:0; border-radius:13px; cursor:pointer;">' + esc(f.tpAP) + '</button></div><div style="min-height:20px; margin-top:9px; font-size:14px; font-weight:700; color:' + ss.color + ';">' + esc(ss.text) + '</div></div>';
     }
-    // cowork
     h += sectionLabel('Tem alguém junto?', PEOPLE, 2);
     h += '<div style="display:flex; flex-direction:column; gap:8px; margin-bottom:18px;">';
     (S.team || []).filter(function (o) { return o.id !== S.session.person.id; }).forEach(function (o) {
@@ -504,10 +543,9 @@
       h += '<button data-act="toggleCowork" data-arg="' + o.id + '" style="' + chipS + '"><span style="' + boxS + '">' + (on ? svgr(CHECK, 15, 3.4) : '') + '</span><span style="position:relative; flex:none; width:34px; height:34px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:11px; height:11px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><span style="flex:1; min-width:0; text-align:left;"><span style="display:block; font-weight:700; font-size:14.5px; color:#0c2545;">' + esc(o.display_name) + '</span><span style="display:block; font-size:12px; color:#8195ab;">' + esc(o.current_slug ? labelOf(o.current_slug) : (o.online ? 'disponível' : 'offline')) + '</span></span></button>';
     });
     h += '</div>';
-    if (ordersReq) { h += sectionLabel('Quantas ordens vai imprimir?', '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2); h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" inputmode="numeric" placeholder="ex: 206" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">'; }
-    // nota
+    if (ordersReq) { h += sectionLabel('Quantas ordens vai imprimir?', '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2); h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" data-focus="orders" inputmode="numeric" placeholder="ex: 206" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">'; }
     h += sectionLabel(noteReq ? 'Motivo (obrigatório)' : 'Nota (opcional)', EDITP, 2);
-    h += '<textarea data-input="note" placeholder="' + (noteReq ? 'Conte o que está acontecendo, ou use a voz…' : 'Escreva ou use o microfone…') + '" style="width:100%; min-height:84px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;">' + esc(f.note || '') + '</textarea>';
+    h += '<textarea data-input="note" data-focus="note" placeholder="' + (noteReq ? 'Conte o que está acontecendo, ou use a voz…' : 'Escreva ou use o microfone…') + '" style="width:100%; min-height:84px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;">' + esc(f.note || '') + '</textarea>';
     h += '<div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('flow') + '</div>';
     var st = startStatus(f);
     var goLabel = (f.forgot && st.ok) ? ('Começar às ' + st.label) : 'Começar';
@@ -540,50 +578,59 @@
   function startStatus(f) {
     if (!f.tpH) return { ok: false, color: '#8195ab', text: '', label: '' };
     var iso = isoFromHMA(f.tpH, f.tpM, f.tpAP); var lbl = fmt12(iso);
-    if (new Date(iso).getTime() > Date.now()) return { ok: false, color: '#c0352b', text: 'Não pode ser no futuro', label: lbl };
+    if (new Date(iso).getTime() > Date.now()) return { ok: false, color: '#c0352b', text: 'Não pode ser no futuro', label: lbl, future: true };
     return { ok: true, color: '#0e7a4e', text: 'Início ' + lbl, label: lbl, iso: iso };
   }
   function endStatus(f) {
     if (!f.endH) return { ok: false, color: '#8195ab', text: '', label: '' };
     var iso = isoFromHMA(f.endH, f.endM, f.endAP); var st = startStatus(f); var lbl = fmt12(iso);
-    if (new Date(iso).getTime() > Date.now()) return { ok: false, color: '#c0352b', text: 'Não pode ser no futuro', label: lbl };
-    if (st.iso && new Date(iso).getTime() <= new Date(st.iso).getTime()) return { ok: false, color: '#c0352b', text: 'Tem que ser depois do início', label: lbl };
+    if (new Date(iso).getTime() > Date.now()) return { ok: false, color: '#c0352b', text: 'Não pode ser no futuro', label: lbl, future: true };
+    if (st.iso && new Date(iso).getTime() <= new Date(st.iso).getTime()) return { ok: false, color: '#c0352b', text: 'Tem que ser depois do início', label: lbl, before: true };
     return { ok: true, color: '#0e7a4e', text: 'Fim ' + lbl, label: lbl, iso: iso };
   }
 
-  // ── voz ────────────────────────────────────────────────────
+  // ── voz (botão; estado "gravando" via CSS, timer/transcript cirúrgicos) ──
   function voiceBtn(target) {
     var on = S.voice.on && S.voice.target === target;
     var st = 'flex:none; display:flex; align-items:center; gap:9px; cursor:pointer; border-radius:14px; padding:12px 16px; font-weight:700; font-size:14px; transition:all .12s; border:' + (on ? '0' : '1px solid rgba(15,40,90,.14)') + '; background:' + (on ? 'linear-gradient(135deg,#cf463c,#b3261e)' : 'rgba(255,255,255,.7)') + '; color:' + (on ? '#fff' : '#42566f') + ';';
-    return '<button data-act="voice" data-arg="' + target + '" style="' + st + '">' + svgr(MIC, 18, 1.9) + (on ? ('● Gravando ' + S.voice.secs + 's') : 'Ditar') + '</button>';
+    var mic = '<span style="display:inline-flex;' + (on ? 'animation:hfPulse 1s ease-in-out infinite;' : '') + '">' + svgr(MIC, 18, 1.9) + '</span>';
+    var label = on ? ('● Gravando <span id="voice-timer">' + S.voice.secs + '</span>s') : 'Ditar';
+    return '<button data-act="voice" data-arg="' + target + '" style="' + st + '">' + mic + label + '</button>';
+  }
+  // troca SÓ o botão de voz no lugar (sem render → sem re-pop do modal)
+  function refreshVoiceBtn(target) {
+    var scope = target === 'flow' ? LYR.flow.el : LYR.overlay.el;
+    var btn = scope && scope.querySelector('[data-act="voice"][data-arg="' + target + '"]');
+    if (btn) { var tmp = document.createElement('div'); tmp.innerHTML = voiceBtn(target); if (tmp.firstElementChild) btn.replaceWith(tmp.firstElementChild); }
   }
 
   // ════════════════════════════════════════════════════════════
-  // OVERLAYS
+  // OVERLAYS (card; #lyr-overlay dá backdrop + centro)
   // ════════════════════════════════════════════════════════════
-  function overlayBox(maxw, inner, center) {
-    return '<div style="position:fixed; inset:0; z-index:45; background:rgba(12,30,55,.42); backdrop-filter:blur(7px); display:flex; align-items:center; justify-content:center; padding:18px; animation:hfFade .25s ease both;"><div class="hf-scroll" style="width:min(94vw,' + maxw + 'px); max-height:92dvh; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + '">' + inner + '</div></div>';
+  function overlayKey() {
+    var o = S.overlay; if (!o) return '';
+    if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
+    return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
-  function overlayHTML() {
+  function cardOpen(maxw, center, extra) { return '<div class="hf-scroll" style="width:min(94vw,' + maxw + 'px); max-height:92dvh; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + (extra || '') + '">'; }
+  function overlayInner() {
     var o = S.overlay; if (!o) return '';
     if (o.type === 'finish') {
-      var inner = '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
+      var inner = cardOpen(460) + '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
       if (o.needsCount) inner += '<div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantos bottles saíram? (pode deixar vazio)</div><input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" placeholder="ex: 746" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none; margin-bottom:14px;">';
       inner += '<textarea data-input="finNote" placeholder="Nota final (opcional)" style="width:100%; min-height:78px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
-      inner += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.5; border:0; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 19, 2.6) + 'Finalizar</button></div>';
-      return overlayBox(460, inner);
+      inner += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.5; border:0; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 19, 2.6) + 'Finalizar</button></div></div>';
+      return inner;
     }
     if (o.type === 'join') {
-      var ji = '<span style="display:inline-flex; width:56px; height:56px; border-radius:50%; background:rgba(47,122,224,.12); color:#1f5fd0; align-items:center; justify-content:center; margin-bottom:14px;">' + svgr(PEOPLE, 28, 1.8) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:20px; color:#0c2545; margin-bottom:6px;">Entrar junto com ' + esc(o.name) + '?</div><div style="font-size:14px; color:#5a6e87; margin-bottom:22px;">' + esc(o.sub || '') + '</div><div style="display:flex; gap:11px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doJoin" style="flex:1.5; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(PEOPLE, 17, 2) + 'Entrar</button></div>';
-      return overlayBox(420, ji, true);
+      return cardOpen(420, true) + '<span style="display:inline-flex; width:56px; height:56px; border-radius:50%; background:rgba(47,122,224,.12); color:#1f5fd0; align-items:center; justify-content:center; margin-bottom:14px;">' + svgr(PEOPLE, 28, 1.8) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:20px; color:#0c2545; margin-bottom:6px;">Entrar junto com ' + esc(o.name) + '?</div><div style="font-size:14px; color:#5a6e87; margin-bottom:22px;">' + esc(o.sub || '') + '</div><div style="display:flex; gap:11px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doJoin" style="flex:1.5; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(PEOPLE, 17, 2) + 'Entrar</button></div></div>';
     }
     if (o.type === 'note') {
-      var ni = '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545; margin-bottom:16px; display:flex; align-items:center; gap:9px;"><span style="color:#0f4c92;">' + svgr(EDITP, 19, 1.9) + '</span>Nota rápida</div><textarea data-input="ovNote" data-focus="ovNote" placeholder="Fale ou escreva a nota…" style="width:100%; min-height:96px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea><div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('note') + '</div><div style="display:flex; gap:11px; margin-top:18px;">' + ghostBtn('closeOverlay', 'Fechar') + '<button data-act="saveNote" style="flex:1.5; border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent);">Salvar</button></div>';
-      return overlayBox(460, ni);
+      return cardOpen(460) + '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545; margin-bottom:16px; display:flex; align-items:center; gap:9px;"><span style="color:#0f4c92;">' + svgr(EDITP, 19, 1.9) + '</span>Nota rápida</div><textarea data-input="ovNote" data-focus="ovNote" placeholder="Fale ou escreva a nota…" style="width:100%; min-height:96px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea><div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('note') + '</div><div style="display:flex; gap:11px; margin-top:18px;">' + ghostBtn('closeOverlay', 'Fechar') + '<button data-act="saveNote" style="flex:1.5; border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent);">Salvar</button></div></div>';
     }
     if (o.type === 'clock') {
-      var ci = '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;"><span style="flex:none; width:46px; height:46px; border-radius:14px; background:rgba(179,92,0,.12); color:#b35c00; display:flex; align-items:center; justify-content:center;">' + svgr(DOOR, 24, 1.8) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:20px; color:#0c2545;">Fim do dia</div></div>';
+      var ci = cardOpen(520) + '<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;"><span style="flex:none; width:46px; height:46px; border-radius:14px; background:rgba(179,92,0,.12); color:#b35c00; display:flex; align-items:center; justify-content:center;">' + svgr(DOOR, 24, 1.8) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:20px; color:#0c2545;">Fim do dia</div></div>';
       if ((o.missing || []).length) {
         ci += '<div style="font-size:14px; color:#5a6e87; margin-bottom:16px;">Antes de sair, confirme as contagens das produções de hoje:</div><div style="display:flex; flex-direction:column; gap:10px;">';
         o.missing.forEach(function (m) {
@@ -596,24 +643,39 @@
       } else {
         ci += '<div style="background:rgba(14,122,78,.08); border-radius:16px; padding:18px; text-align:center; color:#0e7a4e; font-weight:700; font-size:15px; display:flex; align-items:center; justify-content:center; gap:9px;">' + svgr(CHECK, 19, 2.4) + 'Todas as produções de hoje têm contagem. Pode sair tranquilo!</div>';
       }
-      ci += '<div style="display:flex; gap:11px; margin-top:22px;">' + ghostBtn('closeOverlay', 'Voltar') + '<button data-act="doClockOut" style="flex:1.5; border:0; background:linear-gradient(135deg,#d97712,#b35c00); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,92,0,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(DOOR, 17, 2) + 'Confirmar e sair</button></div>';
-      return overlayBox(520, ci);
+      ci += '<div style="display:flex; gap:11px; margin-top:22px;">' + ghostBtn('closeOverlay', 'Voltar') + '<button data-act="doClockOut" style="flex:1.5; border:0; background:linear-gradient(135deg,#d97712,#b35c00); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,92,0,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(DOOR, 17, 2) + 'Confirmar e sair</button></div></div>';
+      return ci;
     }
     if (o.type === 'forgotten') {
       var p = o.prompt;
       var meta = [p.last_activity_at ? 'última atividade ' + p.last_activity_at : '', p.expected_end_time ? 'saída prevista ' + p.expected_end_time : ''].filter(Boolean).join(' · ');
-      var fi = '<span style="display:inline-flex; width:60px; height:60px; border-radius:50%; background:rgba(179,92,0,.12); color:#b35c00; align-items:center; justify-content:center; margin-bottom:16px;">' + svgr(CLOCK, 30, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:21px; color:#0c2545; margin-bottom:6px;">' + esc(p.person_name) + ' ainda está trabalhando?</div><div style="font-size:13px; color:#8195ab; margin-bottom:22px;">' + esc(meta) + '</div><div style="display:flex; flex-direction:column; gap:11px;"><button data-act="forgottenYes" style="border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:16px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 17, 2.6) + 'Sim, ainda está na linha</button><button data-act="forgottenNo" style="border:1px solid rgba(179,38,30,.25); background:rgba(255,255,255,.6); color:#b3261e; border-radius:15px; padding:16px; font-weight:700; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 16, 2.6) + 'Não, fazer checkout dela</button></div>';
-      return '<div style="position:fixed; inset:0; z-index:48; background:rgba(12,30,55,.5); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:18px; animation:hfFade .25s ease both;"><div style="width:min(94vw,440px); background:rgba(255,255,255,.88); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(24px,3.2vw,32px); text-align:center; animation:hfPop .3s ease both;">' + fi + '</div></div>';
+      return cardOpen(440, true) + '<span style="display:inline-flex; width:60px; height:60px; border-radius:50%; background:rgba(179,92,0,.12); color:#b35c00; align-items:center; justify-content:center; margin-bottom:16px;">' + svgr(CLOCK, 30, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:21px; color:#0c2545; margin-bottom:6px;">' + esc(p.person_name) + ' ainda está trabalhando?</div><div style="font-size:13px; color:#8195ab; margin-bottom:22px;">' + esc(meta) + '</div><div style="display:flex; flex-direction:column; gap:11px;"><button data-act="forgottenYes" style="border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:16px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 17, 2.6) + 'Sim, ainda está na linha</button><button data-act="forgottenNo" style="border:1px solid rgba(179,38,30,.25); background:rgba(255,255,255,.6); color:#b3261e; border-radius:15px; padding:16px; font-weight:700; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 16, 2.6) + 'Não, fazer checkout dela</button></div></div>';
     }
     return '';
   }
 
+  // ── ALERT vermelho central (BUG 3) ─────────────────────────
+  function alertKey() { var a = S.alert; return a ? 'alert:' + a.title + '|' + a.message : ''; }
+  function alertInner() {
+    var a = S.alert || {};
+    return '<div style="width:min(94vw,460px); background:rgba(255,255,255,.95); backdrop-filter:blur(28px) saturate(1.5); border:3px solid #b3261e; border-radius:28px; padding:clamp(28px,4vw,40px); box-shadow:0 50px 110px -40px rgba(179,38,30,.5); text-align:center; animation:hfPop .35s cubic-bezier(.2,.8,.2,1) both, hfShake .4s .1s both;">'
+      + '<span style="display:inline-flex; align-items:center; justify-content:center; color:#b3261e; margin-bottom:6px;">' + svgr(WARN, 64, 2) + '</span>'
+      + '<div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:24px; color:#b3261e;">' + esc(a.title || 'Atenção') + '</div>'
+      + '<div style="font-family:\'Manrope\',sans-serif; font-weight:500; font-size:17px; color:#0c2545; line-height:1.5; margin-top:16px;">' + esc(a.message || '') + '</div>'
+      + '<button data-act="closeAlert" id="hf-alert-ok" style="width:100%; min-height:56px; margin-top:24px; border:0; border-radius:16px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-family:\'Sora\',sans-serif; font-weight:700; font-size:18px; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7);">' + esc(a.okLabel || 'Entendi') + '</button>'
+      + '</div>';
+  }
+  var alertResolve = null;
+  function showAlert(opts) { S.alert = opts || {}; render(); return new Promise(function (res) { alertResolve = res; }); }
+  function closeAlert() { if (!S.alert) return; S.alert = null; render(); var r = alertResolve; alertResolve = null; if (r) r(); }
+
   // ── SETTINGS (admin) ───────────────────────────────────────
+  function settingsKey() { return 'settings:' + JSON.stringify(S.settings); }
   function toggle(act, on, color) { return '<button data-act="' + act + '" style="flex:none; position:relative; width:48px; height:28px; border-radius:999px; border:0; cursor:pointer; transition:background .2s; background:' + (on ? (color || accent()) : 'rgba(15,40,90,.18)') + ';"><span style="position:absolute; top:3px; left:' + (on ? '23px' : '3px') + '; width:22px; height:22px; border-radius:50%; background:#fff; transition:left .2s; box-shadow:0 2px 6px rgba(0,0,0,.2);"></span></button>'; }
   function seg(act, arg, label, on) { var ac = accent(); return '<button data-act="' + act + '" data-arg="' + arg + '" style="flex:1; cursor:pointer; border-radius:11px; padding:9px 4px; font-weight:700; font-size:12.5px; transition:all .12s; border:' + (on ? '0' : '1px solid rgba(15,40,90,.12)') + '; background:' + (on ? ac : 'rgba(255,255,255,.6)') + '; color:' + (on ? '#fff' : '#5a6e87') + ';">' + esc(label) + '</button>'; }
-  function settingsHTML() {
+  function settingsInner() {
     var st = S.settings;
-    var h = '<div data-act="toggleSettings" style="position:fixed; inset:0; z-index:50;"></div><div style="position:fixed; top:74px; right:clamp(14px,2.6vw,30px); z-index:51; width:min(92vw,320px); background:rgba(255,255,255,.9); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:24px; box-shadow:0 40px 90px -34px rgba(12,37,69,.55); padding:20px; animation:hfPop .25s ease both;">';
+    var h = '<div data-act="toggleSettings" style="position:fixed; inset:0;"></div><div style="position:fixed; top:74px; right:clamp(14px,2.6vw,30px); width:min(92vw,320px); background:rgba(255,255,255,.9); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:24px; box-shadow:0 40px 90px -34px rgba(12,37,69,.55); padding:20px;">';
     h += '<div style="display:flex; align-items:center; gap:9px; margin-bottom:16px;"><span style="color:#0f4c92;">' + svg(ICONS.gear, 18, 1.8) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:16px; color:#0c2545;">Ajustes do admin</div></div>';
     h += '<div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid rgba(15,40,90,.08);"><div><div style="font-weight:700; font-size:14px; color:#0c2545;">Frases inspiradoras</div><div style="font-size:12px; color:#8195ab;">Mensagens flutuantes</div></div>' + toggle('toggleMantras', st.mantras) + '</div>';
     h += '<div style="padding:12px 0 6px;"><div style="font-weight:700; font-size:13px; color:#42566f; margin-bottom:8px;">Idioma das frases</div><div style="display:flex; gap:6px;">' + seg('setLang', 'rotate', 'Girar', st.mantraLang === 'rotate') + seg('setLang', 'pt', 'PT', st.mantraLang === 'pt') + seg('setLang', 'es', 'ES', st.mantraLang === 'es') + seg('setLang', 'en', 'EN', st.mantraLang === 'en') + '</div></div>';
@@ -645,28 +707,40 @@
     });
   }
 
-  // ── voz (Web Speech → nota; cronômetro 60s) ────────────────
+  // ── voz (Web Speech → nota; timer/transcript CIRÚRGICOS, sem render) ──
   var voiceTimer = null, sr = null;
   function startVoice(target) {
     var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    S.voice = { on: true, secs: 0, target: target }; render();
-    voiceTimer = setInterval(function () { S.voice.secs += 1; if (S.voice.secs >= 60) { stopVoice(); } else render(); }, 1000);
+    S.voice = { on: true, secs: 0, target: target }; refreshVoiceBtn(target); // só o botão entra em "gravando"
+    voiceTimer = setInterval(function () {
+      S.voice.secs += 1;
+      if (S.voice.secs >= 60) { stopVoice(); return; }
+      var t = document.getElementById('voice-timer'); if (t) t.textContent = String(S.voice.secs); // cirúrgico
+    }, 1000);
     if (SR) {
       try {
         var r = new SR(); r.lang = 'pt-BR'; r.continuous = true; r.interimResults = true;
         var base = target === 'flow' ? (S.flow && S.flow.note || '') : (S.overlay && S.overlay.note || '');
-        r.onresult = function (e) { var t = ''; for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; var val = (base ? base + ' ' : '') + t; if (target === 'flow' && S.flow) S.flow.note = val; else if (S.overlay) S.overlay.note = val; };
+        r.onresult = function (e) {
+          var t = ''; for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+          var val = (base ? base + ' ' : '') + t;
+          // cirúrgico: atualiza o textarea-alvo direto, mantém estado, SEM render
+          if (target === 'flow' && S.flow) { S.flow.note = val; var ta = LYR.flow.el.querySelector('[data-input="note"]'); if (ta) ta.value = val; }
+          else if (S.overlay) { S.overlay.note = val; var ta2 = LYR.overlay.el.querySelector('[data-input="ovNote"]'); if (ta2) ta2.value = val; }
+        };
         r.onerror = function () {}; r.start(); sr = r;
       } catch (e) { sr = null; }
     } else { toast('Neste aparelho a voz não está disponível — escreva a nota'); }
   }
-  function stopVoice() { clearInterval(voiceTimer); try { sr && sr.stop(); } catch (e) {} sr = null; S.voice = { on: false, secs: 0, target: null }; render(); }
+  function stopVoice() { clearInterval(voiceTimer); try { sr && sr.stop(); } catch (e) {} sr = null; var target = S.voice.target; S.voice = { on: false, secs: 0, target: null }; refreshVoiceBtn(target); }
 
   // ════════════════════════════════════════════════════════════
   // HANDLERS (delegação)
   // ════════════════════════════════════════════════════════════
   function flowDefaults(extra) { var n = new Date(); var ap = n.getHours() >= 12 ? 'PM' : 'AM'; var m = String(Math.floor(n.getMinutes() / 5) * 5).padStart(2, '0'); return Object.assign({ step: 'group', cowork: [], note: '', forgot: false, tpH: '', tpM: m, tpAP: ap, endH: '', endM: m, endAP: ap, finished: 'no', ordersInput: '', requires_product: false }, extra || {}); }
   function bump() { if (S.session && S.session.auto_logoff_seconds) S.logoffLeft = S.session.auto_logoff_seconds; }
+  function flowNoteHighlight() { var ta = LYR.flow.el.querySelector('[data-focus="note"]'); if (ta) { ta.focus(); ta.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; ta.style.animation = 'hfShake .4s'; setTimeout(function () { ta.style.boxShadow = ''; ta.style.animation = ''; }, 1200); } }
+  function flowOrdersHighlight() { var inp = LYR.flow.el.querySelector('[data-focus="orders"]'); if (inp) { inp.focus(); inp.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; inp.style.animation = 'hfShake .4s'; setTimeout(function () { inp.style.boxShadow = ''; inp.style.animation = ''; }, 1200); } }
 
   var ACT = {
     pinkey: function (k) {
@@ -712,13 +786,22 @@
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
     doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function () { S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
     note: function () { S.overlay = { type: 'note', note: '' }; S._focus = 'ovNote'; render(); },
-    saveNote: function () { var o = S.overlay; var txt = (o.note || '').trim(); if (!txt) { toast('Escreva algo'); return; } api('/api/v3/op/note', { method: 'POST', body: { text: txt } }).then(function () { S.overlay = null; toast('Nota salva'); }).catch(function (e) { toast(e.message); }); },
+    saveNote: function () { var o = S.overlay; var txt = (o.note || '').trim(); if (!txt) { showAlert({ title: 'Nota vazia', message: 'Escreva ou grave algo antes de salvar a nota.', okLabel: 'Entendi' }); return; } api('/api/v3/op/note', { method: 'POST', body: { text: txt } }).then(function () { S.overlay = null; toast('Nota salva'); }).catch(function (e) { toast(e.message); }); },
     closeOverlay: function () { if (S.voice.on) stopVoice(); S.overlay = null; render(); },
     doClockOut: function () { doClockOut(); },
-    clockUnknown: function (id) { var o = S.overlay; o.unknown = o.unknown || {}; o.unknown[id] = !o.unknown[id]; if (o.unknown[id]) { o.counts = o.counts || {}; delete o.counts[id]; } render(); },
+    clockUnknown: function (id) {
+      var o = S.overlay; o.unknown = o.unknown || {}; o.unknown[id] = !o.unknown[id]; if (o.unknown[id]) { o.counts = o.counts || {}; delete o.counts[id]; }
+      // cirúrgico: atualiza botão + input sem rebuild (sem re-pop do modal)
+      var lyr = LYR.overlay.el; var unk = o.unknown[id];
+      var btn = lyr.querySelector('[data-act="clockUnknown"][data-arg="' + id + '"]'); var inp = lyr.querySelector('[data-input="clockCount"][data-arg="' + id + '"]');
+      if (btn) { btn.style.border = unk ? '0' : '1px solid rgba(15,40,90,.14)'; btn.style.background = unk ? '#42566f' : 'rgba(255,255,255,.7)'; btn.style.color = unk ? '#fff' : '#42566f'; }
+      if (inp) { inp.disabled = unk; if (unk) inp.value = ''; }
+      LYR.overlay.key = overlayKey(); // mantém key coerente (evita rebuild no próximo render)
+    },
     forgottenYes: function () { resolveForgotten(true); },
     forgottenNo: function () { resolveForgotten(false); },
     voice: function (target) { if (S.voice.on) stopVoice(); else startVoice(target); },
+    closeAlert: function () { closeAlert(); },
     toggleMantras: function () { S.settings.mantras = !S.settings.mantras; saveSettings(); render(); },
     setLang: function (v) { S.settings.mantraLang = v; saveSettings(); render(); },
     setPhase: function (v) { S.settings.dayPhase = v; saveSettings(); render(); },
@@ -740,19 +823,19 @@
       setTimeout(function () { S.shake = false; render(); }, 650);
     });
   }
-  function endSession() { S.session = null; S.screen = 'login'; S.pin = ''; S.myTasks = []; S.team = []; S.overlay = null; S.flow = null; S.settingsOpen = false; stopTimers(); render(); }
+  function endSession() { S.session = null; S.screen = 'login'; S.pin = ''; S.myTasks = []; S.team = []; S.overlay = null; S.flow = null; S.settingsOpen = false; S.alert = null; stopTimers(); render(); }
   function doLogout(reason) { api('/api/v3/op/auth/logout', { method: 'POST', body: { reason: reason } }).catch(function () {}); endSession(); }
 
   function confirmStart() {
     var f = S.flow; var m = typeMeta(f.slug);
-    if (m.note_required && !(f.note || '').trim()) { toast('Conte o que está acontecendo antes de começar'); return; }
-    if (m.orders_required && !(parseInt(f.ordersInput, 10) > 0)) { toast('Informe quantas ordens (maior que 0)'); return; }
-    if (f.forgot) { var st = startStatus(f); if (!st.ok) { toast(st.text || 'Escolha um horário válido'); return; } f.step = 'finished'; render(); return; }
+    if (m.note_required && !(f.note || '').trim()) { showAlert({ title: 'Motivo obrigatório', message: 'Essa tarefa precisa de um motivo. Escreva ou grave por voz antes de começar.', okLabel: 'Entendi' }).then(flowNoteHighlight); return; }
+    if (m.orders_required && !(parseInt(f.ordersInput, 10) > 0)) { showAlert({ title: 'Quantidade obrigatória', message: 'Informe quantas ordens vai imprimir (um número maior que 0) antes de começar.', okLabel: 'Entendi' }).then(flowOrdersHighlight); return; }
+    if (f.forgot) { var st = startStatus(f); if (!st.ok) { showAlert({ title: 'Hora inválida', message: st.future ? 'A hora de início não pode ser no futuro. Escolha um horário de hoje já passado.' : 'Escolha um horário de início válido.', okLabel: 'Entendi' }); return; } f.step = 'finished'; render(); return; }
     postStart(null, null);
   }
   function commitRetro() {
-    var f = S.flow; var st = startStatus(f); if (!st.ok) { toast('Horário de início inválido'); return; }
-    var ended = null; if (f.finished === 'yes') { var es = endStatus(f); if (!es.ok) { toast(es.text || 'Escolha a hora de fim'); return; } ended = es.iso; }
+    var f = S.flow; var st = startStatus(f); if (!st.ok) { showAlert({ title: 'Hora de início inválida', message: 'Escolha um horário de início válido (hoje, não no futuro).', okLabel: 'Entendi' }); return; }
+    var ended = null; if (f.finished === 'yes') { var es = endStatus(f); if (!es.ok) { showAlert({ title: 'Hora de fim inválida', message: es.before ? 'A hora de fim tem que ser depois do início.' : (es.future ? 'A hora de fim não pode ser no futuro.' : 'Escolha a hora de fim (ou marque "ainda fazendo").'), okLabel: 'Entendi' }); return; } ended = es.iso; }
     postStart(st.iso, ended);
   }
   function postStart(startedAt, endedAt) {
@@ -785,7 +868,7 @@
       if ((o.unknown || {})[m.event_id]) unknown.push(m.event_id);
       else { var v = (o.counts || {})[m.event_id]; if (v !== undefined && v !== '' && parseInt(v, 10) >= 0) counts.push({ event_id: m.event_id, bottles: parseInt(v, 10) }); else incomplete = true; }
     });
-    if (incomplete && o.is_last && !o.can_skip && (o.missing || []).length) { toast('Preencha os números ou marque "Não sei"'); return; }
+    if (incomplete && o.is_last && !o.can_skip && (o.missing || []).length) { showAlert({ title: 'Faltam contagens', message: 'Preencha quantos bottles saíram em cada produção, ou marque "Não sei".', okLabel: 'Entendi' }); return; }
     api('/api/v3/op/clock-out', { method: 'POST', body: { counts: counts, unknown_event_ids: unknown } }).then(function () { S.overlay = null; toast('Até amanhã!'); endSession(); }).catch(function (e) {
       if (e.status === 422 && e.body && e.body.missing) { S.overlay = { type: 'clock', missing: e.body.missing, is_last: true, can_skip: false, counts: o.counts || {}, unknown: o.unknown || {} }; render(); }
       else toast(e.message);
@@ -801,7 +884,7 @@
     nextForgotten(via);
   }
 
-  // ── delegação de eventos (uma vez) ─────────────────────────
+  // ── delegação de eventos (uma vez, no ROOT) ────────────────
   ROOT.addEventListener('click', function (e) { var el = e.target.closest('[data-act]'); if (!el) return; bump(); var fn = ACT[el.dataset.act]; if (fn) fn(el.dataset.arg, el); });
   ROOT.addEventListener('input', function (e) {
     var el = e.target.closest('[data-input]'); if (!el) return; bump(); var k = el.dataset.input; var v = el.value;
@@ -817,6 +900,14 @@
   ROOT.addEventListener('change', function (e) {
     var el = e.target.closest('[data-change]'); if (!el) return; bump(); var k = el.dataset.change;
     if (S.flow) { S.flow[k] = el.value; render(); }
+  });
+  // teclado p/ o ALERT: Enter / Esc / qualquer tecla 3x em 1.5s
+  var keyCount = 0, keyTimer = null;
+  document.addEventListener('keydown', function (e) {
+    if (!S.alert) return;
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); closeAlert(); return; }
+    keyCount++; clearTimeout(keyTimer); keyTimer = setTimeout(function () { keyCount = 0; }, 1500);
+    if (keyCount >= 3) { closeAlert(); keyCount = 0; }
   });
 
   // ── timers (tick CIRÚRGICO — sem render() → sem flicker) ───
