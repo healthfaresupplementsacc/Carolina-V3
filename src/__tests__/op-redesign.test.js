@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v5 network-first', () => {
-    expect(SW).toContain("'hf-op-v5'");
+  test('sw é hf-op-v6 network-first', () => {
+    expect(SW).toContain("'hf-op-v6'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -97,10 +97,13 @@ describe('op v4 — 3 bugfixes críticos', () => {
     expect(tick).toContain("getElementById('hf-logoff')");
     expect(tick).not.toContain('render()');
   });
-  test('floaters: bottles+cápsulas renderizados uma vez no ambient', () => {
-    expect(APP).toContain('function renderFloaters');
+  test('ambiente fiel: 4 blobs + bottles reais + cápsulas de gel (uma vez no ambient)', () => {
+    expect(APP).toContain('function buildAmbient');
+    expect(APP).toContain('function ambientBottles');   // bottles reais à deriva (drop-shadow)
+    expect(APP).toContain('function capsules');           // cápsulas de gel realistas (pó/sheen/seam)
     expect(APP).toContain('/op/assets/bottles/');
-    expect(APP).toContain('D.floaters(');
+    expect(APP).toContain('hfHue');                       // ciclo de cor do pó (do design)
+    expect(APP).toContain('radial-gradient(circle');      // blobs de marca
   });
   test('RBAC: gear/settings gated por adminUI (operador comum não vê)', () => {
     expect(APP).toContain('function adminUI');

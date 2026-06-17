@@ -8,3 +8,7 @@ public/archive/*.png
 snapshots/
 .claude/settings.json
 analysis_output.json
+
+# bundle de design (referência local pesada — 24MB; fora do git/deploy)
+docs/design/handoff/
+docs/design/screenshots/

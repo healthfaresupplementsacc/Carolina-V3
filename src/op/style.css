@@ -1,36 +1,50 @@
-/* HEALTHFARE /op v4 — layout da página. Tokens/utils vêm de hf-design.css.
-   O redesign usa estilos inline (fiéis ao dc.html); aqui só o esqueleto +
-   classes do keypad/dots que o app.v4.js referencia. */
+/* HEALTHFARE /op — base + keyframes FIÉIS ao design (HealthFare Linha.dc.html).
+   O design usa estilos inline em cada elemento; aqui ficam só os resets,
+   o gradiente do root, os keyframes (copiados do <helmet><style> do .dc.html)
+   e o scroll. O shell persistente (#hf-ambient/#hf-mantra-wrap/#hf-main) evita
+   flicker: render() reescreve só #hf-main; o ambiente é montado uma vez. */
 
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
-body { font-family: var(--hf-font-body); background: var(--hf-bg-app); color: var(--hf-text-primary); overflow: hidden; }
+body { font-family: 'Manrope', system-ui, sans-serif; background: #e9f0f8; overflow: hidden; color: #0c2545; }
+::selection { background: rgba(47,122,224,.2); }
+input, textarea, button, select { font-family: inherit; }
+textarea { resize: none; }
 
-/* raiz: coluna que ocupa a viewport. #hf-ambient (absolute, z0) atrás;
-   #hf-main (z3) à frente. Shell persistente → sem flicker (render() só mexe no main). */
-#hf-root { position: relative; min-height: 100dvh; display: flex; flex-direction: column; }
-#hf-root > .hf-ambient { position: absolute; inset: 0; z-index: 0; }
+/* raiz = rootStyle do design: coluna que ocupa a viewport, gradiente claro,
+   ambiente atrás (z0) e conteúdo à frente. As CSS vars (--day/--energy/--pulse
+   /--accent) são ajustadas pelo app a cada render/tick (sem rebuild do DOM). */
+#hf-root {
+  position: relative; min-height: 100dvh; width: 100%; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: linear-gradient(160deg, #eef4fb 0%, #e6eef8 55%, #e9f1ec 100%);
+  --day: .5; --energy: .3; --pulse: 0; --accent: #0e7a4e;
+}
+#hf-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
 #hf-main { position: relative; z-index: 3; flex: 1; display: flex; flex-direction: column; min-height: 100dvh; }
 
-/* fundo do app conforme o screen (classe trocada pelo app.v4.js) */
-.hf-bg-login { background:
-  radial-gradient(140% 120% at 50% -10%, #1f5fd0 0%, #0f4c92 46%, #0b3a73 100%); }
-.hf-bg-app { background: var(--hf-bg-app); }
-
-/* keypad do PIN */
-.hf-key {
-  min-height: clamp(58px, 8vw, 72px); border: 0; cursor: pointer; border-radius: 18px;
-  background: rgba(255,255,255,.85); color: var(--hf-text-primary);
-  font-family: var(--hf-font-display); font-weight: 700; font-size: clamp(22px, 3vw, 28px);
-  box-shadow: 0 8px 22px -16px rgba(15,40,90,.5); transition: transform .1s, background .15s;
-}
-.hf-key:active { transform: scale(.95); background: #fff; }
-.hf-key-fn { background: rgba(255,255,255,.55); color: var(--hf-text-muted); }
-
-/* dot do PIN */
-.hf-pin-dot { width: 16px; height: 16px; border-radius: 50%; transition: all .2s; }
-
-/* utilitário de truncamento */
-.hf-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* esconder scrollbar nativa onde usamos .hf-scroll já cobre webkit */
+/* scrollbar discreta (igual ao .hf-scroll do design) */
 .hf-scroll { scrollbar-width: thin; scrollbar-color: rgba(15,40,90,.16) transparent; }
+.hf-scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.hf-scroll::-webkit-scrollbar-thumb { background: rgba(15,40,90,.16); border-radius: 99px; }
+
+/* keyframes — cópia exata do design */
+@keyframes driftA { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(36px,-30px) rotate(8deg)} }
+@keyframes driftB { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(-44px,28px) rotate(-7deg)} }
+@keyframes driftC { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(28px,40px) rotate(6deg)} }
+@keyframes driftD { 0%{transform:translate(0,0) rotate(0)} 100%{transform:translate(-30px,-38px) rotate(-9deg)} }
+@keyframes spinSlow { 0%{rotate:0deg} 100%{rotate:360deg} }
+@keyframes spinRev { 0%{rotate:0deg} 100%{rotate:-360deg} }
+@keyframes hfFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)} }
+@keyframes hfRise { 0%{opacity:0;transform:translateY(14px)} 100%{opacity:1;transform:translateY(0)} }
+@keyframes hfPop { 0%{opacity:0;transform:scale(.94)} 100%{opacity:1;transform:scale(1)} }
+@keyframes hfFade { 0%{opacity:0} 100%{opacity:1} }
+@keyframes hfShake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-7px)} 40%,80%{transform:translateX(7px)} }
+@keyframes hfMantra { 0%{opacity:0;transform:translateY(8px)} 12%,82%{opacity:1;transform:translateY(0)} 100%{opacity:0;transform:translateY(-8px)} }
+@keyframes hfPulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+@keyframes hfSheen { 0%{transform:translateX(-120%)} 100%{transform:translateX(220%)} }
+@keyframes hfHue { 0%{filter:hue-rotate(0deg) saturate(1)} 50%{filter:hue-rotate(180deg) saturate(1.25)} 100%{filter:hue-rotate(360deg) saturate(1)} }
+
+/* botões com :active scale (o design usa style-active; aqui via :active) */
+button { -webkit-tap-highlight-color: transparent; }
+button:active { transform: scale(.97); }
