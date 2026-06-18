@@ -636,6 +636,61 @@ describe('op API — cowork multi-finish', () => {
   });
 });
 
+// ─── finish-preview (detect upfront — fix do bottle count do último) ──
+describe('op API — finish-preview (detect upfront)', () => {
+  function groupOf(gid) { return mem.events.filter((e) => e.cowork_group_id === gid); }
+  function evOf(group, pid) { return group.find((e) => e.person_id === pid).id; }
+
+  test('cowork production_line NÃO-último → is_last_finisher:false, sem contagem', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190', cowork_with: [6] } });
+    const g = groupOf(st.body.event.cowork_group_id);
+    const pv = await get(`/api/v3/op/event/${evOf(g, 4)}/finish-preview`, { session: sv });
+    expect(pv.status).toBe(200);
+    expect(pv.body).toMatchObject({ is_cowork: true, is_last_finisher: false, requires_bottle_count: false });
+    expect(pv.body.cowork_remaining).toBe(1); // falta Ana
+  });
+
+  test('cowork production_line ÚLTIMO (após o colega fechar) → requires_bottle_count:true', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190', cowork_with: [6] } });
+    const g = groupOf(st.body.event.cowork_group_id);
+    await post(`/api/v3/op/event/${evOf(g, 4)}/end`, { session: sv, body: {} }); // Vitor sai
+    const sa = await login(6);
+    const pv = await get(`/api/v3/op/event/${evOf(g, 6)}/finish-preview`, { session: sa });
+    expect(pv.body).toMatchObject({ is_cowork: true, is_last_finisher: true, requires_bottle_count: true });
+    expect(pv.body.cowork_remaining).toBe(0);
+  });
+
+  test('SOLO production_line → requires_bottle_count:true, is_cowork:false', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190' } });
+    const pv = await get(`/api/v3/op/event/${st.body.event.id}/finish-preview`, { session: sv });
+    expect(pv.body).toMatchObject({ is_cowork: false, is_last_finisher: true, requires_bottle_count: true });
+    expect(pv.body.cowork_remaining).toBe(0);
+  });
+
+  test('cowork cleaning ÚLTIMO → is_last mas requires_bottle_count:false (não é production_line)', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning', cowork_with: [6] } });
+    const g = groupOf(st.body.event.cowork_group_id);
+    await post(`/api/v3/op/event/${evOf(g, 4)}/end`, { session: sv, body: {} });
+    const sa = await login(6);
+    const pv = await get(`/api/v3/op/event/${evOf(g, 6)}/finish-preview`, { session: sa });
+    expect(pv.body).toMatchObject({ is_cowork: true, is_last_finisher: true, requires_bottle_count: false });
+  });
+
+  test('preview de evento de outro operador → 403; inexistente → 404', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190' } });
+    const sOutro = await login(5);
+    const forbidden = await get(`/api/v3/op/event/${st.body.event.id}/finish-preview`, { session: sOutro });
+    expect(forbidden.status).toBe(403);
+    const missing = await get('/api/v3/op/event/999999/finish-preview', { session: sv });
+    expect(missing.status).toBe(404);
+  });
+});
+
 // ─── clock-out (P5) ──────────────────────────────────────────
 describe('op API — clock-out P5', () => {
   async function mkFinishedProduction(session, batch) {

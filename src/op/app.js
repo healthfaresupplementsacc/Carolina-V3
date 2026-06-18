@@ -829,7 +829,26 @@
     finishedNo: function () { S.flow.finished = 'no'; render(); },
     finishedYes: function () { S.flow.finished = 'yes'; if (!S.flow.endH) { S.flow.endH = String(new Date().getHours() % 12 || 12); S.flow.endAP = new Date().getHours() >= 12 ? 'PM' : 'AM'; } render(); },
     commitRetro: function () { commitRetro(); },
-    finish: function (id) { var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {}; S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '', exc: false, reason: '', cowork: !!t.cowork_group_id, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false }; render(); },
+    finish: function (id) {
+      var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {};
+      var isCw = !!t.cowork_group_id;
+      S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
+      render();
+      // DETECT UPFRONT: pergunta ao backend se ESTE operador é o último do grupo
+      // cowork e se precisa de contagem — pra abrir a tela CERTA de cara, sem
+      // depender do "bounce" via 400 (que falhava por shape da resposta).
+      api('/api/v3/op/event/' + id + '/finish-preview').then(function (pv) {
+        var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
+        o.cowork = !!pv.is_cowork;
+        o.lastFinisher = !!(pv.is_cowork && pv.is_last_finisher); // banner/contagem só p/ ÚLTIMO do cowork
+        o.requiresBottleCount = !!pv.requires_bottle_count;
+        if (pv.cowork_remaining != null) o.coworkRemaining = pv.cowork_remaining;
+        o.previewing = false; render();
+      }).catch(function () {
+        var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
+        o.previewing = false; render(); // fallback: estado derivado da task (+ bounce 400 protege o último)
+      });
+    },
     doFinish: function () { doFinish(); },
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
     doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function () { S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
@@ -936,9 +955,12 @@
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast('Tarefa finalizada!'); loadData();
     }).catch(function (e) {
-      if (e.message === 'bottles_required') {
-        // este operador É o último de production_line → abre a tela de contagem
-        S.overlay.lastFinisher = true; render();
+      // checa o CÓDIGO em e.body.error (api() põe o detail em e.message, não o code)
+      var code = (e && e.body && e.body.error) || e.message;
+      if (code === 'bottles_required') {
+        // corrida: virou o último de production_line entre o preview e o POST →
+        // abre a tela de contagem (fallback; o caminho normal já detecta upfront).
+        if (S.overlay) { S.overlay.lastFinisher = true; render(); }
       } else { toast(e.message); }
     });
   }
@@ -954,8 +976,9 @@
       toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
       loadData();
     }).catch(function (e) {
+      var code = (e && e.body && e.body.error) || e.message;
       var M = { bottles_required: 'Informe quantas bottles', exception_reason_required: 'Explique o motivo (mín. 10 caracteres)' };
-      toast(M[e.message] || e.message);
+      toast(M[code] || e.message);
     });
   }
   function openClock() {

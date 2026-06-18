@@ -393,6 +393,35 @@ function createOpRouter(deps = {}) {
     } catch (e) { console.error('[op] aviso exceção falhou:', e.message); }
   }
 
+  // ── finish-preview ──────────────────────────────────────────
+  // Detecta UPFRONT (antes de abrir o overlay de finalizar) se ESTE operador
+  // é o último do grupo cowork e se precisa de contagem — pro frontend renderizar
+  // a tela certa de cara, sem depender do "bounce" via 400. Mesma lógica do /end.
+  router.get('/api/v3/op/event/:id/finish-preview', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const ev = await loadOwnedOpenEvent(req, res, s); if (!ev) return;
+    if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
+    const isProd = ev.slug === 'production_line';
+    const isCowork = !!ev.cowork_group_id;
+    let isLast = true, remaining = 1;
+    if (isCowork) {
+      const rc = await db.query(
+        'SELECT COUNT(*)::int AS n FROM v3.events WHERE cowork_group_id = $1 AND ended_at IS NULL AND deleted_at IS NULL',
+        [ev.cowork_group_id]);
+      remaining = rc.rows[0].n; // inclui o event atual (ainda aberto)
+      isLast = remaining <= 1;
+    }
+    res.json({
+      ok: true,
+      event_id: ev.id,
+      slug: ev.slug,
+      is_cowork: isCowork,
+      is_last_finisher: isLast,
+      requires_bottle_count: (!isCowork || isLast) && isProd,
+      cowork_remaining: isCowork ? Math.max(0, remaining - 1) : 0, // colegas além de mim ainda na tarefa
+    });
+  }));
+
   router.post('/api/v3/op/event/:id/end', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
     const ev = await loadOwnedOpenEvent(req, res, s); if (!ev) return;

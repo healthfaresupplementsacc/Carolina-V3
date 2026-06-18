@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v15 network-first', () => {
-    expect(SW).toContain("'hf-op-v15'");
+  test('sw é hf-op-v16 network-first', () => {
+    expect(SW).toContain("'hf-op-v16'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -246,7 +246,17 @@ describe('op — cowork multi-finish (Fase 1) frontend', () => {
     expect(APP).toContain('Terminei minha parte');
     expect(APP).toContain('function postFinishCowork');
     expect(APP).toContain('o.cowork && !o.lastFinisher'); // membro não-último → overlay simplificado
-    expect(APP).toContain("e.message === 'bottles_required'"); // último de production_line → abre contagem
-    expect(APP).toContain('cowork: !!t.cowork_group_id'); // detecta cowork na task
+    expect(APP).toContain('var isCw = !!t.cowork_group_id'); // detecta cowork na task
+  });
+  // fix do bottle count do ÚLTIMO: detect upfront via finish-preview
+  test('finish detecta upfront via finish-preview (sem depender do bounce 400)', () => {
+    expect(APP).toContain("/finish-preview"); // ACT.finish pergunta ao backend
+    expect(APP).toContain('pv.is_cowork && pv.is_last_finisher'); // último do cowork → tela de contagem
+  });
+  // robustez: a 400 real traz {error, detail}; api() põe o detail em e.message,
+  // então o code precisa vir de e.body.error (regressão que passou no smoke mockado)
+  test('postFinishCowork lê o CÓDIGO de e.body.error, não de e.message', () => {
+    expect(APP).toContain('e.body && e.body.error'); // fallback bounce robusto
+    expect(APP).not.toContain("e.message === 'bottles_required'"); // bug antigo removido
   });
 });
