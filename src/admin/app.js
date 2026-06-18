@@ -36,6 +36,7 @@
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
     $('view-metrics').classList.toggle('hidden', v !== 'metrics');
     $('view-batches').classList.toggle('hidden', v !== 'batches');
+    $('view-gaps').classList.toggle('hidden', v !== 'gaps');
     $('view-voices').classList.toggle('hidden', v !== 'voices');
     $('view-admins').classList.toggle('hidden', v !== 'admins');
     $('view-audit').classList.toggle('hidden', v !== 'audit');
@@ -45,6 +46,7 @@
     $('tab-analytics').classList.toggle('active', v === 'analytics');
     $('tab-metrics').classList.toggle('active', v === 'metrics');
     $('tab-batches').classList.toggle('active', v === 'batches');
+    $('tab-gaps').classList.toggle('active', v === 'gaps');
     $('tab-voices').classList.toggle('active', v === 'voices');
     $('tab-admins').classList.toggle('active', v === 'admins');
     $('tab-audit').classList.toggle('active', v === 'audit');
@@ -76,6 +78,7 @@
   $('v-apply').onclick = () => loadVoices();
   $('tab-metrics').onclick = async () => { show('metrics'); await loadMetrics(metricsSub); };
   $('tab-batches').onclick = async () => { show('batches'); await loadUnknownBatches(); };
+  $('tab-gaps').onclick = async () => { show('gaps'); await loadGaps(); };
   $('tab-audit').onclick = async () => { show('audit'); auditOffset = 0; await loadAudit(false); };
   $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
   let _auDeb = null;
@@ -434,6 +437,22 @@
       ok.onclick = async () => { ok.disabled = no.disabled = true; try { await api(`/api/adminpanel/unknown-batches/${b.id}/confirm`, { method: 'POST', body: {} }); toast('✅ lote confirmado'); refreshBatchBadge(); loadUnknownBatches(); } catch (e) { ok.disabled = no.disabled = false; toast('❌ ' + e.message); } };
       no.onclick = async () => { if (!window.confirm('Marcar como erro? O lote será removido (soft-delete).')) return; no.disabled = ok.disabled = true; try { await api(`/api/adminpanel/unknown-batches/${b.id}/reject`, { method: 'POST', body: {} }); toast('🗑️ lote removido'); refreshBatchBadge(); loadUnknownBatches(); } catch (e) { no.disabled = ok.disabled = false; toast('❌ ' + e.message); } };
       act.appendChild(ok); act.appendChild(no); card.appendChild(act);
+      box.appendChild(card);
+    });
+  }
+  // ⏱️ gaps de atividade do dia (resumo por operador + lista justificada)
+  async function loadGaps() {
+    const sumBox = $('gaps-summary'); const box = $('gaps-list'); sumBox.innerHTML = ''; box.innerHTML = '';
+    let r;
+    try { r = await api('/api/adminpanel/gaps'); } catch (e) { box.appendChild(el('div', 'sub', '❌ ' + e.message)); return; }
+    (r.summary || []).forEach((s) => {
+      sumBox.appendChild(el('div', 'card', `<div class="row"><span class="title">${s.display_name}</span><span class="sub">${s.gaps} gap(s) · ${s.total_min} min · média ${s.avg_min} min</span></div>`));
+    });
+    if (!r.gaps.length) { box.appendChild(el('div', 'sub', 'Nenhum gap registrado hoje. 🎉')); return; }
+    r.gaps.forEach((g) => {
+      const card = el('div', 'card');
+      card.appendChild(el('div', 'row', `<span class="title">${g.display_name} · ${g.gap_minutes} min</span><span class="sub">${g.justification_type || '—'} · ${g.created_edt}</span>`));
+      card.appendChild(el('div', 'sub', `“${g.justification_note || ''}”`));
       box.appendChild(card);
     });
   }

@@ -48,6 +48,9 @@ function makeMem() {
       { id: 44, batch_number: '0200', product_id: 3, product: 'Berberine' },
     ],
     sessions: [], events: [], counts: [], notes: [], voices: [], audits: [], notifications: [],
+    // Passada 2 — controláveis pelos testes (defaults = sem gap, sem EOD pendente)
+    eodHour: 18, eodSubmitted: false, anaActive: false, eodProducts: [],
+    gapRef: null, gapMinutes: 0, dailyTotals: [], gaps: [],
     seq: { session: 1, event: 100, note: 1, notif: 1 },
   };
 }
@@ -157,6 +160,28 @@ function makeFakeDb(mem) {
       if (/COUNT\(\*\)::int AS n FROM v3\.events WHERE cowork_group_id/.test(s)) {
         const n = mem.events.filter((x) => x.cowork_group_id === params[0] && !x.ended_at && !x.deleted_at).length;
         return resp([{ n }]);
+      }
+      // ── Passada 2: end-of-day + gap ──
+      if (/AS hour_edt/.test(s)) {
+        return resp([{ hour_edt: mem.eodHour, already_submitted: mem.eodSubmitted, ana_active: mem.anaActive }]);
+      }
+      if (/AS count_so_far/.test(s)) return resp(mem.eodProducts);
+      if (/INSERT INTO v3\.daily_totals_log/.test(s)) {
+        if (mem.eodSubmitted) return resp([]); // ON CONFLICT DO NOTHING
+        mem.eodSubmitted = true;
+        const id = mem.dailyTotals.push({ person_id: params[0], totals: params[1], note: params[2] });
+        return resp([{ id }]);
+      }
+      if (/SELECT 1 FROM v3\.events WHERE person_id = \$1 AND ended_at IS NULL AND deleted_at IS NULL LIMIT 1/.test(s)) {
+        const open = mem.events.find((e) => e.person_id === params[0] && !e.ended_at && !e.deleted_at);
+        return resp(open ? [{ '?column?': 1 }] : []);
+      }
+      if (/AS ref,/.test(s) && /AS minutes/.test(s)) {
+        return resp([{ ref: mem.gapRef, minutes: mem.gapMinutes }]);
+      }
+      if (/INSERT INTO v3\.activity_gaps/.test(s)) {
+        const id = mem.gaps.push({ person_id: params[0], gap_started_at: params[1], type: params[2], note: params[3] });
+        return resp([{ id, gap_minutes: mem.gapMinutes || 25 }]);
       }
       // Bug 3: products ativos (p/ mapa de imagens)
       if (/SELECT id, canonical_name, aliases FROM v3\.products WHERE active = true/.test(s)) {
@@ -880,6 +905,78 @@ describe('op API — conta sandbox (is_test invisível)', () => {
     const sv = await login(4);
     const r = await get('/api/v3/op/active-operators', { session: sv });
     expect(r.body.operators.some((o) => o.id === 8)).toBe(false);
+  });
+});
+
+// ─── Passada 2: fim-do-dia + gap (Item C) ────────────────────
+describe('op API — fim-do-dia (end-of-day)', () => {
+  test('antes das 17h → pending=false', async () => {
+    mem.eodHour = 14; const sv = await login(6);
+    expect((await get('/api/v3/op/end-of-day/check', { session: sv })).body.pending).toBe(false);
+  });
+  test('depois das 17h + Ana → pending + should_prompt_user', async () => {
+    mem.eodHour = 18; const sv = await login(6);
+    const r = await get('/api/v3/op/end-of-day/check', { session: sv });
+    expect(r.body.pending).toBe(true);
+    expect(r.body.should_prompt_user).toBe(true);
+  });
+  test('count_exempt (Bruno Sarmento) e sandbox → pending=false', async () => {
+    mem.eodHour = 18;
+    expect((await get('/api/v3/op/end-of-day/check', { session: await login(7) })).body.pending).toBe(false);
+    expect((await get('/api/v3/op/end-of-day/check', { session: await login(8) })).body.pending).toBe(false);
+  });
+  test('outro operador: Ana NÃO ativa → prompt; Ana ativa → não', async () => {
+    mem.eodHour = 18; mem.anaActive = false; const sv = await login(4);
+    expect((await get('/api/v3/op/end-of-day/check', { session: sv })).body.should_prompt_user).toBe(true);
+    mem.anaActive = true;
+    expect((await get('/api/v3/op/end-of-day/check', { session: sv })).body.should_prompt_user).toBe(false);
+  });
+  test('submit grava + posta Slack; 2º submit → 409', async () => {
+    mem.eodHour = 18; const sv = await login(6);
+    const r1 = await post('/api/v3/op/end-of-day/submit', { session: sv, body: { totals: { 8: { bottles: 700 } } } });
+    expect(r1.status).toBe(200);
+    expect(slack.postAs).toHaveBeenCalled();
+    expect((await post('/api/v3/op/end-of-day/submit', { session: sv, body: { totals: {} } })).status).toBe(409);
+  });
+  test('submit sandbox → NÃO posta no Slack', async () => {
+    const sv = await login(8);
+    const r = await post('/api/v3/op/end-of-day/submit', { session: sv, body: { totals: { 8: { bottles: 5 } } } });
+    expect(r.status).toBe(200);
+    expect(slack.postAs).not.toHaveBeenCalled();
+  });
+});
+
+describe('op API — gap detection (Item C)', () => {
+  test('start com gap>20min → gap_detected, NÃO cria event', async () => {
+    mem.gapRef = '2026-06-18T12:00:00Z'; mem.gapMinutes = 25;
+    const sv = await login(5);
+    const r = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning' } });
+    expect(r.status).toBe(200);
+    expect(r.body.gap_detected).toBe(true);
+    expect(r.body.gap_minutes).toBe(25);
+    expect(mem.events.length).toBe(0);
+  });
+  test('start com gap_ack → cria normal', async () => {
+    mem.gapRef = '2026-06-18T12:00:00Z'; mem.gapMinutes = 25;
+    const sv = await login(5);
+    const r = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning', gap_ack: true } });
+    expect(r.status).toBe(200);
+    expect(r.body.event).toBeTruthy();
+  });
+  test('sandbox NÃO dispara gap', async () => {
+    mem.gapRef = '2026-06-18T12:00:00Z'; mem.gapMinutes = 25;
+    const sv = await login(8);
+    const r = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning' } });
+    expect(r.body.gap_detected).toBeFalsy();
+    expect(r.body.event).toBeTruthy();
+  });
+  test('justify grava activity_gap; nota curta → 400', async () => {
+    const sv = await login(5);
+    const bad = await post('/api/v3/op/gap/justify', { session: sv, body: { gap_started_at: '2026-06-18T12:00:00Z', justification_type: 'bathroom', justification_note: 'x' } });
+    expect(bad.status).toBe(400);
+    const ok = await post('/api/v3/op/gap/justify', { session: sv, body: { gap_started_at: '2026-06-18T12:00:00Z', justification_type: 'bathroom', justification_note: 'fui ao banheiro rapidinho' } });
+    expect(ok.status).toBe(200);
+    expect(mem.gaps.length).toBe(1);
   });
 });
 

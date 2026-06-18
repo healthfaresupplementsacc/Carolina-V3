@@ -19,6 +19,7 @@
       <button id="tab-analytics" class="tab">📊 Analytics</button>
       <button id="tab-metrics" class="tab">📈 Métricas <span id="exc-badge" class="badge hidden" title="exceções aguardando contagem">0</span></button>
       <button id="tab-batches" class="tab">🟡 Lotes <span id="batch-badge" class="badge hidden" title="lotes desconhecidos aguardando revisão">0</span></button>
+      <button id="tab-gaps" class="tab">⏱️ Gaps</button>
       <button id="tab-voices" class="tab">🎤 Voices</button>
       <button id="tab-admins" class="tab hidden">👥 Admins</button>
       <button id="tab-audit" class="tab">📋 Histórico</button>
@@ -44,6 +45,13 @@
       <h1>🟡 Lotes desconhecidos</h1>
       <div class="sub" style="margin-bottom:14px;">Lotes que um operador digitou e não existiam — auto-criados pra não travar o trabalho. Confirme os válidos ou marque como erro.</div>
       <div id="batches-list" class="cards"></div>
+    </section>
+
+    <section id="view-gaps" class="view hidden">
+      <h1>⏱️ Gaps de atividade <span class="sub">(hoje)</span></h1>
+      <div class="sub" style="margin-bottom:14px;">Períodos >20min sem registro de atividade, justificados pelo operador ao iniciar a próxima tarefa.</div>
+      <div id="gaps-summary" class="cards"></div>
+      <div id="gaps-list" class="cards"></div>
     </section>
 
     <section id="view-ops" class="view hidden">

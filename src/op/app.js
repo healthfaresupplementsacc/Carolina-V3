@@ -644,6 +644,8 @@
     var o = S.overlay; if (!o) return '';
     if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
     if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0); // exc/cowork/último re-montam
+    if (o.type === 'gap') return 'gap:' + (o.jtype || ''); // re-monta ao escolher o motivo (highlight)
+    if (o.type === 'eod') return 'eod:' + (o.products || []).length;
     return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
@@ -724,7 +726,47 @@
       var meta = [p.last_activity_at ? 'última atividade ' + p.last_activity_at : '', p.expected_end_time ? 'saída prevista ' + p.expected_end_time : ''].filter(Boolean).join(' · ');
       return cardOpen(440, true) + '<span style="display:inline-flex; width:60px; height:60px; border-radius:50%; background:rgba(179,92,0,.12); color:#b35c00; align-items:center; justify-content:center; margin-bottom:16px;">' + svgr(CLOCK, 30, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:21px; color:#0c2545; margin-bottom:6px;">' + esc(p.person_name) + ' ainda está trabalhando?</div><div style="font-size:13px; color:#8195ab; margin-bottom:22px;">' + esc(meta) + '</div><div style="display:flex; flex-direction:column; gap:11px;"><button data-act="forgottenYes" style="border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:16px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 17, 2.6) + 'Sim, ainda está na linha</button><button data-act="forgottenNo" style="border:1px solid rgba(179,38,30,.25); background:rgba(255,255,255,.6); color:#b3261e; border-radius:15px; padding:16px; font-weight:700; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 16, 2.6) + 'Não, fazer checkout dela</button></div></div>';
     }
+    if (o.type === 'gap') return gapInner(o);
+    if (o.type === 'eod') return eodInner(o);
     return '';
+  }
+  // PASSADA 2 — overlay de GAP (amarelo): justifica >20min sem atividade antes de iniciar
+  var GAP_REASONS = [
+    ['bathroom', '🚻 Banheiro'], ['food', '💧 Água/Comida'], ['meeting', '👥 Reunião'],
+    ['help', '🆘 Ajudando colega'], ['outside', '🚪 Saí do prédio'], ['phone', '📞 Telefonema'],
+    ['cleaning', '🧹 Limpeza rápida'], ['machine', '⚙️ Ajuste máquina'], ['other', '⋯ Outro'],
+  ];
+  function gapInner(o) {
+    var h = cardOpen(520);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:6px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(217,145,0,.14); color:#b35c00; display:flex; align-items:center; justify-content:center;">' + svgr(CLOCK, 26, 1.8) + '</span><div><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">⏱️ Gap de atividade detectado</div><div style="font-size:13px; color:#8a5a00; font-weight:600; margin-top:2px;">Você ficou ' + (o.gapMinutes || '?') + ' min sem registrar atividade</div></div></div>';
+    h += '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin:16px 0 14px;">';
+    GAP_REASONS.forEach(function (r) {
+      var on = o.jtype === r[0];
+      h += '<button data-act="gapReason" data-arg="' + r[0] + '" style="cursor:pointer; border-radius:13px; padding:13px 8px; font-weight:700; font-size:12.5px; text-align:center; border:' + (on ? '0' : '1px solid rgba(15,40,90,.14)') + '; background:' + (on ? 'linear-gradient(135deg,#d99100,#b35c00)' : 'rgba(255,255,255,.7)') + '; color:' + (on ? '#fff' : '#42566f') + ';">' + esc(r[1]) + '</button>';
+    });
+    h += '</div>';
+    h += '<div style="font-size:13px; font-weight:700; color:#8a5a00; margin-bottom:8px;">📝 Explique (obrigatório)</div>';
+    h += '<textarea data-input="gapNote" data-focus="gapNote" placeholder="O que aconteceu nesse tempo…" style="width:100%; min-height:80px; font-size:16px; padding:13px 15px; border:1px solid rgba(217,145,0,.35); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
+    h += '<div style="display:flex; justify-content:flex-end; margin-top:8px;">' + voiceBtn('gap') + '</div>';
+    h += '<div style="display:flex; gap:11px; margin-top:18px;">' + ghostBtn('cancelGap', 'Cancelar') + '<button data-act="doGapJustify" style="flex:1.6; border:0; background:linear-gradient(135deg,#d99100,#b35c00); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,92,0,.6); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 18, 2.6) + 'Justificar e iniciar</button></div>';
+    h += '</div>';
+    return h;
+  }
+  // PASSADA 2 — overlay FIM DO DIA: confirma os totais produzidos
+  function eodInner(o) {
+    var h = cardOpen(540);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:6px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(15,76,146,.12); color:#0f4c92; display:flex; align-items:center; justify-content:center;">' + svgr('<path d="M3 3v18h18"></path><rect x="7" y="11" width="3" height="6"></rect><rect x="12" y="7" width="3" height="10"></rect><rect x="17" y="13" width="3" height="4"></rect>', 26, 1.9) + '</span><div><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">📊 Totais do dia</div><div style="font-size:13px; color:#5a6e87; margin-top:2px;">Confirme quantas bottles saíram de cada produto hoje.</div></div></div>';
+    h += '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:10px; margin:14px 0; max-height:340px; overflow-y:auto;">';
+    if (!(o.products || []).length) h += '<div style="font-size:14px; color:#8195ab; text-align:center; padding:16px;">Nenhuma produção registrada hoje. Pode confirmar mesmo assim.</div>';
+    (o.products || []).forEach(function (p) {
+      var v = (o.totals && o.totals[p.product_id]) || '';
+      h += '<div style="background:rgba(255,255,255,.7); border:1px solid rgba(15,40,90,.12); border-radius:14px; padding:12px 14px;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(p.product) + '</span><span style="font-size:12px; color:#8195ab;">já registrados: ' + (p.count_so_far || 0) + '</span></div><input value="' + esc(v) + '" data-input="eodBottles" data-arg="' + p.product_id + '" inputmode="numeric" placeholder="Total de bottles do dia" style="width:100%; min-height:50px; font-size:16px; padding:10px 14px; border:1px solid rgba(15,40,90,.16); border-radius:12px; background:#fff; color:#0c2545; outline:none;"></div>';
+    });
+    h += '</div>';
+    h += '<textarea data-input="eodNote" placeholder="Observação do dia (opcional)" style="width:100%; min-height:60px; font-size:16px; padding:12px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
+    h += '<div style="display:flex; gap:11px; margin-top:18px;">' + ghostBtn('closeOverlay', 'Mais tarde') + '<button data-act="doEodSubmit" style="flex:1.6; border:0; background:linear-gradient(135deg,#2f7ae0,#0f4c92); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(15,76,146,.6); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 18, 2.6) + 'Salvar Totais</button></div>';
+    h += '</div>';
+    return h;
   }
 
   // ── ALERT vermelho central (BUG 3) ─────────────────────────
@@ -819,7 +861,7 @@
           // cirúrgico: atualiza o textarea-alvo direto, mantém estado, SEM render
           if (target === 'flow' && S.flow) { S.flow.note = val; var ta = LYR.flow.el.querySelector('[data-input="note"]'); if (ta) ta.value = val; }
           else if (target === 'finishReason' && S.overlay) { S.overlay.reason = val; var tr = LYR.overlay.el.querySelector('[data-input="finReason"]'); if (tr) tr.value = val; }
-          else if (S.overlay) { S.overlay.note = val; var ta2 = LYR.overlay.el.querySelector('[data-input="ovNote"]'); if (ta2) ta2.value = val; }
+          else if (S.overlay) { S.overlay.note = val; var ta2 = LYR.overlay.el.querySelector('[data-input="ovNote"], [data-input="gapNote"]'); if (ta2) ta2.value = val; }
         };
         r.onerror = function () {}; r.start(); sr = r;
       } catch (e) { sr = null; }
@@ -907,6 +949,12 @@
     note: function () { S.overlay = { type: 'note', note: '' }; S._focus = 'ovNote'; render(); },
     saveNote: function () { var o = S.overlay; var txt = (o.note || '').trim(); if (!txt) { showAlert({ title: 'Nota vazia', message: 'Escreva ou grave algo antes de salvar a nota.', okLabel: 'Entendi' }); return; } api('/api/v3/op/note', { method: 'POST', body: { text: txt } }).then(function () { S.overlay = null; toast('Nota salva'); }).catch(function (e) { toast(e.message); }); },
     closeOverlay: function () { if (S.voice.on) stopVoice(); S.overlay = null; render(); },
+    // PASSADA 2 — gap
+    gapReason: function (type) { if (S.overlay) { S.overlay.jtype = type; render(); } },
+    cancelGap: function () { if (S.voice.on) stopVoice(); S.overlay = null; S.flow = null; S.gapPending = null; render(); }, // NÃO inicia, volta home
+    doGapJustify: function () { doGapJustify(); },
+    // PASSADA 2 — fim do dia
+    doEodSubmit: function () { doEodSubmit(); },
     doClockOut: function () { doClockOut(); },
     clockUnknown: function (id) {
       var o = S.overlay; o.unknown = o.unknown || {}; o.unknown[id] = !o.unknown[id]; if (o.unknown[id]) { o.counts = o.counts || {}; delete o.counts[id]; }
@@ -967,6 +1015,12 @@
     var path = startedAt ? '/api/v3/op/event/retroactive' : '/api/v3/op/event/start';
     if (startedAt) { body.started_at = startedAt; body.ended_at = endedAt || null; }
     api(path, { method: 'POST', body: body }).then(function (res) {
+      // PASSADA 2 — gap detectado: pausa pra justificar ANTES de iniciar (só start ao vivo)
+      if (res && res.gap_detected) {
+        S.gapPending = { path: path, body: body };
+        S.overlay = { type: 'gap', gapMinutes: res.gap_minutes, gapStartedAt: res.gap_started_at, jtype: null, note: '' };
+        render(); return;
+      }
       S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
       loadData();
@@ -974,6 +1028,39 @@
       var M = { note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade', started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra hoje', ended_at_invalid: 'Hora de fim inválida', unknown_batch: 'Lote não encontrado' };
       toast(M[e.message] || e.message);
     });
+  }
+  // PASSADA 2 — justifica o gap e RECAMA o start com gap_ack (cascade no frontend)
+  function doGapJustify() {
+    var o = S.overlay; if (!o) return;
+    if ((o.note || '').trim().length < 3) { showAlert({ title: 'Explicação obrigatória', message: 'Diga rapidinho o que aconteceu nesse tempo (pode usar a voz).', okLabel: 'Entendi' }); return; }
+    if (S.voice.on) stopVoice();
+    api('/api/v3/op/gap/justify', { method: 'POST', body: { gap_started_at: o.gapStartedAt, justification_type: o.jtype || 'other', justification_note: (o.note || '').trim() } })
+      .then(function () {
+        var pend = S.gapPending; S.gapPending = null; S.overlay = null;
+        if (!pend) { render(); loadData(); return; }
+        var body = Object.assign({}, pend.body, { gap_ack: true }); // recama o start já justificado
+        api(pend.path, { method: 'POST', body: body }).then(function () {
+          S.flow = null; S.pulse = 1; toast('Tarefa iniciada!'); loadData();
+        }).catch(function (e) { toast(e.message); loadData(); });
+      })
+      .catch(function (e) { toast((e.body && e.body.error) === 'justification_required' ? 'Explique o gap' : e.message); });
+  }
+  // PASSADA 2 — fim do dia: depois de finalizar uma task, pergunta se precisa dos totais
+  function checkEndOfDay() {
+    api('/api/v3/op/end-of-day/check').then(function (r) {
+      if (r && r.pending && r.should_prompt_user && !r.already_submitted && !S.overlay) {
+        S.overlay = { type: 'eod', products: r.products || [], totals: {}, note: '' };
+        render();
+      }
+    }).catch(function () {});
+  }
+  function doEodSubmit() {
+    var o = S.overlay; if (!o) return;
+    var totals = {};
+    Object.keys(o.totals || {}).forEach(function (pid) { var n = parseInt(o.totals[pid], 10); if (Number.isFinite(n) && n >= 0) totals[pid] = { bottles: n }; });
+    api('/api/v3/op/end-of-day/submit', { method: 'POST', body: { totals: totals, general_note: (o.note || '').trim() || null } })
+      .then(function () { S.overlay = null; S.pulse = 1; toast('Totais do dia salvos · obrigado!'); render(); })
+      .catch(function (e) { if ((e.body && e.body.error) === 'already_submitted') { S.overlay = null; toast('Totais já confirmados hoje'); render(); } else toast(e.message); });
   }
   function doFinish() {
     var o = S.overlay;
@@ -1006,7 +1093,7 @@
       }
       // backend fechou (último de tarefa sem contagem)
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
-      toast('Tarefa finalizada!'); loadData();
+      toast('Tarefa finalizada!'); loadData(); checkEndOfDay(); // PASSADA 2
     }).catch(function (e) {
       // checa o CÓDIGO em e.body.error (api() põe o detail em e.message, não o code)
       var code = (e && e.body && e.body.error) || e.message;
@@ -1027,7 +1114,7 @@
     api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function () {
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
-      loadData();
+      loadData(); checkEndOfDay(); // PASSADA 2 — pergunta os totais do dia se for a hora
     }).catch(function (e) {
       var code = (e && e.body && e.body.error) || e.message;
       var M = { bottles_required: 'Informe quantas bottles', exception_reason_required: 'Explique o motivo (mín. 10 caracteres)' };
@@ -1074,6 +1161,9 @@
     else if (k === 'finReason') { S.overlay.reason = v; }
     else if (k === 'finNote') { S.overlay.note = v; }
     else if (k === 'clockCount') { S.overlay.counts = S.overlay.counts || {}; S.overlay.counts[el.dataset.arg] = v; }
+    else if (k === 'gapNote') { S.overlay.note = v; }
+    else if (k === 'eodNote') { S.overlay.note = v; }
+    else if (k === 'eodBottles') { S.overlay.totals = S.overlay.totals || {}; S.overlay.totals[el.dataset.arg] = v; }
   });
   ROOT.addEventListener('change', function (e) {
     var el = e.target.closest('[data-change]'); if (!el) return; bump(); var k = el.dataset.change;

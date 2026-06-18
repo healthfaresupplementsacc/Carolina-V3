@@ -1070,6 +1070,24 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true });
   }));
 
+  // ── Passada 2: gaps de atividade (>20min justificados) ──
+  router.get('/api/adminpanel/gaps', requireAdmin, h(async (req, res) => {
+    const day = req.query.day && /^\d{4}-\d{2}-\d{2}$/.test(req.query.day) ? req.query.day : null;
+    const gaps = await db.query(
+      `SELECT g.id, p.display_name, g.gap_minutes, g.justification_type, g.justification_note,
+              to_char(g.gap_started_at AT TIME ZONE '${EDT}', 'HH12:MI AM') AS started_edt,
+              to_char(g.created_at AT TIME ZONE '${EDT}', 'Mon DD, HH12:MI AM') AS created_edt
+       FROM v3.activity_gaps g JOIN v3.persons p ON p.id = g.person_id
+       WHERE (g.created_at AT TIME ZONE '${EDT}')::date = COALESCE($1::date, (NOW() AT TIME ZONE '${EDT}')::date)
+       ORDER BY g.created_at DESC LIMIT 200`, [day]);
+    const summary = await db.query(
+      `SELECT p.display_name, COUNT(*)::int AS gaps, SUM(g.gap_minutes)::int AS total_min, ROUND(AVG(g.gap_minutes))::int AS avg_min
+       FROM v3.activity_gaps g JOIN v3.persons p ON p.id = g.person_id
+       WHERE (g.created_at AT TIME ZONE '${EDT}')::date = COALESCE($1::date, (NOW() AT TIME ZONE '${EDT}')::date)
+       GROUP BY p.display_name ORDER BY SUM(g.gap_minutes) DESC`, [day]);
+    res.json({ gaps: gaps.rows, summary: summary.rows });
+  }));
+
   // 2) Por operador (drill-down)
   router.get('/api/adminpanel/metrics/operator/:id', h(async (req, res) => {
     const id = parseInt(req.params.id, 10); const d = mRange(req);

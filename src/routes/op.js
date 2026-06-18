@@ -318,6 +318,14 @@ function createOpRouter(deps = {}) {
         return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe quantas ordens (número > 0).' });
       }
     }
+    // PASSADA 2 — gap detection: >20min sem atividade → pausa pra justificar ANTES
+    // de iniciar (captura info, NÃO nega trabalho). Sandbox e retry (gap_ack) pulam.
+    if (!s.is_sandbox && !(req.body && req.body.gap_ack)) {
+      const gap = await detectGap(s.person_id);
+      if (gap && gap.minutes > 20 && gap.minutes < 480) {
+        return res.json({ ok: true, gap_detected: true, gap_minutes: gap.minutes, gap_started_at: gap.since });
+      }
+    }
     // NUNCA bloqueia: resolve o lote OU auto-cria (alerta admin depois)
     const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id);
     const cw = Array.isArray(cowork_with)
@@ -681,6 +689,119 @@ function createOpRouter(deps = {}) {
       };
     });
     res.json({ product_id: pid, batches });
+  }));
+
+  // ════════════════════════════════════════════════════════════
+  // PASSADA 2 — fim-do-dia + gap detection
+  // ════════════════════════════════════════════════════════════
+  const ANA_ID = 6; // operadora designada pros totais do dia
+
+  // ── fim-do-dia: precisa pedir os totais? ──
+  router.get('/api/v3/op/end-of-day/check', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const meta = await db.query(`
+      SELECT (EXTRACT(HOUR FROM (NOW() AT TIME ZONE '${EDT}')))::int AS hour_edt,
+             EXISTS (SELECT 1 FROM v3.daily_totals_log WHERE day = (NOW() AT TIME ZONE '${EDT}')::date) AS already_submitted,
+             EXISTS (SELECT 1 FROM v3.operator_sessions WHERE person_id = ${ANA_ID}
+                       AND (created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS ana_active`);
+    const m = meta.rows[0];
+    const timeOK = m.hour_edt >= 17;
+    const pending = timeOK && !s.count_exempt && !s.is_sandbox && !m.already_submitted;
+    const isAna = s.person_id === ANA_ID;
+    // Ana sempre; outros só se Ana não vai fazer (não logou hoje) — fallback
+    const shouldPrompt = isAna ? true : !m.ana_active;
+    // produtos produzidos hoje (referência pro formulário de totais)
+    const prods = await db.query(`
+      SELECT pr.id AS product_id, pr.canonical_name AS product,
+             COALESCE(SUM(pc.bottles),0)::int AS count_so_far
+      FROM v3.production_counts pc
+      JOIN v3.product_batches pb ON pb.id = pc.product_batch_id
+      JOIN v3.products pr ON pr.id = pb.product_id
+      WHERE pc.deleted_at IS NULL
+        AND (pc.created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+      GROUP BY pr.id, pr.canonical_name ORDER BY pr.canonical_name`);
+    res.json({
+      pending: !!pending,
+      already_submitted: !!m.already_submitted,
+      should_prompt_user: !!(pending && shouldPrompt),
+      current_hour_edt: m.hour_edt,
+      products: prods.rows,
+    });
+  }));
+
+  // ── fim-do-dia: submeter os totais ──
+  router.post('/api/v3/op/end-of-day/submit', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const body = req.body || {};
+    const totals = body.totals && typeof body.totals === 'object' ? body.totals : {};
+    const note = body.general_note ? String(body.general_note).slice(0, 1000) : null;
+    const ins = await db.query(
+      `INSERT INTO v3.daily_totals_log (day, person_id, totals_json, general_note)
+       VALUES ((NOW() AT TIME ZONE '${EDT}')::date, $1, $2::jsonb, $3)
+       ON CONFLICT (day) DO NOTHING
+       RETURNING id`, [s.person_id, JSON.stringify(totals), note]);
+    if (!ins.rowCount) return res.status(409).json({ error: 'already_submitted', detail: 'Os totais de hoje já foram confirmados.' });
+    await audit('end_of_day.submitted', 'daily_totals_log', ins.rows[0].id, { totals_keys: Object.keys(totals).length, is_test: !!s.is_sandbox }, s.person_id);
+    // resumo no canal de produção (sandbox NÃO posta)
+    if (!s.is_sandbox && slack && slack.postAs) {
+      try {
+        const lines = [];
+        for (const pid of Object.keys(totals)) {
+          const b = parseInt(totals[pid] && (totals[pid].bottles != null ? totals[pid].bottles : totals[pid]), 10);
+          if (!Number.isFinite(b)) continue;
+          const pr = await db.query('SELECT canonical_name FROM v3.products WHERE id = $1', [parseInt(pid, 10)]);
+          lines.push('• ' + (pr.rows[0] ? pr.rows[0].canonical_name : 'Produto ' + pid) + ': ' + b + ' bottles');
+        }
+        const sum = lines.length ? Object.keys(totals).reduce((a, k) => a + (parseInt(totals[k] && (totals[k].bottles != null ? totals[k].bottles : totals[k]), 10) || 0), 0) : 0;
+        const dateStr = new Date().toLocaleDateString('pt-BR', { timeZone: EDT });
+        await slack.postAs({
+          channel: productionChannel,
+          sender: { name: 'HealthFare Tracker (Sistema)', icon: ':bar_chart:' }, thread_ts: null,
+          text: '📊 *Totais do dia ' + dateStr + '* confirmados por ' + (s.display_name || '?') + ':\n' + (lines.join('\n') || '_(sem produtos)_') + (lines.length ? '\n*Total: ' + sum + ' bottles*' : '') + (note ? '\n_Nota: “' + note + '”_' : ''),
+          unfurl_links: false, unfurl_media: false,
+        });
+      } catch (e) { console.error('[op] EOD slack falhou:', e.message); }
+    }
+    res.json({ ok: true });
+  }));
+
+  // ── gap detection: tempo desde a última atividade do operador ──
+  async function detectGap(personId) {
+    const open = await db.query("SELECT 1 FROM v3.events WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL LIMIT 1", [personId]);
+    if (open.rowCount) return null; // está com task aberta → ativo
+    const r = await db.query(`
+      SELECT GREATEST(
+        COALESCE((SELECT MAX(ended_at) FROM v3.events WHERE person_id=$1 AND deleted_at IS NULL AND ended_at IS NOT NULL
+                    AND (ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date), 'epoch'::timestamptz),
+        COALESCE((SELECT MAX(created_at) FROM v3.operator_sessions WHERE person_id=$1
+                    AND (created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date), 'epoch'::timestamptz)
+      ) AS ref,
+      ROUND(EXTRACT(EPOCH FROM (NOW() - GREATEST(
+        COALESCE((SELECT MAX(ended_at) FROM v3.events WHERE person_id=$1 AND deleted_at IS NULL AND ended_at IS NOT NULL
+                    AND (ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date), 'epoch'::timestamptz),
+        COALESCE((SELECT MAX(created_at) FROM v3.operator_sessions WHERE person_id=$1
+                    AND (created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date), 'epoch'::timestamptz)
+      )))/60)::int AS minutes`, [personId]);
+    const row = r.rows[0];
+    if (!row || !row.ref || new Date(row.ref).getUTCFullYear() < 2000) return null; // 1º login do dia (H6) → sem gap
+    return { minutes: row.minutes, since: row.ref };
+  }
+
+  // ── gap: justificar + (frontend recama o start com gap_ack) ──
+  router.post('/api/v3/op/gap/justify', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const body = req.body || {};
+    const startedAt = body.gap_started_at;
+    const jtype = body.justification_type ? String(body.justification_type).slice(0, 40) : null;
+    const note = String(body.justification_note || '').trim();
+    if (!startedAt) return res.status(400).json({ error: 'gap_started_at_required' });
+    if (note.length < 3) return res.status(400).json({ error: 'justification_required', detail: 'Explique o gap (mín. 3 caracteres).' });
+    const ins = await db.query(
+      `INSERT INTO v3.activity_gaps (person_id, gap_started_at, gap_ended_at, gap_minutes, justification_type, justification_note)
+       VALUES ($1, $2::timestamptz, NOW(), ROUND(EXTRACT(EPOCH FROM (NOW() - $2::timestamptz))/60)::int, $3, $4)
+       RETURNING id, gap_minutes`, [s.person_id, startedAt, jtype, note.slice(0, 500)]);
+    await audit('activity_gap.justified', 'activity_gap', ins.rows[0].id, { gap_minutes: ins.rows[0].gap_minutes, type: jtype, is_test: !!s.is_sandbox }, s.person_id);
+    res.json({ ok: true, gap_minutes: ins.rows[0].gap_minutes });
   }));
 
   // ── nota livre ──────────────────────────────────────────────

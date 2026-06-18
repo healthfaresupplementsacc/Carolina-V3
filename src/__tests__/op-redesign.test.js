@@ -16,6 +16,7 @@ const REAL = [
   '/api/v3/op/note', '/api/v3/op/voice/upload', '/api/v3/op/active-operators',
   '/api/v3/op/missing-bottle-counts', '/api/v3/op/clock-out', '/api/v3/op/forgotten-checkout/resolve',
   '/api/v3/op/products/images', '/api/v3/op/batches/recent', // Bug 2/3 (EMS enrichment)
+  '/api/v3/op/end-of-day/check', '/api/v3/op/end-of-day/submit', '/api/v3/op/gap/justify', // Passada 2
   '/api/v3/architect/person/',
 ];
 
@@ -82,8 +83,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v21 network-first', () => {
-    expect(SW).toContain("'hf-op-v21'");
+  test('sw é hf-op-v22 network-first', () => {
+    expect(SW).toContain("'hf-op-v22'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -263,6 +264,20 @@ describe('op — cowork multi-finish (Fase 1) frontend', () => {
   test('postFinishCowork lê o CÓDIGO de e.body.error, não de e.message', () => {
     expect(APP).toContain('e.body && e.body.error'); // fallback bounce robusto
     expect(APP).not.toContain("e.message === 'bottles_required'"); // bug antigo removido
+  });
+});
+
+// Passada 2 (Item C): fim-do-dia + gap detection no frontend
+describe('op — Passada 2 (fim-do-dia + gap) frontend', () => {
+  test('overlays e chamadas existem', () => {
+    expect(APP).toContain('function gapInner');
+    expect(APP).toContain('function eodInner');
+    expect(APP).toContain('function checkEndOfDay');
+    expect(APP).toContain('/api/v3/op/end-of-day/check');
+    expect(APP).toContain('/api/v3/op/end-of-day/submit');
+    expect(APP).toContain('/api/v3/op/gap/justify');
+    expect(APP).toContain('res.gap_detected'); // start pausa pra justificar
+    expect(APP).toContain('gap_ack: true'); // recama o start já justificado
   });
 });
 

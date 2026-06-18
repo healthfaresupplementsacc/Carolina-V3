@@ -57,6 +57,13 @@ function makeDb(mem) {
         b.deleted_at = new Date();
         return resp([{ id: b.id, batch_number: b.batch_number }]);
       }
+      // gaps (Passada 2)
+      if (/FROM v3\.activity_gaps g JOIN v3\.persons p/.test(s) && /SUM\(g\.gap_minutes\)/.test(s) && /GROUP BY/.test(s)) {
+        return resp([{ display_name: 'Vitor', gaps: 2, total_min: 55, avg_min: 28 }]);
+      }
+      if (/FROM v3\.activity_gaps g JOIN v3\.persons p/.test(s)) {
+        return resp((mem.gaps || []).map((g) => ({ id: g.id, display_name: 'Vitor', gap_minutes: g.gap_minutes, justification_type: g.type, justification_note: g.note, started_edt: '01:00 PM', created_edt: 'Jun 18, 01:30 PM' })));
+      }
       return resp([]);
     }),
   };
@@ -122,5 +129,19 @@ describe('admin — lotes desconhecidos', () => {
   test('sem auth → 401', async () => {
     expect((await call('GET', '/api/adminpanel/unknown-batches')).status).toBe(401);
     expect((await call('POST', '/api/adminpanel/unknown-batches/70/confirm', {})).status).toBe(401);
+  });
+});
+
+describe('admin — gaps de atividade (Passada 2)', () => {
+  test('lista gaps + resumo por operador', async () => {
+    mem.gaps = [{ id: 1, gap_minutes: 25, type: 'bathroom', note: 'banheiro' }, { id: 2, gap_minutes: 30, type: 'help', note: 'ajudei colega' }];
+    const tok = await login(OWNER_PIN);
+    const r = await call('GET', '/api/adminpanel/gaps', undefined, tok);
+    expect(r.status).toBe(200);
+    expect(r.body.gaps).toHaveLength(2);
+    expect(r.body.summary[0]).toMatchObject({ display_name: 'Vitor', total_min: 55 });
+  });
+  test('sem auth → 401', async () => {
+    expect((await call('GET', '/api/adminpanel/gaps')).status).toBe(401);
   });
 });
