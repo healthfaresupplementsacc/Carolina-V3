@@ -29,6 +29,12 @@ const { ems } = require('../src/v3/services/ems-api');
       console.log('  · ' + e.name + ' ← ' + ((e.operator && e.operator.name) || '?') + ' (' + ((e.current_batch && e.current_batch.batch_record_number) || '-') + ')');
     });
 
+    const pipe = await ems.pipeline();
+    console.log('pipeline summary:', JSON.stringify(pipe.summary));
+    console.log('  pending_queue:', (pipe.pending_queue || []).length, '| formulation groups:', Object.keys(pipe.formulation || {}).join(',') || '-', '| line groups:', Object.keys(pipe.production_line || {}).join(',') || '-');
+    console.log('  bottles por fórmula (top 5):');
+    (pipe.bottles_in_production_by_formula || []).slice(0, 5).forEach((f) => console.log('    · ' + f.formula_name + ': ' + f.total_bottles + ' bottles (' + f.batch_count + ' batch)'));
+
     console.log('\nEMS SMOKE: PASS');
     process.exit(0);
   } catch (e) {
