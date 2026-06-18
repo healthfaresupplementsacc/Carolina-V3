@@ -137,7 +137,8 @@
   var DOOR = '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>';
   var WARN = '<path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>';
 
-  function accent() { return '#0e7a4e'; }
+  function isSandbox() { return !!(S.session && S.session.person && S.session.person.is_sandbox); }
+  function accent() { return isSandbox() ? '#0a9aa6' : '#0e7a4e'; } // sandbox = verde-água
 
   function curMantra() {
     var m = MANTRAS[S.mantraIdx % MANTRAS.length];
@@ -284,6 +285,7 @@
     if (!shellBuilt) bootShell();
     // vars no <html> → herdadas pelo #hf-ambient (no stage) E pelo #hf-canvas
     var RS = document.documentElement.style;
+    document.documentElement.classList.toggle('hf-sandbox', isSandbox()); // tinge o ambiente (água)
     RS.setProperty('--accent', accent());
     RS.setProperty('--day', dayFrac().toFixed(3));
     RS.setProperty('--energy', energyVal().toFixed(3));
@@ -368,6 +370,8 @@
     var h = topbarHTML();
     h += '<div class="hf-scroll" style="position:relative; z-index:3; flex:1; overflow-y:auto; padding:12px 32px 40px;">'
       + '<div style="width:min(100%,1120px); margin:0 auto; display:flex; flex-direction:column; gap:clamp(16px,2vw,22px);">';
+    // Item A — banner de SANDBOX (conta de teste do Bruno; tudo some em ~15s)
+    if (isSandbox()) h += '<div style="display:flex; align-items:center; gap:10px; background:rgba(10,154,166,.12); border:1px solid rgba(10,154,166,.35); border-radius:16px; padding:12px 16px; color:#06707a; font-weight:700; font-size:14px;"><span style="font-size:18px;">🧪</span>Modo Sandbox · suas tarefas e contagens somem sozinhas em ~15s (nada vai pro Slack, métricas ou equipe).</div>';
     // hero
     h += '<div style="display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
       + '<div style="min-width:0;"><div style="font-size:14px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:' + ac + '; opacity:.9;">' + esc(phaseLabel()) + ' · <span id="hf-clock">' + esc(clockNow()) + '</span></div>'

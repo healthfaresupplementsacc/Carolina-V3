@@ -52,7 +52,7 @@ async function getSession(db, token) {
   if (!token) return null;
   const r = await db.query(
     `SELECT s.id AS session_id, s.person_id, s.last_activity_at,
-            p.display_name, p.role, p.active, p.auto_logoff_seconds, p.count_exempt
+            p.display_name, p.role, p.active, p.auto_logoff_seconds, p.count_exempt, p.is_sandbox
      FROM v3.operator_sessions s
      JOIN v3.persons p ON p.id = s.person_id
      WHERE s.session_token = $1

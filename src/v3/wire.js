@@ -207,6 +207,13 @@ async function startWorker() {
     }).start(10 * 60 * 1000);
   }
 
+  // Item A — sandbox cleanup: HARD-delete dos dados de teste a cada 5s (no-op
+  // barato se não houver operador sandbox). Off só via WORKER_SANDBOX_CLEANUP_ENABLED=false.
+  if (process.env.WORKER_SANDBOX_CLEANUP_ENABLED !== 'false') {
+    const { SandboxCleanup } = require('../workers/sandbox-cleanup');
+    new SandboxCleanup({ db: _pool }).start(5000);
+  }
+
   // Fase 5 — refresh da matview de métricas a cada 10min (best-effort).
   setInterval(async () => {
     try { await _pool.query('SELECT v3.refresh_events_enriched()'); }

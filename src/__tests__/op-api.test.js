@@ -10,7 +10,7 @@ const ADMIN_PIN = '510510';
 
 // PINs FIXTURE de teste (hasheados com scrypt, mesmo caminho do prod).
 // Propositalmente DIFERENTES dos PINs reais — o repo não revela prod.
-const PINS = { 4: '1111', 5: '2222', 6: '3333', 7: '4444' };
+const PINS = { 4: '1111', 5: '2222', 6: '3333', 7: '4444', 8: '9999' };
 
 function makeMem() {
   const persons = [
@@ -19,6 +19,7 @@ function makeMem() {
     { id: 6, display_name: 'Ana', role: 'operator', active: true, deleted_at: null, auto_logoff_seconds: null, count_exempt: false },
     { id: 7, display_name: 'Bruno Sarmento', role: 'operator', active: true, deleted_at: null, auto_logoff_seconds: 30, count_exempt: true },
     { id: 1, display_name: 'Bruno Camp', role: 'owner', active: true, deleted_at: null, auto_logoff_seconds: 30, count_exempt: false },
+    { id: 8, display_name: '🧪 Sandbox', role: 'operator', active: true, deleted_at: null, auto_logoff_seconds: 600, count_exempt: false, is_sandbox: true },
   ];
   for (const p of persons) {
     if (PINS[p.id]) Object.assign(p, opAuth.hashPin(PINS[p.id]));
@@ -71,7 +72,7 @@ function makeFakeDb(mem) {
         const sess = mem.sessions.find((x) => x.session_token === params[0] && !x.logged_out_at);
         if (!sess) return resp([]);
         const p = mem.persons.find((x) => x.id === sess.person_id);
-        return resp([{ session_id: sess.id, person_id: p.id, last_activity_at: sess.last_activity_at, display_name: p.display_name, role: p.role, active: p.active, auto_logoff_seconds: p.auto_logoff_seconds, count_exempt: p.count_exempt }]);
+        return resp([{ session_id: sess.id, person_id: p.id, last_activity_at: sess.last_activity_at, display_name: p.display_name, role: p.role, active: p.active, auto_logoff_seconds: p.auto_logoff_seconds, count_exempt: p.count_exempt, is_sandbox: !!p.is_sandbox }]);
       }
       if (/UPDATE v3\.operator_sessions SET last_activity_at/.test(s)) {
         const sess = mem.sessions.find((x) => x.session_token === params[0] && !x.logged_out_at);
@@ -135,6 +136,7 @@ function makeFakeDb(mem) {
           source: 'operator_page', deleted_at: null, is_long_running: false, closed_reason: null,
           orders_printed: params[6] != null ? params[6] : null,
           cowork_group_id: params[7], cowork_member_finished_at: null, cowork_is_last_finisher: false,
+          is_test: !!params[8],
         };
         mem.events.push(ev);
         return resp([{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, started_at: ev.started_at, cowork_with: ev.cowork_with, orders_printed: ev.orders_printed, cowork_group_id: ev.cowork_group_id }]);
@@ -147,6 +149,7 @@ function makeFakeDb(mem) {
           source: 'operator_page', deleted_at: null, is_long_running: false, closed_reason: null,
           orders_printed: params[5] != null ? params[5] : null,
           cowork_group_id: null, cowork_member_finished_at: null, cowork_is_last_finisher: false,
+          is_test: !!params[6],
         };
         mem.events.push(ev);
         return resp([{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, started_at: ev.started_at, cowork_with: ev.cowork_with, orders_printed: ev.orders_printed }]);
@@ -241,7 +244,7 @@ function makeFakeDb(mem) {
         return resp([{ id: n.id }]);
       }
       if (/LEFT JOIN LATERAL/.test(s)) { // active-operators
-        return resp(mem.persons.filter((p) => p.role === 'operator' && p.active).map((p) => {
+        return resp(mem.persons.filter((p) => p.role === 'operator' && p.active && !p.is_sandbox).map((p) => {
           const ce = mem.events.find((e) => e.person_id === p.id && !e.ended_at && !e.deleted_at && !e.is_long_running);
           const act = ce ? (mem.activities.find((a) => a.id === ce.activity_type_id) || {}) : {};
           const b = ce ? (mem.batches.find((x) => x.id === ce.product_batch_id) || {}) : {};
@@ -339,7 +342,7 @@ describe('op API — auth', () => {
     const r = await post('/api/v3/op/auth/login', { body: { pin: PINS[4] } });
     expect(r.status).toBe(200);
     expect(r.body.session_token).toHaveLength(96);
-    expect(r.body.person).toEqual({ id: 4, display_name: 'Vitor', role: 'operator', count_exempt: false });
+    expect(r.body.person).toEqual({ id: 4, display_name: 'Vitor', role: 'operator', count_exempt: false, is_sandbox: false });
     expect(r.body.auto_logoff_seconds).toBe(30);
   });
 
@@ -839,6 +842,44 @@ describe('op API — batches/recent (Bug 2)', () => {
     expect(r.status).toBe(200);
     expect(r.body.batches).toHaveLength(1);
     expect(r.body.batches[0].status_in_ems).toBeNull();
+  });
+});
+
+// ─── conta SANDBOX (Item A) ──────────────────────────────────
+describe('op API — conta sandbox (is_test invisível)', () => {
+  test('login sandbox → person.is_sandbox=true', async () => {
+    const r = await post('/api/v3/op/auth/login', { body: { pin: PINS[8] } });
+    expect(r.status).toBe(200);
+    expect(r.body.person.is_sandbox).toBe(true);
+  });
+  test('start como sandbox → event.is_test=true; operador normal → false', async () => {
+    const sb = await login(8);
+    await post('/api/v3/op/event/start', { session: sb, body: { activity_slug: 'cleaning' } });
+    expect(mem.events[mem.events.length - 1].is_test).toBe(true);
+    const sv = await login(4);
+    await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning' } });
+    expect(mem.events[mem.events.length - 1].is_test).toBe(false);
+  });
+  test('sandbox + lote desconhecido → auto-cria mas NÃO posta no Slack', async () => {
+    const sb = await login(8);
+    const r = await post('/api/v3/op/event/start', { session: sb, body: { activity_slug: 'production_line', batch_number: 'SBX-1', product_id: 9 } });
+    expect(r.status).toBe(200);
+    expect(mem.events[mem.events.length - 1].is_test).toBe(true);
+    expect(slack.postAs).not.toHaveBeenCalled();
+  });
+  test('sandbox + production_line exceção → NÃO posta no Slack', async () => {
+    const sb = await login(8);
+    const st = await post('/api/v3/op/event/start', { session: sb, body: { activity_slug: 'production_line', batch_number: '0190' } });
+    const r = await post(`/api/v3/op/event/${st.body.event.id}/end`, { session: sb, body: { exception_no_count: true, exception_reason: 'teste sandbox sem contagem' } });
+    expect(r.status).toBe(200);
+    expect(slack.postAs).not.toHaveBeenCalled();
+  });
+  test('active-operators NÃO inclui sandbox (Equipe agora não vê o teste)', async () => {
+    const sb = await login(8);
+    await post('/api/v3/op/event/start', { session: sb, body: { activity_slug: 'cleaning' } });
+    const sv = await login(4);
+    const r = await get('/api/v3/op/active-operators', { session: sv });
+    expect(r.body.operators.some((o) => o.id === 8)).toBe(false);
   });
 });
 

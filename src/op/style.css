@@ -23,6 +23,8 @@ textarea { resize: none; }
 /* AMBIENTE: cobre 100% da viewport (z0) — nunca corta, seja qual for o aspect ratio.
    Fica ATRÁS do canvas transparente, então o conteúdo de vidro o desfoca (glass). */
 #hf-ambient { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+/* Item A — conta SANDBOX: ambiente vira verde-água (sinal visual óbvio de teste) */
+html.hf-sandbox #hf-ambient { filter: hue-rotate(135deg) saturate(1.15); }
 
 /* canvas = design fixo 1440x900 escalado (transform via JS). TRANSPARENTE: deixa
    o ambiente full-viewport aparecer atrás do conteúdo (preserva o vidro-sobre-bottles). */

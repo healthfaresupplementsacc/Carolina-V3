@@ -97,7 +97,7 @@ function createOpRouter(deps = {}) {
       if (!/^\d{4}$/.test(pin)) return res.status(400).json({ error: 'bad_pin_format' });
 
       const candidates = await db.query(
-        `SELECT id, display_name, role, pin_hash, pin_salt, auto_logoff_seconds, count_exempt
+        `SELECT id, display_name, role, pin_hash, pin_salt, auto_logoff_seconds, count_exempt, is_sandbox
          FROM v3.persons
          WHERE role = 'operator' AND active = true AND deleted_at IS NULL AND pin_hash IS NOT NULL`);
       const person = candidates.rows.find((p) => opAuth.verifyPin(pin, p.pin_salt, p.pin_hash));
@@ -113,7 +113,7 @@ function createOpRouter(deps = {}) {
       const forgotten = await detectForgottenOperators(person.id);
       res.json({
         session_token: session.session_token,
-        person: { id: person.id, display_name: person.display_name, role: person.role, count_exempt: !!person.count_exempt },
+        person: { id: person.id, display_name: person.display_name, role: person.role, count_exempt: !!person.count_exempt, is_sandbox: !!person.is_sandbox },
         auto_logoff_seconds: person.auto_logoff_seconds,
         forgotten_check_prompts: forgotten,
       });
@@ -277,7 +277,8 @@ function createOpRouter(deps = {}) {
     const bn = String(batchNumber || '').trim();
     const productId = batch ? batch.product_id : (body && parseInt(body.product_id, 10)) || null;
     await audit('batch.auto_created', batch ? 'product_batch' : 'event', batch ? batch.id : res.id,
-      { batch_number: bn, product_id: Number.isFinite(productId) ? productId : null, person_id: s.person_id, auto_created: !!autoCreated, linked: !!batch, reason: 'operator_input_not_found' }, s.person_id);
+      { batch_number: bn, product_id: Number.isFinite(productId) ? productId : null, person_id: s.person_id, auto_created: !!autoCreated, linked: !!batch, reason: 'operator_input_not_found', is_test: !!s.is_sandbox }, s.person_id);
+    if (s.is_sandbox) return; // sandbox: NÃO notifica Slack (invisível pro resto do sistema)
     notifyUnknownBatch({ batchNumber: bn, productName: batch ? batch.product : (body && body.product_name) || null, operatorName: s.display_name, slug, autoCreated: !!autoCreated });
   }
   async function insertCount({ event, bottles, unit, personId }) {
@@ -338,10 +339,10 @@ function createOpRouter(deps = {}) {
         const r = await db.query(
           `INSERT INTO v3.events
              (person_id, activity_type_id, product_batch_id, started_at, description,
-              cowork_with, confidence, source, orders_printed, cowork_group_id)
-           VALUES ($1, $2, $3, $4::timestamptz, $5, $6::int[], 'high', 'operator_page', $7, $8::uuid)
+              cowork_with, confidence, source, orders_printed, cowork_group_id, is_test)
+           VALUES ($1, $2, $3, $4::timestamptz, $5, $6::int[], 'high', 'operator_page', $7, $8::uuid, $9)
            RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed, cowork_group_id`,
-          [pid, act.id, batch ? batch.id : null, startedAt, desc, others, ordersPrinted, gid]);
+          [pid, act.id, batch ? batch.id : null, startedAt, desc, others, ordersPrinted, gid, !!s.is_sandbox]);
         if (pid === s.person_id) starterEv = r.rows[0];
       }
       await audit('event.created_via_page', 'event', starterEv.id,
@@ -354,10 +355,10 @@ function createOpRouter(deps = {}) {
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
-          cowork_with, confidence, source, orders_printed)
-       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6)
+          cowork_with, confidence, source, orders_printed, is_test)
+       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6, $7)
        RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed`,
-      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted]);
+      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted, !!s.is_sandbox]);
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
@@ -398,12 +399,12 @@ function createOpRouter(deps = {}) {
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, ended_at, description,
-          cowork_with, confidence, source, orders_printed, closed_reason)
+          cowork_with, confidence, source, orders_printed, closed_reason, is_test)
        VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7::int[], 'high', 'operator_page_retroactive', $8,
-               CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END)
+               CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END, $9)
        RETURNING id, started_at, ended_at`,
       [s.person_id, act.id, batch ? batch.id : null, started_at, ended_at || null,
-        rdesc, cw, ordersPrinted]);
+        rdesc, cw, ordersPrinted, !!s.is_sandbox]);
     const ev = ins.rows[0];
     const gapMin = await db.query("SELECT ROUND(EXTRACT(EPOCH FROM (NOW() - $1::timestamptz))/60)::int g", [started_at]);
     await audit('event.retroactive_create', 'event', ev.id,
@@ -435,6 +436,7 @@ function createOpRouter(deps = {}) {
   // dedupe, então ignora o silent-mode (é alerta operacional, não nudge).
   async function notifyProductionException(ev, reason, s) {
     if (!slack || !slack.postAs) return;
+    if (s && s.is_sandbox) return; // sandbox: invisível pro Slack/resto do sistema
     let d = {};
     try {
       const r = await db.query(
@@ -758,6 +760,7 @@ function createOpRouter(deps = {}) {
         ORDER BY e.started_at DESC LIMIT 1
       ) ce ON true
       WHERE p.role = 'operator' AND p.active = true AND p.deleted_at IS NULL
+        AND p.is_sandbox = false
       ORDER BY p.display_name LIMIT 50`);
     res.json({ operators: r.rows });
   }));
