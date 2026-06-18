@@ -31,6 +31,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { extractBearer } = require('../middleware/architect-auth');
 const opAuth = require('../lib/op-auth');
+const { ems: emsSingleton } = require('../v3/services/ems-api');
 
 const EDT = 'America/New_York';
 const LOGIN_LIMIT = 5;            // tentativas/min/IP
@@ -47,6 +48,7 @@ function createOpRouter(deps = {}) {
   const slack = deps.slack || null; // { postAs }
   const now = deps.now || (() => Date.now());
   const bf = deps.bruteForce || null; // Fase D brute-force guard
+  const ems = deps.ems !== undefined ? deps.ems : emsSingleton; // EMS read-only (server-side; chave nunca vai ao browser)
 
   const router = express.Router();
   // JSON 256kb pra tudo, EXCETO upload de voz (que tem parser 8mb próprio).
@@ -515,6 +517,98 @@ function createOpRouter(deps = {}) {
     }
     await audit('event.cowork_joined_via_page', 'event', id, { joined_person_id: s.person_id }, s.person_id);
     res.json({ ok: true, event_id: id, cowork_with: r.rows[0].cowork_with });
+  }));
+
+  // ── EMS enrichment (Bug 2/3): caches em memória, best-effort ──
+  // A chave do EMS vive SÓ no servidor; ao browser só vão URLs públicas de
+  // imagem (Amazon CDN) e status de batch. Falha do EMS = degrada (não quebra).
+  const emsCache = { products: { at: 0, val: null }, pipeline: { at: 0, val: null } };
+  const norm = (s) => String(s || '').toLowerCase().replace(/\b\d+(\.\d+)?\s*(mg|mcg|g|iu|ml|ct|count|caps?|capsules?|softgels?|tablets?|servings?)\b/g, '').replace(/[^a-z0-9]+/g, '');
+  async function emsProducts() { // cache 1h
+    if (!ems || !ems.configured || !ems.configured()) return null;
+    if (emsCache.products.val && (now() - emsCache.products.at) < 3600000) return emsCache.products.val;
+    try {
+      const data = await ems.products();
+      const arr = Array.isArray(data) ? data : (data && Array.isArray(data.data) ? data.data : (data && Array.isArray(data.products) ? data.products : []));
+      emsCache.products = { at: now(), val: arr };
+      return arr;
+    } catch (e) { console.error('[op] EMS products falhou:', e.message); return emsCache.products.val; }
+  }
+  async function emsPipeline() { // cache 30s
+    if (!ems || !ems.configured || !ems.configured()) return null;
+    if (emsCache.pipeline.val && (now() - emsCache.pipeline.at) < 30000) return emsCache.pipeline.val;
+    try {
+      const data = await ems.pipeline();
+      emsCache.pipeline = { at: now(), val: data };
+      return data;
+    } catch (e) { console.error('[op] EMS pipeline falhou:', e.message); return emsCache.pipeline.val; }
+  }
+  // todos os batches do pipeline (pending + formulation + production_line), por nº
+  function pipelineBatchMap(pl) {
+    const m = new Map();
+    if (!pl) return m;
+    ['pending_queue', 'formulation', 'production_line'].forEach((k) => {
+      (Array.isArray(pl[k]) ? pl[k] : []).forEach((b) => {
+        const bn = b && (b.batch_record_number || b.batch_number);
+        if (bn) m.set(String(bn).toUpperCase(), { status: b.status || k, target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null, actual_bottles: b.actual_yield_bottles != null ? b.actual_yield_bottles : null });
+      });
+    });
+    return m;
+  }
+
+  // ── Bug 3: imagens dos produtos (EMS → mapa por product_id LOCAL) ─
+  router.get('/api/v3/op/products/images', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const emsP = await emsProducts();
+    const locals = (await db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true')).rows;
+    const byId = {};
+    let matched = 0, emsOk = !!emsP;
+    if (emsP && emsP.length) {
+      // index EMS por nome normalizado (1ª imagem vence)
+      const idx = [];
+      emsP.forEach((p) => { if (p && p.image_url) idx.push({ n: norm(p.name), url: p.image_url }); });
+      locals.forEach((lp) => {
+        const cands = [norm(lp.canonical_name)].concat((lp.aliases || []).map(norm)).filter(Boolean);
+        let hit = null;
+        for (const c of cands) {
+          hit = idx.find((e) => e.n === c) || idx.find((e) => e.n.indexOf(c) === 0 && c.length >= 4) || idx.find((e) => c.length >= 5 && (e.n.indexOf(c) >= 0 || c.indexOf(e.n) >= 0));
+          if (hit) break;
+        }
+        if (hit) { byId[lp.id] = hit.url; matched++; }
+      });
+    }
+    res.json({ by_id: byId, matched, total_local: locals.length, ems_ok: emsOk });
+  }));
+
+  // ── Bug 2: lotes recentes filtrados por produto (local + EMS status) ─
+  router.get('/api/v3/op/batches/recent', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const pid = parseInt(req.query.product_id, 10);
+    if (!Number.isFinite(pid) || pid <= 0) return res.status(400).json({ error: 'product_id_required' });
+    const limit = Math.min(12, Math.max(1, parseInt(req.query.limit, 10) || 8));
+    const local = (await db.query(
+      `SELECT pb.batch_number,
+              MAX(e.started_at) AS last_seen,
+              (array_agg(p.display_name ORDER BY e.started_at DESC))[1] AS last_operator
+       FROM v3.product_batches pb
+       JOIN v3.events e ON e.product_batch_id = pb.id AND e.deleted_at IS NULL
+       JOIN v3.persons p ON p.id = e.person_id
+       WHERE pb.product_id = $1 AND pb.batch_number IS NOT NULL
+       GROUP BY pb.batch_number
+       ORDER BY MAX(e.started_at) DESC
+       LIMIT $2`, [pid, limit])).rows;
+    const plMap = pipelineBatchMap(await emsPipeline());
+    const batches = local.map((b) => {
+      const pe = plMap.get(String(b.batch_number).toUpperCase()); // entrada do pipeline EMS (se houver)
+      return {
+        batch_number: b.batch_number,
+        last_seen: b.last_seen,
+        last_operator: b.last_operator || null,
+        status_in_ems: pe ? pe.status : null,
+        target_bottles: pe ? pe.target_bottles : null,
+      };
+    });
+    res.json({ product_id: pid, batches });
   }));
 
   // ── nota livre ──────────────────────────────────────────────

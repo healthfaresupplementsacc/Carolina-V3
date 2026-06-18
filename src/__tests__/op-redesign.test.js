@@ -15,6 +15,7 @@ const REAL = [
   '/api/v3/op/event/start', '/api/v3/op/event/retroactive', '/api/v3/op/event/', // :id/end, :id/join
   '/api/v3/op/note', '/api/v3/op/voice/upload', '/api/v3/op/active-operators',
   '/api/v3/op/missing-bottle-counts', '/api/v3/op/clock-out', '/api/v3/op/forgotten-checkout/resolve',
+  '/api/v3/op/products/images', '/api/v3/op/batches/recent', // Bug 2/3 (EMS enrichment)
   '/api/v3/architect/person/',
 ];
 
@@ -81,8 +82,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v16 network-first', () => {
-    expect(SW).toContain("'hf-op-v16'");
+  test('sw é hf-op-v18 network-first', () => {
+    expect(SW).toContain("'hf-op-v18'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -258,5 +259,36 @@ describe('op — cowork multi-finish (Fase 1) frontend', () => {
   test('postFinishCowork lê o CÓDIGO de e.body.error, não de e.message', () => {
     expect(APP).toContain('e.body && e.body.error'); // fallback bounce robusto
     expect(APP).not.toContain("e.message === 'bottles_required'"); // bug antigo removido
+  });
+});
+
+// Bug 1 (lock): finalizar production_line sem bottles e sem exceção → alerta, sem POST
+describe('op — production_line exige contagem (Bug 1 lock)', () => {
+  test('doFinish bloqueia production_line sem bottles e sem exceção', () => {
+    expect(APP).toContain("o.slug === 'production_line'");
+    expect(APP).toContain('Contagem obrigatória');           // showAlert vermelho
+    expect(APP).toMatch(/parseInt\(o\.bottles, 10\) >= 1/);   // validação client
+  });
+});
+
+// Bug 2: lotes recentes filtrados pelo produto + data relativa
+describe('op — lotes recentes por produto (Bug 2) frontend', () => {
+  test('Step BATCH usa /batches/recent do produto, com data relativa', () => {
+    expect(APP).toContain('function loadRecentBatches');
+    expect(APP).toContain('/api/v3/op/batches/recent?product_id=');
+    expect(APP).toContain('S.flow.recentBatches');
+    expect(APP).toContain('function relDate');
+    expect(APP).toContain('data-pid'); // carrega o product_id ao escolher suplemento
+  });
+});
+
+// Bug 3: thumbnails de TODOS os produtos via imagens do EMS
+describe('op — thumbnails dos produtos (Bug 3) frontend', () => {
+  test('Step SUPPLEMENT usa imagem EMS quando não há PNG local + onerror fallback', () => {
+    expect(APP).toContain('function loadProductImages');
+    expect(APP).toContain('/api/v3/op/products/images');
+    expect(APP).toContain('S.prodImg');
+    expect(APP).toContain('bottleFor(p.canonical_name) || (S.prodImg'); // PNG local → EMS → ?
+    expect(APP).toContain('onerror'); // imagem quebrada cai pro ícone genérico
   });
 });

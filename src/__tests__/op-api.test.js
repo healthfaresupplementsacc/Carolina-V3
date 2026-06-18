@@ -37,6 +37,11 @@ function makeMem() {
       { id: 30, slug: 'production_line_other', requires_product: false, active: true },
       { id: 31, slug: 'label_change', requires_product: false, active: true },
     ],
+    products: [
+      { id: 1, canonical_name: 'Magnesium Glycinate', aliases: [], active: true },
+      { id: 3, canonical_name: 'Berberine', aliases: [], active: true },
+      { id: 9, canonical_name: 'Plant Sterols', aliases: [], active: true },
+    ],
     batches: [
       { id: 39, batch_number: 'BR-2026-0190', product_id: 1, product: 'Magnesium Glycinate' },
       { id: 44, batch_number: '0200', product_id: 3, product: 'Berberine' },
@@ -137,6 +142,23 @@ function makeFakeDb(mem) {
       if (/COUNT\(\*\)::int AS n FROM v3\.events WHERE cowork_group_id/.test(s)) {
         const n = mem.events.filter((x) => x.cowork_group_id === params[0] && !x.ended_at && !x.deleted_at).length;
         return resp([{ n }]);
+      }
+      // Bug 3: products ativos (p/ mapa de imagens)
+      if (/SELECT id, canonical_name, aliases FROM v3\.products WHERE active = true/.test(s)) {
+        return resp(mem.products.filter((p) => p.active).map((p) => ({ id: p.id, canonical_name: p.canonical_name, aliases: p.aliases || [] })));
+      }
+      // Bug 2: lotes recentes por produto (local)
+      if (/FROM v3\.product_batches pb JOIN v3\.events e/.test(s) && /pb\.product_id = \$1/.test(s)) {
+        const pid = params[0]; const limit = params[1] || 8;
+        const rows = mem.batches.filter((b) => b.product_id === pid && b.batch_number).map((b) => {
+          const evs = mem.events.filter((e) => e.product_batch_id === b.id && !e.deleted_at);
+          if (!evs.length) return null;
+          const last = evs.reduce((a, c) => (new Date(c.started_at) >= new Date(a.started_at) ? c : a));
+          const lp = mem.persons.find((p) => p.id === last.person_id) || {};
+          return { batch_number: b.batch_number, last_seen: last.started_at, last_operator: lp.display_name || null };
+        }).filter(Boolean);
+        rows.sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+        return resp(rows.slice(0, limit));
       }
       if (/INSERT INTO v3\.voice_recordings/.test(s)) {
         const v = { id: (mem.seq.voice = (mem.seq.voice || 0) + 1), event_id: params[0], person_id: params[1], size: params[5], deleted_at: null };
@@ -243,7 +265,21 @@ function makeFakeDb(mem) {
   };
 }
 
-let server, base, mem, db, slack;
+let server, base, mem, db, slack, fakeEms;
+function makeFakeEms() {
+  return {
+    configured: () => true,
+    products: async () => ([
+      { name: 'Magnesium Glycinate 400mg', image_url: 'https://img/mag.jpg' },
+      { name: 'Berberine 6000mg', image_url: 'https://img/ber.jpg' },
+      { name: 'Random Unrelated 100mg', image_url: 'https://img/other.jpg' },
+    ]),
+    pipeline: async () => ({
+      pending_queue: [{ batch_record_number: 'BR-2026-0190', status: 'pending', target_qty_bottles: 700 }],
+      formulation: [], production_line: [],
+    }),
+  };
+}
 const url = (p) => base + p;
 async function post(path, { body, session, noPageToken } = {}) {
   const headers = {};
@@ -272,8 +308,9 @@ beforeEach(async () => {
   mem = makeMem();
   db = makeFakeDb(mem);
   slack = { postAs: jest.fn(async () => ({ ts: 'x' })) };
+  fakeEms = makeFakeEms();
   const app = express();
-  app.use('/', createOpRouter({ db, operatorToken: PAGE_TOKEN, adminPin: ADMIN_PIN, slack, adminChannelId: 'C_ADMIN' }));
+  app.use('/', createOpRouter({ db, operatorToken: PAGE_TOKEN, adminPin: ADMIN_PIN, slack, adminChannelId: 'C_ADMIN', ems: { configured: () => fakeEms.configured(), products: () => fakeEms.products(), pipeline: () => fakeEms.pipeline() } }));
   server = await new Promise((resolve) => { const x = app.listen(0, '127.0.0.1', () => resolve(x)); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -688,6 +725,72 @@ describe('op API — finish-preview (detect upfront)', () => {
     expect(forbidden.status).toBe(403);
     const missing = await get('/api/v3/op/event/999999/finish-preview', { session: sv });
     expect(missing.status).toBe(404);
+  });
+});
+
+// ─── Bug 3: product images (EMS → product_id local) ──────────
+describe('op API — products/images (Bug 3)', () => {
+  test('mapeia product_id local → image_url do EMS (match por nome normalizado)', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/products/images', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.ems_ok).toBe(true);
+    expect(r.body.by_id['1']).toBe('https://img/mag.jpg'); // Magnesium Glycinate
+    expect(r.body.by_id['3']).toBe('https://img/ber.jpg'); // Berberine
+    expect(r.body.by_id['9']).toBeUndefined();             // Plant Sterols não tem no EMS
+    expect(r.body.matched).toBe(2);
+    expect(r.body.total_local).toBe(3);
+  });
+
+  test('EMS fora do ar → degrada (ems_ok:false, by_id vazio), não quebra', async () => {
+    fakeEms.products = async () => { throw new Error('EMS down'); };
+    const sv = await login(4);
+    const r = await get('/api/v3/op/products/images', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.ems_ok).toBe(false);
+    expect(Object.keys(r.body.by_id)).toHaveLength(0);
+  });
+
+  test('sem sessão → 401', async () => {
+    const r = await get('/api/v3/op/products/images');
+    expect(r.status).toBe(401);
+  });
+});
+
+// ─── Bug 2: lotes recentes por produto ───────────────────────
+describe('op API — batches/recent (Bug 2)', () => {
+  test('filtra por produto + ordena recente→antigo + enriquece com EMS', async () => {
+    const sv = await login(4);
+    await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190' } });
+    const r = await get('/api/v3/op/batches/recent?product_id=1&limit=8', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.batches).toHaveLength(1);
+    expect(r.body.batches[0]).toMatchObject({ batch_number: 'BR-2026-0190', last_operator: 'Vitor', status_in_ems: 'pending', target_bottles: 700 });
+    expect(r.body.batches[0].last_seen).toBeTruthy();
+  });
+
+  test('produto sem histórico → lista vazia (front mostra dica)', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/batches/recent?product_id=9', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.batches).toEqual([]);
+  });
+
+  test('sem product_id → 400 product_id_required', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/batches/recent', { session: sv });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('product_id_required');
+  });
+
+  test('EMS pipeline fora do ar → batches locais ainda voltam (sem status EMS)', async () => {
+    fakeEms.pipeline = async () => { throw new Error('EMS down'); };
+    const sv = await login(4);
+    await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190' } });
+    const r = await get('/api/v3/op/batches/recent?product_id=1', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.batches).toHaveLength(1);
+    expect(r.body.batches[0].status_in_ems).toBeNull();
   });
 });
 

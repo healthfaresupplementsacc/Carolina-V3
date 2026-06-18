@@ -504,24 +504,51 @@
     if (qnorm && !list.some(function (p) { return p.canonical_name.toLowerCase() === qnorm.toLowerCase(); })) {
       rows += '<button data-act="pickSupp" data-arg="' + esc(qnorm) + '" data-new="1" style="display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; padding:13px 15px; border-radius:14px; border:1px dashed ' + accent() + '; background:color-mix(in srgb,' + accent() + ' 7%, white); font-family:\'Manrope\',sans-serif;"><span style="flex:none; width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:' + accent() + '; color:#fff;">' + svgr('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.2) + '</span><span style="flex:1; min-width:0; font-weight:600; font-size:16px; color:#0c2545;">Adicionar “' + esc(qnorm) + '”</span></button>';
     }
+    var fallbackIcon = svgr('<path d="M5 8l7-4 7 4-7 4zM5 8v8l7 4 7-4V8"></path>', 18, 1.8);
+    // ícone genérico ATRÁS + img ON TOP; onerror só esconde a img (imagem quebrada
+    // → o ícone reaparece). Imagens EMS são .jpg opacas, então não vazam o fundo.
     list.forEach(function (p) {
-      var b = bottleFor(p.canonical_name);
+      var b = bottleFor(p.canonical_name) || (S.prodImg && S.prodImg[p.id]) || null; // PNG local → imagem EMS → ?
       var thumb = b
-        ? '<span style="flex:none; width:34px; height:34px; border-radius:10px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden;"><img src="' + b + '" loading="lazy" width="30" height="30" alt="" style="width:30px; height:30px; object-fit:contain;"></span>'
-        : '<span style="flex:none; width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:rgba(15,40,90,.07); color:#5a6e87;">' + svgr('<path d="M5 8l7-4 7 4-7 4zM5 8v8l7 4 7-4V8"></path>', 18, 1.8) + '</span>';
-      rows += '<button data-act="pickSupp" data-arg="' + esc(p.canonical_name) + '" style="display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; padding:13px 15px; border-radius:14px; border:1px solid rgba(15,40,90,.1); background:rgba(255,255,255,.7); font-family:\'Manrope\',sans-serif;">' + thumb + '<span style="flex:1; min-width:0; font-weight:600; font-size:16px; color:#0c2545;">' + esc(p.canonical_name) + '</span></button>';
+        ? '<span style="flex:none; width:34px; height:34px; border-radius:10px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#5a6e87;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fallbackIcon + '</span><img src="' + esc(b) + '" loading="lazy" width="30" height="30" alt="" style="position:relative; width:30px; height:30px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
+        : '<span style="flex:none; width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:rgba(15,40,90,.07); color:#5a6e87;">' + fallbackIcon + '</span>';
+      rows += '<button data-act="pickSupp" data-arg="' + esc(p.canonical_name) + '" data-pid="' + esc(p.id != null ? p.id : '') + '" style="display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; padding:13px 15px; border-radius:14px; border:1px solid rgba(15,40,90,.1); background:rgba(255,255,255,.7); font-family:\'Manrope\',sans-serif;">' + thumb + '<span style="flex:1; min-width:0; font-weight:600; font-size:16px; color:#0c2545;">' + esc(p.canonical_name) + '</span></button>';
     });
     return '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:16px;">Qual suplemento?</div>'
       + '<div style="position:relative; margin-bottom:14px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#8195ab;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.query || '') + '" data-input="query" data-focus="query" placeholder="Digite o nome do suplemento…" style="width:100%; min-height:58px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>'
       + '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:378px; overflow-y:auto;">' + rows + '</div>'
       + '<div style="display:flex; gap:11px; margin-top:18px;">' + backBtn() + '</div>';
   }
+  function relDate(iso) {
+    if (!iso) return '';
+    var then = new Date(iso).getTime(); if (isNaN(then)) return '';
+    var days = Math.floor((Date.now() - then) / 86400000);
+    if (days <= 0) return 'hoje';
+    if (days === 1) return 'ontem';
+    if (days < 7) return 'há ' + days + ' dias';
+    if (days < 14) return 'semana passada';
+    if (days < 30) return 'há ' + Math.floor(days / 7) + ' semanas';
+    if (days < 60) return 'mês passado';
+    return 'há ' + Math.floor(days / 30) + ' meses';
+  }
   function flowBatch() {
+    var list = S.flow.recentBatches; // null=carregando, []=nenhum, [...]=lotes do produto
     var rec = '';
-    (DATA.recent_batches || []).slice(0, 6).forEach(function (r) { var bn = r.batch_number || r; rec += '<button data-act="pickBatch" data-arg="' + esc(bn) + '" style="border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.7); color:#0c2545; border-radius:13px; padding:11px 16px; font-weight:700; font-size:14px; cursor:pointer; font-family:\'Sora\',sans-serif;">' + esc(bn) + '</button>'; });
+    if (list == null) {
+      rec = '<span style="font-size:13px; color:#8195ab;">Carregando lotes recentes…</span>';
+    } else if (list.length === 0) {
+      rec = '<span style="font-size:13px; color:#8195ab;">Sem lotes recentes deste produto — digite o número acima.</span>';
+    } else {
+      list.slice(0, 8).forEach(function (r) {
+        var bn = r.batch_number || r;
+        var rel = relDate(r.last_seen);
+        var tip = [r.last_operator ? 'Por ' + r.last_operator : '', r.status_in_ems ? 'EMS: ' + r.status_in_ems : ''].filter(Boolean).join(' · ');
+        rec += '<button data-act="pickBatch" data-arg="' + esc(bn) + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + ' style="display:flex; flex-direction:column; align-items:flex-start; gap:1px; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.7); color:#0c2545; border-radius:13px; padding:9px 15px; cursor:pointer; font-family:\'Sora\',sans-serif;"><span style="font-weight:700; font-size:15px;">' + esc(bn) + '</span>' + (rel ? '<span style="font-weight:600; font-size:11px; color:#8195ab;">' + esc(rel) + '</span>' : '') + '</button>';
+      });
+    }
     return '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:6px;">Qual lote?</div><div style="font-size:14px; color:#5a6e87; margin-bottom:16px;">Digite os 4 números (ex: 0190) ou escolha um recente.</div>'
       + '<input value="' + esc(S.flow.batchInput || '') + '" data-input="batch" data-focus="batch" inputmode="numeric" placeholder="0190" style="width:100%; min-height:62px; font-size:24px; font-weight:700; letter-spacing:.08em; text-align:center; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:14px; font-family:\'Sora\',sans-serif;">'
-      + '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#8195ab; margin-bottom:10px;">Recentes</div><div style="display:flex; flex-wrap:wrap; gap:9px;">' + rec + '</div>'
+      + '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#8195ab; margin-bottom:10px;">Recentes' + (S.flow.supplement ? ' de ' + esc(S.flow.supplement) : '') + '</div><div style="display:flex; flex-wrap:wrap; gap:9px; align-items:center;">' + rec + '</div>'
       + '<div style="display:flex; gap:11px; margin-top:22px;">' + backBtn() + '<button data-act="skipBatch" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:16px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">Sem lote</button><button data-act="batchOk" style="flex:1.4; border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #19c277), var(--accent)); color:#fff; border-radius:16px; padding:15px; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 12px 26px -14px color-mix(in srgb, var(--accent) 60%, transparent);">Confirmar lote</button></div>';
   }
   function chip(kind, txt, inner) { var c = kind === 'blue' ? '#1f5fd0' : '#0e7a4e'; var bg = kind === 'blue' ? 'rgba(47,122,224,.1)' : 'rgba(14,122,78,.1)'; return '<span style="display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:700; color:' + c + '; background:' + bg + '; padding:4px 10px; border-radius:8px;">' + svgr(inner, 13, 2) + esc(txt) + '</span>'; }
@@ -740,6 +767,7 @@
   // ════════════════════════════════════════════════════════════
   function loadData() {
     if (!S.session) return Promise.resolve();
+    loadProductImages(); // Bug 3: imagens dos produtos (uma vez)
     return Promise.all([
       api('/api/v3/architect/person/' + S.session.person.id + '/today', { headers: { 'X-Operator-Id': String(S.session.person.id) } }).catch(function () { return { events: [] }; }),
       api('/api/v3/op/active-operators').catch(function () { return { operators: [] }; }),
@@ -752,6 +780,19 @@
       S.team = ops.operators || [];
       render();
     });
+  }
+  // Bug 3: mapa product_id→imagem (EMS), uma vez por sessão. Falha = thumbs '?'.
+  function loadProductImages() {
+    if (S.prodImg) return;
+    S.prodImg = {}; // evita refetch concorrente
+    api('/api/v3/op/products/images').then(function (r) { S.prodImg = (r && r.by_id) || {}; render(); }).catch(function () {});
+  }
+  // Bug 2: lotes recentes filtrados pelo produto escolhido (local + status EMS).
+  function loadRecentBatches(pid) {
+    if (!pid) { if (S.flow) { S.flow.recentBatches = []; render(); } return; }
+    api('/api/v3/op/batches/recent?product_id=' + pid + '&limit=8').then(function (r) {
+      if (S.flow && S.flow.supplementId === pid) { S.flow.recentBatches = (r && r.batches) || []; render(); }
+    }).catch(function () { if (S.flow && S.flow.supplementId === pid) { S.flow.recentBatches = []; render(); } });
   }
 
   // ── voz (Web Speech → nota; timer/transcript CIRÚRGICOS, sem render) ──
@@ -816,7 +857,14 @@
     pickGroup: function (key) { S.flow.groupKey = key; S.flow.step = 'type'; render(); },
     quickLunch: function (slug) { S.flow.slug = slug; S.flow.requires_product = false; S.flow.step = 'confirm'; render(); },
     pickType: function (slug) { var m = typeMeta(slug); S.flow.slug = slug; S.flow.requires_product = !!m.requires_product; S.flow.step = m.requires_product ? 'supp' : 'confirm'; S._focus = m.requires_product ? 'query' : null; render(); },
-    pickSupp: function (name) { S.flow.supplement = name; S.flow.step = 'batch'; S._focus = 'batch'; render(); },
+    pickSupp: function (name, el) {
+      S.flow.supplement = name;
+      var pid = el ? parseInt(el.getAttribute('data-pid'), 10) : NaN;
+      S.flow.supplementId = Number.isFinite(pid) ? pid : null;
+      S.flow.recentBatches = null; // estado "carregando"
+      S.flow.step = 'batch'; S._focus = 'batch'; render();
+      loadRecentBatches(S.flow.supplementId);
+    },
     pickBatch: function (b) { S.flow.batch = b; S.flow.step = 'confirm'; S._focus = null; render(); },
     skipBatch: function () { S.flow.batch = null; S.flow.step = 'confirm'; S._focus = null; render(); },
     batchOk: function () { var v = (S.flow.batchInput || '').trim(); S.flow.batch = v || null; S.flow.step = 'confirm'; S._focus = null; render(); },
