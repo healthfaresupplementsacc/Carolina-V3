@@ -176,35 +176,54 @@ async function startWorker() {
       console.error('[V3] auth.test falhou (bot_self via cross-ref ainda funciona):', e.message);
     }
   }
+  // ── ITEM 1 — MASTER KILL-SWITCH: Carolina NUNCA posta autonomamente ──
+  // Default ON (silencioso) enquanto o sistema não está 100% estável. Sobrescreve
+  // qualquer worker autônomo. Só posts SÍNCRONOS (disparados por ação do operador,
+  // voz "HealthFare Tracker (Sistema)") seguem — esses NÃO passam por aqui.
+  const carolinaSilent = process.env.CAROLINA_SILENT_MODE !== 'false';
+  async function auditSilentBlocked(worker) {
+    try {
+      await _pool.query(
+        `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+         VALUES ('system', NULL, 'carolina.silent_mode.blocked', 'worker', NULL, $1::jsonb)`,
+        [JSON.stringify({ worker, suppressed_at_startup: true })]);
+    } catch (e) { /* best-effort */ }
+  }
+  if (carolinaSilent) console.log('[V3] 🤫 CAROLINA_SILENT_MODE ON — workers autônomos NÃO postam no Slack');
+
   _observer = new Observer(Object.assign({
     db: _pool, botUserId, mode: 'shadow',
     // Bloco 29/mai-noite #3 — alertas Slack quando worker bate em
     // billing/rate-limit. Default ON em prod. Pode desligar via env
-    // WORKER_ALERTS_DISABLED=1.
-    enableWorkerAlerts: process.env.WORKER_ALERTS_DISABLED !== '1',
+    // WORKER_ALERTS_DISABLED=1. Silenciado também pelo kill-switch Carolina.
+    enableWorkerAlerts: process.env.WORKER_ALERTS_DISABLED !== '1' && !carolinaSilent,
     slack: { postAs: slackSender.postAs, addReaction: slackSender.addReaction },
   }, _svc));
   _observer.start(5000);
   console.log('[V3] Observer worker SHADOW ligado (tick 5s, bot=' + (botUserId || '?') + ')');
 
-  // Fase G — alertas proativos (idle/stale/anomaly). Liga via flag.
-  if (process.env.WORKER_PROACTIVE_ALERTS_ENABLED === 'true') {
+  // Fase G — alertas proativos (idle/stale/anomaly). Liga via flag E só se NÃO-silent.
+  if (process.env.WORKER_PROACTIVE_ALERTS_ENABLED === 'true' && !carolinaSilent) {
     const { ProactiveAlerts } = require('../workers/proactive-alerts');
     new ProactiveAlerts({
       db: _pool, slack: { postAs: slackSender.postAs },
       adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
     }).start(30 * 60 * 1000);
+  } else if (process.env.WORKER_PROACTIVE_ALERTS_ENABLED === 'true' && carolinaSilent) {
+    auditSilentBlocked('proactive-alerts'); // queria rodar mas o kill-switch barrou
   }
 
   // Fase 4 — Carolina manda DM no dia seguinte pra quem esqueceu checkout.
-  // Off por padrão (não manda nada até habilitar).
-  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true') {
+  // Off por padrão E só se NÃO-silent.
+  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true' && !carolinaSilent) {
     const { CarolinaForgottenDM } = require('../workers/carolina-forgotten-dm');
     new CarolinaForgottenDM({
       db: _pool, slack: { postAs: slackSender.postAs },
       ordersChannel: process.env.V3_ORDERS_CHANNEL,
       adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
     }).start(10 * 60 * 1000);
+  } else if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true' && carolinaSilent) {
+    auditSilentBlocked('carolina-forgotten-dm');
   }
 
   // Item A — sandbox cleanup: HARD-delete dos dados de teste a cada 5s (no-op
@@ -249,6 +268,8 @@ async function startWorker() {
       db: _pool,
       slack: { postAs: slackSender.postAs },
       adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+      // kill-switch Carolina força inbox-only (sem Slack); captura info, não spamma
+      silentMode: carolinaSilent || (process.env.WORKER_DEDUPE_NOTIFICATIONS_SILENT_MODE === 'true'),
     });
     watcher.start(60 * 1000);
   }
