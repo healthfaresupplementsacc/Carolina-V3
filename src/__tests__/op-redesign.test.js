@@ -82,8 +82,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v18 network-first', () => {
-    expect(SW).toContain("'hf-op-v18'");
+  test('sw é hf-op-v19 network-first', () => {
+    expect(SW).toContain("'hf-op-v19'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -259,6 +259,14 @@ describe('op — cowork multi-finish (Fase 1) frontend', () => {
   test('postFinishCowork lê o CÓDIGO de e.body.error, não de e.message', () => {
     expect(APP).toContain('e.body && e.body.error'); // fallback bounce robusto
     expect(APP).not.toContain("e.message === 'bottles_required'"); // bug antigo removido
+  });
+});
+
+// Filosofia "nunca bloqueia": postStart manda product_id/product_name p/ auto-criar lote
+describe('op — nunca bloqueia operador (lote desconhecido) frontend', () => {
+  test('postStart envia product_id + product_name', () => {
+    expect(APP).toContain('product_id: f.supplementId');
+    expect(APP).toContain('product_name: f.supplement');
   });
 });
 

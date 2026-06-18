@@ -216,6 +216,70 @@ function createOpRouter(deps = {}) {
        ORDER BY pb.id DESC LIMIT 1`, [bn]);
     return r.rows[0] || null;
   }
+  // FILOSOFIA: o sistema NUNCA bloqueia o operador. Lote que ele digitou e não
+  // existe → AUTO-CRIA (origin='operator_created') e segue; admin revisa depois.
+  async function autoCreateBatch(batchNumber, productId, personId) {
+    const bn = String(batchNumber).trim();
+    const ins = await db.query(
+      `INSERT INTO v3.product_batches
+         (product_id, batch_number, started_at, status, origin, created_by_person_id, created_via)
+       VALUES ($1, $2, NOW(), 'in_progress', 'operator_created', $3, 'op_page')
+       RETURNING id, batch_number, product_id`, [productId, bn, personId]);
+    const row = ins.rows[0];
+    let product = null;
+    try { const p = await db.query('SELECT canonical_name FROM v3.products WHERE id = $1', [productId]); product = p.rows[0] ? p.rows[0].canonical_name : null; } catch (e) {}
+    return { id: row.id, batch_number: row.batch_number, product_id: row.product_id, product };
+  }
+  // resolve OU cria. Nunca lança "unknown_batch". Se não dá pra criar (sem produto
+  // identificável), volta typedUnlinked pro nº ser preservado na descrição do event.
+  async function resolveOrCreateBatch(batchNumber, productIdRaw, personId) {
+    if (!batchNumber) return { batch: null, autoCreated: false, typedUnlinked: null };
+    const existing = await resolveBatch(batchNumber);
+    if (existing) return { batch: existing, autoCreated: false, typedUnlinked: null };
+    const pid = parseInt(productIdRaw, 10);
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        const batch = await autoCreateBatch(batchNumber, pid, personId);
+        return { batch, autoCreated: true, typedUnlinked: null };
+      } catch (e) { console.error('[op] auto-create batch falhou:', e.message); }
+    }
+    // sem produto p/ vincular (ou falhou): NÃO bloqueia — segue sem batch
+    return { batch: null, autoCreated: false, typedUnlinked: String(batchNumber).trim() };
+  }
+  // alerta operacional pros owners/manager (canal admin). Voz do SISTEMA (não Carolina).
+  async function notifyUnknownBatch({ batchNumber, productName, operatorName, slug, autoCreated }) {
+    if (!slack || !slack.postAs) return;
+    const whenEdt = new Date().toLocaleString('en-US', { timeZone: EDT, hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' });
+    const text =
+      ':warning: *Lote desconhecido iniciado*\n\n' +
+      '*Operador(a):* ' + (operatorName || '?') + '\n' +
+      '*Produto:* ' + (productName || '— (não identificado)') + '\n' +
+      '*Lote digitado:* ' + batchNumber + '\n' +
+      '*Task:* ' + (slug || '—') + '\n' +
+      '*Iniciado em:* ' + whenEdt + ' EDT\n\n' +
+      (autoCreated
+        ? 'Este lote não existia no tracker nem no EMS. Foi *auto-criado* pra não bloquear o trabalho.\n\n'
+        : 'Este lote não existia e *não pôde ser vinculado a um produto* — a task começou sem lote e o número ficou na nota.\n\n') +
+      'Verifique com o operador se: o número está correto · se deveria existir no EMS (criar lá) · se é um lote válido a registrar.\n\n' +
+      '_Notificação automática do sistema._';
+    try {
+      await slack.postAs({
+        channel: adminChannel,
+        sender: { name: 'HealthFare Tracker (Sistema)', icon: ':warning:' },
+        thread_ts: null, text, unfurl_links: false, unfurl_media: false,
+      });
+    } catch (e) { console.error('[op] aviso lote desconhecido falhou:', e.message); }
+  }
+  // audita + alerta admin quando um lote foi auto-criado ou não pôde ser vinculado.
+  // Notificação é fire-and-forget (não atrasa a resposta ao operador).
+  async function flagUnknownBatch({ res, autoCreated, typedUnlinked, batch, batchNumber, body, slug, s }) {
+    if (!autoCreated && !typedUnlinked) return;
+    const bn = String(batchNumber || '').trim();
+    const productId = batch ? batch.product_id : (body && parseInt(body.product_id, 10)) || null;
+    await audit('batch.auto_created', batch ? 'product_batch' : 'event', batch ? batch.id : res.id,
+      { batch_number: bn, product_id: Number.isFinite(productId) ? productId : null, person_id: s.person_id, auto_created: !!autoCreated, linked: !!batch, reason: 'operator_input_not_found' }, s.person_id);
+    notifyUnknownBatch({ batchNumber: bn, productName: batch ? batch.product : (body && body.product_name) || null, operatorName: s.display_name, slug, autoCreated: !!autoCreated });
+  }
   async function insertCount({ event, bottles, unit, personId }) {
     await db.query(
       `INSERT INTO v3.production_counts
@@ -253,12 +317,13 @@ function createOpRouter(deps = {}) {
         return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe quantas ordens (número > 0).' });
       }
     }
-    const batch = await resolveBatch(batch_number);
-    if (batch_number && !batch) return res.status(400).json({ error: 'unknown_batch', batch_number });
+    // NUNCA bloqueia: resolve o lote OU auto-cria (alerta admin depois)
+    const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id);
     const cw = Array.isArray(cowork_with)
       ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id)
       : [];
-    const desc = note ? String(note).slice(0, 500) : null;
+    let desc = note ? String(note).slice(0, 500) : null;
+    if (typedUnlinked) desc = (desc ? desc + ' ' : '') + '[lote digitado: ' + typedUnlinked + ' — produto não identificado]';
 
     // ── COWORK (Fase 1): N events, 1 por participante, mesmo cowork_group_id ──
     // Cada operador passa a ter o SEU event → aparece em "Minhas Tarefas" dele
@@ -281,6 +346,7 @@ function createOpRouter(deps = {}) {
       }
       await audit('event.created_via_page', 'event', starterEv.id,
         { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw, cowork_group_id: gid, cowork_size: participants.length }, s.person_id);
+      await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
 
@@ -295,6 +361,7 @@ function createOpRouter(deps = {}) {
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
+    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
 
@@ -322,10 +389,12 @@ function createOpRouter(deps = {}) {
     if (!v.not_future) return res.status(400).json({ error: 'started_at_future' });
     if (!v.same_day) return res.status(400).json({ error: 'started_at_not_today', detail: 'Operador só adiciona tasks de hoje. Dias anteriores: peça ao admin.' });
     if (!v.end_ok) return res.status(400).json({ error: 'ended_at_invalid', detail: 'Fim deve ser depois do início e não pode ser futuro.' });
-    const batch = await resolveBatch(batch_number);
-    if (batch_number && !batch) return res.status(400).json({ error: 'unknown_batch', batch_number });
+    // NUNCA bloqueia: resolve OU auto-cria o lote (alerta admin depois)
+    const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id);
     const cw = Array.isArray(cowork_with)
       ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id) : [];
+    let rdesc = note ? String(note).slice(0, 500) : null;
+    if (typedUnlinked) rdesc = (rdesc ? rdesc + ' ' : '') + '[lote digitado: ' + typedUnlinked + ' — produto não identificado]';
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, ended_at, description,
@@ -334,11 +403,12 @@ function createOpRouter(deps = {}) {
                CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END)
        RETURNING id, started_at, ended_at`,
       [s.person_id, act.id, batch ? batch.id : null, started_at, ended_at || null,
-        note ? String(note).slice(0, 500) : null, cw, ordersPrinted]);
+        rdesc, cw, ordersPrinted]);
     const ev = ins.rows[0];
     const gapMin = await db.query("SELECT ROUND(EXTRACT(EPOCH FROM (NOW() - $1::timestamptz))/60)::int g", [started_at]);
     await audit('event.retroactive_create', 'event', ev.id,
       { slug: act.slug, retroactive: true, gap_minutes: gapMin.rows[0].g, ended: !!ended_at, batch: batch ? batch.batch_number : null }, s.person_id);
+    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     res.json({ ok: true, event_id: ev.id, status: 'created' });
   }));
 

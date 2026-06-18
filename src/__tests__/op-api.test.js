@@ -114,6 +114,18 @@ function makeFakeDb(mem) {
         const b = mem.batches.find((x) => x.batch_number === bn || x.batch_number === 'BR-2026-' + bn);
         return resp(b ? [b] : []);
       }
+      // auto-criação de lote desconhecido (filosofia "nunca bloqueia")
+      if (/INSERT INTO v3\.product_batches/.test(s)) {
+        const id = (mem.seq.batch = (mem.seq.batch || 50) + 1);
+        const prod = (mem.products.find((p) => p.id === params[0]) || {}).canonical_name || null;
+        const b = { id, product_id: params[0], batch_number: params[1], product: prod, origin: 'operator_created', created_by_person_id: params[2], created_via: 'op_page' };
+        mem.batches.push(b);
+        return resp([{ id: b.id, batch_number: b.batch_number, product_id: b.product_id }]);
+      }
+      if (/SELECT canonical_name FROM v3\.products WHERE id = \$1/.test(s)) {
+        const p = mem.products.find((x) => x.id === params[0]);
+        return resp(p ? [{ canonical_name: p.canonical_name }] : []);
+      }
       if (/INSERT INTO v3\.events/.test(s) && /cowork_group_id/.test(s)) {
         // cowork (N events): params = [pid, act, batch, started_at, desc, others, orders, gid]
         const ev = {
@@ -384,11 +396,47 @@ describe('op API — events', () => {
     expect(mem.events[0].product_batch_id).toBe(39);
   });
 
-  test('start: batch inexistente → 400; slug inválido → 400; sem sessão → 401', async () => {
+  test('start: slug inválido → 400; sem sessão → 401 (batch desconhecido NÃO bloqueia)', async () => {
     const s = await login(4);
-    expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: '9999' } })).status).toBe(400);
     expect((await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'voar' } })).status).toBe(400);
     expect((await post('/api/v3/op/event/start', { body: { activity_slug: 'cleaning' } })).status).toBe(401);
+  });
+
+  // FILOSOFIA: nunca bloqueia o operador (lote desconhecido → auto-cria + alerta)
+  test('lote desconhecido COM produto → auto-cria batch, inicia, NÃO bloqueia, alerta admin', async () => {
+    const s = await login(4);
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: '0218', product_id: 9, product_name: 'Plant Sterols' } });
+    expect(r.status).toBe(200); // NÃO bloqueia
+    expect(r.body.event.batch_number).toBe('0218');
+    const created = mem.batches.find((b) => b.batch_number === '0218');
+    expect(created).toBeTruthy();
+    expect(created.origin).toBe('operator_created');
+    expect(created.product_id).toBe(9);
+    expect(created.created_by_person_id).toBe(4);
+    expect(mem.events[0].product_batch_id).toBe(created.id);
+    expect(mem.audits.some((a) => a.action === 'batch.auto_created')).toBe(true);
+    // alerta vai pro canal ADMIN (não orders-and-inventory)
+    expect(slack.postAs).toHaveBeenCalled();
+    expect(slack.postAs.mock.calls[0][0].channel).toBe('C_ADMIN');
+    expect(slack.postAs.mock.calls[0][0].text).toContain('Lote desconhecido');
+  });
+
+  test('lote desconhecido SEM produto → inicia sem batch, nº na descrição, alerta admin', async () => {
+    const s = await login(4);
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: 'XYZ-123' } });
+    expect(r.status).toBe(200); // NÃO bloqueia mesmo sem produto
+    expect(mem.events[0].product_batch_id).toBeFalsy();
+    expect(mem.events[0].description).toContain('XYZ-123');
+    expect(mem.batches.find((b) => b.batch_number === 'XYZ-123')).toBeFalsy(); // não cria sem produto
+    expect(mem.audits.some((a) => a.action === 'batch.auto_created')).toBe(true);
+    expect(slack.postAs).toHaveBeenCalled();
+  });
+
+  test('lote EXISTENTE → resolve normal, SEM auto-create, SEM alerta', async () => {
+    const s = await login(4);
+    await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: '0190', product_id: 1 } });
+    expect(mem.audits.some((a) => a.action === 'batch.auto_created')).toBe(false);
+    expect(slack.postAs).not.toHaveBeenCalled();
   });
 
   test('Fase 0 — order_printing SEM orders_printed → 400; COM → 200 e grava', async () => {

@@ -957,7 +957,8 @@
   }
   function postStart(startedAt, endedAt) {
     var f = S.flow; var m = typeMeta(f.slug);
-    var body = { activity_slug: f.slug, batch_number: f.batch || null, cowork_with: f.cowork || [], note: (f.note || '').trim() || null };
+    var body = { activity_slug: f.slug, batch_number: f.batch || null, cowork_with: f.cowork || [], note: (f.note || '').trim() || null,
+      product_id: f.supplementId || null, product_name: f.supplement || null }; // p/ auto-criar lote desconhecido sem bloquear
     if (m.orders_required) body.orders_printed = parseInt(f.ordersInput, 10);
     var path = startedAt ? '/api/v3/op/event/retroactive' : '/api/v3/op/event/start';
     if (startedAt) { body.started_at = startedAt; body.ended_at = endedAt || null; }
