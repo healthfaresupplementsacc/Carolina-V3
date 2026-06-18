@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-18T02:58:51.362Z",
+ "generated_at": "2026-06-18T03:59:45.889Z",
  "groups": [
   {
    "key": "linha",
@@ -101,7 +101,7 @@ window.HF_DATA = {
      "slug": "repair",
      "label": "Conserto de máquina",
      "requires_product": false,
-     "note_required": false,
+     "note_required": true,
      "orders_required": false
     },
     {
@@ -135,7 +135,7 @@ window.HF_DATA = {
     {
      "slug": "label_repair",
      "label": "🔧 Conserto de label",
-     "requires_product": false,
+     "requires_product": true,
      "note_required": true,
      "orders_required": false
     },
@@ -562,7 +562,7 @@ window.HF_DATA = {
     "folate",
     "folic"
    ],
-   "last_used_at": "2026-06-17T19:43:53.769Z"
+   "last_used_at": "2026-06-18T03:31:42.982Z"
   },
   {
    "id": 5,

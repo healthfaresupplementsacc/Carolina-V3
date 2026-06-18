@@ -229,6 +229,7 @@ function createOpRouter(deps = {}) {
     'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
     'label_change', 'label_repair',
     'machine_downtime', // mudança #5: motivo da parada obrigatório
+    'repair',           // Fase 3.3: conserto de máquina exige nota
   ]);
   // slugs que exigem quantidade de ordens (Fase 0)
   const ORDERS_REQUIRED_SLUGS = new Set(['order_printing', 'order_printing_2']);

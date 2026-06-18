@@ -59,12 +59,16 @@ const NOTE_REQUIRED = new Set([
   'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
   'label_change', 'label_repair',
   'machine_downtime', // mudança #5: motivo da parada é obrigatório
+  'repair',           // Fase 3.3: conserto de máquina exige nota (motivo)
 ]);
 // Slugs que exigem quantidade de ordens impressas
 const ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
 // Mudança #3: Embalagem não pede lote no /op. requires_product no DB segue true
 // (Slack/LLM dependem disso); aqui só a PÁGINA do operador pula produto+lote.
 const NO_PRODUCT_OVERRIDE = new Set(['labeling', 'packaging', 'marketplace_prep']);
+// Fase 3.2: Conserto de label exige produto + lote (além da nota já obrigatória),
+// pra identificar QUAL label/lote tem o problema. Override só na página.
+const YES_PRODUCT_OVERRIDE = new Set(['label_repair']);
 
 async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -79,7 +83,7 @@ async function main() {
       .filter(([slug]) => bySlug.has(slug))
       .map(([slug, label]) => ({
         slug, label,
-        requires_product: NO_PRODUCT_OVERRIDE.has(slug) ? false : !!bySlug.get(slug).requires_product,
+        requires_product: YES_PRODUCT_OVERRIDE.has(slug) ? true : (NO_PRODUCT_OVERRIDE.has(slug) ? false : !!bySlug.get(slug).requires_product),
         note_required: NOTE_REQUIRED.has(slug),
         orders_required: ORDERS_REQUIRED.has(slug),
       })),

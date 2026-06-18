@@ -64,6 +64,29 @@ describe('Patch A — fuse-data.js (gerado)', () => {
   });
 });
 
+describe('Fase 3 (parcial) — label_repair + conserto de máquina', () => {
+  test('3.2 label_repair: produto + lote + nota (override YES_PRODUCT + NOTE_REQUIRED)', () => {
+    const yes = BUILD.match(/const YES_PRODUCT_OVERRIDE = new Set\(\[([\s\S]*?)\]\)/);
+    expect(yes && yes[1]).toContain("'label_repair'");
+    expect(BUILD).toContain('YES_PRODUCT_OVERRIDE.has(slug) ? true');
+    // gerado: label_repair com produto + nota
+    const i = FUSE.indexOf('"slug": "label_repair"');
+    expect(FUSE.slice(i, i + 200)).toContain('"requires_product": true');
+    expect(FUSE.slice(i, i + 200)).toContain('"note_required": true');
+  });
+  test('3.3 conserto de máquina (repair): nota obrigatória em build + op.js + gerado', () => {
+    const m = BUILD.match(/const NOTE_REQUIRED = new Set\(\[([\s\S]*?)\]\)/);
+    expect(m[1]).toContain("'repair'");
+    const op = OP.match(/NOTE_REQUIRED_SLUGS = new Set\(\[([\s\S]*?)\]\)/);
+    expect(op[1]).toContain("'repair'");
+    const i = FUSE.indexOf('"slug": "repair"');
+    expect(FUSE.slice(i, i + 200)).toContain('"note_required": true');
+  });
+  test('3.1 Envio Clínica já existe (clinic_shipment) — nada a criar', () => {
+    expect(FUSE).toContain('"slug": "clinic_shipment"');
+  });
+});
+
 describe('Patch A — migration 032', () => {
   test('insere shipping_walmart + shipping_amazon (idempotente) + down', () => {
     const up = fs.readFileSync(path.join(__dirname, '..', 'v3', 'schema', 'migrations', '032_shipping_marketplaces.sql'), 'utf8');

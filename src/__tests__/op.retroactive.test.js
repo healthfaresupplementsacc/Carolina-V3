@@ -8,8 +8,11 @@ const opAuth = require('../lib/op-auth');
 const resp = (rows) => ({ rows, rowCount: rows.length });
 const TOKEN = 'page-token';
 const PW = 'emergency-pw';
-const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
-const hoursAhead = (h) => new Date(Date.now() + h * 3600 * 1000).toISOString();
+// Clock FIXO (13:00 EDT = 17:00 UTC) — mantém os testes determinísticos perto
+// da meia-noite EDT (senão "hoursAgo(1.5)" vira ONTEM e quebra o same_day).
+const NOW = Date.parse('2026-06-17T17:00:00Z');
+const hoursAgo = (h) => new Date(NOW - h * 3600 * 1000).toISOString();
+const hoursAhead = (h) => new Date(NOW + h * 3600 * 1000).toISOString();
 
 // ── operador ────────────────────────────────────────────────────────────────
 describe('Parte B — operador retroactive (/api/v3/op/event/retroactive)', () => {
@@ -31,7 +34,7 @@ describe('Parte B — operador retroactive (/api/v3/op/event/retroactive)', () =
       if (/FROM v3\.product_batches pb LEFT JOIN v3\.products pr/.test(s)) return resp([]);
       // time validation (operador: same_day)
       if (/AS not_future,.*AS same_day,.*AS end_ok/.test(s)) {
-        const st = Date.parse(params[0]); const en = params[1] ? Date.parse(params[1]) : null; const now = Date.now();
+        const st = Date.parse(params[0]); const en = params[1] ? Date.parse(params[1]) : null; const now = NOW;
         return resp([{
           not_future: st <= now,
           same_day: new Date(st).toDateString() === new Date(now).toDateString(),
@@ -95,7 +98,7 @@ describe('Parte B — admin retroactive (/api/adminpanel/operators/:id/retroacti
       if (/FROM v3\.activity_types WHERE slug = \$1 AND active = true/.test(s)) return resp([{ id: 10, slug: 'cleaning' }]);
       if (/SELECT slug, display_name, requires_product, category FROM v3\.activity_types WHERE active = true/.test(s)) return resp([{ slug: 'cleaning', display_name: 'Limpeza', requires_product: false, category: 'support' }]);
       if (/AS not_future,.*AS within_7d,.*AS end_ok/.test(s)) {
-        const st = Date.parse(params[0]); const en = params[1] ? Date.parse(params[1]) : null; const now = Date.now();
+        const st = Date.parse(params[0]); const en = params[1] ? Date.parse(params[1]) : null; const now = NOW;
         return resp([{ not_future: st <= now, within_7d: st >= now - 7 * 864e5, end_ok: en == null || (en > st && en <= now) }]);
       }
       if (/INSERT INTO v3\.events .* 'admin_retroactive'/.test(s)) { mem.inserted.push({ person: params[0] }); return resp([{ id: 777 }]); }
