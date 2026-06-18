@@ -1113,43 +1113,36 @@
 
   // ── FIT-TO-VIEWPORT: escala o canvas 1440x900 pra caber 100% (sem scroll) ──
   var DESIGN_W = 1440, DESIGN_H = 900, SCALE_MAX = 1.25, SCALE_MIN = 0.35;
+  // REGRA #0: o sistema NUNCA bloqueia o operador — não existe mais "gire o aparelho".
+  // Celular EM PÉ (vw < 600 e portrait): canvas FLUIDO (100vw×100vh, sem scale) e o
+  // conteúdo — que já é responsivo (clamp + grids auto-fit) — reflui em coluna, rolável.
+  // Desktop / tablet landscape: canvas FIXO 1440×900 escalado (fit-to-viewport, igual antes).
+  function isPortraitPhone() {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    return vw < 600 && vh >= vw;
+  }
   function fitCanvas() {
     var vw = window.innerWidth, vh = window.innerHeight;
-    var scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
-    var f = Math.min(Math.max(scale, SCALE_MIN), SCALE_MAX);
-    if (ROOT) ROOT.style.transform = 'scale(' + f + ')';
-    document.documentElement.setAttribute('data-hf-scale', f.toFixed(2));
-    document.documentElement.setAttribute('data-hf-viewport', vw + 'x' + vh);
-  }
-  // aviso de girar SÓ em dispositivo TOUCH (não em PC com janela estreita) + portrait pequeno.
-  // Sinal confiável: '(pointer: coarse)' = ponteiro primário é o dedo. Desktop com
-  // mouse/trackpad = 'fine'. (maxTouchPoints/ontouchstart dão falso-positivo:
-  // headless reporta 10 e laptops touchscreen têm o trackpad como primário.)
-  function isTouchDevice() {
-    return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-  }
-  function shouldShowRotate() {
-    if (!isTouchDevice()) return false;
-    var vw = window.innerWidth, vh = window.innerHeight;
-    return vh > vw && Math.min(vw, vh) <= 900; // só portrait em tela pequena (tablet/celular)
-  }
-  function updateRotateState() {
-    var prompt = document.getElementById('hf-rotate-prompt');
-    var stage = document.getElementById('hf-stage');
-    if (shouldShowRotate()) {
-      if (prompt) prompt.style.display = 'flex';
-      if (stage) stage.style.display = 'none';
+    var html = document.documentElement;
+    if (isPortraitPhone()) {
+      html.classList.add('hf-portrait');
+      if (ROOT) { ROOT.style.transform = 'none'; ROOT.style.width = '100vw'; ROOT.style.height = '100vh'; }
+      html.setAttribute('data-hf-scale', '1');
     } else {
-      if (prompt) prompt.style.display = 'none';
-      if (stage) stage.style.display = 'flex';
-      fitCanvas();
+      html.classList.remove('hf-portrait');
+      if (ROOT) { ROOT.style.width = DESIGN_W + 'px'; ROOT.style.height = DESIGN_H + 'px'; }
+      var scale = Math.min(vw / DESIGN_W, vh / DESIGN_H);
+      var f = Math.min(Math.max(scale, SCALE_MIN), SCALE_MAX);
+      if (ROOT) ROOT.style.transform = 'scale(' + f + ')';
+      html.setAttribute('data-hf-scale', f.toFixed(2));
     }
+    html.setAttribute('data-hf-viewport', vw + 'x' + vh);
   }
   var _fitT = null;
-  window.addEventListener('resize', function () { clearTimeout(_fitT); _fitT = setTimeout(updateRotateState, 50); });
-  window.addEventListener('orientationchange', function () { setTimeout(updateRotateState, 200); });
+  window.addEventListener('resize', function () { clearTimeout(_fitT); _fitT = setTimeout(fitCanvas, 50); });
+  window.addEventListener('orientationchange', function () { setTimeout(fitCanvas, 200); });
 
   // boot
   render();
-  updateRotateState();
+  fitCanvas();
 }());

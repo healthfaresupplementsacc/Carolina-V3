@@ -15,13 +15,8 @@
   <link rel="icon" href="/op/assets/healthfare-logo.png">
 </head>
 <body>
-  <!-- aviso de girar (portrait em tela pequena) — fallback do orientation:landscape -->
-  <div id="hf-rotate-prompt" style="display:none">
-    <div class="rotate-content">
-      <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
-      <div class="rotate-text">Gire o dispositivo<br>para horizontal</div>
-    </div>
-  </div>
+  <!-- REGRA #0: o sistema NUNCA bloqueia o operador. Não há mais "gire o aparelho":
+       em celular vertical o layout reflui (ver style.css .hf-portrait + fitCanvas). -->
 
   <!-- palco ocupa a viewport; o AMBIENTE (blobs+bottles+cápsulas) cobre 100% da
        viewport (z0) pra NUNCA cortar em telas de aspect ratio diferente; o canvas

@@ -31,17 +31,22 @@ textarea { resize: none; }
   transform-origin: center center; background: transparent; z-index: 1;
 }
 
-/* aviso de girar — JS decide quando mostrar (só em touch + portrait pequeno) */
-#hf-rotate-prompt {
-  position: fixed; inset: 0; z-index: 9999; display: none;
-  background: linear-gradient(180deg, #0f4c92 0%, #0c1d3a 100%);
-  align-items: center; justify-content: center; text-align: center;
-  color: #fff; font-family: 'Sora', sans-serif;
-}
-.rotate-content { display: flex; flex-direction: column; align-items: center; gap: 24px; }
-.rotate-content svg { animation: rotateHint 2s ease-in-out infinite; }
-.rotate-text { font-size: 22px; font-weight: 600; line-height: 1.4; }
-@keyframes rotateHint { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-90deg); } }
+/* ── CELULAR VERTICAL (REGRA #0: nunca bloqueia) ───────────────
+   Em portrait pequeno o JS (fitCanvas) põe .hf-portrait no <html> e deixa o
+   canvas FLUIDO (100vw×100vh, sem transform:scale). O conteúdo interno já é
+   responsivo (clamp + grids auto-fit), então só ajustamos contêineres:
+   palco rola na vertical, cartões/modais cabem na viewport, padding menor. */
+html.hf-portrait, html.hf-portrait body { overflow: auto; }
+html.hf-portrait #hf-stage { align-items: flex-start; justify-content: center; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+html.hf-portrait #hf-canvas { width: 100vw !important; height: 100vh !important; transform: none !important; }
+/* telas-base e modais já são inset:0; em 100vh isso vira a viewport inteira */
+html.hf-portrait #scr-login { overflow-y: auto; padding: 16px; }
+/* cartões/modais não podem passar da viewport — caps + largura cheia */
+html.hf-portrait .hf-modal { padding: 12px; }
+html.hf-portrait .hf-modal > div { max-width: 96vw !important; max-height: 90vh !important; }
+/* home: menos padding lateral + hero empilha (anel embaixo do texto) */
+html.hf-portrait #scr-home .hf-scroll { padding-left: 14px !important; padding-right: 14px !important; }
+html.hf-portrait #scr-home [style*="grid-template-columns:1fr auto"] { grid-template-columns: 1fr !important; justify-items: start; }
 
 /* conteúdo à frente — empilhado dentro do canvas */
 #hf-main { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; }

@@ -82,19 +82,18 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v19 network-first', () => {
-    expect(SW).toContain("'hf-op-v19'");
+  test('sw é hf-op-v20 network-first', () => {
+    expect(SW).toContain("'hf-op-v20'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
 
 describe('op — fit-to-viewport (canvas fixo 1440x900 escalado)', () => {
   const CSS = fs.readFileSync(path.join(__dirname, '..', 'op', 'style.css'), 'utf8');
-  test('estrutura palco/canvas + aviso de girar no HTML', () => {
+  test('estrutura palco/canvas (sem rotate prompt — REGRA #0)', () => {
     expect(HTML).toContain('id="hf-stage"');
     expect(HTML).toContain('id="hf-canvas"');
-    expect(HTML).toContain('id="hf-rotate-prompt"');
-    expect(HTML).toContain('Gire o dispositivo');
+    expect(HTML).not.toContain('id="hf-rotate-prompt"');
   });
   test('CSS: canvas fixo 1440x900 + transform-origin + ambiente full-viewport no stage', () => {
     expect(CSS).toContain('#hf-canvas');
@@ -124,12 +123,17 @@ describe('op — fit-to-viewport (canvas fixo 1440x900 escalado)', () => {
 describe('op — patch 3 bugs (rotate touch / ambiente full-viewport / admin resolve)', () => {
   const CSS = fs.readFileSync(path.join(__dirname, '..', 'op', 'style.css'), 'utf8');
   const ADM = fs.readFileSync(path.join(__dirname, '..', 'admin', 'app.js'), 'utf8');
-  test('BUG1: aviso de girar só em TOUCH + portrait pequeno (não em PC estreito)', () => {
-    expect(APP).toContain('function isTouchDevice');
-    expect(APP).toContain('function shouldShowRotate');
-    expect(APP).toContain('function updateRotateState');
-    expect(APP).toContain("matchMedia('(pointer: coarse)')"); // sinal confiável (não maxTouchPoints)
-    expect(CSS).not.toContain('@media (orientation: portrait)'); // não decide mais por CSS/tamanho
+  test('REGRA #0: SEM aviso de girar — celular vertical reflui (não bloqueia)', () => {
+    // rotate prompt REMOVIDO por completo (era um bloqueio visual)
+    expect(HTML).not.toContain('hf-rotate-prompt');
+    expect(HTML).not.toContain('Gire o dispositivo');
+    expect(APP).not.toContain('function shouldShowRotate');
+    expect(APP).not.toContain('function updateRotateState');
+    // novo: portrait → canvas fluido + classe .hf-portrait + reflow via CSS
+    expect(APP).toContain('function isPortraitPhone');
+    expect(APP).toContain("classList.add('hf-portrait')");
+    expect(APP).toContain("ROOT.style.width = '100vw'");
+    expect(CSS).toContain('html.hf-portrait');
   });
   test('BUG2: ambiente no #hf-stage full-viewport (z0) + canvas transparente (z1)', () => {
     expect(HTML).toContain('id="hf-ambient"');
