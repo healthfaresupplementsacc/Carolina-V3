@@ -35,6 +35,7 @@
     $('view-notifs').classList.toggle('hidden', v !== 'notifs');
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
     $('view-metrics').classList.toggle('hidden', v !== 'metrics');
+    $('view-batches').classList.toggle('hidden', v !== 'batches');
     $('view-voices').classList.toggle('hidden', v !== 'voices');
     $('view-admins').classList.toggle('hidden', v !== 'admins');
     $('view-audit').classList.toggle('hidden', v !== 'audit');
@@ -43,6 +44,7 @@
     $('tab-notifs').classList.toggle('active', v === 'notifs');
     $('tab-analytics').classList.toggle('active', v === 'analytics');
     $('tab-metrics').classList.toggle('active', v === 'metrics');
+    $('tab-batches').classList.toggle('active', v === 'batches');
     $('tab-voices').classList.toggle('active', v === 'voices');
     $('tab-admins').classList.toggle('active', v === 'admins');
     $('tab-audit').classList.toggle('active', v === 'audit');
@@ -73,6 +75,7 @@
   $('tab-voices').onclick = async () => { show('voices'); await loadVoices(); };
   $('v-apply').onclick = () => loadVoices();
   $('tab-metrics').onclick = async () => { show('metrics'); await loadMetrics(metricsSub); };
+  $('tab-batches').onclick = async () => { show('batches'); await loadUnknownBatches(); };
   $('tab-audit').onclick = async () => { show('audit'); auditOffset = 0; await loadAudit(false); };
   $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
   let _auDeb = null;
@@ -405,10 +408,34 @@
   async function refreshBadge() {
     try { const r = await api('/api/adminpanel/notifications?status=pending&limit=1'); updateBadge(r.pending_total); } catch (_) {}
     refreshExcBadge();
+    refreshBatchBadge();
   }
   async function refreshExcBadge() {
     const b = $('exc-badge'); if (!b) return;
     try { const r = await api('/api/adminpanel/metrics/exceptions-count'); b.textContent = r.count; b.classList.toggle('hidden', !r.count); } catch (_) {}
+  }
+  async function refreshBatchBadge() {
+    const b = $('batch-badge'); if (!b) return;
+    try { const r = await api('/api/adminpanel/metrics/unknown-batches-count'); b.textContent = r.count; b.classList.toggle('hidden', !r.count); } catch (_) {}
+  }
+  // 🟡 lotes desconhecidos: confirma (vira válido) ou marca erro (soft-delete)
+  async function loadUnknownBatches() {
+    const box = $('batches-list'); box.innerHTML = '';
+    let r;
+    try { r = await api('/api/adminpanel/unknown-batches'); } catch (e) { box.appendChild(el('div', 'sub', '❌ ' + e.message)); return; }
+    if (!r.batches.length) { box.appendChild(el('div', 'sub', 'Nenhum lote desconhecido pendente. 🎉')); return; }
+    r.batches.forEach((b) => {
+      const card = el('div', 'card');
+      card.appendChild(el('div', 'row', `<span class="title">${b.batch_number}</span><span class="sub">${b.product || '⚠️ produto não identificado'}</span>`));
+      card.appendChild(el('div', 'sub', `Criado por ${b.created_by || '?'} · ${b.created_at_edt || ''} · ${b.events_count} task(s)`));
+      const act = el('div', 'actions');
+      const ok = el('button', 'ok', '✅ Confirmar válido');
+      const no = el('button', 'no', '🗑️ Marcar erro');
+      ok.onclick = async () => { ok.disabled = no.disabled = true; try { await api(`/api/adminpanel/unknown-batches/${b.id}/confirm`, { method: 'POST', body: {} }); toast('✅ lote confirmado'); refreshBatchBadge(); loadUnknownBatches(); } catch (e) { ok.disabled = no.disabled = false; toast('❌ ' + e.message); } };
+      no.onclick = async () => { if (!window.confirm('Marcar como erro? O lote será removido (soft-delete).')) return; no.disabled = ok.disabled = true; try { await api(`/api/adminpanel/unknown-batches/${b.id}/reject`, { method: 'POST', body: {} }); toast('🗑️ lote removido'); refreshBatchBadge(); loadUnknownBatches(); } catch (e) { no.disabled = ok.disabled = false; toast('❌ ' + e.message); } };
+      act.appendChild(ok); act.appendChild(no); card.appendChild(act);
+      box.appendChild(card);
+    });
   }
   notifPoll = setInterval(() => { if (view === 'notifs') loadNotifs().catch(() => {}); else if (view !== 'login') refreshBadge(); }, 30000);
 

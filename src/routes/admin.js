@@ -1021,6 +1021,55 @@ function createAdminRouter(deps = {}) {
     res.json({ count: r.rows[0].count });
   }));
 
+  // ── lotes desconhecidos auto-criados pelo operador (revisão admin) ──
+  // O /op NUNCA bloqueia: lote que o operador digita e não existe é auto-criado
+  // (origin='operator_created'). Aqui o admin revisa: confirma (vira válido) ou
+  // marca como erro (soft-delete). Badge no header conta os pendentes.
+  router.get('/api/adminpanel/unknown-batches', requireAdmin, h(async (req, res) => {
+    const r = await db.query(
+      `SELECT pb.id, pb.batch_number, pb.product_id, pr.canonical_name AS product, pb.created_via,
+              to_char(pb.created_at AT TIME ZONE '${EDT}', 'Mon DD, HH12:MI AM') AS created_at_edt,
+              cp.display_name AS created_by,
+              (SELECT COUNT(*)::int FROM v3.events e WHERE e.product_batch_id = pb.id AND e.deleted_at IS NULL) AS events_count
+       FROM v3.product_batches pb
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       LEFT JOIN v3.persons cp ON cp.id = pb.created_by_person_id
+       WHERE pb.origin = 'operator_created' AND pb.deleted_at IS NULL
+       ORDER BY pb.created_at DESC LIMIT 100`);
+    res.json({ batches: r.rows });
+  }));
+
+  router.get('/api/adminpanel/metrics/unknown-batches-count', requireAdmin, h(async (req, res) => {
+    const r = await db.query("SELECT COUNT(*)::int AS count FROM v3.product_batches WHERE origin = 'operator_created' AND deleted_at IS NULL");
+    res.json({ count: r.rows[0].count });
+  }));
+
+  router.post('/api/adminpanel/unknown-batches/:id/confirm', requireAdmin, makeRateLimit({ limit: 60 }), h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad_id' });
+    const r = await db.query(
+      `UPDATE v3.product_batches
+         SET origin = 'operator_confirmed', reviewed_at = NOW(), reviewed_by_person_id = $2, updated_at = NOW()
+       WHERE id = $1 AND origin = 'operator_created' AND deleted_at IS NULL
+       RETURNING id, batch_number`, [id, req.admin ? req.admin.id : null]);
+    if (!r.rowCount) return res.status(404).json({ error: 'batch_not_found' });
+    await audit('batch.confirmed', 'product_batch', id, { batch_number: r.rows[0].batch_number }, req);
+    res.json({ ok: true });
+  }));
+
+  router.post('/api/adminpanel/unknown-batches/:id/reject', requireAdmin, makeRateLimit({ limit: 60 }), h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad_id' });
+    const r = await db.query(
+      `UPDATE v3.product_batches
+         SET deleted_at = NOW(), reviewed_at = NOW(), reviewed_by_person_id = $2, updated_at = NOW()
+       WHERE id = $1 AND origin = 'operator_created' AND deleted_at IS NULL
+       RETURNING id, batch_number`, [id, req.admin ? req.admin.id : null]);
+    if (!r.rowCount) return res.status(404).json({ error: 'batch_not_found' });
+    await audit('batch.rejected', 'product_batch', id, { batch_number: r.rows[0].batch_number }, req);
+    res.json({ ok: true });
+  }));
+
   // 2) Por operador (drill-down)
   router.get('/api/adminpanel/metrics/operator/:id', h(async (req, res) => {
     const id = parseInt(req.params.id, 10); const d = mRange(req);
