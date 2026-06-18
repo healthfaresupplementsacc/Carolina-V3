@@ -81,8 +81,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v14 network-first', () => {
-    expect(SW).toContain("'hf-op-v14'");
+  test('sw é hf-op-v15 network-first', () => {
+    expect(SW).toContain("'hf-op-v15'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -237,5 +237,16 @@ describe('op — production_line finish (bottles obrigatório + exceção)', () 
     expect(APP).toContain("showAlert({ title: 'Confirmar exceção'");
     expect(APP).toContain('exception_no_count: true');                // body da exceção
     expect(APP).toContain('exception_reason:');
+  });
+});
+
+describe('op — cowork multi-finish (Fase 1) frontend', () => {
+  test('overlay "terminei minha parte" + fluxo cowork no doFinish', () => {
+    expect(APP).toContain('function finishCoworkInner');
+    expect(APP).toContain('Terminei minha parte');
+    expect(APP).toContain('function postFinishCowork');
+    expect(APP).toContain('o.cowork && !o.lastFinisher'); // membro não-último → overlay simplificado
+    expect(APP).toContain("e.message === 'bottles_required'"); // último de production_line → abre contagem
+    expect(APP).toContain('cowork: !!t.cowork_group_id'); // detecta cowork na task
   });
 });

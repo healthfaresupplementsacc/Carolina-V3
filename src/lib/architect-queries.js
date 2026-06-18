@@ -36,7 +36,7 @@ const EVENT_SELECT = `
          e.started_at, e.ended_at,
          ${edtTs('e.started_at')} AS started_at_edt,
          CASE WHEN e.ended_at IS NULL THEN NULL ELSE ${edtTs('e.ended_at')} END AS ended_at_edt,
-         e.cowork_with, e.confidence, e.is_long_running, e.closed_reason,
+         e.cowork_with, e.cowork_group_id, e.confidence, e.is_long_running, e.closed_reason,
          e.quantity, e.quantity_unit, e.source_message_ts, e.description
   FROM v3.events e
   JOIN v3.persons p ON p.id = e.person_id

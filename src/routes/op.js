@@ -28,6 +28,7 @@
  * (CHECK ampliado na migration 018).
  */
 const express = require('express');
+const crypto = require('crypto');
 const { extractBearer } = require('../middleware/architect-auth');
 const opAuth = require('../lib/op-auth');
 
@@ -255,13 +256,40 @@ function createOpRouter(deps = {}) {
     const cw = Array.isArray(cowork_with)
       ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id)
       : [];
+    const desc = note ? String(note).slice(0, 500) : null;
+
+    // ── COWORK (Fase 1): N events, 1 por participante, mesmo cowork_group_id ──
+    // Cada operador passa a ter o SEU event → aparece em "Minhas Tarefas" dele
+    // (q.personToday filtra por person_id) e ele finaliza sozinho.
+    if (cw.length > 0) {
+      const gid = crypto.randomUUID();
+      const startedAt = new Date().toISOString();
+      const participants = [...new Set([s.person_id, ...cw])]; // starter + colegas, sem dup
+      let starterEv = null;
+      for (const pid of participants) {
+        const others = participants.filter((x) => x !== pid);
+        const r = await db.query(
+          `INSERT INTO v3.events
+             (person_id, activity_type_id, product_batch_id, started_at, description,
+              cowork_with, confidence, source, orders_printed, cowork_group_id)
+           VALUES ($1, $2, $3, $4::timestamptz, $5, $6::int[], 'high', 'operator_page', $7, $8::uuid)
+           RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed, cowork_group_id`,
+          [pid, act.id, batch ? batch.id : null, startedAt, desc, others, ordersPrinted, gid]);
+        if (pid === s.person_id) starterEv = r.rows[0];
+      }
+      await audit('event.created_via_page', 'event', starterEv.id,
+        { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw, cowork_group_id: gid, cowork_size: participants.length }, s.person_id);
+      return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
+    }
+
+    // ── SOLO: comportamento original (1 event, sem grupo) ──
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
           cowork_with, confidence, source, orders_printed)
        VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6)
        RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed`,
-      [s.person_id, act.id, batch ? batch.id : null, note ? String(note).slice(0, 500) : null, cw, ordersPrinted]);
+      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted]);
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
@@ -318,7 +346,7 @@ function createOpRouter(deps = {}) {
     if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'bad_id' }); return null; }
     const r = await db.query(
       `SELECT e.id, e.person_id, e.cowork_with, e.product_batch_id, e.ended_at, e.deleted_at,
-              e.is_long_running, at.slug, pb.product_id
+              e.is_long_running, e.cowork_group_id, at.slug, pb.product_id
        FROM v3.events e
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
        LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
@@ -375,11 +403,23 @@ function createOpRouter(deps = {}) {
     const bottlesRaw = body.bottles != null ? body.bottles : body.bottles_count;
     const b = parseInt(bottlesRaw, 10);
     const isProd = ev.slug === 'production_line';
-    const exception = isProd && (body.exception_no_count === true || body.exception_no_count === 'true');
+
+    // ── cowork: este é o ÚLTIMO a finalizar do grupo? ──
+    const isCowork = !!ev.cowork_group_id;
+    let isLast = true, remainingBefore = 1;
+    if (isCowork) {
+      const rc = await db.query(
+        'SELECT COUNT(*)::int AS n FROM v3.events WHERE cowork_group_id = $1 AND ended_at IS NULL AND deleted_at IS NULL',
+        [ev.cowork_group_id]);
+      remainingBefore = rc.rows[0].n; // inclui o event atual (ainda aberto)
+      isLast = remainingBefore <= 1;
+    }
+    // contagem/exceção só p/ SOLO ou ÚLTIMO do cowork — e só production_line
+    const needCount = (!isCowork || isLast) && isProd;
+    const exception = needCount && (body.exception_no_count === true || body.exception_no_count === 'true');
     const reason = exception ? String(body.exception_reason || '').trim() : null;
 
-    // ── validação server-side (só production_line; outros slugs: bottles opcional) ──
-    if (isProd) {
+    if (needCount) {
       if (!exception) {
         if (!(Number.isFinite(b) && b > 0)) {
           return res.status(400).json({ error: 'bottles_required', detail: 'Informe quantas bottles foram produzidas (ou marque a exceção).' });
@@ -394,14 +434,29 @@ function createOpRouter(deps = {}) {
        SET ended_at = NOW(), closed_reason = 'operator_page',
            description = CASE WHEN $2::text IS NULL THEN description
                               ELSE COALESCE(description, '') || ' | fim: ' || $2 END,
-           exception_no_count = $3, exception_reason = $4, updated_at = NOW()
-       WHERE id = $1`, [ev.id, note ? String(note).slice(0, 300) : null, exception, exception ? reason.slice(0, 500) : null]);
+           exception_no_count = $3, exception_reason = $4,
+           cowork_member_finished_at = CASE WHEN $5::boolean THEN NOW() ELSE cowork_member_finished_at END,
+           cowork_is_last_finisher = $6, updated_at = NOW()
+       WHERE id = $1`,
+      [ev.id, note ? String(note).slice(0, 300) : null, exception, exception ? reason.slice(0, 500) : null, isCowork, isCowork && isLast]);
 
     let countCreated = false;
-    if (!exception && Number.isFinite(b) && b > 0) {
+    if (needCount && !exception && Number.isFinite(b) && b > 0) {
       await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
       countCreated = true;
     }
+
+    // ── resposta + audit por caminho ──
+    if (isCowork && !isLast) {
+      await audit('cowork.member.finished', 'event', ev.id, { cowork_group_id: ev.cowork_group_id, remaining: remainingBefore - 1, slug: ev.slug }, s.person_id);
+      return res.json({ ok: true, event_id: ev.id, is_last_finisher: false, remaining: remainingBefore - 1, count_created: false, exception: false });
+    }
+    if (isCowork && isLast) {
+      await audit('cowork.group.completed', 'event', ev.id, { cowork_group_id: ev.cowork_group_id, slug: ev.slug, bottles: countCreated ? b : null, exception }, s.person_id);
+      if (exception) await notifyProductionException(ev, reason, s);
+      return res.json({ ok: true, event_id: ev.id, is_last_finisher: true, count_created: countCreated, exception });
+    }
+    // SOLO (sem grupo) — comportamento original
     if (exception) {
       await audit('event.end_with_exception', 'event', ev.id, { slug: ev.slug, exception_reason: reason }, s.person_id);
       await notifyProductionException(ev, reason, s);

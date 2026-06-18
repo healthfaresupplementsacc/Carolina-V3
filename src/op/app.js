@@ -399,7 +399,7 @@
       var inCw = Array.isArray(o.current_cowork) && o.current_cowork.indexOf(p.id) >= 0;
       var a = ageState(o.current_started_at); var ag = AGE[a];
       var card = { display: 'flex', alignItems: 'center', gap: '13px', background: 'rgba(255,255,255,.66)', backdropFilter: 'blur(16px)', border: a === 'ok' ? '1px solid rgba(255,255,255,.82)' : '1px solid ' + ag.border, borderLeft: a === 'ok' ? '1px solid rgba(255,255,255,.82)' : '4px solid ' + ag.border, borderRadius: '20px', padding: '14px 16px', boxShadow: a === 'ok' ? '0 16px 38px -26px rgba(15,40,90,.42)' : ag.glow, transition: 'box-shadow .5s, border-color .5s' };
-      h += '<div style="' + sty(card) + '"><span style="position:relative; flex:none; width:44px; height:44px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:13px; height:13px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(o.display_name) + '</div><div style="font-size:12.5px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(labelOf(o.current_slug) + (o.current_batch ? ' · ' + o.current_batch : '') + ' · há ' + fmtDur(o.current_started_at)) + '</div>'
+      h += '<div style="' + sty(card) + '"><span style="position:relative; flex:none; width:44px; height:44px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:13px; height:13px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(o.display_name) + '</div><div style="font-size:12.5px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(labelOf(o.current_slug) + (o.current_batch ? ' · ' + o.current_batch : '') + ' · há ' + fmtDur(o.current_started_at) + (Array.isArray(o.current_cowork) && o.current_cowork.length ? ' · em grupo' : '')) + '</div>'
         + (a !== 'ok' ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:6px; font-size:11px; font-weight:800; color:' + ag.ico + '; background:' + (a === 'over' ? 'rgba(192,53,43,.1)' : 'rgba(217,145,0,.13)') + '; padding:2px 9px 2px 7px; border-radius:7px;"><span style="width:6px; height:6px; border-radius:50%; background:' + ag.ico + ';' + (a === 'over' ? 'animation:hfPulse 1.4s ease-in-out infinite;' : '') + '"></span>' + esc(a === 'over' ? 'Precisa de ajuda' : 'Demorando') + '</div>' : '')
         + '</div>'
         + (inCw
@@ -612,11 +612,24 @@
   function overlayKey() {
     var o = S.overlay; if (!o) return '';
     if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
-    if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0); // exc toggle re-monta
+    if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0); // exc/cowork/último re-montam
     return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
   function cardOpen(maxw, center, extra) { return '<div class="hf-scroll" style="width:' + maxw + 'px; max-width:94%; max-height:828px; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + (extra || '') + '">'; }
+  // overlay FINISH cowork (membro NÃO-último): "terminei minha parte", sem contagem
+  function finishCoworkInner(o) {
+    var sub = (o.product ? esc(o.product) : esc(o.label || '')) + (o.batch ? ' · ' + esc(o.batch) : '');
+    var rem = o.coworkRemaining || 0;
+    var h = cardOpen(460);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(47,122,224,.12); color:#1f5fd0; display:flex; align-items:center; justify-content:center;">' + svgr(PEOPLE, 26, 1.8) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Terminar sua parte</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + (rem ? ' · ' + rem + ' colega(s) ainda na tarefa' : '') + '</div>' : '') + '</div></div>';
+    h += '<div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Nota da sua parte (opcional)</div>';
+    h += '<textarea data-input="finNote" placeholder="Observações (opcional)…" style="width:100%; min-height:72px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
+    h += '<div style="display:flex; align-items:center; gap:8px; margin-top:12px; background:rgba(47,122,224,.07); border-left:3px solid #1f5fd0; padding:12px; border-radius:12px; font-size:12.5px; color:#42566f; font-weight:600;">' + svgr(PEOPLE, 16, 2) + 'Quem terminar por último vai informar o total de bottles do grupo.</div>';
+    h += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.6; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 19, 2.6) + 'Terminei minha parte</button></div>';
+    h += '</div>';
+    return h;
+  }
   // overlay FINISH específico da production_line: bottles obrigatório OU exceção
   function finishProdInner(o) {
     var sub = (o.product ? esc(o.product) : '') + (o.batch ? (o.product ? ' · ' : '') + esc(o.batch) : '');
@@ -624,6 +637,7 @@
     var goBg = o.exc ? 'linear-gradient(135deg,#d97712,#b35c00)' : 'linear-gradient(135deg,#cf463c,#b3261e)';
     var h = cardOpen(480);
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(ICONS.factory, 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: Linha de Produção</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
+    if (o.lastFinisher) h += '<div style="margin-bottom:14px; padding:12px 14px; border-radius:12px; background:rgba(217,145,0,.12); border-left:3px solid #d99100; font-size:13px; font-weight:700; color:#8a5a00;">Você é o último a finalizar — informe o TOTAL de bottles que o grupo produziu.</div>';
     h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas bottles foram produzidas?</div><input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="ex: 754" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
     h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#8195ab;">(será notificado em Orders &amp; Inventory)</span></span></button>';
     if (o.exc) {
@@ -642,6 +656,7 @@
   }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'finish' && o.cowork && !o.lastFinisher) return finishCoworkInner(o);
     if (o.type === 'finish' && o.slug === 'production_line') return finishProdInner(o);
     if (o.type === 'finish') {
       var inner = cardOpen(460) + '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
@@ -814,7 +829,7 @@
     finishedNo: function () { S.flow.finished = 'no'; render(); },
     finishedYes: function () { S.flow.finished = 'yes'; if (!S.flow.endH) { S.flow.endH = String(new Date().getHours() % 12 || 12); S.flow.endAP = new Date().getHours() >= 12 ? 'PM' : 'AM'; } render(); },
     commitRetro: function () { commitRetro(); },
-    finish: function (id) { var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {}; S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '', exc: false, reason: '' }; render(); },
+    finish: function (id) { var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {}; S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '', exc: false, reason: '', cowork: !!t.cowork_group_id, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false }; render(); },
     doFinish: function () { doFinish(); },
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
     doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function () { S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
@@ -890,6 +905,9 @@
   }
   function doFinish() {
     var o = S.overlay;
+    // cowork: membro NÃO-último fecha SÓ a parte dele (sem contagem). Se o backend
+    // disser que ele é o último de production_line, abre a tela de contagem.
+    if (o.cowork && !o.lastFinisher) { postFinishCowork(o); return; }
     if (o.slug === 'production_line') {
       if (!o.exc) {
         if (!(parseInt(o.bottles, 10) >= 1)) {
@@ -906,6 +924,23 @@
       }
     }
     postFinish(o);
+  }
+  function postFinishCowork(o) {
+    api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: { note: (o.note || '').trim() || null } }).then(function (res) {
+      if (res && res.is_last_finisher === false) {
+        S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
+        toast('Você terminou sua parte' + (res.remaining != null ? ' — falta(m) ' + res.remaining + ' colega(s)' : ''));
+        loadData(); return;
+      }
+      // backend fechou (último de tarefa sem contagem)
+      S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
+      toast('Tarefa finalizada!'); loadData();
+    }).catch(function (e) {
+      if (e.message === 'bottles_required') {
+        // este operador É o último de production_line → abre a tela de contagem
+        S.overlay.lastFinisher = true; render();
+      } else { toast(e.message); }
+    });
   }
   function postFinish(o) {
     var body;

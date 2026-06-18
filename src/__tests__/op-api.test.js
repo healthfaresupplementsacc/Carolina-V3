@@ -109,6 +109,19 @@ function makeFakeDb(mem) {
         const b = mem.batches.find((x) => x.batch_number === bn || x.batch_number === 'BR-2026-' + bn);
         return resp(b ? [b] : []);
       }
+      if (/INSERT INTO v3\.events/.test(s) && /cowork_group_id/.test(s)) {
+        // cowork (N events): params = [pid, act, batch, started_at, desc, others, orders, gid]
+        const ev = {
+          id: mem.seq.event++, person_id: params[0], activity_type_id: params[1],
+          product_batch_id: params[2], started_at: new Date(), ended_at: null,
+          description: params[4], cowork_with: params[5] || [], confidence: 'high',
+          source: 'operator_page', deleted_at: null, is_long_running: false, closed_reason: null,
+          orders_printed: params[6] != null ? params[6] : null,
+          cowork_group_id: params[7], cowork_member_finished_at: null, cowork_is_last_finisher: false,
+        };
+        mem.events.push(ev);
+        return resp([{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, started_at: ev.started_at, cowork_with: ev.cowork_with, orders_printed: ev.orders_printed, cowork_group_id: ev.cowork_group_id }]);
+      }
       if (/INSERT INTO v3\.events/.test(s)) {
         const ev = {
           id: mem.seq.event++, person_id: params[0], activity_type_id: params[1],
@@ -116,9 +129,14 @@ function makeFakeDb(mem) {
           description: params[3], cowork_with: params[4] || [], confidence: 'high',
           source: 'operator_page', deleted_at: null, is_long_running: false, closed_reason: null,
           orders_printed: params[5] != null ? params[5] : null,
+          cowork_group_id: null, cowork_member_finished_at: null, cowork_is_last_finisher: false,
         };
         mem.events.push(ev);
         return resp([{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, started_at: ev.started_at, cowork_with: ev.cowork_with, orders_printed: ev.orders_printed }]);
+      }
+      if (/COUNT\(\*\)::int AS n FROM v3\.events WHERE cowork_group_id/.test(s)) {
+        const n = mem.events.filter((x) => x.cowork_group_id === params[0] && !x.ended_at && !x.deleted_at).length;
+        return resp([{ n }]);
       }
       if (/INSERT INTO v3\.voice_recordings/.test(s)) {
         const v = { id: (mem.seq.voice = (mem.seq.voice || 0) + 1), event_id: params[0], person_id: params[1], size: params[5], deleted_at: null };
@@ -144,6 +162,8 @@ function makeFakeDb(mem) {
           ev.ended_at = new Date(); ev.closed_reason = 'operator_page';
           if (params[1]) ev.description = (ev.description || '') + ' | fim: ' + params[1];
           ev.exception_no_count = params[2]; ev.exception_reason = params[3];
+          if (params[4]) ev.cowork_member_finished_at = new Date(); // $5 isCowork
+          ev.cowork_is_last_finisher = params[5];                    // $6 isLast
         }
         return resp([]);
       }
@@ -527,6 +547,92 @@ describe('op API — production_line bottles/exceção', () => {
     expect(r.status).toBe(200);
     expect(r.body.exception).toBe(false);
     expect(slack.postAs).not.toHaveBeenCalled();
+  });
+});
+
+// ─── cowork multi-finish (Fase 1, migration 033) ─────────────
+describe('op API — cowork multi-finish', () => {
+  function groupOf(gid) { return mem.events.filter((e) => e.cowork_group_id === gid); }
+  function evOf(group, pid) { return group.find((e) => e.person_id === pid).id; }
+
+  test('start cowork → N events (1 por participante) com MESMO cowork_group_id', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning', cowork_with: [5, 6] } });
+    expect(st.status).toBe(200);
+    const gid = st.body.event.cowork_group_id;
+    expect(gid).toBeTruthy();
+    const g = groupOf(gid);
+    expect(g).toHaveLength(3); // Vitor(4) + Simone(5) + Ana(6)
+    expect(g.map((e) => e.person_id).sort()).toEqual([4, 5, 6]);
+    // cada um vê o SEU event: cowork_with lista os outros (não ele mesmo)
+    expect(g.find((e) => e.person_id === 5).cowork_with.sort()).toEqual([4, 6]);
+  });
+
+  test('production_line cowork: 1º finaliza sem count; ÚLTIMO pega bottle count', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190', cowork_with: [6] } });
+    const gid = st.body.event.cowork_group_id;
+    const g = groupOf(gid);
+    expect(g).toHaveLength(2);
+    // Vitor finaliza o SEU event → não é último, sem count, event dele fecha
+    const r1 = await post(`/api/v3/op/event/${evOf(g, 4)}/end`, { session: sv, body: {} });
+    expect(r1.status).toBe(200);
+    expect(r1.body.is_last_finisher).toBe(false);
+    expect(r1.body.remaining).toBe(1);
+    expect(mem.events.find((e) => e.id === evOf(g, 4)).ended_at).toBeTruthy(); // some da lista dele
+    expect(mem.counts).toHaveLength(0);
+    expect(mem.audits.some((a) => a.action === 'cowork.member.finished')).toBe(true);
+    // Ana é a ÚLTIMA + production_line → exige bottles
+    const sa = await login(6);
+    const rNo = await post(`/api/v3/op/event/${evOf(g, 6)}/end`, { session: sa, body: {} });
+    expect(rNo.status).toBe(400);
+    expect(rNo.body.error).toBe('bottles_required');
+    const rOk = await post(`/api/v3/op/event/${evOf(g, 6)}/end`, { session: sa, body: { bottles: 900 } });
+    expect(rOk.status).toBe(200);
+    expect(rOk.body.is_last_finisher).toBe(true);
+    expect(rOk.body.count_created).toBe(true);
+    expect(mem.counts[0]).toMatchObject({ bottles: 900, source_event_id: evOf(g, 6) });
+    expect(mem.audits.some((a) => a.action === 'cowork.group.completed')).toBe(true);
+  });
+
+  test('cowork 3 ops (cleaning): 2 fazem "terminei", 3º último fecha sem pedir count', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning', cowork_with: [5, 6] } });
+    const g = groupOf(st.body.event.cowork_group_id);
+    const r1 = await post(`/api/v3/op/event/${evOf(g, 4)}/end`, { session: sv, body: {} });
+    expect(r1.body.is_last_finisher).toBe(false); expect(r1.body.remaining).toBe(2);
+    const s5 = await login(5);
+    const r2 = await post(`/api/v3/op/event/${evOf(g, 5)}/end`, { session: s5, body: {} });
+    expect(r2.body.is_last_finisher).toBe(false); expect(r2.body.remaining).toBe(1);
+    const s6 = await login(6);
+    const r3 = await post(`/api/v3/op/event/${evOf(g, 6)}/end`, { session: s6, body: {} });
+    expect(r3.status).toBe(200);
+    expect(r3.body.is_last_finisher).toBe(true);
+    expect(mem.counts).toHaveLength(0); // cleaning não pede count
+    expect(mem.audits.filter((a) => a.action === 'cowork.member.finished')).toHaveLength(2);
+    expect(mem.audits.filter((a) => a.action === 'cowork.group.completed')).toHaveLength(1);
+  });
+
+  test('cowork production_line: ÚLTIMO com exceção (sem contagem) → notifica sistema', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190', cowork_with: [6] } });
+    const g = groupOf(st.body.event.cowork_group_id);
+    await post(`/api/v3/op/event/${evOf(g, 4)}/end`, { session: sv, body: {} });
+    const sa = await login(6);
+    const r = await post(`/api/v3/op/event/${evOf(g, 6)}/end`, { session: sa, body: { exception_no_count: true, exception_reason: 'balanca quebrada no fim do lote' } });
+    expect(r.status).toBe(200);
+    expect(r.body.is_last_finisher).toBe(true);
+    expect(r.body.exception).toBe(true);
+    expect(slack.postAs).toHaveBeenCalled();
+  });
+
+  test('cowork NÃO-último de production_line: NÃO pede bottles (só último conta)', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'production_line', batch_number: '0190', cowork_with: [6] } });
+    const g = groupOf(st.body.event.cowork_group_id);
+    const r1 = await post(`/api/v3/op/event/${evOf(g, 4)}/end`, { session: sv, body: {} }); // sem bottles
+    expect(r1.status).toBe(200); // não bloqueia o não-último
+    expect(r1.body.is_last_finisher).toBe(false);
   });
 });
 
