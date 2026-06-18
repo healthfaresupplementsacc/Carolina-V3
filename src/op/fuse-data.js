@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-15T16:35:03.355Z",
+ "generated_at": "2026-06-18T02:58:51.362Z",
  "groups": [
   {
    "key": "linha",
@@ -122,7 +122,7 @@ window.HF_DATA = {
      "slug": "machine_downtime",
      "label": "Máquina parada",
      "requires_product": false,
-     "note_required": false,
+     "note_required": true,
      "orders_required": false
     },
     {
@@ -151,7 +151,7 @@ window.HF_DATA = {
   {
    "key": "embalagem",
    "icon": "📦",
-   "label": "Embalagem / Ordens",
+   "label": "Embalagem",
    "types": [
     {
      "slug": "orders",
@@ -177,21 +177,21 @@ window.HF_DATA = {
     {
      "slug": "labeling",
      "label": "Colar labels",
-     "requires_product": true,
+     "requires_product": false,
      "note_required": false,
      "orders_required": false
     },
     {
      "slug": "packaging",
      "label": "Embalagem",
-     "requires_product": true,
+     "requires_product": false,
      "note_required": false,
      "orders_required": false
     },
     {
      "slug": "marketplace_prep",
      "label": "Trocar label / marketplace",
-     "requires_product": true,
+     "requires_product": false,
      "note_required": false,
      "orders_required": false
     },
@@ -210,9 +210,16 @@ window.HF_DATA = {
    "label": "Envio",
    "types": [
     {
-     "slug": "shipping",
-     "label": "Envio",
-     "requires_product": true,
+     "slug": "shipping_walmart",
+     "label": "Envio Walmart",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false
+    },
+    {
+     "slug": "shipping_amazon",
+     "label": "Envio Amazon",
+     "requires_product": false,
      "note_required": false,
      "orders_required": false
     },
@@ -316,7 +323,7 @@ window.HF_DATA = {
     "activated charcoal",
     "carbon ativado"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-15T20:14:53.147Z"
   },
   {
    "id": 17,
@@ -339,7 +346,7 @@ window.HF_DATA = {
     "akkermansia muciniphila",
     "akkemansia"
    ],
-   "last_used_at": "2026-05-30T00:00:23.636Z"
+   "last_used_at": "2026-06-17T16:25:40.933Z"
   },
   {
    "id": 19,
@@ -397,7 +404,7 @@ window.HF_DATA = {
     "benfo",
     "benfotiamine"
    ],
-   "last_used_at": "2026-06-15T14:02:05.797Z"
+   "last_used_at": "2026-06-16T17:21:26.119Z"
   },
   {
    "id": 23,
@@ -477,7 +484,7 @@ window.HF_DATA = {
     "chromium picolinate",
     "picolinato de cromo"
    ],
-   "last_used_at": "2026-06-15T15:16:05.221Z"
+   "last_used_at": "2026-06-17T18:34:56.976Z"
   },
   {
    "id": 29,
@@ -512,7 +519,7 @@ window.HF_DATA = {
     "harpagophytum",
     "devil claw"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-17T22:11:20.696Z"
   },
   {
    "id": 32,
@@ -521,7 +528,7 @@ window.HF_DATA = {
     "fadogia",
     "fadogia agrestis"
    ],
-   "last_used_at": "2026-06-11T19:06:13.825Z"
+   "last_used_at": "2026-06-16T14:09:03.804Z"
   },
   {
    "id": 33,
@@ -555,7 +562,7 @@ window.HF_DATA = {
     "folate",
     "folic"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-17T19:43:53.769Z"
   },
   {
    "id": 5,
@@ -742,7 +749,7 @@ window.HF_DATA = {
     "bisglicinato",
     "bisglycinate"
    ],
-   "last_used_at": "2026-06-12T20:56:54.336Z"
+   "last_used_at": "2026-06-17T19:24:13.163Z"
   },
   {
    "id": 49,
@@ -751,7 +758,7 @@ window.HF_DATA = {
     "melatonina",
     "melatonin"
    ],
-   "last_used_at": "2026-06-10T13:09:04.853Z"
+   "last_used_at": "2026-06-17T15:31:15.038Z"
   },
   {
    "id": 50,
@@ -866,7 +873,7 @@ window.HF_DATA = {
     "phytosterols",
     "plant"
    ],
-   "last_used_at": "2026-06-15T14:13:35.693Z"
+   "last_used_at": "2026-06-17T19:27:22.092Z"
   },
   {
    "id": 57,
@@ -892,7 +899,7 @@ window.HF_DATA = {
     "psilio",
     "ispagula"
    ],
-   "last_used_at": "2026-06-01T21:05:33.977Z"
+   "last_used_at": "2026-06-16T19:44:03.029Z"
   },
   {
    "id": 59,
@@ -1019,7 +1026,7 @@ window.HF_DATA = {
     "vita b2",
     "vitab2"
    ],
-   "last_used_at": "2026-06-15T15:47:57.118Z"
+   "last_used_at": "2026-06-18T00:08:43.288Z"
   },
   {
    "id": 68,
@@ -1050,7 +1057,77 @@ window.HF_DATA = {
   {
    "batch_number": "0206",
    "product_id": 67,
-   "last_used": "2026-06-15T15:47:57.118Z"
+   "last_used": "2026-06-18T00:08:43.288Z"
+  },
+  {
+   "batch_number": "0216",
+   "product_id": 31,
+   "last_used": "2026-06-17T22:11:20.696Z"
+  },
+  {
+   "batch_number": "BR-2026-0213",
+   "product_id": 35,
+   "last_used": "2026-06-17T19:43:53.769Z"
+  },
+  {
+   "batch_number": "0217",
+   "product_id": 56,
+   "last_used": "2026-06-17T19:27:22.092Z"
+  },
+  {
+   "batch_number": "0191",
+   "product_id": 8,
+   "last_used": "2026-06-17T19:24:13.163Z"
+  },
+  {
+   "batch_number": "01",
+   "product_id": 18,
+   "last_used": "2026-06-17T16:25:40.933Z"
+  },
+  {
+   "batch_number": "0215",
+   "product_id": 49,
+   "last_used": "2026-06-17T15:31:15.038Z"
+  },
+  {
+   "batch_number": "0125",
+   "product_id": 49,
+   "last_used": "2026-06-17T14:50:25.597Z"
+  },
+  {
+   "batch_number": "0192",
+   "product_id": 8,
+   "last_used": "2026-06-17T12:58:42.928Z"
+  },
+  {
+   "batch_number": "BR-2026-0169",
+   "product_id": 58,
+   "last_used": "2026-06-16T19:44:03.029Z"
+  },
+  {
+   "batch_number": "0211",
+   "product_id": 67,
+   "last_used": "2026-06-16T19:38:50.812Z"
+  },
+  {
+   "batch_number": "BR-2026-0212",
+   "product_id": 2,
+   "last_used": "2026-06-16T17:21:26.119Z"
+  },
+  {
+   "batch_number": "0205",
+   "product_id": 67,
+   "last_used": "2026-06-16T15:04:31.838Z"
+  },
+  {
+   "batch_number": "0210",
+   "product_id": 32,
+   "last_used": "2026-06-16T14:09:03.804Z"
+  },
+  {
+   "batch_number": "0199",
+   "product_id": 16,
+   "last_used": "2026-06-15T20:14:53.147Z"
   },
   {
    "batch_number": "BR-2026-0168",
@@ -1061,16 +1138,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0207",
    "product_id": 56,
    "last_used": "2026-06-15T14:13:35.693Z"
-  },
-  {
-   "batch_number": "BR-2026-0212",
-   "product_id": 2,
-   "last_used": "2026-06-15T14:02:05.797Z"
-  },
-  {
-   "batch_number": "0191",
-   "product_id": 8,
-   "last_used": "2026-06-12T20:56:54.336Z"
   },
   {
    "batch_number": "BR-2026-0194",
@@ -1086,11 +1153,6 @@ window.HF_DATA = {
    "batch_number": "0149",
    "product_id": 26,
    "last_used": "2026-06-12T20:06:34.136Z"
-  },
-  {
-   "batch_number": "0192",
-   "product_id": 8,
-   "last_used": "2026-06-12T16:54:46.701Z"
   },
   {
    "batch_number": "0208",
@@ -1121,11 +1183,6 @@ window.HF_DATA = {
    "batch_number": "0203",
    "product_id": 23,
    "last_used": "2026-06-10T15:08:56.201Z"
-  },
-  {
-   "batch_number": "0205",
-   "product_id": 67,
-   "last_used": "2026-06-10T14:58:50.714Z"
   },
   {
    "batch_number": "0165",
@@ -1196,56 +1253,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0186",
    "product_id": 14,
    "last_used": "2026-06-03T22:39:06.119Z"
-  },
-  {
-   "batch_number": "BR-2026-0181",
-   "product_id": 20,
-   "last_used": "2026-06-03T17:19:44.089Z"
-  },
-  {
-   "batch_number": "BR-2026-0180",
-   "product_id": 20,
-   "last_used": "2026-06-03T15:13:12.443Z"
-  },
-  {
-   "batch_number": "BR-2026-0176",
-   "product_id": 8,
-   "last_used": "2026-06-03T12:24:41.579Z"
-  },
-  {
-   "batch_number": "BR-2026-0177",
-   "product_id": 8,
-   "last_used": "2026-06-02T18:51:57.792Z"
-  },
-  {
-   "batch_number": "BR-2026-0169",
-   "product_id": 58,
-   "last_used": "2026-06-01T21:05:33.977Z"
-  },
-  {
-   "batch_number": "0132",
-   "product_id": 20,
-   "last_used": "2026-06-01T18:28:38.357Z"
-  },
-  {
-   "batch_number": "BR-2026-0175",
-   "product_id": 43,
-   "last_used": "2026-06-01T13:42:18.071Z"
-  },
-  {
-   "batch_number": "BR-2026-0170",
-   "product_id": 57,
-   "last_used": "2026-05-30T00:00:23.974Z"
-  },
-  {
-   "batch_number": "01",
-   "product_id": 18,
-   "last_used": "2026-05-30T00:00:23.636Z"
-  },
-  {
-   "batch_number": "BR-2026-0174",
-   "product_id": 14,
-   "last_used": "2026-05-29T21:02:52.625Z"
   }
  ]
 };

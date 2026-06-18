@@ -33,7 +33,7 @@ const GROUPS = [
     ['label_change', '🏷️ Troca de label'], ['label_repair', '🔧 Conserto de label'],
     ['cleaning_other', '✏️ Outro (Limpeza/Suporte)'],
   ] },
-  { key: 'embalagem', icon: '📦', label: 'Embalagem / Ordens', items: [
+  { key: 'embalagem', icon: '📦', label: 'Embalagem', items: [
     ['orders', 'Ordens'], ['order_printing', 'Impressão de ordens'],
     ['order_printing_2', '2ª impressão'], ['labeling', 'Colar labels'],
     ['packaging', 'Embalagem'],
@@ -41,9 +41,9 @@ const GROUPS = [
     ['packaging_other', '✏️ Outro (Embalagem)'],
   ] },
   { key: 'envio', icon: '🚚', label: 'Envio', items: [
-    ['shipping', 'Envio'], ['dc_shipment', 'Envio DC'],
-    ['clinic_shipment', 'Envio Clínica'], ['box_closing', 'Fechar caixas'],
-    ['shipping_other', '✏️ Outro (Envio)'],
+    ['shipping_walmart', 'Envio Walmart'], ['shipping_amazon', 'Envio Amazon'],
+    ['dc_shipment', 'Envio DC'], ['clinic_shipment', 'Envio Clínica'],
+    ['box_closing', 'Fechar caixas'], ['shipping_other', '✏️ Outro (Envio)'],
   ] },
   { key: 'outros', icon: '⋯', label: 'Outros', items: [
     ['special_task', '✨ Algo Especial'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
@@ -58,9 +58,13 @@ const NOTE_REQUIRED = new Set([
   'break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
   'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
   'label_change', 'label_repair',
+  'machine_downtime', // mudança #5: motivo da parada é obrigatório
 ]);
 // Slugs que exigem quantidade de ordens impressas
 const ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
+// Mudança #3: Embalagem não pede lote no /op. requires_product no DB segue true
+// (Slack/LLM dependem disso); aqui só a PÁGINA do operador pula produto+lote.
+const NO_PRODUCT_OVERRIDE = new Set(['labeling', 'packaging', 'marketplace_prep']);
 
 async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -75,7 +79,7 @@ async function main() {
       .filter(([slug]) => bySlug.has(slug))
       .map(([slug, label]) => ({
         slug, label,
-        requires_product: !!bySlug.get(slug).requires_product,
+        requires_product: NO_PRODUCT_OVERRIDE.has(slug) ? false : !!bySlug.get(slug).requires_product,
         note_required: NOTE_REQUIRED.has(slug),
         orders_required: ORDERS_REQUIRED.has(slug),
       })),
