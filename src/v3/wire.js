@@ -242,6 +242,16 @@ async function startWorker() {
     new SandboxCleanup({ db: _pool }).start(5000);
   }
 
+  // FASE 2 — EMS activity sync: espelha /line + /pipeline em v3.ems_activity_cache
+  // a cada 45s (no-op se EMS sem chave/down). Off via WORKER_EMS_SYNC_ENABLED=false.
+  if (process.env.WORKER_EMS_SYNC_ENABLED !== 'false') {
+    try {
+      const { EmsActivitySync } = require('../workers/ems-activity-sync');
+      const { ems } = require('./services/ems-api');
+      new EmsActivitySync({ db: _pool, ems }).start(45000);
+    } catch (e) { console.error('[V3] ems-activity-sync não iniciou:', e.message); }
+  }
+
   // Fase 5 — refresh da matview de métricas a cada 10min (best-effort).
   setInterval(async () => {
     try { await _pool.query('SELECT v3.refresh_events_enriched()'); }

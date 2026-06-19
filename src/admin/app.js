@@ -36,6 +36,7 @@
     $('view-analytics').classList.toggle('hidden', v !== 'analytics');
     $('view-metrics').classList.toggle('hidden', v !== 'metrics');
     $('view-batches').classList.toggle('hidden', v !== 'batches');
+    $('view-ems').classList.toggle('hidden', v !== 'ems');
     $('view-gaps').classList.toggle('hidden', v !== 'gaps');
     $('view-logs').classList.toggle('hidden', v !== 'logs');
     $('view-voices').classList.toggle('hidden', v !== 'voices');
@@ -47,6 +48,7 @@
     $('tab-analytics').classList.toggle('active', v === 'analytics');
     $('tab-metrics').classList.toggle('active', v === 'metrics');
     $('tab-batches').classList.toggle('active', v === 'batches');
+    $('tab-ems').classList.toggle('active', v === 'ems');
     $('tab-gaps').classList.toggle('active', v === 'gaps');
     $('tab-logs').classList.toggle('active', v === 'logs');
     $('tab-voices').classList.toggle('active', v === 'voices');
@@ -80,6 +82,7 @@
   $('v-apply').onclick = () => loadVoices();
   $('tab-metrics').onclick = async () => { show('metrics'); await loadMetrics(metricsSub); };
   $('tab-batches').onclick = async () => { show('batches'); await loadUnknownBatches(); };
+  $('tab-ems').onclick = async () => { show('ems'); await loadEms(); };
   $('tab-gaps').onclick = async () => { show('gaps'); await loadGaps(); };
   $('tab-logs').onclick = async () => { show('logs'); await loadActionLog(); };
   if ($('log-apply')) $('log-apply').onclick = () => loadActionLog();
@@ -443,6 +446,27 @@
       act.appendChild(ok); act.appendChild(no); card.appendChild(act);
       box.appendChild(card);
     });
+  }
+  // 🏭 atividade EMS (espelho local, 1 sistema). Auto-refresh enquanto a aba está aberta.
+  let emsPoll = null;
+  function fmtSecs(s) { const m = Math.floor((s || 0) / 60); return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m` : `${m}min`; }
+  async function loadEms() {
+    let r;
+    try { r = await api('/api/adminpanel/ems-activity'); } catch (e) { $('ems-active').innerHTML = ''; $('ems-active').appendChild(el('div', 'sub', '❌ ' + e.message)); return; }
+    const act = $('ems-active'); act.innerHTML = '';
+    if (!r.active.length) act.appendChild(el('div', 'sub', 'Nenhuma atividade EMS ativa agora.'));
+    r.active.forEach((a) => {
+      const who = a.tracker_name || a.employee_ems_name || '—';
+      act.appendChild(el('div', 'card', `<div class="row"><span class="title">${a.machine || a.process_type} · ${a.supplement_name || '?'}</span><span class="sub">${fmtSecs(a.elapsed_seconds)}</span></div><div class="sub">${who} · ${a.process_type}${a.stage ? ' (' + a.stage + ')' : ''} · lote ${a.batch_number || '—'}${a.target_bottles ? ' · meta ' + a.target_bottles : ''}</div>`));
+    });
+    const mb = $('ems-machine'); mb.innerHTML = '';
+    if (!r.by_machine.length) mb.appendChild(el('div', 'sub', '—'));
+    r.by_machine.forEach((m) => mb.appendChild(el('div', 'card', `<div class="row"><span class="title">${m.machine}</span><span class="sub">${fmtSecs(m.total_seconds)} · ${m.runs}x</span></div>`)));
+    const eb = $('ems-employee'); eb.innerHTML = '';
+    if (!r.by_employee.length) eb.appendChild(el('div', 'sub', '—'));
+    r.by_employee.forEach((e2) => eb.appendChild(el('div', 'card', `<div class="row"><span class="title">${e2.name}</span><span class="sub">${fmtSecs(e2.total_seconds)} · ${e2.runs}x</span></div>`)));
+    clearInterval(emsPoll);
+    emsPoll = setInterval(() => { if (view === 'ems') loadEms().catch(() => {}); else clearInterval(emsPoll); }, 60000);
   }
   // ⏱️ gaps de atividade do dia (resumo por operador + lista justificada)
   async function loadGaps() {

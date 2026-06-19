@@ -19,6 +19,7 @@
       <button id="tab-analytics" class="tab">📊 Analytics</button>
       <button id="tab-metrics" class="tab">📈 Métricas <span id="exc-badge" class="badge hidden" title="exceções aguardando contagem">0</span></button>
       <button id="tab-batches" class="tab">🟡 Lotes <span id="batch-badge" class="badge hidden" title="lotes desconhecidos aguardando revisão">0</span></button>
+      <button id="tab-ems" class="tab">🏭 EMS</button>
       <button id="tab-gaps" class="tab">⏱️ Gaps</button>
       <button id="tab-logs" class="tab">📜 Logs</button>
       <button id="tab-voices" class="tab">🎤 Voices</button>
@@ -46,6 +47,17 @@
       <h1>🟡 Lotes desconhecidos</h1>
       <div class="sub" style="margin-bottom:14px;">Lotes que um operador digitou e não existiam — auto-criados pra não travar o trabalho. Confirme os válidos ou marque como erro.</div>
       <div id="batches-list" class="cards"></div>
+    </section>
+
+    <section id="view-ems" class="view hidden">
+      <h1>🏭 Produção EMS <span class="sub">(tempo real · 1 sistema)</span></h1>
+      <div class="sub" style="margin-bottom:10px;">Espelho do EMS (máquinas, lotes, operadores) sincronizado a cada ~45s. Toda atividade registrada.</div>
+      <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:14px 0 8px">⚙️ Ativo agora</h2>
+      <div id="ems-active" class="cards"></div>
+      <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:18px 0 8px">⏱️ Tempo por máquina (hoje)</h2>
+      <div id="ems-machine" class="cards"></div>
+      <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#6b7280;margin:18px 0 8px">👤 Tempo por funcionário (hoje)</h2>
+      <div id="ems-employee" class="cards"></div>
     </section>
 
     <section id="view-gaps" class="view hidden">

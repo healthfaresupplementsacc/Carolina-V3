@@ -1107,6 +1107,28 @@ function createAdminRouter(deps = {}) {
     res.json({ entries: r.rows });
   }));
 
+  // ── FASE 2 — atividade EMS (lê do espelho local ems_activity_cache) ──
+  router.get('/api/adminpanel/ems-activity', requireAdmin, h(async (req, res) => {
+    const dur = "COALESCE(duration_seconds, EXTRACT(EPOCH FROM (NOW() - started_at))::int)";
+    const today = `(started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date`;
+    const active = await db.query(
+      `SELECT ec.machine, ec.machine_type, ec.process_type, ec.stage, ec.supplement_name, ec.batch_number,
+              ec.formula_code, ec.employee_ems_name, p.display_name AS tracker_name, ec.target_bottles,
+              EXTRACT(EPOCH FROM (NOW() - ec.started_at))::int AS elapsed_seconds
+       FROM v3.ems_activity_cache ec LEFT JOIN v3.persons p ON p.id = ec.tracker_person_id
+       WHERE ec.sync_status = 'active' ORDER BY ec.started_at DESC NULLS LAST LIMIT 50`);
+    const byMachine = await db.query(
+      `SELECT machine, machine_type, COALESCE(SUM(${dur}),0)::int AS total_seconds, COUNT(*)::int AS runs
+       FROM v3.ems_activity_cache WHERE machine IS NOT NULL AND ${today}
+       GROUP BY machine, machine_type ORDER BY total_seconds DESC`);
+    const byEmployee = await db.query(
+      `SELECT COALESCE(p.display_name, ec.employee_ems_name, '—') AS name,
+              COALESCE(SUM(${dur}),0)::int AS total_seconds, COUNT(*)::int AS runs
+       FROM v3.ems_activity_cache ec LEFT JOIN v3.persons p ON p.id = ec.tracker_person_id
+       WHERE ${today} GROUP BY COALESCE(p.display_name, ec.employee_ems_name, '—') ORDER BY total_seconds DESC`);
+    res.json({ active: active.rows, by_machine: byMachine.rows, by_employee: byEmployee.rows });
+  }));
+
   // 2) Por operador (drill-down)
   router.get('/api/adminpanel/metrics/operator/:id', h(async (req, res) => {
     const id = parseInt(req.params.id, 10); const d = mRange(req);
