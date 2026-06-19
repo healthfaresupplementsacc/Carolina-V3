@@ -54,6 +54,18 @@ describe('op v4 — screens e handlers', () => {
   test('ACT handlers principais definidos', () => {
     ['pinkey', 'startFlow', 'pickGroup', 'pickType', 'pickSupp', 'confirmStart', 'commitRetro', 'doFinish', 'doJoin', 'saveNote', 'doClockOut', 'forgottenYes', 'forgottenNo', 'voice'].forEach((a) => expect(APP).toContain(a + ':'));
   });
+  test('FASE FIX: mensagem cowork de contagem é CONDICIONAL (não aparece p/ limpeza/formulação)', () => {
+    const cw = APP.slice(APP.indexOf('function finishCoworkInner'), APP.indexOf('function finishProdInner'));
+    expect(cw).toContain('coworkCountMsg'); // gate explícito
+    expect(cw).toContain("o.slug === 'production_line'"); // bottles só p/ linha
+    expect(cw).toContain('o.needsOrders'); // ordens p/ P&P
+    // a mensagem de bottles NÃO é emitida incondicionalmente — vive dentro do if (coworkCountMsg)
+    expect(cw).toContain('if (coworkCountMsg)');
+  });
+  test('FASE FORM/PAUSA: card detecção + banner pausa + resume', () => {
+    ['emsDetectCard', 'registerDetected', 'pauseBanner', 'resumeWork'].forEach((fn) => expect(APP).toContain(fn));
+    expect(APP).toContain("usesLotList"); // formulação roteia pra lista EMS
+  });
 });
 
 describe('op v4 — wiring de API (sem inventar endpoint)', () => {
