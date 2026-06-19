@@ -17,6 +17,7 @@ const REAL = [
   '/api/v3/op/missing-bottle-counts', '/api/v3/op/clock-out', '/api/v3/op/forgotten-checkout/resolve',
   '/api/v3/op/products/images', '/api/v3/op/batches/recent', // Bug 2/3 (EMS enrichment)
   '/api/v3/op/end-of-day/check', '/api/v3/op/end-of-day/submit', '/api/v3/op/gap/justify', // Passada 2
+  '/api/v3/op/lots/available', // FASE 4 (lista lote+produto)
   '/api/v3/architect/person/',
 ];
 
@@ -83,8 +84,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v24 network-first', () => {
-    expect(SW).toContain("'hf-op-v24'");
+  test('sw é hf-op-v25 network-first', () => {
+    expect(SW).toContain("'hf-op-v25'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -286,6 +287,19 @@ describe('op — nunca bloqueia operador (lote desconhecido) frontend', () => {
   test('postStart envia product_id + product_name', () => {
     expect(APP).toContain('product_id: f.supplementId');
     expect(APP).toContain('product_name: f.supplement');
+  });
+});
+
+// FASE 4 — lista unificada LOTE+PRODUTO (production_line + revisão)
+describe('op — lista lote+produto (FASE 4) frontend', () => {
+  test('Step PIPELINE-LIST + fallback catálogo + endpoint', () => {
+    expect(APP).toContain('function flowPipeline');
+    expect(APP).toContain('function loadAvailableLots');
+    expect(APP).toContain('/api/v3/op/lots/available?slug=');
+    expect(APP).toContain("step = 'pipeline'"); // production_line/review → lista, não suplemento
+    expect(APP).toContain('pickLot:');
+    expect(APP).toContain('pickCatalog:'); // fallback pro catálogo antigo (REGRA #0)
+    expect(APP).toContain('Buscar no catálogo completo');
   });
 });
 

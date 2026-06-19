@@ -32,13 +32,18 @@ describe('Parte B — operador retroactive (/api/v3/op/event/retroactive)', () =
       }
       if (/FROM v3\.activity_types WHERE slug = \$1/.test(s)) return resp(mem.acts.filter((a) => a.slug === params[0]));
       if (/FROM v3\.product_batches pb LEFT JOIN v3\.products pr/.test(s)) return resp([]);
-      // time validation (operador: same_day)
+      // time validation (operador: same_day + guardas 6h/11pm/fim-mesmo-dia)
       if (/AS not_future,.*AS same_day,.*AS end_ok/.test(s)) {
         const st = Date.parse(params[0]); const en = params[1] ? Date.parse(params[1]) : null; const now = NOW;
+        const nyMin = (ms) => { const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ms)); return (+p.find((x) => x.type === 'hour').value) * 60 + (+p.find((x) => x.type === 'minute').value); };
+        const nyDate = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
         return resp([{
           not_future: st <= now,
-          same_day: new Date(st).toDateString() === new Date(now).toDateString(),
+          same_day: nyDate(st) === nyDate(now),
+          start_after_6: nyMin(st) >= 6 * 60,
           end_ok: en == null || (en > st && en <= now),
+          end_same_day: en == null || nyDate(en) === nyDate(now),
+          end_before_2300: en == null || nyMin(en) <= 23 * 60,
         }]);
       }
       if (/INSERT INTO v3\.events .* 'operator_page_retroactive'/.test(s)) { mem.inserted.push({ person: params[0], started: params[3], ended: params[4] }); return resp([{ id: 555, started_at: params[3], ended_at: params[4] }]); }
@@ -79,6 +84,11 @@ describe('Parte B — operador retroactive (/api/v3/op/event/retroactive)', () =
   test('ended antes de started → 400', async () => {
     const tok = await login();
     expect((await retro(tok, { activity_slug: 'cleaning', started_at: hoursAgo(1), ended_at: hoursAgo(2) })).body.error).toBe('ended_at_invalid');
+  });
+  test('início antes das 6h NY → 400 started_at_too_early', async () => {
+    // NOW = 13:00 EDT; hoursAgo(7.5) = 05:30 EDT (mesmo dia, passado) → cedo demais.
+    const tok = await login();
+    expect((await retro(tok, { activity_slug: 'cleaning', started_at: hoursAgo(7.5) })).body.error).toBe('started_at_too_early');
   });
   test('slug note_required sem nota → 400', async () => {
     const tok = await login();

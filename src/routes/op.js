@@ -405,16 +405,27 @@ function createOpRouter(deps = {}) {
       ordersPrinted = parseInt(req.body && req.body.orders_printed, 10);
       if (!Number.isFinite(ordersPrinted) || ordersPrinted <= 0) return res.status(400).json({ error: 'orders_printed_required' });
     }
-    // validação de tempo no DB (evita ciladas de TZ no JS)
+    // validação de tempo no DB (evita ciladas de TZ no JS). Guardas duras
+    // (espelhadas no frontend op/app.js): nunca no futuro; mesmo dia NY p/
+    // início E fim; fim > início; início >= 06:00 (linha não abre antes);
+    // fim <= 23:00 (teto). Bloqueia na origem o "8:33am invertido" (fim
+    // antes do início / em outro dia). Os avisos "confirme" (6–8h, >2h,
+    // depois das 21h) são soft e vivem só no frontend.
     const tv = await db.query(
       `SELECT ($1::timestamptz <= NOW()) AS not_future,
               (($1::timestamptz AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS same_day,
-              ($2::timestamptz IS NULL OR ($2::timestamptz > $1::timestamptz AND $2::timestamptz <= NOW())) AS end_ok`,
+              (($1::timestamptz AT TIME ZONE '${EDT}')::time >= TIME '06:00') AS start_after_6,
+              ($2::timestamptz IS NULL OR ($2::timestamptz > $1::timestamptz AND $2::timestamptz <= NOW())) AS end_ok,
+              ($2::timestamptz IS NULL OR ($2::timestamptz AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS end_same_day,
+              ($2::timestamptz IS NULL OR ($2::timestamptz AT TIME ZONE '${EDT}')::time <= TIME '23:00') AS end_before_2300`,
       [started_at, ended_at || null]);
     const v = tv.rows[0];
     if (!v.not_future) return res.status(400).json({ error: 'started_at_future' });
     if (!v.same_day) return res.status(400).json({ error: 'started_at_not_today', detail: 'Operador só adiciona tasks de hoje. Dias anteriores: peça ao admin.' });
+    if (!v.start_after_6) return res.status(400).json({ error: 'started_at_too_early', detail: 'A linha não abre antes das 6h da manhã.' });
     if (!v.end_ok) return res.status(400).json({ error: 'ended_at_invalid', detail: 'Fim deve ser depois do início e não pode ser futuro.' });
+    if (!v.end_same_day) return res.status(400).json({ error: 'ended_at_not_today', detail: 'O fim tem que ser no mesmo dia do início.' });
+    if (!v.end_before_2300) return res.status(400).json({ error: 'ended_at_too_late', detail: 'O fim não pode passar das 11pm.' });
     // NUNCA bloqueia: resolve OU auto-cria o lote (alerta admin depois)
     const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id);
     const cw = Array.isArray(cowork_with)
@@ -749,6 +760,38 @@ function createOpRouter(deps = {}) {
       };
     });
     res.json({ product_id: pid, batches });
+  }));
+
+  // ── FASE 4: lotes disponíveis no EMS pra production_line/revisão ──
+  // Lê do pipeline EMS (cache 30s). production_line slug → lotes em formação/na
+  // linha/fila; review → lotes na linha (revisão acontece neles). EMS down/vazio →
+  // { lots:[], ems_stale } → frontend cai pro catálogo (REGRA #0, nunca bloqueia).
+  router.get('/api/v3/op/lots/available', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const slug = String(req.query.slug || '');
+    const pl = await emsPipeline();
+    if (!pl) return res.json({ lots: [], ems_stale: true });
+    const groups = slug === 'review' ? ['production_line'] : ['production_line', 'pending_queue', 'formulation'];
+    const seen = new Set(); const lots = [];
+    groups.forEach((g) => {
+      (Array.isArray(pl[g]) ? pl[g] : []).forEach((b) => {
+        const bn = b && (b.batch_record_number || b.batch_number);
+        if (!bn || seen.has(bn)) return; seen.add(bn);
+        lots.push({
+          batch_number: bn,
+          product_name: (b.product && b.product.name) || (b.formula && b.formula.name) || null,
+          product_image: (b.product && b.product.image_url) || null,
+          stage: b.status || g,
+          formula_code: (b.formula && b.formula.formula_code) || null,
+          target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null,
+          queue_position: b.queue_position != null ? b.queue_position : null,
+          group: g,
+        });
+      });
+    });
+    // production_line primeiro, depois fila por posição
+    lots.sort((a, b2) => (a.group === 'production_line' ? -1 : 1) - (b2.group === 'production_line' ? -1 : 1) || (a.queue_position || 99) - (b2.queue_position || 99));
+    res.json({ lots, ems_stale: false });
   }));
 
   // ════════════════════════════════════════════════════════════
@@ -1095,8 +1138,11 @@ function createOpRouter(deps = {}) {
     }
 
     // still_working=false → cascade: fecha tasks no last_activity + logout + agenda DM + avisa admin
+    // GUARD: o fim NUNCA pode ser antes do início (gerava evento invertido —
+    // ex.: cleaning 16:31→08:33 da Ana, que desenhava um gap fantasma no
+    // dashboard) nem no futuro. ended_at = clamp entre started_at e NOW().
     await db.query(
-      `UPDATE v3.events SET ended_at = COALESCE($2, NOW()), closed_reason = 'forgotten_checkout_cascade', updated_at = NOW()
+      `UPDATE v3.events SET ended_at = LEAST(NOW(), GREATEST(started_at, COALESCE($2, NOW()))), closed_reason = 'forgotten_checkout_cascade', updated_at = NOW()
        WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND is_long_running = false`,
       [personId, sus.last_activity_at || null]);
     await db.query(

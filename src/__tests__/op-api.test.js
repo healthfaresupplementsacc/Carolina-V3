@@ -927,6 +927,27 @@ describe('op API — batches/recent (Bug 2)', () => {
   });
 });
 
+// ─── FASE 4: lots/available (lista lote+produto) ─────────────
+describe('op API — lots/available (FASE 4)', () => {
+  test('production_line → lista lotes do pipeline EMS (batch + stage)', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=production_line', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.lots.length).toBeGreaterThanOrEqual(1);
+    expect(r.body.lots[0]).toHaveProperty('batch_number');
+    expect(r.body.lots[0]).toHaveProperty('stage');
+    expect(r.body.ems_stale).toBe(false);
+  });
+  test('EMS fora do ar → lots vazio + ems_stale (frontend cai pro catálogo)', async () => {
+    fakeEms.pipeline = async () => { throw new Error('EMS down'); };
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=production_line', { session: sv });
+    expect(r.status).toBe(200);
+    expect(r.body.ems_stale).toBe(true);
+    expect(r.body.lots).toEqual([]);
+  });
+});
+
 // ─── conta SANDBOX (Item A) ──────────────────────────────────
 describe('op API — conta sandbox (is_test invisível)', () => {
   test('login sandbox → person.is_sandbox=true', async () => {

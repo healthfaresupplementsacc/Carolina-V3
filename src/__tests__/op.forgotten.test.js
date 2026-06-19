@@ -78,7 +78,7 @@ describe('Fase 4 — resolve forgotten checkout', () => {
         const p = mem.persons.find((x) => x.id === params[0]);
         return resp(p ? [{ display_name: p.display_name, slack_user_id: p.slack_user_id, last_activity_at: new Date('2026-06-13T20:00:00Z'), expected_end_time: '17:00', last_task: 'Linha', last_product: 'Berberine', batch_number: '0203', last_activity_edt: '06-13 04:00 PM' }] : []);
       }
-      if (/UPDATE v3\.events SET ended_at = COALESCE\(\$2, NOW\(\)\), closed_reason = 'forgotten_checkout_cascade'/.test(s)) { mem.closedEventsFor.push(params[0]); return resp([]); }
+      if (/UPDATE v3\.events SET ended_at = LEAST\(NOW\(\), GREATEST\(started_at, COALESCE\(\$2, NOW\(\)\)\)\), closed_reason = 'forgotten_checkout_cascade'/.test(s)) { mem.closedEventsFor.push(params[0]); return resp([]); }
       if (/UPDATE v3\.operator_sessions SET logged_out_at = COALESCE\(\$2, NOW\(\)\), logoff_reason = 'forgotten_checkout_cascade'/.test(s)) { mem.loggedOut.push(params[0]); return resp([]); }
       if (/INSERT INTO v3\.forgotten_checkouts .* auto_logout_at, carolina_dm_scheduled_for/.test(s)) { mem.fc.push({ resolution: 'auto_logout', person_id: params[0] }); return resp([{ id: 99, dm_edt: '06-14 08:30 AM' }]); }
       if (/INSERT INTO v3\.forgotten_checkouts .* resolved_at, resolution\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, NOW\(\), 'still_working'\)/.test(s)) { mem.fc.push({ resolution: 'still_working', person_id: params[0] }); return resp([]); }

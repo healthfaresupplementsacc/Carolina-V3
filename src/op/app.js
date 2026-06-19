@@ -469,6 +469,7 @@
   function flowBody(f) {
     if (f.step === 'group') return flowGroup();
     if (f.step === 'type') return flowType();
+    if (f.step === 'pipeline') return flowPipeline();
     if (f.step === 'supp') return flowSupp();
     if (f.step === 'batch') return flowBatch();
     if (f.step === 'confirm') return flowConfirm();
@@ -500,6 +501,33 @@
       h += '<button data-act="pickType" data-arg="' + esc(t.slug) + '" style="' + tile + '"><span style="' + ico + '">' + svg(iconPath(t.slug), 25, 1.7) + '</span><span style="' + lab + '">' + esc(t.label) + '</span></button>';
     });
     h += '</div><div style="display:flex; gap:11px; margin-top:22px;">' + backBtn() + '</div>'; return h;
+  }
+  // FASE 4 — Step PIPELINE-LIST: lista LOTE+PRODUTO do EMS (production_line + revisão)
+  var STAGE_PT = { encapsulated: 'Encapsulado', encapsulating: 'Encapsulando', ready_for_line: 'Pronto p/ linha', on_line: 'Na linha', yield_review: 'Conferência', to_count: 'A contar', to_separate: 'A separar', label_printing: 'Imprimindo label', pending: 'Na fila', weighing: 'Pesagem', blending: 'Mistura' };
+  function flowPipeline() {
+    var lots = S.flow.lots; // null=carregando, []=nenhum
+    var q = (S.flow.lotQuery || '').trim().toLowerCase();
+    var fbIcon = svgr('<path d="M5 8l7-4 7 4-7 4zM5 8v8l7 4 7-4V8"></path>', 18, 1.8);
+    var filtered = Array.isArray(lots) ? lots.filter(function (l) { return !q || ((l.batch_number || '') + ' ' + (l.product_name || '')).toLowerCase().indexOf(q) >= 0; }) : [];
+    var cards = '';
+    var empty = function (t) { return '<div style="grid-column:1/-1; color:#8195ab; font-size:14px; text-align:center; padding:18px;">' + t + '</div>'; };
+    if (lots == null) cards = empty('Carregando lotes do EMS…');
+    else if (!lots.length) cards = empty('Nenhum lote disponível no EMS agora. Use o catálogo completo abaixo. 👇');
+    else if (!filtered.length) cards = empty('Nada bate com a busca.');
+    else filtered.slice(0, 40).forEach(function (l) {
+      var thumb = l.product_image
+        ? '<span style="flex:none; width:40px; height:40px; border-radius:11px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#5a6e87;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fbIcon + '</span><img src="' + esc(l.product_image) + '" loading="lazy" width="36" height="36" alt="" style="position:relative; width:36px; height:36px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
+        : '<span style="flex:none; width:40px; height:40px; border-radius:11px; display:flex; align-items:center; justify-content:center; background:rgba(15,40,90,.07); color:#5a6e87;">' + fbIcon + '</span>';
+      var st = STAGE_PT[l.stage] || l.stage || '';
+      cards += '<button data-act="pickLot" data-arg="' + esc(l.batch_number) + '" data-prod="' + esc(l.product_name || '') + '" style="display:flex; align-items:center; gap:11px; text-align:left; cursor:pointer; padding:12px 13px; border-radius:15px; border:1px solid rgba(15,40,90,.12); background:rgba(255,255,255,.72); font-family:\'Manrope\',sans-serif;">' + thumb + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:15px; color:#0c2545; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(l.product_name || 'Produto') + '</span><span style="display:block; font-size:12.5px; color:#5a6e87; margin-top:1px;">' + esc(l.batch_number) + (st ? ' · ' + esc(st) : '') + '</span></span></button>';
+    });
+    var h = '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:14px;">Qual lote?</div>';
+    h += '<div style="position:relative; margin-bottom:12px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#8195ab;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.lotQuery || '') + '" data-input="lotQuery" data-focus="lotQuery" placeholder="Buscar lote ou produto…" style="width:100%; min-height:56px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>';
+    if (S.flow.emsStale) h += '<div style="font-size:12.5px; color:#8a5a00; background:rgba(217,145,0,.12); border-left:3px solid #d99100; padding:9px 12px; border-radius:10px; margin-bottom:10px;">EMS indisponível — lista pode estar desatualizada. Use o catálogo se não achar.</div>';
+    h += '<div class="hf-scroll" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:9px; max-height:392px; overflow-y:auto;">' + cards + '</div>';
+    h += '<button data-act="pickCatalog" style="margin-top:14px; width:100%; border:1px dashed rgba(15,40,90,.22); background:rgba(255,255,255,.5); color:#42566f; border-radius:14px; padding:13px; font-weight:600; font-size:14px; cursor:pointer;">Não achou na lista? Buscar no catálogo completo →</button>';
+    h += '<div style="display:flex; gap:11px; margin-top:14px;">' + backBtn() + '</div>';
+    return h;
   }
   function flowSupp() {
     var list = SM.searchSupplements(DATA.supplements, S.flow.query || '');
@@ -564,8 +592,9 @@
     h += sectionLabel('Quando começou?', CLOCK, 2.1);
     h += '<div style="display:flex; gap:11px; margin-bottom:14px;"><button data-act="modeNow" style="' + segBtn(!f.forgot, ac) + '">' + svgr(PLAY, 14, 0, 'currentColor') + 'Agora</button><button data-act="modeForgot" style="' + segBtn(f.forgot, ac) + '">' + svgr(CLOCK, 15, 2.1) + 'Esqueci de marcar</button></div>';
     if (f.forgot) {
-      var ss = startStatus(f);
-      h += '<div style="background:rgba(15,40,90,.04); border-radius:16px; padding:14px; margin-bottom:18px;"><div style="display:flex; gap:9px; align-items:center;">' + timeSelect('tpH', f.tpH, 'h') + timeSelect('tpM', f.tpM, 'm') + '<button data-act="toggleAP" style="flex:none; min-width:70px; min-height:52px; font-size:16px; font-weight:800; font-family:\'Sora\',sans-serif; background:#2c505f; color:#fff; border:0; border-radius:13px; cursor:pointer;">' + esc(f.tpAP) + '</button></div><div style="min-height:20px; margin-top:9px; font-size:14px; font-weight:700; color:' + ss.color + ';">' + esc(ss.text) + '</div></div>';
+      normalizeAP(f);
+      var ss = startStatus(f); var sw = startWindow();
+      h += '<div style="background:rgba(15,40,90,.04); border-radius:16px; padding:14px; margin-bottom:18px;"><div style="display:flex; gap:9px; align-items:center;">' + timeSelect('tpH', f.tpH, 'h', sw, f.tpAP) + timeSelect('tpM', f.tpM, 'm') + apButton('toggleAP', f.tpAP, sw) + '</div><div style="min-height:20px; margin-top:9px; font-size:14px; font-weight:700; color:' + ss.color + ';">' + esc(ss.text) + '</div></div>';
     }
     h += sectionLabel('Tem alguém junto?', PEOPLE, 2);
     h += '<div style="display:flex; flex-direction:column; gap:8px; margin-bottom:18px;">';
@@ -591,8 +620,9 @@
     h += '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(18px,2.2vw,22px); color:#0c2545; margin-bottom:14px;">Você já terminou essa tarefa?</div>';
     h += '<div style="display:flex; gap:11px; margin-bottom:14px;"><button data-act="finishedNo" style="' + segBtn(f.finished === 'no', accent()) + '">Não — ainda fazendo</button><button data-act="finishedYes" style="' + segBtn(f.finished === 'yes', accent()) + '">Sim — escolher fim</button></div>';
     if (f.finished === 'yes') {
-      var es = endStatus(f);
-      h += '<div style="background:rgba(15,40,90,.04); border-radius:16px; padding:14px; margin-bottom:18px;"><div style="display:flex; gap:9px; align-items:center;">' + timeSelect('endH', f.endH, 'h') + timeSelect('endM', f.endM, 'm') + '<button data-act="toggleEndAP" style="flex:none; min-width:70px; min-height:52px; font-size:16px; font-weight:800; font-family:\'Sora\',sans-serif; background:#2c505f; color:#fff; border:0; border-radius:13px; cursor:pointer;">' + esc(f.endAP) + '</button></div><div style="min-height:20px; margin-top:9px; font-size:14px; font-weight:700; color:' + es.color + ';">' + esc(es.text) + '</div></div>';
+      normalizeAP(f);
+      var es = endStatus(f); var ew = endWindow(f);
+      h += '<div style="background:rgba(15,40,90,.04); border-radius:16px; padding:14px; margin-bottom:18px;"><div style="display:flex; gap:9px; align-items:center;">' + timeSelect('endH', f.endH, 'h', ew, f.endAP) + timeSelect('endM', f.endM, 'm') + apButton('toggleEndAP', f.endAP, ew) + '</div><div style="min-height:20px; margin-top:9px; font-size:14px; font-weight:700; color:' + es.color + ';">' + esc(es.text) + '</div></div>';
     }
     h += '<div style="display:flex; gap:11px; margin-top:8px;">' + backBtn() + '<button data-act="commitRetro" style="flex:2; border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:16px; padding:16px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 16px 34px -14px color-mix(in srgb, var(--accent) 64%, transparent); display:flex; align-items:center; justify-content:center; gap:9px;">' + svgr(CHECK, 18, 2.6) + 'Adicionar tarefa</button></div>';
     return h;
@@ -600,26 +630,84 @@
   function sectionLabel(txt, inner, sw) { return '<div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#6c819b; margin-bottom:10px; display:flex; align-items:center; gap:7px;">' + svgr(inner, 15, sw || 2) + esc(txt) + '</div>'; }
   function segBtn(on, ac) { return 'flex:1; display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; border-radius:16px; padding:15px 12px; font-family:\'Sora\',sans-serif; font-weight:700; font-size:15px; transition:all .12s; border:' + (on ? '0' : '1px solid rgba(15,40,90,.14)') + '; background:' + (on ? 'linear-gradient(135deg, color-mix(in srgb,' + ac + ' 88%, #19c277), ' + ac + ')' : 'rgba(255,255,255,.66)') + '; color:' + (on ? '#fff' : '#42566f') + '; box-shadow:' + (on ? '0 12px 26px -14px color-mix(in srgb,' + ac + ' 60%, transparent)' : 'none') + ';'; }
   function backBtn() { return '<button data-act="flowBack" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:16px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">← Voltar</button>'; }
-  function timeSelect(name, val, kind) {
+  // ── Regras de horário do "Esqueci de marcar" (retroativo) ──────────────
+  // Tudo em horário local do quiosque (NY). Espelhado no backend
+  // (/api/v3/op/event/retroactive) e no guard do cascade. Princípios:
+  //   • nunca no futuro, nunca de outro dia (não dá pra esquecer o que ainda
+  //     não aconteceu, nem marcar amanhã);
+  //   • início >= 6h (a linha abre 8h, às vezes 6h) — antes das 6h bloqueia,
+  //     entre 6h e 8h confirma; início > 2h atrás confirma;
+  //   • fim sempre DEPOIS do início e <= agora; teto 11pm (depois bloqueia),
+  //     depois das 21h (9pm) confirma (fechamos 8pm).
+  // O AM/PM e as horas travam sozinhos pra nunca deixar escolher um valor
+  // impossível (foi o "8:33am" trocado da Ana). Min em minutos-do-dia.
+  var RETRO_RULES = { earlyHard: 6 * 60, earlySoft: 8 * 60, lateSoft: 21 * 60, lateHard: 23 * 60, bigGap: 120 };
+  function nowMinLocal() { var d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+  function minOfDay(iso) { var d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); }
+  function hourTo24(h12, ap) { return (parseInt(h12, 10) % 12) + (ap === 'PM' ? 12 : 0); }
+  // janela dura (minutos-do-dia) de valores aceitáveis p/ cada campo.
+  function startWindow() { return [RETRO_RULES.earlyHard, nowMinLocal()]; }
+  function endWindow(f) {
+    var st = startStatus(f);
+    var lo = (st.iso && !st.block) ? minOfDay(st.iso) + 1 : RETRO_RULES.earlyHard;
+    return [lo, Math.min(nowMinLocal(), RETRO_RULES.lateHard)];
+  }
+  function hourOk(h12, ap, win) { var w0 = hourTo24(h12, ap) * 60; return (w0 + 55) >= win[0] && w0 <= win[1]; }
+  function apAllowed(ap, win) { for (var h = 1; h <= 12; h++) if (hourOk(h, ap, win)) return true; return false; }
+  // normaliza o AM/PM guardado pro lado que ainda é válido (chamado no render
+  // antes de desenhar o picker, p/ um botão travado nunca mostrar valor impossível).
+  function normalizeAP(f) {
+    var ws = startWindow();
+    if (!apAllowed(f.tpAP, ws) && apAllowed(f.tpAP === 'AM' ? 'PM' : 'AM', ws)) f.tpAP = f.tpAP === 'AM' ? 'PM' : 'AM';
+    var we = endWindow(f);
+    if (!apAllowed(f.endAP, we) && apAllowed(f.endAP === 'AM' ? 'PM' : 'AM', we)) f.endAP = f.endAP === 'AM' ? 'PM' : 'AM';
+  }
+  function timeSelect(name, val, kind, win, ap) {
     var opts = '';
-    if (kind === 'h') { opts = '<option value="">hora</option>'; for (var i = 1; i <= 12; i++) opts += '<option value="' + i + '"' + (String(val) === String(i) ? ' selected' : '') + '>' + i + '</option>'; }
-    else { ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].forEach(function (m) { opts += '<option value="' + m + '"' + (String(val) === m ? ' selected' : '') + '>:' + m + '</option>'; }); }
+    if (kind === 'h') {
+      opts = '<option value="">hora</option>';
+      for (var i = 1; i <= 12; i++) {
+        var dis = (win && ap) ? !hourOk(i, ap, win) : false;
+        opts += '<option value="' + i + '"' + (String(val) === String(i) ? ' selected' : '') + (dis ? ' disabled' : '') + '>' + i + '</option>';
+      }
+    } else { ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].forEach(function (m) { opts += '<option value="' + m + '"' + (String(val) === m ? ' selected' : '') + '>:' + m + '</option>'; }); }
     return '<select data-change="' + name + '" style="flex:1; min-height:52px; font-size:17px; padding:10px; border:1px solid rgba(15,40,90,.16); border-radius:13px; background:#fff; color:#0c2545;">' + opts + '</select>';
+  }
+  // botão AM/PM: alterna normalmente quando os dois lados são válidos; trava
+  // (disabled + 🔒) quando só um meridiano cabe na janela (ex.: ainda é de
+  // manhã → não dá pra começar/terminar "PM").
+  function apButton(act, ap, win) {
+    var both = apAllowed('AM', win) && apAllowed('PM', win);
+    var bg = both ? '#2c505f' : '#9fb0bf';
+    return '<button' + (both ? ' data-act="' + act + '"' : ' disabled') + ' title="' + (both ? 'Tocar pra alternar AM/PM' : 'Travado: só ' + esc(ap) + ' é possível agora') + '" style="flex:none; min-width:70px; min-height:52px; font-size:16px; font-weight:800; font-family:\'Sora\',sans-serif; background:' + bg + '; color:#fff; border:0; border-radius:13px; cursor:' + (both ? 'pointer' : 'default') + '; opacity:' + (both ? '1' : '.8') + ';">' + esc(ap) + (both ? '' : ' 🔒') + '</button>';
   }
   function isoFromHMA(h, m, ap) { if (!h) return null; var hh = (parseInt(h, 10) % 12) + (ap === 'PM' ? 12 : 0); var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate(), hh, parseInt(m || '0', 10), 0, 0).toISOString(); }
   function fmt12(iso) { var d = new Date(iso); var h = d.getHours(); var m = d.getMinutes(); var ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ' ' + ap; }
+  // status retornam { ok, block, confirm, color, text, label, iso, confirmMsg }.
+  //   block   = quebra regra dura (não dá pra salvar de jeito nenhum);
+  //   confirm = válido mas incomum (pede "tem certeza?" antes de salvar);
+  //   ok      = !block (o iso é utilizável, talvez após confirmar).
   function startStatus(f) {
-    if (!f.tpH) return { ok: false, color: '#8195ab', text: '', label: '' };
-    var iso = isoFromHMA(f.tpH, f.tpM, f.tpAP); var lbl = fmt12(iso);
-    if (new Date(iso).getTime() > Date.now()) return { ok: false, color: '#c0352b', text: 'Não pode ser no futuro', label: lbl, future: true };
-    return { ok: true, color: '#0e7a4e', text: 'Início ' + lbl, label: lbl, iso: iso };
+    if (!f.tpH) return { ok: false, block: false, confirm: false, color: '#8195ab', text: '', label: '' };
+    var iso = isoFromHMA(f.tpH, f.tpM, f.tpAP); var lbl = fmt12(iso); var mo = minOfDay(iso); var now = nowMinLocal();
+    var base = { label: lbl, iso: iso };
+    if (new Date(iso).getTime() > Date.now()) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Não pode ser no futuro', future: true });
+    if (mo < RETRO_RULES.earlyHard) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Cedo demais — a linha não abre antes das 6h', tooEarly: true });
+    var why = [];
+    if (mo < RETRO_RULES.earlySoft) why.push('é antes das 8h da manhã');
+    if (now - mo > RETRO_RULES.bigGap) why.push('faz mais de 2 horas');
+    if (why.length) return Object.assign(base, { ok: true, block: false, confirm: true, color: '#b35c00', text: 'Início ' + lbl + ' — confirme', confirmMsg: 'O início ' + lbl + ' ' + why.join(' e ') + '. Foi isso mesmo?' });
+    return Object.assign(base, { ok: true, block: false, confirm: false, color: '#0e7a4e', text: 'Início ' + lbl });
   }
   function endStatus(f) {
-    if (!f.endH) return { ok: false, color: '#8195ab', text: '', label: '' };
-    var iso = isoFromHMA(f.endH, f.endM, f.endAP); var st = startStatus(f); var lbl = fmt12(iso);
-    if (new Date(iso).getTime() > Date.now()) return { ok: false, color: '#c0352b', text: 'Não pode ser no futuro', label: lbl, future: true };
-    if (st.iso && new Date(iso).getTime() <= new Date(st.iso).getTime()) return { ok: false, color: '#c0352b', text: 'Tem que ser depois do início', label: lbl, before: true };
-    return { ok: true, color: '#0e7a4e', text: 'Fim ' + lbl, label: lbl, iso: iso };
+    if (!f.endH) return { ok: false, block: false, confirm: false, color: '#8195ab', text: '', label: '' };
+    var iso = isoFromHMA(f.endH, f.endM, f.endAP); var st = startStatus(f); var lbl = fmt12(iso); var mo = minOfDay(iso);
+    var base = { label: lbl, iso: iso };
+    if (new Date(iso).getTime() > Date.now()) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Não pode ser no futuro', future: true });
+    if (st.iso && !st.block && new Date(iso).getTime() <= new Date(st.iso).getTime()) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Tem que ser depois do início', before: true });
+    if (mo > RETRO_RULES.lateHard) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Tarde demais — no máximo 11pm', tooLate: true });
+    if (mo > RETRO_RULES.lateSoft) return Object.assign(base, { ok: true, block: false, confirm: true, color: '#b35c00', text: 'Fim ' + lbl + ' — confirme', confirmMsg: 'O fim ' + lbl + ' passou das 9pm (fechamos às 8pm). Foi isso mesmo?' });
+    return Object.assign(base, { ok: true, block: false, confirm: false, color: '#0e7a4e', text: 'Fim ' + lbl });
   }
 
   // ── voz (botão; estado "gravando" via CSS, timer/transcript cirúrgicos) ──
@@ -853,6 +941,12 @@
     S.prodImg = {}; // evita refetch concorrente
     api('/api/v3/op/products/images').then(function (r) { S.prodImg = (r && r.by_id) || {}; render(); }).catch(function () {});
   }
+  // FASE 4: lotes disponíveis no EMS pro slug (production_line/revisão).
+  function loadAvailableLots(slug) {
+    api('/api/v3/op/lots/available?slug=' + encodeURIComponent(slug)).then(function (r) {
+      if (S.flow && S.flow.slug === slug && S.flow.step === 'pipeline') { S.flow.lots = (r && r.lots) || []; S.flow.emsStale = !!(r && r.ems_stale); render(); }
+    }).catch(function () { if (S.flow && S.flow.step === 'pipeline') { S.flow.lots = []; render(); } });
+  }
   // Bug 2: lotes recentes filtrados pelo produto escolhido (local + status EMS).
   function loadRecentBatches(pid) {
     if (!pid) { if (S.flow) { S.flow.recentBatches = []; render(); } return; }
@@ -912,17 +1006,35 @@
     cancelFlow: function () { S.flow = null; render(); },
     flowBack: function () {
       var f = S.flow; if (!f) return;
+      var isPipe = (f.slug === 'production_line' || f.slug === 'review');
       if (f.step === 'type') f.step = 'group';
-      else if (f.step === 'supp') f.step = 'type';
+      else if (f.step === 'pipeline') f.step = 'type';
+      else if (f.step === 'supp') f.step = isPipe ? 'pipeline' : 'type'; // catálogo volta pra lista EMS
       else if (f.step === 'batch') f.step = 'supp';
-      else if (f.step === 'confirm') f.step = f.requires_product ? 'batch' : 'type';
+      else if (f.step === 'confirm') f.step = f.viaPipeline ? 'pipeline' : (f.requires_product ? 'batch' : 'type');
       else if (f.step === 'finished') f.step = 'confirm';
       else { S.flow = null; }
       render();
     },
     pickGroup: function (key) { S.flow.groupKey = key; S.flow.step = 'type'; render(); },
     quickLunch: function (slug) { S.flow.slug = slug; S.flow.requires_product = false; S.flow.step = 'confirm'; render(); },
-    pickType: function (slug) { var m = typeMeta(slug); S.flow.slug = slug; S.flow.requires_product = !!m.requires_product; S.flow.step = m.requires_product ? 'supp' : 'confirm'; S._focus = m.requires_product ? 'query' : null; render(); },
+    pickType: function (slug) {
+      var m = typeMeta(slug); S.flow.slug = slug; S.flow.requires_product = !!m.requires_product; S.flow.viaPipeline = false;
+      // FASE 4 — production_line/revisão: lista LOTE+PRODUTO do EMS (não pede suplemento)
+      if (slug === 'production_line' || slug === 'review') {
+        S.flow.step = 'pipeline'; S.flow.lots = null; S.flow.lotQuery = ''; S._focus = 'lotQuery'; render();
+        loadAvailableLots(slug); return;
+      }
+      S.flow.step = m.requires_product ? 'supp' : 'confirm'; S._focus = m.requires_product ? 'query' : null; render();
+    },
+    pickLot: function (batch, el) {
+      S.flow.batch = batch || null;
+      S.flow.supplement = el ? (el.getAttribute('data-prod') || null) : null;
+      S.flow.supplementId = null; // veio do EMS; sem product_id local (auto-create v19 cobre)
+      S.flow.viaPipeline = true; S.flow.step = 'confirm'; S._focus = null; render();
+    },
+    pickCatalog: function () { S.flow.viaPipeline = false; S.flow.step = 'supp'; S._focus = 'query'; render(); }, // fallback catálogo
+    setLotQuery: function () {},
     pickSupp: function (name, el) {
       S.flow.supplement = name;
       var pid = el ? parseInt(el.getAttribute('data-pid'), 10) : NaN;
@@ -936,8 +1048,8 @@
     batchOk: function () { var v = (S.flow.batchInput || '').trim(); S.flow.batch = v || null; S.flow.step = 'confirm'; S._focus = null; render(); },
     modeNow: function () { S.flow.forgot = false; render(); },
     modeForgot: function () { S.flow.forgot = true; if (!S.flow.tpH) { var n = new Date(); S.flow.tpH = String(n.getHours() % 12 || 12); S.flow.tpAP = n.getHours() >= 12 ? 'PM' : 'AM'; } render(); },
-    toggleAP: function () { S.flow.tpAP = S.flow.tpAP === 'AM' ? 'PM' : 'AM'; render(); },
-    toggleEndAP: function () { S.flow.endAP = S.flow.endAP === 'AM' ? 'PM' : 'AM'; render(); },
+    toggleAP: function () { var t = S.flow.tpAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, startWindow())) { S.flow.tpAP = t; render(); } },
+    toggleEndAP: function () { var t = S.flow.endAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, endWindow(S.flow))) { S.flow.endAP = t; render(); } },
     toggleCowork: function (id) { id = parseInt(id, 10); var i = S.flow.cowork.indexOf(id); if (i >= 0) S.flow.cowork.splice(i, 1); else S.flow.cowork.push(id); render(); },
     confirmStart: function () { confirmStart(); },
     finishedNo: function () { S.flow.finished = 'no'; render(); },
@@ -1020,12 +1132,35 @@
     var f = S.flow; var m = typeMeta(f.slug);
     if (m.note_required && !(f.note || '').trim()) { showAlert({ title: 'Motivo obrigatório', message: 'Essa tarefa precisa de um motivo. Escreva ou grave por voz antes de começar.', okLabel: 'Entendi' }).then(flowNoteHighlight); return; }
     if (m.orders_required && !(parseInt(f.ordersInput, 10) > 0)) { showAlert({ title: 'Quantidade obrigatória', message: 'Informe quantas ordens vai imprimir (um número maior que 0) antes de começar.', okLabel: 'Entendi' }).then(flowOrdersHighlight); return; }
-    if (f.forgot) { var st = startStatus(f); if (!st.ok) { showAlert({ title: 'Hora inválida', message: st.future ? 'A hora de início não pode ser no futuro. Escolha um horário de hoje já passado.' : 'Escolha um horário de início válido.', okLabel: 'Entendi' }); return; } f.step = 'finished'; render(); return; }
+    if (f.forgot) {
+      var st = startStatus(f);
+      if (!f.tpH || !st.iso) { showAlert({ title: 'Escolha a hora', message: 'Selecione quando a tarefa começou.', okLabel: 'Entendi' }); return; }
+      if (st.block) { showAlert({ title: 'Hora inválida', message: st.text + '.', okLabel: 'Entendi' }); return; }
+      // confirmação (cedo/>2h) fica pro commitRetro, que junta início+fim num diálogo só.
+      f.step = 'finished'; render(); return;
+    }
     postStart(null, null);
   }
   function commitRetro() {
-    var f = S.flow; var st = startStatus(f); if (!st.ok) { showAlert({ title: 'Hora de início inválida', message: 'Escolha um horário de início válido (hoje, não no futuro).', okLabel: 'Entendi' }); return; }
-    var ended = null; if (f.finished === 'yes') { var es = endStatus(f); if (!es.ok) { showAlert({ title: 'Hora de fim inválida', message: es.before ? 'A hora de fim tem que ser depois do início.' : (es.future ? 'A hora de fim não pode ser no futuro.' : 'Escolha a hora de fim (ou marque "ainda fazendo").'), okLabel: 'Entendi' }); return; } ended = es.iso; }
+    var f = S.flow; var st = startStatus(f);
+    if (!f.tpH || !st.iso) { showAlert({ title: 'Hora de início inválida', message: 'Escolha quando a tarefa começou.', okLabel: 'Entendi' }); return; }
+    if (st.block) { showAlert({ title: 'Hora de início inválida', message: st.text + '.', okLabel: 'Entendi' }); return; }
+    var es = null;
+    if (f.finished === 'yes') {
+      es = endStatus(f);
+      if (!f.endH || !es.iso) { showAlert({ title: 'Hora de fim inválida', message: 'Escolha a hora de fim (ou marque "ainda fazendo").', okLabel: 'Entendi' }); return; }
+      if (es.block) { showAlert({ title: 'Hora de fim inválida', message: es.text + '.', okLabel: 'Entendi' }); return; }
+    }
+    var ended = es ? es.iso : null;
+    // junta os avisos "confirme" (início incomum + fim incomum) num diálogo só.
+    var asks = [];
+    if (st.confirm) asks.push(st.confirmMsg);
+    if (es && es.confirm) asks.push(es.confirmMsg);
+    if (asks.length) {
+      showAlert({ title: 'Confirmar horário', message: asks.join('\n\n'), okLabel: 'Sim, foi isso', cancel: 'Voltar' })
+        .then(function (okc) { if (okc) postStart(st.iso, ended); });
+      return;
+    }
     postStart(st.iso, ended);
   }
   function postStart(startedAt, endedAt) {
@@ -1192,6 +1327,7 @@
   ROOT.addEventListener('input', function (e) {
     var el = e.target.closest('[data-input]'); if (!el) return; bump(); var k = el.dataset.input; var v = el.value;
     if (k === 'query') { S.flow.query = v; S._focus = 'query'; render(); }
+    else if (k === 'lotQuery') { S.flow.lotQuery = v; S._focus = 'lotQuery'; render(); }
     else if (k === 'batch') { S.flow.batchInput = v; }
     else if (k === 'orders') { S.flow.ordersInput = v; }
     else if (k === 'note') { S.flow.note = v; }
