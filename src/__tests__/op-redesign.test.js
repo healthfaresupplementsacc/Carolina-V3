@@ -83,8 +83,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v23 network-first', () => {
-    expect(SW).toContain("'hf-op-v23'");
+  test('sw é hf-op-v24 network-first', () => {
+    expect(SW).toContain("'hf-op-v24'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -286,6 +286,18 @@ describe('op — nunca bloqueia operador (lote desconhecido) frontend', () => {
   test('postStart envia product_id + product_name', () => {
     expect(APP).toContain('product_id: f.supplementId');
     expect(APP).toContain('product_name: f.supplement');
+  });
+});
+
+// FASE 5 — overlay de contagem de ORDENS (P&P/embalagem)
+describe('op — P&P orders count (FASE 5) frontend', () => {
+  test('finishOrdersInner + needsOrders + marketplace + orders_count', () => {
+    expect(APP).toContain('function finishOrdersInner');
+    expect(APP).toContain('o.needsOrders');
+    expect(APP).toContain('requires_order_count'); // ACT.finish lê do typeMeta
+    expect(APP).toContain('Quantas ordens foram empacotadas');
+    expect(APP).toContain('orders_count: parseInt(o.orders');
+    expect(APP).toContain("k === 'marketplace'"); // change handler do select
   });
 });
 

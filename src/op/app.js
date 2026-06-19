@@ -643,7 +643,7 @@
   function overlayKey() {
     var o = S.overlay; if (!o) return '';
     if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
-    if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0); // exc/cowork/último re-montam
+    if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0) + ':' + (o.needsOrders ? 1 : 0); // exc/cowork/último/orders re-montam
     if (o.type === 'gap') return 'gap:' + (o.jtype || ''); // re-monta ao escolher o motivo (highlight)
     if (o.type === 'eod') return 'eod:' + (o.products || []).length;
     return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
@@ -687,10 +687,30 @@
     h += '</div>';
     return h;
   }
+  // FASE 5 — overlay FINISH de P&P/Embalagem: ordens obrigatório OU exceção + marketplace
+  var MARKETPLACES = ['Amazon', 'eBay', 'Walmart', 'Site próprio', 'TikTok', 'Clínica', 'Misto', 'Outro'];
+  function finishOrdersInner(o) {
+    var sub = (o.product ? esc(o.product) : '') + (o.batch ? (o.product ? ' · ' : '') + esc(o.batch) : '');
+    var checkBox = '<span style="flex:none; width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center; border:2px solid ' + (o.exc ? '#b35c00' : 'rgba(15,40,90,.3)') + '; background:' + (o.exc ? '#b35c00' : 'transparent') + '; color:#fff;">' + (o.exc ? svgr(CHECK, 15, 3.4) : '') + '</span>';
+    var goBg = o.exc ? 'linear-gradient(135deg,#d97712,#b35c00)' : 'linear-gradient(135deg,#2f7ae0,#0f4c92)';
+    var h = cardOpen(480);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(15,76,146,.1); color:#0f4c92; display:flex; align-items:center; justify-content:center;">' + svgr('<path d="M21 8l-9-5-9 5 9 5 9-5z"></path><path d="M3 8v8l9 5 9-5V8"></path>', 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px;">' + sub + '</div>' : '') + '</div></div>';
+    h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas ordens foram empacotadas?</div><input value="' + esc(o.orders || '') + '" data-input="finOrders" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="ex: 48" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">';
+    h += '<div style="font-size:13px; font-weight:600; color:#42566f; margin:14px 0 7px;">Marketplace principal (opcional)</div><select data-change="marketplace" ' + (o.exc ? 'disabled' : '') + ' style="width:100%; min-height:48px; font-size:15px; padding:10px 14px; border:1px solid rgba(15,40,90,.16); border-radius:12px; background:#fff; color:#0c2545;"><option value="">— escolher —</option>' + MARKETPLACES.map(function (m) { return '<option value="' + m + '"' + (o.marketplace === m ? ' selected' : '') + '>' + m + '</option>'; }).join('') + '</select></div>';
+    h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#8195ab;">(será notificado em Orders &amp; Inventory)</span></span></button>';
+    if (o.exc) {
+      h += '<div style="margin-top:14px; animation:hfRise .3s ease both;"><div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#b35c00; margin-bottom:8px;">Explique por que não tem a contagem *</div><textarea data-input="finReason" data-focus="finReason" placeholder="Ex: sistema do marketplace fora do ar…" style="width:100%; min-height:80px; font-size:16px; padding:13px 15px; border:1px solid rgba(179,92,0,.3); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.reason || '') + '</textarea><div style="display:flex; justify-content:flex-end; margin-top:8px;">' + voiceBtn('finishReason') + '</div></div>';
+    }
+    h += '<div style="font-size:14px; font-weight:600; color:#42566f; margin:16px 0 8px;">Nota final (opcional)</div><textarea data-input="finNote" placeholder="Observações…" style="width:100%; min-height:60px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
+    h += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.6; border:0; background:' + goBg + '; color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(15,76,146,.6); display:flex; align-items:center; justify-content:center; gap:8px;">' + (o.exc ? svgr(WARN, 18, 2) + 'Finalizar com Exceção' : svgr(CHECK, 19, 2.6) + 'Finalizar') + '</button></div>';
+    h += '</div>';
+    return h;
+  }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
     if (o.type === 'finish' && o.cowork && !o.lastFinisher) return finishCoworkInner(o);
     if (o.type === 'finish' && o.slug === 'production_line') return finishProdInner(o);
+    if (o.type === 'finish' && o.needsOrders) return finishOrdersInner(o); // FASE 5 — P&P
     if (o.type === 'finish') {
       var inner = cardOpen(460) + '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
       if (o.needsCount) inner += '<div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantos bottles saíram? (pode deixar vazio)</div><input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" placeholder="ex: 746" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none; margin-bottom:14px;">';
@@ -926,7 +946,8 @@
     finish: function (id) {
       var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {};
       var isCw = !!t.cowork_group_id;
-      S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, bottles: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
+      var tm = typeMeta(t.slug) || {};
+      S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, needsOrders: !!tm.requires_order_count, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
       render();
       // DETECT UPFRONT: pergunta ao backend se ESTE operador é o último do grupo
       // cowork e se precisa de contagem — pra abrir a tela CERTA de cara, sem
@@ -1082,6 +1103,22 @@
         return;
       }
     }
+    // FASE 5 — P&P/Embalagem: ordens obrigatório OU exceção
+    if (o.needsOrders) {
+      if (!o.exc) {
+        if (!(parseInt(o.orders, 10) >= 1)) {
+          showAlert({ title: 'Contagem obrigatória', message: 'Informe quantas ordens foram empacotadas. Se não souber, marque a exceção e explique por quê.', okLabel: 'Entendi' }).then(function () { var i = LYR.overlay.el.querySelector('[data-input="finOrders"]'); if (i) i.focus(); });
+          return;
+        }
+      } else {
+        if ((o.reason || '').trim().length < 10) {
+          showAlert({ title: 'Motivo obrigatório', message: 'Como você não tem o número, explique o motivo (mín. 10 caracteres). Será enviado para Orders & Inventory.', okLabel: 'Entendi' }).then(function () { var t = LYR.overlay.el.querySelector('[data-input="finReason"]'); if (t) t.focus(); });
+          return;
+        }
+        showAlert({ title: 'Confirmar exceção', message: 'Fechando SEM contagem de ordens. Uma mensagem vai pro Orders & Inventory com seu motivo. Confirmar?', okLabel: 'Sim, finalizar com exceção', cancel: 'Voltar' }).then(function (ok) { if (ok) postFinish(o); });
+        return;
+      }
+    }
     postFinish(o);
   }
   function postFinishCowork(o) {
@@ -1106,8 +1143,10 @@
   }
   function postFinish(o) {
     var body;
-    if (o.slug === 'production_line' && o.exc) {
+    if (o.exc && (o.slug === 'production_line' || o.needsOrders)) {
       body = { exception_no_count: true, exception_reason: (o.reason || '').trim(), note: (o.note || '').trim() || null };
+    } else if (o.needsOrders) {
+      body = { orders_count: parseInt(o.orders, 10), marketplace: o.marketplace || null, note: (o.note || '').trim() || null };
     } else {
       body = { bottles: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
     }
@@ -1117,7 +1156,7 @@
       loadData(); checkEndOfDay(); // PASSADA 2 — pergunta os totais do dia se for a hora
     }).catch(function (e) {
       var code = (e && e.body && e.body.error) || e.message;
-      var M = { bottles_required: 'Informe quantas bottles', exception_reason_required: 'Explique o motivo (mín. 10 caracteres)' };
+      var M = { bottles_required: 'Informe quantas bottles', orders_required: 'Informe quantas ordens', exception_reason_required: 'Explique o motivo (mín. 10 caracteres)' };
       toast(M[code] || e.message);
     });
   }
@@ -1158,6 +1197,7 @@
     else if (k === 'note') { S.flow.note = v; }
     else if (k === 'ovNote') { S.overlay.note = v; }
     else if (k === 'finBottles') { S.overlay.bottles = v; }
+    else if (k === 'finOrders') { S.overlay.orders = v; }
     else if (k === 'finReason') { S.overlay.reason = v; }
     else if (k === 'finNote') { S.overlay.note = v; }
     else if (k === 'clockCount') { S.overlay.counts = S.overlay.counts || {}; S.overlay.counts[el.dataset.arg] = v; }
@@ -1167,6 +1207,7 @@
   });
   ROOT.addEventListener('change', function (e) {
     var el = e.target.closest('[data-change]'); if (!el) return; bump(); var k = el.dataset.change;
+    if (k === 'marketplace' && S.overlay) { S.overlay.marketplace = el.value; return; } // FASE 5 (sem render: não perde foco)
     if (S.flow) { S.flow[k] = el.value; render(); }
   });
   // teclado p/ o ALERT: Enter / Esc / qualquer tecla 3x em 1.5s

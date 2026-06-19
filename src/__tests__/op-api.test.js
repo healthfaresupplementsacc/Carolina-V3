@@ -37,6 +37,7 @@ function makeMem() {
       { id: 29, slug: 'special_task', requires_product: false, active: true },
       { id: 30, slug: 'production_line_other', requires_product: false, active: true },
       { id: 31, slug: 'label_change', requires_product: false, active: true },
+      { id: 50, slug: 'packaging', requires_product: true, active: true, requires_order_count: true }, // P&P
     ],
     products: [
       { id: 1, canonical_name: 'Magnesium Glycinate', aliases: [], active: true },
@@ -231,7 +232,11 @@ function makeFakeDb(mem) {
         if (!ev) return resp([]);
         const act = mem.activities.find((a) => a.id === ev.activity_type_id) || {};
         const b = mem.batches.find((x) => x.id === ev.product_batch_id) || {};
-        return resp([{ ...ev, slug: act.slug, product_id: b.product_id || null }]);
+        return resp([{ ...ev, slug: act.slug, requires_order_count: !!act.requires_order_count, product_id: b.product_id || null }]);
+      }
+      if (/INSERT INTO v3\.production_counts/.test(s) && /'orders'/.test(s)) { // FASE 5 — contagem de ordens
+        mem.counts.push({ kind: 'orders', product_id: params[0], product_batch_id: params[1], bottles: params[2], reported_by: params[3], source_event_id: params[4], marketplace: params[5] });
+        return resp([]);
       }
       if (/UPDATE v3\.events SET ended_at = NOW\(\), closed_reason = 'operator_page'/.test(s)) {
         const ev = mem.events.find((x) => x.id === params[0]);
@@ -1050,6 +1055,32 @@ describe('op API — gap detection (Item C)', () => {
     const ok = await post('/api/v3/op/gap/justify', { session: sv, body: { gap_started_at: '2026-06-18T12:00:00Z', justification_type: 'bathroom', justification_note: 'fui ao banheiro rapidinho' } });
     expect(ok.status).toBe(200);
     expect(mem.gaps.length).toBe(1);
+  });
+});
+
+// ─── FASE 5: P&P orders count ────────────────────────────────
+describe('op API — P&P orders count', () => {
+  test('packaging: end SEM orders → 400 orders_required; COM → grava kind=orders + marketplace', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'packaging' } });
+    const id = st.body.event.id;
+    const no = await post(`/api/v3/op/event/${id}/end`, { session: sv, body: {} });
+    expect(no.status).toBe(400);
+    expect(no.body.error).toBe('orders_required');
+    const ok = await post(`/api/v3/op/event/${id}/end`, { session: sv, body: { orders_count: 48, marketplace: 'Amazon' } });
+    expect(ok.status).toBe(200);
+    const c = mem.counts.find((x) => x.kind === 'orders' && x.source_event_id === id);
+    expect(c).toBeTruthy();
+    expect(c.bottles).toBe(48);
+    expect(c.marketplace).toBe('Amazon');
+  });
+  test('packaging: exceção (motivo) → fecha sem count de ordens', async () => {
+    const sv = await login(4);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'packaging' } });
+    const id = st.body.event.id;
+    const r = await post(`/api/v3/op/event/${id}/end`, { session: sv, body: { exception_no_count: true, exception_reason: 'sistema do marketplace caiu agora' } });
+    expect(r.status).toBe(200);
+    expect(mem.counts.some((x) => x.kind === 'orders' && x.source_event_id === id)).toBe(false);
   });
 });
 

@@ -444,7 +444,7 @@ function createOpRouter(deps = {}) {
     if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'bad_id' }); return null; }
     const r = await db.query(
       `SELECT e.id, e.person_id, e.cowork_with, e.product_batch_id, e.ended_at, e.deleted_at,
-              e.is_long_running, e.cowork_group_id, at.slug, pb.product_id
+              e.is_long_running, e.cowork_group_id, at.slug, at.requires_order_count, pb.product_id
        FROM v3.events e
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
        LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
@@ -474,8 +474,10 @@ function createOpRouter(deps = {}) {
          WHERE e.id = $1 LIMIT 1`, [ev.id]);
       d = r.rows[0] || {};
     } catch (e) { console.error('[op] detalhes exceção falharam:', e.message); }
+    const isLine = ev.slug === 'production_line';
     const text =
-      '⚠️ *Linha de Produção fechada sem contagem*\n\n' +
+      '⚠️ *' + (isLine ? 'Linha de Produção' : 'Tarefa (P&P/embalagem)') + ' fechada sem contagem*\n\n' +
+      '*Tarefa:* ' + (ev.slug || '—') + '\n' +
       '*Operador(a):* ' + (d.operator || s.display_name || '?') + '\n' +
       '*Produto:* ' + (d.product || '—') + '\n' +
       '*Lote:* ' + (d.batch_number || '—') + '\n' +
@@ -542,19 +544,23 @@ function createOpRouter(deps = {}) {
       remainingBefore = rc.rows[0].n; // inclui o event atual (ainda aberto)
       isLast = remainingBefore <= 1;
     }
-    // contagem/exceção só p/ SOLO ou ÚLTIMO do cowork — e só production_line
-    const needCount = (!isCowork || isLast) && isProd;
-    const exception = needCount && (body.exception_no_count === true || body.exception_no_count === 'true');
+    // contagem/exceção só p/ SOLO ou ÚLTIMO do cowork.
+    const needCount = (!isCowork || isLast) && isProd;                       // bottles (linha)
+    const needOrders = (!isCowork || isLast) && !!ev.requires_order_count;   // ordens (P&P/embalagem)
+    const oc = parseInt(body.orders_count, 10);
+    const marketplace = body.marketplace ? String(body.marketplace).slice(0, 40) : null;
+    const exception = (needCount || needOrders) && (body.exception_no_count === true || body.exception_no_count === 'true');
     const reason = exception ? String(body.exception_reason || '').trim() : null;
 
-    if (needCount) {
-      if (!exception) {
-        if (!(Number.isFinite(b) && b > 0)) {
-          return res.status(400).json({ error: 'bottles_required', detail: 'Informe quantas bottles foram produzidas (ou marque a exceção).' });
-        }
-      } else if (reason.length < 10) {
-        return res.status(400).json({ error: 'exception_reason_required', detail: 'Explique por que não tem a contagem (mín. 10 caracteres).' });
+    if (!exception) {
+      if (needCount && !(Number.isFinite(b) && b > 0)) {
+        return res.status(400).json({ error: 'bottles_required', detail: 'Informe quantas bottles foram produzidas (ou marque a exceção).' });
       }
+      if (needOrders && !(Number.isFinite(oc) && oc > 0)) {
+        return res.status(400).json({ error: 'orders_required', detail: 'Informe quantas ordens/unidades (ou marque a exceção).' });
+      }
+    } else if ((needCount || needOrders) && reason.length < 10) {
+      return res.status(400).json({ error: 'exception_reason_required', detail: 'Explique por que não tem a contagem (mín. 10 caracteres).' });
     }
 
     await db.query(
@@ -573,7 +579,17 @@ function createOpRouter(deps = {}) {
       await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
       countCreated = true;
     }
-    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_finish', payload: { slug: ev.slug, bottles: Number.isFinite(b) ? b : null, exception, reason, note, is_cowork: isCowork, is_last: isLast }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
+    // FASE 5 — contagem de ORDENS (P&P): production_counts kind='orders' + marketplace
+    if (needOrders && !exception && Number.isFinite(oc) && oc > 0) {
+      await db.query(
+        `INSERT INTO v3.production_counts
+           (product_id, product_batch_id, bottles, reported_at, production_date,
+            reported_by_person_id, source_event_id, unit, confidence, kind, marketplace)
+         VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'orders', 'high', 'orders', $6)`,
+        [ev.product_id || null, ev.product_batch_id || null, oc, s.person_id, ev.id, marketplace]);
+      countCreated = true;
+    }
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_finish', payload: { slug: ev.slug, bottles: Number.isFinite(b) ? b : null, orders_count: Number.isFinite(oc) ? oc : null, marketplace, exception, reason, note, is_cowork: isCowork, is_last: isLast }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
 
     // ── resposta + audit por caminho ──
     if (isCowork && !isLast) {
