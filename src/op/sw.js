@@ -1,12 +1,12 @@
 'use strict';
 /* HEALTHFARE Operator Page — Service Worker (redesign FIEL ao design).
-   - hf-op-v28: bump força clientes a pegar a nova versão (activate purga antigos).
+   - hf-op-v29: bump força clientes a pegar a nova versão (activate purga antigos).
    - Shell HTML/JS/CSS: NETWORK-FIRST (online sempre pega código novo; cai pro
      cache offline). API: network-first sem cache. Imagens/fontes: CACHE-FIRST
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v28';
+const CACHE = 'hf-op-v29';
 const SHELL = [
   '/op/', '/op/index.html', '/op/app.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',

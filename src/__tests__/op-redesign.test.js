@@ -73,6 +73,16 @@ describe('op v4 — screens e handlers', () => {
     ['detectModeNow', 'detectPickTime', 'doRegisterDetectedNow', 'doRegisterDetectedAt'].forEach((a) => expect(APP).toContain(a));
     expect(APP).toContain('Quando você começou?');
   });
+  test('FASE C2: detecção por stage sem máquina (verbo pesando/misturando/...)', () => {
+    expect(APP).toContain('STAGE_VERB'); // mapa de verbos
+    expect(APP).toContain('d.is_machine'); // ramo máquina vs stage
+    ['pesando', 'misturando', 'encapsulando', 'revisando'].forEach((v) => expect(APP).toContain(v));
+  });
+  test('FASE LISTA: lista mostra relacionados no topo + outros abaixo', () => {
+    expect(APP).toContain('Prováveis pra esta tarefa');
+    expect(APP).toContain('Outros em produção');
+    expect(APP).toContain('is_related');
+  });
 });
 
 describe('op v4 — wiring de API (sem inventar endpoint)', () => {
@@ -104,8 +114,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v28 network-first', () => {
-    expect(SW).toContain("'hf-op-v28'");
+  test('sw é hf-op-v29 network-first', () => {
+    expect(SW).toContain("'hf-op-v29'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

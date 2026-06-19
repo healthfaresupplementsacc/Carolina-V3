@@ -10,7 +10,7 @@ const ROOT = path.join(__dirname, '..', 'src');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const J = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
 const TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
-const DET = { ems_key: 'eq1:b1', machine: 'NJP1200', machine_type: 'capsule_machine', machine_label: 'máquina de cápsula', stage: 'encapsulating', slug: 'encapsulation', product_name: 'Glutathione 1000mg', batch_number: 'BR-2026-0223', product_image: null };
+const DET = { ems_key: 'eq1:b1', machine: 'NJP1200', machine_type: 'capsule_machine', machine_label: 'máquina de cápsula', is_machine: true, stage: 'encapsulating', slug: 'encapsulation', product_name: 'Glutathione 1000mg', batch_number: 'BR-2026-0223', product_image: null };
 
 function serve() {
   return http.createServer((req, res) => {

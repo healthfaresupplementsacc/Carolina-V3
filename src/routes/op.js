@@ -836,12 +836,15 @@ function createOpRouter(deps = {}) {
   // do pipeline + (opcional) sub-stages relevantes (P-F.2: weighing↔weighing,
   // mixing↔blending, encapsulation↔encapsulating). Slug sem mapa → lots:[] →
   // frontend cai pro catálogo (REGRA #0, nunca bloqueia).
+  // FASE LISTA: cada slug mostra a linha/pipeline INTEIRA (groups), mas marca
+  // is_related=true nos batches do(s) stage(s) exato(s) da tarefa → renderizam NO
+  // TOPO ("🎯 Prováveis"); o resto vai ABAIXO ("📋 Outros em produção").
   const LOT_SLUG_STAGES = {
-    production_line: { groups: ['production_line', 'pending_queue', 'formulation'], stages: null },
-    review: { groups: ['production_line'], stages: null },
-    weighing: { groups: ['formulation', 'pending_queue'], stages: ['weighing', 'weighed', 'pending'] },
-    mixing: { groups: ['formulation'], stages: ['blending', 'blended', 'mixing'] },
-    encapsulation: { groups: ['formulation', 'production_line'], stages: ['encapsulating', 'encapsulated'] },
+    production_line: { groups: ['production_line', 'pending_queue', 'formulation'], related: ['yield_review', 'to_count', 'to_separate', 'label_printing', 'on_line', 'ready_for_line'] },
+    review: { groups: ['production_line', 'pending_queue', 'formulation'], related: ['yield_review', 'to_count', 'to_separate'] },
+    weighing: { groups: ['formulation', 'pending_queue', 'production_line'], related: ['weighing', 'weighed', 'pending'] },
+    mixing: { groups: ['formulation', 'pending_queue', 'production_line'], related: ['blending', 'blended', 'mixing'] },
+    encapsulation: { groups: ['formulation', 'production_line', 'pending_queue'], related: ['encapsulating', 'encapsulated'] },
   };
   router.get('/api/v3/op/lots/available', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
@@ -850,19 +853,20 @@ function createOpRouter(deps = {}) {
     if (!cfg) return res.json({ lots: [], ems_stale: false }); // sem lista EMS p/ esse slug → catálogo
     const pl = await emsPipeline();
     if (!pl) return res.json({ lots: [], ems_stale: true });
-    const stageSet = cfg.stages ? new Set(cfg.stages) : null;
+    const relatedSet = new Set(cfg.related || []);
     const seen = new Set(); const lots = [];
     cfg.groups.forEach((g) => {
       flattenStage(pl[g]).forEach((b) => {
         const bn = b && (b.batch_record_number || b.batch_number);
         if (!bn || seen.has(bn)) return;
-        if (stageSet && !stageSet.has(b.status)) return; // filtra por sub-stage relevante
         seen.add(bn);
+        const stage = b.status || g;
         lots.push({
           batch_number: bn,
           product_name: (b.product && b.product.name) || (b.formula && b.formula.name) || null,
           product_image: (b.product && b.product.image_url) || null,
-          stage: b.status || g,
+          stage,
+          is_related: relatedSet.has(stage), // 🎯 stage exato da tarefa → topo
           formula_code: (b.formula && b.formula.formula_code) || null,
           target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null,
           queue_position: b.queue_position != null ? b.queue_position : null,
@@ -870,9 +874,12 @@ function createOpRouter(deps = {}) {
         });
       });
     });
-    // production_line primeiro, depois fila por posição
-    lots.sort((a, b2) => (a.group === 'production_line' ? -1 : 1) - (b2.group === 'production_line' ? -1 : 1) || (a.queue_position || 99) - (b2.queue_position || 99));
-    res.json({ lots, ems_stale: false });
+    // RELACIONADOS primeiro; depois production_line; depois fila por posição.
+    lots.sort((a, b2) =>
+      (b2.is_related ? 1 : 0) - (a.is_related ? 1 : 0)
+      || (a.group === 'production_line' ? -1 : 1) - (b2.group === 'production_line' ? -1 : 1)
+      || (a.queue_position || 99) - (b2.queue_position || 99));
+    res.json({ lots, related_count: lots.filter((l) => l.is_related).length, ems_stale: false });
   }));
 
   // ════════════════════════════════════════════════════════════
@@ -892,10 +899,14 @@ function createOpRouter(deps = {}) {
   // equipment_type reais do EMS /line: capsule_machine, tablet_machine, blender, scale.
   const MACHINE_LABEL_PT = { capsule_machine: 'máquina de cápsula', tablet_machine: 'máquina de tablete', blender: 'misturador', scale: 'balança' };
   function machineLabelPt(type, name) { return MACHINE_LABEL_PT[type] || name || 'máquina'; }
-  // o que o EMS mostra ESTE operador fazendo agora (numa máquina) — base do card
-  // sugestivo de 1 toque. Só ativo + recente (worker 45s) + máquina atribuída +
-  // não-preso (>24h, quirk in_use_since) + sem event já aberto pro mesmo lote.
-  // operator==null (fila/pesagem sem máquina) não entra (machine IS NOT NULL).
+  // FASE C2 — o que o EMS mostra ESTE operador fazendo agora, em MÁQUINA ou em
+  // QUALQUER stage do pipeline (probe: operator presente em formulation.* e
+  // production_line.*). Base do card sugestivo de 1 toque. Só ativo + recente
+  // (worker 45s) + sem event já aberto pro mesmo lote. Máquina vence stage
+  // (ordena machine-first). operator==null (fila) nunca chega aqui
+  // (tracker_person_id = personId já implica atribuição).
+  // Staleness: o quirk in_use_since PRESO só afeta MÁQUINA → guarda >24h SÓ p/
+  // máquina; batch usa created_at (idade legítima do lote), filtrado por last_synced.
   async function detectedForPerson(personId) {
     const r = await db.query(
       `SELECT ems_key, machine, machine_type, stage, process_type, supplement_name,
@@ -903,10 +914,9 @@ function createOpRouter(deps = {}) {
        FROM v3.ems_activity_cache
        WHERE tracker_person_id = $1
          AND sync_status = 'active'
-         AND machine IS NOT NULL
          AND last_synced_at > NOW() - INTERVAL '3 minutes'
-         AND (started_at IS NULL OR started_at > NOW() - INTERVAL '24 hours')
-       ORDER BY last_synced_at DESC
+         AND (machine IS NULL OR started_at IS NULL OR started_at > NOW() - INTERVAL '24 hours')
+       ORDER BY (machine IS NOT NULL) DESC, last_synced_at DESC
        LIMIT 1`, [personId]);
     const d = r.rows[0];
     if (!d) return null;
@@ -921,7 +931,8 @@ function createOpRouter(deps = {}) {
     }
     return {
       ems_key: d.ems_key, machine: d.machine, machine_type: d.machine_type || null,
-      machine_label: machineLabelPt(d.machine_type, d.machine), stage: d.stage,
+      machine_label: d.machine ? machineLabelPt(d.machine_type, d.machine) : null,
+      is_machine: !!d.machine, stage: d.stage,
       slug: EMS_STAGE_TO_SLUG[d.stage] || 'production_line',
       product_name: d.supplement_name || null, batch_number: d.batch_number || null,
       formula_code: d.formula_code || null, product_image: d.product_image || null,

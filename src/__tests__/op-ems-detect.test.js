@@ -24,9 +24,11 @@ describe('FASE FORM — detecção passiva EMS', () => {
         const p = mem.persons.find((z) => z.id === x.person_id);
         return resp([{ session_id: 1, person_id: p.id, last_activity_at: new Date(), display_name: p.display_name, role: p.role, active: true, auto_logoff_seconds: null, count_exempt: false }]);
       }
-      // detectedForPerson: cache do EMS
+      // detectedForPerson: cache do EMS (máquina OU stage). ORDER BY machine-first.
       if (/FROM v3\.ems_activity_cache WHERE tracker_person_id/.test(s)) {
-        return resp(mem.cache.filter((c) => c.tracker_person_id === params[0] && c.sync_status === 'active' && c.machine));
+        const rows = mem.cache.filter((c) => c.tracker_person_id === params[0] && c.sync_status === 'active');
+        rows.sort((a, b) => (b.machine ? 1 : 0) - (a.machine ? 1 : 0)); // machine vence stage
+        return resp(rows);
       }
       // open-event check (já registrou esse lote?)
       if (/SELECT 1 FROM v3\.events e LEFT JOIN v3\.product_batches pb/.test(s)) {
@@ -125,9 +127,21 @@ describe('FASE FORM — detecção passiva EMS', () => {
     const tok = await login();
     expect((await post('/api/v3/op/ems/register-detected', tok, {})).body.error).toBe('ems_key_required');
   });
-  test('máquina sem operador atribuído (fila) NÃO vira sugestão (card só p/ máquina)', async () => {
-    mem.cache = [{ ems_key: 'b2:weighing', tracker_person_id: 4, sync_status: 'active', machine: null, stage: 'weighing', batch_number: 'BR-2026-0218', started_at: new Date() }];
+  test('FASE C2: detecção por STAGE sem máquina (operador num batch do pipeline)', async () => {
+    mem.cache = [{ ems_key: 'b2:weighing', tracker_person_id: 4, sync_status: 'active', machine: null, machine_type: null, stage: 'weighing', supplement_name: 'Plant Sterols', batch_number: 'BR-2026-0218', started_at: new Date() }];
     const tok = await login();
-    expect((await get('/api/v3/op/ems/my-activity', tok)).body.detected).toBe(null);
+    const d = (await get('/api/v3/op/ems/my-activity', tok)).body.detected;
+    expect(d).toMatchObject({ ems_key: 'b2:weighing', is_machine: false, stage: 'weighing', slug: 'weighing', batch_number: 'BR-2026-0218' });
+    expect(d.machine_label).toBe(null); // sem máquina → sem nome de máquina (frontend usa verbo do stage)
+  });
+  test('FASE C2: máquina VENCE stage quando o operador aparece nos dois (ordena machine-first)', async () => {
+    mem.cache = [
+      { ems_key: 'b2:weighing', tracker_person_id: 4, sync_status: 'active', machine: null, stage: 'weighing', batch_number: 'BR-2026-0218', started_at: new Date() },
+      { ems_key: 'eq1:b1', tracker_person_id: 4, sync_status: 'active', machine: 'NJP1200', machine_type: 'capsule_machine', stage: 'encapsulating', batch_number: 'BR-2026-0223', started_at: new Date() },
+    ];
+    const tok = await login();
+    const d = (await get('/api/v3/op/ems/my-activity', tok)).body.detected;
+    expect(d.ems_key).toBe('eq1:b1'); // máquina priorizada
+    expect(d.is_machine).toBe(true);
   });
 });

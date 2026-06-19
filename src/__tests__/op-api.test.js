@@ -955,26 +955,31 @@ describe('op API — lots/available (FASE 4)', () => {
     expect(bns).toContain('BR-2026-0190'); // pending_queue
     expect(r.body.lots.find((l) => l.batch_number === 'BR-2026-0166').stage).toBe('yield_review');
   });
-  test('FASE FORM: weighing filtra só batches em pesagem/fila', async () => {
+  test('FASE LISTA: weighing marca pesagem/fila como RELACIONADO no topo; resto vem abaixo', async () => {
     const sv = await login(4);
     const r = await get('/api/v3/op/lots/available?slug=weighing', { session: sv });
-    const bns = r.body.lots.map((l) => l.batch_number);
-    expect(bns).toContain('BR-2026-0218'); // weighing
-    expect(bns).toContain('BR-2026-0190'); // pending
-    expect(bns).not.toContain('BR-2026-0223'); // encapsulating → fora
-    expect(bns).not.toContain('BR-2026-0166'); // yield_review → fora
+    const rel = (bn) => r.body.lots.find((l) => l.batch_number === bn).is_related;
+    expect(rel('BR-2026-0218')).toBe(true); // weighing → relacionado
+    expect(rel('BR-2026-0190')).toBe(true); // pending → relacionado
+    expect(rel('BR-2026-0223')).toBe(false); // encapsulating → outros (mas PRESENTE)
+    expect(rel('BR-2026-0166')).toBe(false); // yield_review → outros (PRESENTE)
+    // relacionados vêm ANTES dos outros na ordenação
+    const firstNonRel = r.body.lots.findIndex((l) => !l.is_related);
+    const lastRel = r.body.lots.map((l) => l.is_related).lastIndexOf(true);
+    expect(lastRel).toBeLessThan(firstNonRel);
+    expect(r.body.related_count).toBeGreaterThanOrEqual(2);
   });
-  test('FASE FORM: encapsulation filtra só batches encapsulando', async () => {
+  test('FASE LISTA: encapsulation marca encapsulando como relacionado, mostra linha abaixo', async () => {
     const sv = await login(4);
     const r = await get('/api/v3/op/lots/available?slug=encapsulation', { session: sv });
-    const bns = r.body.lots.map((l) => l.batch_number);
-    expect(bns).toContain('BR-2026-0223'); // encapsulating
-    expect(bns).not.toContain('BR-2026-0218'); // weighing → fora
+    expect(r.body.lots.find((l) => l.batch_number === 'BR-2026-0223').is_related).toBe(true);
+    expect(r.body.lots.find((l) => l.batch_number === 'BR-2026-0218').is_related).toBe(false); // weighing presente mas não relacionado
+    expect(r.body.lots.map((l) => l.batch_number)).toContain('BR-2026-0166'); // linha aparece abaixo
   });
-  test('FASE FORM: mixing pega blended', async () => {
+  test('FASE LISTA: mixing marca blended como relacionado', async () => {
     const sv = await login(4);
     const r = await get('/api/v3/op/lots/available?slug=mixing', { session: sv });
-    expect(r.body.lots.map((l) => l.batch_number)).toContain('BR-2026-0230');
+    expect(r.body.lots.find((l) => l.batch_number === 'BR-2026-0230').is_related).toBe(true);
   });
   test('slug sem lista EMS (ex: cleaning) → lots vazio (frontend usa catálogo)', async () => {
     const sv = await login(4);

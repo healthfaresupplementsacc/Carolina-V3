@@ -370,12 +370,17 @@
   // 1 toque cria a task com tempo do TOQUE. Some quando registra ou some do EMS.
   function emsDetectCard() {
     var d = S.emsDetected; if (!d) return '';
-    // Parte 1 (texto humano): "O sistema detectou que você está na {máquina amigável},
-    // fazendo {suplemento}, lote {batch}." — sem modelo técnico, voz neutra do sistema.
-    var maq = d.machine_label || 'máquina';
-    var frase = 'Você está na <b>' + esc(maq) + '</b>'
-      + (d.product_name ? ', fazendo <b>' + esc(d.product_name) + '</b>' : '')
-      + (d.batch_number ? ', lote <b>' + esc(d.batch_number) + '</b>' : '') + '.';
+    // Parte 1/C2 (texto humano): em MÁQUINA → "Você está na {máquina amigável}…";
+    // em STAGE sem máquina → "Você está {pesando/misturando/encapsulando/revisando}…".
+    var frase;
+    if (d.is_machine) {
+      frase = 'Você está na <b>' + esc(d.machine_label || 'máquina') + '</b>'
+        + (d.product_name ? ', fazendo <b>' + esc(d.product_name) + '</b>' : '');
+    } else {
+      var verb = STAGE_VERB[d.stage] || 'trabalhando em';
+      frase = 'Você está <b>' + esc(verb) + '</b>' + (d.product_name ? ' <b>' + esc(d.product_name) + '</b>' : '');
+    }
+    frase += (d.batch_number ? ', lote <b>' + esc(d.batch_number) + '</b>' : '') + '.';
     var fb = svgr('<rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path>', 18, 1.8);
     var thumb = d.product_image
       ? '<span style="flex:none; width:42px; height:42px; border-radius:12px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#1f5fd0;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fb + '</span><img src="' + esc(d.product_image) + '" loading="lazy" width="38" height="38" alt="" style="position:relative; width:38px; height:38px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
@@ -560,27 +565,43 @@
   var LOT_LIST_SLUGS = { production_line: 1, review: 1, weighing: 1, mixing: 1, encapsulation: 1 };
   function usesLotList(slug) { return !!LOT_LIST_SLUGS[slug]; }
   var STAGE_PT = { encapsulated: 'Encapsulado', encapsulating: 'Encapsulando', ready_for_line: 'Pronto p/ linha', on_line: 'Na linha', yield_review: 'Conferência', to_count: 'A contar', to_separate: 'A separar', label_printing: 'Imprimindo label', pending: 'Na fila', weighing: 'Pesagem', weighed: 'Pesado', blending: 'Mistura', blended: 'Misturado' };
+  // FASE C2 — verbo PT do stage (detecção por stage sem máquina)
+  var STAGE_VERB = { weighing: 'pesando', weighed: 'pesando', blending: 'misturando', blended: 'misturando', encapsulating: 'encapsulando', encapsulated: 'encapsulando', yield_review: 'revisando', to_count: 'contando', to_separate: 'separando', label_printing: 'imprimindo label' };
+  function lotCard(l) {
+    var fbIcon = svgr('<path d="M5 8l7-4 7 4-7 4zM5 8v8l7 4 7-4V8"></path>', 18, 1.8);
+    var thumb = l.product_image
+      ? '<span style="flex:none; width:40px; height:40px; border-radius:11px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#5a6e87;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fbIcon + '</span><img src="' + esc(l.product_image) + '" loading="lazy" width="36" height="36" alt="" style="position:relative; width:36px; height:36px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
+      : '<span style="flex:none; width:40px; height:40px; border-radius:11px; display:flex; align-items:center; justify-content:center; background:rgba(15,40,90,.07); color:#5a6e87;">' + fbIcon + '</span>';
+    var st = STAGE_PT[l.stage] || l.stage || '';
+    var bd = l.is_related ? '1px solid rgba(31,95,208,.4)' : '1px solid rgba(15,40,90,.12)';
+    var bg = l.is_related ? 'rgba(47,122,224,.06)' : 'rgba(255,255,255,.72)';
+    return '<button data-act="pickLot" data-arg="' + esc(l.batch_number) + '" data-prod="' + esc(l.product_name || '') + '" style="display:flex; align-items:center; gap:11px; text-align:left; cursor:pointer; padding:12px 13px; border-radius:15px; border:' + bd + '; background:' + bg + '; font-family:\'Manrope\',sans-serif;">' + thumb + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:15px; color:#0c2545; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(l.product_name || 'Produto') + '</span><span style="display:block; font-size:12.5px; color:#5a6e87; margin-top:1px;">' + esc(l.batch_number) + (st ? ' · ' + esc(st) : '') + '</span></span></button>';
+  }
   function flowPipeline() {
     var lots = S.flow.lots; // null=carregando, []=nenhum
     var q = (S.flow.lotQuery || '').trim().toLowerCase();
-    var fbIcon = svgr('<path d="M5 8l7-4 7 4-7 4zM5 8v8l7 4 7-4V8"></path>', 18, 1.8);
     var filtered = Array.isArray(lots) ? lots.filter(function (l) { return !q || ((l.batch_number || '') + ' ' + (l.product_name || '')).toLowerCase().indexOf(q) >= 0; }) : [];
-    var cards = '';
-    var empty = function (t) { return '<div style="grid-column:1/-1; color:#8195ab; font-size:14px; text-align:center; padding:18px;">' + t + '</div>'; };
-    if (lots == null) cards = empty('Carregando lotes do EMS…');
-    else if (!lots.length) cards = empty('Nenhum lote disponível no EMS agora. Use o catálogo completo abaixo. 👇');
-    else if (!filtered.length) cards = empty('Nada bate com a busca.');
-    else filtered.slice(0, 40).forEach(function (l) {
-      var thumb = l.product_image
-        ? '<span style="flex:none; width:40px; height:40px; border-radius:11px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#5a6e87;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fbIcon + '</span><img src="' + esc(l.product_image) + '" loading="lazy" width="36" height="36" alt="" style="position:relative; width:36px; height:36px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
-        : '<span style="flex:none; width:40px; height:40px; border-radius:11px; display:flex; align-items:center; justify-content:center; background:rgba(15,40,90,.07); color:#5a6e87;">' + fbIcon + '</span>';
-      var st = STAGE_PT[l.stage] || l.stage || '';
-      cards += '<button data-act="pickLot" data-arg="' + esc(l.batch_number) + '" data-prod="' + esc(l.product_name || '') + '" style="display:flex; align-items:center; gap:11px; text-align:left; cursor:pointer; padding:12px 13px; border-radius:15px; border:1px solid rgba(15,40,90,.12); background:rgba(255,255,255,.72); font-family:\'Manrope\',sans-serif;">' + thumb + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:15px; color:#0c2545; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(l.product_name || 'Produto') + '</span><span style="display:block; font-size:12.5px; color:#5a6e87; margin-top:1px;">' + esc(l.batch_number) + (st ? ' · ' + esc(st) : '') + '</span></span></button>';
-    });
+    var gridOpen = '<div class="hf-scroll" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:9px;">';
+    var sectionHead = function (txt, color) { return '<div style="grid-column:1/-1; font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:' + color + '; margin:2px 2px 0;">' + txt + '</div>'; };
+    var empty = function (t) { return '<div style="color:#8195ab; font-size:14px; text-align:center; padding:18px;">' + t + '</div>'; };
+    var body = '';
+    if (lots == null) body = empty('Carregando lotes do EMS…');
+    else if (!lots.length) body = empty('Nenhum lote disponível no EMS agora. Use o catálogo completo abaixo. 👇');
+    else if (!filtered.length) body = empty('Nada bate com a busca.');
+    else {
+      // FASE LISTA: relacionados ("🎯 Prováveis pra esta tarefa") no TOPO; resto
+      // da linha ("📋 Outros em produção") abaixo. Busca filtra ambas seções.
+      var related = filtered.filter(function (l) { return l.is_related; }).slice(0, 30);
+      var others = filtered.filter(function (l) { return !l.is_related; }).slice(0, 30);
+      body = '<div style="max-height:392px; overflow-y:auto;">';
+      if (related.length) body += gridOpen + sectionHead('🎯 Prováveis pra esta tarefa', '#1f5fd0') + related.map(lotCard).join('') + '</div>';
+      if (others.length) body += gridOpen + sectionHead('📋 Outros em produção', '#8195ab') + others.map(lotCard).join('') + '</div>';
+      body += '</div>';
+    }
     var h = '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:14px;">Qual lote?</div>';
     h += '<div style="position:relative; margin-bottom:12px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#8195ab;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.lotQuery || '') + '" data-input="lotQuery" data-focus="lotQuery" placeholder="Buscar lote ou produto…" style="width:100%; min-height:56px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>';
     if (S.flow.emsStale) h += '<div style="font-size:12.5px; color:#8a5a00; background:rgba(217,145,0,.12); border-left:3px solid #d99100; padding:9px 12px; border-radius:10px; margin-bottom:10px;">EMS indisponível — lista pode estar desatualizada. Use o catálogo se não achar.</div>';
-    h += '<div class="hf-scroll" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:9px; max-height:392px; overflow-y:auto;">' + cards + '</div>';
+    h += body;
     h += '<button data-act="pickCatalog" style="margin-top:14px; width:100%; border:1px dashed rgba(15,40,90,.22); background:rgba(255,255,255,.5); color:#42566f; border-radius:14px; padding:13px; font-weight:600; font-size:14px; cursor:pointer;">Não achou na lista? Buscar no catálogo completo →</button>';
     h += '<div style="display:flex; gap:11px; margin-top:14px;">' + backBtn() + '</div>';
     return h;
@@ -861,8 +882,8 @@
   // Reusa o time picker do retroativo (timeSelect/apButton/startStatus) — mesma infra.
   function detectWhenInner(o) {
     var d = o.det || {}; var ac = accent();
-    var maq = d.machine_label || 'máquina';
-    var sub = [maq, d.product_name, d.batch_number].filter(Boolean).map(esc).join(' · ');
+    var ctx = d.is_machine ? (d.machine_label || 'máquina') : (STAGE_PT[d.stage] || d.stage || '');
+    var sub = [ctx, d.product_name, d.batch_number].filter(Boolean).map(esc).join(' · ');
     var h = cardOpen(460);
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(47,122,224,.12); color:#1f5fd0; display:flex; align-items:center; justify-content:center; font-size:24px;">🏭</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Quando você começou?</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
     h += '<div style="display:flex; gap:11px; margin-bottom:14px;"><button data-act="detectModeNow" style="' + segBtn(!o.pickTime, ac) + '">' + svgr(PLAY, 14, 0, 'currentColor') + 'Agora</button><button data-act="detectPickTime" style="' + segBtn(o.pickTime, ac) + '">' + svgr(CLOCK, 15, 2.1) + 'Marcar outra hora</button></div>';
