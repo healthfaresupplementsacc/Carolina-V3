@@ -130,6 +130,17 @@ function makeFakeDb(mem) {
         const p = mem.products.find((x) => x.id === params[0]);
         return resp(p ? [{ canonical_name: p.canonical_name }] : []);
       }
+      // FASE 1 — JOIN cria event do B: INSERT com NOW() + $5::uuid (params: pid,act,batch,others,gid,is_test)
+      if (/INSERT INTO v3\.events/.test(s) && /NOW\(\), \$4::int\[\], 'high', 'operator_page', \$5::uuid/.test(s)) {
+        const ev = {
+          id: mem.seq.event++, person_id: params[0], activity_type_id: params[1], product_batch_id: params[2],
+          started_at: new Date(), ended_at: null, cowork_with: params[3] || [], confidence: 'high',
+          source: 'operator_page', deleted_at: null, is_long_running: false, closed_reason: null,
+          cowork_group_id: params[4], cowork_member_finished_at: null, cowork_is_last_finisher: false, is_test: !!params[5],
+        };
+        mem.events.push(ev);
+        return resp([{ id: ev.id, started_at: ev.started_at }]);
+      }
       if (/INSERT INTO v3\.events/.test(s) && /cowork_group_id/.test(s)) {
         // cowork (N events): params = [pid, act, batch, started_at, desc, others, orders, gid]
         const ev = {
@@ -237,7 +248,29 @@ function makeFakeDb(mem) {
         const b = mem.batches.find((x) => x.id === ev.product_batch_id) || {};
         return resp([{ operator: p.display_name, product: b.product || null, batch_number: b.batch_number || null, duration_min: 12 }]);
       }
+      // FASE 1 — JOIN: carrega event alvo / atribui grupo / idempotência / membros
+      if (/SELECT id, person_id, activity_type_id, product_batch_id, cowork_group_id, ended_at, deleted_at FROM v3\.events WHERE id = \$1 LIMIT 1/.test(s)) {
+        const ev = mem.events.find((x) => x.id === params[0]);
+        return resp(ev ? [{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, cowork_group_id: ev.cowork_group_id || null, ended_at: ev.ended_at || null, deleted_at: ev.deleted_at || null }] : []);
+      }
+      if (/UPDATE v3\.events SET cowork_group_id = \$1::uuid/.test(s)) {
+        const ev = mem.events.find((x) => x.id === params[1]); if (ev) ev.cowork_group_id = params[0];
+        return resp([]);
+      }
+      if (/SELECT id FROM v3\.events WHERE cowork_group_id = \$1 AND person_id = \$2 AND ended_at IS NULL/.test(s)) {
+        const ev = mem.events.find((x) => x.cowork_group_id === params[0] && x.person_id === params[1] && !x.ended_at && !x.deleted_at);
+        return resp(ev ? [{ id: ev.id }] : []);
+      }
+      if (/SELECT DISTINCT person_id FROM v3\.events WHERE cowork_group_id = \$1 AND ended_at IS NULL/.test(s)) {
+        const ps = [...new Set(mem.events.filter((x) => x.cowork_group_id === params[0] && !x.ended_at && !x.deleted_at).map((x) => x.person_id))];
+        return resp(ps.map((person_id) => ({ person_id })));
+      }
       if (/UPDATE v3\.events SET cowork_with = array_append/.test(s)) {
+        if (/cowork_group_id = \$1/.test(s)) { // JOIN: adiciona B (params[1]) aos outros do grupo (params[0]=gid)
+          mem.events.filter((x) => x.cowork_group_id === params[0] && !x.deleted_at && !x.ended_at && x.person_id !== params[1] && !(x.cowork_with || []).includes(params[1]))
+            .forEach((x) => { x.cowork_with = [...(x.cowork_with || []), params[1]]; });
+          return resp([]);
+        }
         const ev = mem.events.find((x) => x.id === params[0] && !x.deleted_at && !x.ended_at
           && x.person_id !== params[1] && !(x.cowork_with || []).includes(params[1]));
         if (!ev) return resp([]);
@@ -544,18 +577,33 @@ describe('op API — events', () => {
     expect((await post(`/api/v3/op/event/${id}/end`, { session: sv, body: {} })).status).toBe(409);
   });
 
-  test('join (cowork B) → adiciona; repetido → already; fechada → 409', async () => {
+  test('join (cowork B) → cria EVENT do B no grupo; repetido → already; fechada → 409', async () => {
     const sv = await login(4);
     const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning' } });
-    const id = st.body.event.id;
+    const id = st.body.event.id; // event do A (solo, sem grupo ainda)
     const sa = await login(6);
+    const before = mem.events.length;
     const r1 = await post(`/api/v3/op/event/${id}/join`, { session: sa, body: {} });
     expect(r1.status).toBe(200);
-    expect(r1.body.cowork_with).toEqual([6]);
+    expect(r1.body.joined).toBe(true);
+    expect(r1.body.cowork_group_id).toBeTruthy();
+    // criou um EVENT NOVO pro B (person_id=6), aberto, no mesmo grupo
+    expect(mem.events.length).toBe(before + 1);
+    const bEv = mem.events.find((e) => e.id === r1.body.event_id);
+    expect(bEv.person_id).toBe(6);
+    expect(bEv.ended_at).toBeFalsy();
+    expect(bEv.cowork_group_id).toBe(r1.body.cowork_group_id);
+    // o event do A ganhou o mesmo grupo + B no cowork_with
+    const aEv = mem.events.find((e) => e.id === id);
+    expect(aEv.cowork_group_id).toBe(r1.body.cowork_group_id);
+    expect(aEv.cowork_with).toContain(6);
+    // idempotente: B já no grupo → already
     const r2 = await post(`/api/v3/op/event/${id}/join`, { session: sa, body: {} });
     expect(r2.body.already).toBe(true);
+    // A fecha o SEU event; B continua. Novo join numa task fechada de A → 409
     await post(`/api/v3/op/event/${id}/end`, { session: sv, body: {} });
-    const r3 = await post(`/api/v3/op/event/${id}/join`, { session: sa, body: {} });
+    const s7 = await login(7);
+    const r3 = await post(`/api/v3/op/event/${id}/join`, { session: s7, body: {} });
     expect(r3.status).toBe(409);
   });
 

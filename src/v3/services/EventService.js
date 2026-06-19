@@ -478,6 +478,11 @@ class EventService {
       // end_of_day (caso histórico ev305 28/mai: meta_closed_by_fg do dia
       // seguinte fechou o end_of_day quebrando o invariant).
       if (await this._isEndOfDay(c, ev.activity_type_id)) continue;
+      // FASE 1 (task sumiu) — tasks da OPERATOR PAGE são do operador: o
+      // processamento Slack/Observer NÃO pode fechá-las quando chega uma NOVA
+      // atividade (next_event/meta). Operadores usavam /op + Slack juntos e viam
+      // tasks sumirem. O operador fecha via /op; o safety de fim-de-dia ainda pode.
+      if (ev.source === 'operator_page' && (reason === 'next_event' || reason === 'meta_closed_by_fg')) continue;
       const after = await this._patch(c, ev.id, { ended_at: endedAt, closed_reason: reason });
       // Bloco 29/mai-noite #3: _patch retorna null quando bloquearia dur=0
       // em non-eod. Audit do bloqueio já foi feito. Pula audit de closed

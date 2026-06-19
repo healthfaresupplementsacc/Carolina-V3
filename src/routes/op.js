@@ -578,25 +578,50 @@ function createOpRouter(deps = {}) {
   }));
 
   // ── join (cowork B) ─────────────────────────────────────────
+  // FASE 1.2 — JOIN cria um EVENT SEPARADO pro operador que entra (B), começando
+  // AGORA (não do início de A). B passa a aparecer em "Minhas Tarefas" dele, ativo
+  // no admin, e o tempo dele é contado separado. Mesmo cowork_group_id de A.
   router.post('/api/v3/op/event/:id/join', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'bad_id' });
-    const r = await db.query(
-      `UPDATE v3.events
-       SET cowork_with = array_append(COALESCE(cowork_with, '{}'), $2), updated_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL AND ended_at IS NULL
-         AND person_id <> $2 AND NOT (COALESCE(cowork_with, '{}') @> ARRAY[$2]::int[])
-       RETURNING id, person_id, cowork_with`, [id, s.person_id]);
-    if (r.rows.length === 0) {
-      // distingue: já está / fechado / inexistente
-      const chk = await db.query('SELECT id, ended_at, person_id, cowork_with FROM v3.events WHERE id = $1 AND deleted_at IS NULL', [id]);
-      if (!chk.rows[0]) return res.status(404).json({ error: 'event_not_found' });
-      if (chk.rows[0].ended_at) return res.status(409).json({ error: 'already_ended' });
-      return res.json({ ok: true, already: true, event_id: id });
+    const tr = await db.query(
+      `SELECT id, person_id, activity_type_id, product_batch_id, cowork_group_id, ended_at, deleted_at
+       FROM v3.events WHERE id = $1 LIMIT 1`, [id]);
+    const ev = tr.rows[0];
+    if (!ev || ev.deleted_at) return res.status(404).json({ error: 'event_not_found' });
+    if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
+    if (ev.person_id === s.person_id) return res.json({ ok: true, already: true, event_id: ev.id }); // já é dono
+    // garante um grupo cowork (se A começou solo, cria o grupo agora e marca A)
+    let gid = ev.cowork_group_id;
+    if (!gid) {
+      gid = crypto.randomUUID();
+      await db.query('UPDATE v3.events SET cowork_group_id = $1::uuid, updated_at = NOW() WHERE id = $2', [gid, ev.id]);
     }
-    await audit('event.cowork_joined_via_page', 'event', id, { joined_person_id: s.person_id }, s.person_id);
-    res.json({ ok: true, event_id: id, cowork_with: r.rows[0].cowork_with });
+    // idempotente: B já tem event aberto nesse grupo?
+    const mine = await db.query(
+      'SELECT id FROM v3.events WHERE cowork_group_id = $1 AND person_id = $2 AND ended_at IS NULL AND deleted_at IS NULL LIMIT 1',
+      [gid, s.person_id]);
+    if (mine.rows[0]) return res.json({ ok: true, already: true, event_id: mine.rows[0].id });
+    // membros abertos do grupo (pra montar cowork_with do B)
+    const grp = await db.query(
+      'SELECT DISTINCT person_id FROM v3.events WHERE cowork_group_id = $1 AND ended_at IS NULL AND deleted_at IS NULL', [gid]);
+    const others = [...new Set([ev.person_id, ...grp.rows.map((r) => r.person_id)])].filter((x) => x !== s.person_id);
+    // cria o event do B começando AGORA
+    const ins = await db.query(
+      `INSERT INTO v3.events
+         (person_id, activity_type_id, product_batch_id, started_at, cowork_with, confidence, source, cowork_group_id, is_test)
+       VALUES ($1, $2, $3, NOW(), $4::int[], 'high', 'operator_page', $5::uuid, $6)
+       RETURNING id, started_at`,
+      [s.person_id, ev.activity_type_id, ev.product_batch_id, others, gid, !!s.is_sandbox]);
+    // adiciona B ao cowork_with dos outros membros abertos
+    await db.query(
+      `UPDATE v3.events SET cowork_with = array_append(COALESCE(cowork_with, '{}'), $2), updated_at = NOW()
+       WHERE cowork_group_id = $1 AND ended_at IS NULL AND deleted_at IS NULL
+         AND person_id <> $2 AND NOT (COALESCE(cowork_with, '{}') @> ARRAY[$2]::int[])`, [gid, s.person_id]);
+    await audit('event.cowork_joined_via_page', 'event', ins.rows[0].id,
+      { cowork_group_id: gid, joined_person_id: s.person_id, source_event_id: ev.id }, s.person_id);
+    res.json({ ok: true, event_id: ins.rows[0].id, cowork_group_id: gid, joined: true });
   }));
 
   // ── EMS enrichment (Bug 2/3): caches em memória, best-effort ──

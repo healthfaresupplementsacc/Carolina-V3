@@ -164,6 +164,18 @@ describe('V3 §2.4 — auto-close + invariante', () => {
     expect(active(db, 2)).toHaveLength(1);
   });
 
+  test('FASE 1 (task sumiu) — next_event NÃO fecha task da operator_page', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    // task aberta criada pelo OPERADOR na /op (source=operator_page)
+    db.events.push({ id: 9001, person_id: 1, activity_type_id: WORK, started_at: T(9), ended_at: null, deleted_at: null, source: 'operator_page', created_at: new Date(), updated_at: new Date() });
+    // chega novo event de trabalho (Slack/Observer) → normalmente fecharia via next_event
+    await s.upsert({ person_id: 1, activity_type_id: WORK, started_at: T(11), actor_type: 'llm_observer' });
+    const opEv = db.events.find((e) => e.id === 9001);
+    expect(opEv.ended_at).toBeNull();          // NÃO sumiu — operador é dono da task /op
+    expect(opEv.closed_reason == null).toBe(true);
+  });
+
   test('break (meta) PAUSA o foreground — invariante nova (Captura A4)', async () => {
     const db = makeFakeDb();
     const s = svc(db);
