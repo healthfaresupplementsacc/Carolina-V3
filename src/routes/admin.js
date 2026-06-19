@@ -885,7 +885,7 @@ function createAdminRouter(deps = {}) {
     const today = await db.query(
       `SELECT
          (SELECT COALESCE(SUM(bottles),0)::int FROM v3.production_counts
-            WHERE deleted_at IS NULL AND production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS bottles_today,
+            WHERE deleted_at IS NULL AND kind = 'bottles' AND production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS bottles_today,
          (SELECT COALESCE(SUM(orders_printed),0)::int FROM v3.events
             WHERE deleted_at IS NULL AND (started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS orders_today,
          (SELECT COALESCE(ROUND(SUM(GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(ended_at,NOW())-started_at)) - COALESCE(total_paused_seconds,0)))/3600.0,1),0) FROM v3.events
@@ -915,16 +915,20 @@ function createAdminRouter(deps = {}) {
        WHERE at.slug = 'production_line' AND e.ended_at IS NULL AND e.deleted_at IS NULL
          AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
        ORDER BY e.started_at`);
+    // FIX (sync canônica): LEFT JOIN (não INNER) — lote/produto NULL (REGRA #0
+    // auto-create ou product_id nullável da migração 041) NÃO pode derrubar a
+    // contagem; cai em "Sem produto vinculado". kind='bottles' (P&P usa 'orders'
+    // separado, nunca vaza). Mesma regra do bottles_today (fonte única).
     const byProduct = await db.query(
-      `SELECT pr.canonical_name AS product, SUM(pc.bottles)::int AS total
+      `SELECT COALESCE(pr.canonical_name, 'Sem produto vinculado') AS product, SUM(pc.bottles)::int AS total
        FROM v3.production_counts pc
        JOIN v3.events e ON e.id = pc.source_event_id
        JOIN v3.activity_types at ON at.id = e.activity_type_id
-       JOIN v3.product_batches pb ON pb.id = e.product_batch_id
-       JOIN v3.products pr ON pr.id = pb.product_id
-       WHERE at.slug = 'production_line' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE at.slug = 'production_line' AND pc.kind = 'bottles' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL
          AND (e.ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
-       GROUP BY pr.canonical_name ORDER BY total DESC`);
+       GROUP BY 1 ORDER BY total DESC`);
     const tpOverall = await db.query(
       `SELECT ROUND(AVG(bpm)::numeric, 1) AS avg_bpm, ROUND(MAX(bpm)::numeric, 1) AS peak_bpm, COUNT(*)::int AS runs
        FROM (SELECT pc.bottles / NULLIF(${WORK_SEC} / 60, 0) AS bpm
