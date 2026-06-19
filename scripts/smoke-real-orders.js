@@ -1,0 +1,22 @@
+'use strict';
+const BASE = 'https://productionlineservice-production.up.railway.app';
+const PIN = process.env.SANDBOX_PIN || '9999';
+const J = (r) => r.json();
+(async () => {
+  const cfg = await (await fetch(BASE + '/op/config.js')).text();
+  const tok = (cfg.match(/"pageToken":"([^"]+)"/) || [])[1];
+  const H = { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' };
+  const lj = await J(await fetch(BASE + '/api/v3/op/auth/login', { method: 'POST', headers: H, body: JSON.stringify({ pin: PIN }) }));
+  const SH = Object.assign({}, H, { 'X-Session-Token': lj.session_token });
+  const st = await J(await fetch(BASE + '/api/v3/op/event/start', { method: 'POST', headers: SH, body: JSON.stringify({ activity_slug: 'packaging', product_id: 56, product_name: 'Plant Sterols' }) }));
+  const id = st.event && st.event.id;
+  console.log('start packaging → event ' + id);
+  const no = await fetch(BASE + '/api/v3/op/event/' + id + '/end', { method: 'POST', headers: SH, body: JSON.stringify({}) });
+  const noStatus = no.status; const noBody = await J(no);
+  console.log('end SEM ordens → ' + noStatus + ' ' + (noBody.error || ''));
+  const ok = await fetch(BASE + '/api/v3/op/event/' + id + '/end', { method: 'POST', headers: SH, body: JSON.stringify({ orders_count: 48, marketplace: 'Amazon' }) });
+  console.log('end COM 48 ordens (Amazon) → ' + ok.status);
+  const pass = noStatus === 400 && noBody.error === 'orders_required' && ok.status === 200;
+  console.log(pass ? '\nORDERS REAL: PASS' : '\nORDERS REAL: FAIL');
+  process.exit(pass ? 0 : 1);
+})().catch((e) => { console.error('ERRO', e.message); process.exit(2); });
