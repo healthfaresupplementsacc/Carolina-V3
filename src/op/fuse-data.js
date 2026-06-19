@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-18T03:59:45.889Z",
+ "generated_at": "2026-06-19T01:18:30.722Z",
  "groups": [
   {
    "key": "linha",
@@ -11,35 +11,45 @@ window.HF_DATA = {
      "label": "Linha de produção",
      "requires_product": true,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "review",
      "label": "Revisão",
      "requires_product": true,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "counting",
      "label": "Contagem",
      "requires_product": true,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "line_changeover",
      "label": "Troca de linha",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "production_line_other",
      "label": "✏️ Outro (Linha)",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     }
    ]
   },
@@ -49,39 +59,58 @@ window.HF_DATA = {
    "label": "Formulação",
    "types": [
     {
-     "slug": "formulation",
-     "label": "Formulação",
+     "slug": "separating",
+     "label": "Separando ingredientes",
      "requires_product": true,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
+    },
+    {
+     "slug": "weighing",
+     "label": "Weighing (Pesagem)",
+     "requires_product": true,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "mixing",
-     "label": "Mistura",
+     "label": "Mixing (Mistura)",
      "requires_product": true,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "encapsulation",
-     "label": "Cápsulas / Tablets",
+     "label": "Encapsulation / Tablet",
      "requires_product": true,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "material_handling",
-     "label": "Preparo de material (peneira…)",
+     "label": "Material prep",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "formulation_other",
      "label": "✏️ Outro (Formulação)",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     }
    ]
   },
@@ -95,56 +124,72 @@ window.HF_DATA = {
      "label": "Limpeza",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "repair",
      "label": "Conserto de máquina",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "facility_maintenance",
      "label": "Manutenção",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "organization",
      "label": "Organização",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "machine_downtime",
      "label": "Máquina parada",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "label_change",
      "label": "🏷️ Troca de label",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "label_repair",
      "label": "🔧 Conserto de label",
      "requires_product": true,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "cleaning_other",
      "label": "✏️ Outro (Limpeza/Suporte)",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     }
    ]
   },
@@ -154,53 +199,67 @@ window.HF_DATA = {
    "label": "Embalagem",
    "types": [
     {
-     "slug": "orders",
-     "label": "Ordens",
-     "requires_product": false,
-     "note_required": false,
-     "orders_required": false
-    },
-    {
      "slug": "order_printing",
      "label": "Impressão de ordens",
      "requires_product": false,
      "note_required": true,
-     "orders_required": true
+     "orders_required": true,
+     "requires_order_count": true,
+     "counts_as_pp": true
     },
     {
      "slug": "order_printing_2",
      "label": "2ª impressão",
      "requires_product": false,
      "note_required": true,
-     "orders_required": true
+     "orders_required": true,
+     "requires_order_count": true,
+     "counts_as_pp": true
     },
     {
      "slug": "labeling",
-     "label": "Colar labels",
+     "label": "Colocar labels",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": true,
+     "counts_as_pp": true
     },
     {
      "slug": "packaging",
      "label": "Embalagem",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": true,
+     "counts_as_pp": true
     },
     {
      "slug": "marketplace_prep",
-     "label": "Trocar label / marketplace",
+     "label": "Trocar label",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": true,
+     "counts_as_pp": true
+    },
+    {
+     "slug": "clinic_shipment",
+     "label": "Envio Clínica",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": true,
+     "counts_as_pp": false
     },
     {
      "slug": "packaging_other",
      "label": "✏️ Outro (Embalagem)",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": true,
+     "counts_as_pp": true
     }
    ]
   },
@@ -210,46 +269,58 @@ window.HF_DATA = {
    "label": "Envio",
    "types": [
     {
+     "slug": "box_closing",
+     "label": "Fechando caixas",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
+    },
+    {
      "slug": "shipping_walmart",
      "label": "Envio Walmart",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "shipping_amazon",
      "label": "Envio Amazon",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "dc_shipment",
-     "label": "Envio DC",
+     "label": "Envio Distribution Center",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "clinic_shipment",
      "label": "Envio Clínica",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false
-    },
-    {
-     "slug": "box_closing",
-     "label": "Fechar caixas",
-     "requires_product": false,
-     "note_required": false,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": true,
+     "counts_as_pp": false
     },
     {
      "slug": "shipping_other",
      "label": "✏️ Outro (Envio)",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     }
    ]
   },
@@ -263,28 +334,36 @@ window.HF_DATA = {
      "label": "✨ Algo Especial",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "break",
      "label": "Pausa",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "meeting",
      "label": "Reunião",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "training",
      "label": "Treinamento",
      "requires_product": false,
      "note_required": true,
-     "orders_required": false
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     }
    ]
   }
@@ -417,7 +496,7 @@ window.HF_DATA = {
     "berberin",
     "berberine cinnamon ceylon"
    ],
-   "last_used_at": "2026-06-10T15:08:56.201Z"
+   "last_used_at": "2026-06-18T21:15:15.287Z"
   },
   {
    "id": 3,
@@ -519,7 +598,7 @@ window.HF_DATA = {
     "harpagophytum",
     "devil claw"
    ],
-   "last_used_at": "2026-06-17T22:11:20.696Z"
+   "last_used_at": "2026-06-18T11:54:47.153Z"
   },
   {
    "id": 32,
@@ -528,7 +607,7 @@ window.HF_DATA = {
     "fadogia",
     "fadogia agrestis"
    ],
-   "last_used_at": "2026-06-16T14:09:03.804Z"
+   "last_used_at": "2026-06-18T12:37:48.573Z"
   },
   {
    "id": 33,
@@ -562,7 +641,7 @@ window.HF_DATA = {
     "folate",
     "folic"
    ],
-   "last_used_at": "2026-06-18T03:31:42.982Z"
+   "last_used_at": "2026-06-19T01:09:36.275Z"
   },
   {
    "id": 5,
@@ -606,7 +685,7 @@ window.HF_DATA = {
     "glutation",
     "glutathione"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-18T22:02:56.529Z"
   },
   {
    "id": 6,
@@ -758,7 +837,7 @@ window.HF_DATA = {
     "melatonina",
     "melatonin"
    ],
-   "last_used_at": "2026-06-17T15:31:15.038Z"
+   "last_used_at": "2026-06-18T15:38:58.636Z"
   },
   {
    "id": 50,
@@ -873,7 +952,7 @@ window.HF_DATA = {
     "phytosterols",
     "plant"
    ],
-   "last_used_at": "2026-06-17T19:27:22.092Z"
+   "last_used_at": "2026-06-18T19:05:29.574Z"
   },
   {
    "id": 57,
@@ -1026,7 +1105,7 @@ window.HF_DATA = {
     "vita b2",
     "vitab2"
    ],
-   "last_used_at": "2026-06-18T00:08:43.288Z"
+   "last_used_at": "2026-06-18T20:56:12.927Z"
   },
   {
    "id": 68,
@@ -1055,6 +1134,56 @@ window.HF_DATA = {
  ],
  "recent_batches": [
   {
+   "batch_number": "1234",
+   "product_id": 35,
+   "last_used": "2026-06-19T01:09:36.275Z"
+  },
+  {
+   "batch_number": "0213",
+   "product_id": 35,
+   "last_used": "2026-06-18T22:52:41.483Z"
+  },
+  {
+   "batch_number": "0223",
+   "product_id": 38,
+   "last_used": "2026-06-18T22:02:56.529Z"
+  },
+  {
+   "batch_number": "0203",
+   "product_id": 23,
+   "last_used": "2026-06-18T21:15:15.287Z"
+  },
+  {
+   "batch_number": "0211",
+   "product_id": 67,
+   "last_used": "2026-06-18T20:56:12.927Z"
+  },
+  {
+   "batch_number": "0217",
+   "product_id": 56,
+   "last_used": "2026-06-18T19:05:29.574Z"
+  },
+  {
+   "batch_number": "0215",
+   "product_id": 49,
+   "last_used": "2026-06-18T15:38:58.636Z"
+  },
+  {
+   "batch_number": "BR-2026-0213",
+   "product_id": 35,
+   "last_used": "2026-06-18T15:31:57.184Z"
+  },
+  {
+   "batch_number": "0218",
+   "product_id": 56,
+   "last_used": "2026-06-18T15:18:29.745Z"
+  },
+  {
+   "batch_number": "0210",
+   "product_id": 32,
+   "last_used": "2026-06-18T12:37:48.573Z"
+  },
+  {
    "batch_number": "0206",
    "product_id": 67,
    "last_used": "2026-06-18T00:08:43.288Z"
@@ -1065,16 +1194,6 @@ window.HF_DATA = {
    "last_used": "2026-06-17T22:11:20.696Z"
   },
   {
-   "batch_number": "BR-2026-0213",
-   "product_id": 35,
-   "last_used": "2026-06-17T19:43:53.769Z"
-  },
-  {
-   "batch_number": "0217",
-   "product_id": 56,
-   "last_used": "2026-06-17T19:27:22.092Z"
-  },
-  {
    "batch_number": "0191",
    "product_id": 8,
    "last_used": "2026-06-17T19:24:13.163Z"
@@ -1083,11 +1202,6 @@ window.HF_DATA = {
    "batch_number": "01",
    "product_id": 18,
    "last_used": "2026-06-17T16:25:40.933Z"
-  },
-  {
-   "batch_number": "0215",
-   "product_id": 49,
-   "last_used": "2026-06-17T15:31:15.038Z"
   },
   {
    "batch_number": "0125",
@@ -1105,11 +1219,6 @@ window.HF_DATA = {
    "last_used": "2026-06-16T19:44:03.029Z"
   },
   {
-   "batch_number": "0211",
-   "product_id": 67,
-   "last_used": "2026-06-16T19:38:50.812Z"
-  },
-  {
    "batch_number": "BR-2026-0212",
    "product_id": 2,
    "last_used": "2026-06-16T17:21:26.119Z"
@@ -1118,11 +1227,6 @@ window.HF_DATA = {
    "batch_number": "0205",
    "product_id": 67,
    "last_used": "2026-06-16T15:04:31.838Z"
-  },
-  {
-   "batch_number": "0210",
-   "product_id": 32,
-   "last_used": "2026-06-16T14:09:03.804Z"
   },
   {
    "batch_number": "0199",
@@ -1180,11 +1284,6 @@ window.HF_DATA = {
    "last_used": "2026-06-10T22:41:20.875Z"
   },
   {
-   "batch_number": "0203",
-   "product_id": 23,
-   "last_used": "2026-06-10T15:08:56.201Z"
-  },
-  {
    "batch_number": "0165",
    "product_id": 49,
    "last_used": "2026-06-10T13:09:04.853Z"
@@ -1233,26 +1332,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0185",
    "product_id": 67,
    "last_used": "2026-06-05T13:58:47.390Z"
-  },
-  {
-   "batch_number": "BR-2026-0167",
-   "product_id": 23,
-   "last_used": "2026-06-04T19:55:55.952Z"
-  },
-  {
-   "batch_number": "BR-2026-0188",
-   "product_id": 14,
-   "last_used": "2026-06-04T19:01:07.290Z"
-  },
-  {
-   "batch_number": "BR-2026-0182",
-   "product_id": 20,
-   "last_used": "2026-06-04T15:52:26.229Z"
-  },
-  {
-   "batch_number": "BR-2026-0186",
-   "product_id": 14,
-   "last_used": "2026-06-03T22:39:06.119Z"
   }
  ]
 };

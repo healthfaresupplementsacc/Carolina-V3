@@ -22,8 +22,9 @@ const GROUPS = [
     ['production_line_other', '✏️ Outro (Linha)'],
   ] },
   { key: 'formulacao', icon: '🧪', label: 'Formulação', items: [
-    ['formulation', 'Formulação'], ['mixing', 'Mistura'],
-    ['encapsulation', 'Cápsulas / Tablets'], ['material_handling', 'Preparo de material (peneira…)'],
+    ['separating', 'Separando ingredientes'], ['weighing', 'Weighing (Pesagem)'],
+    ['mixing', 'Mixing (Mistura)'], ['encapsulation', 'Encapsulation / Tablet'],
+    ['material_handling', 'Material prep'],
     ['formulation_other', '✏️ Outro (Formulação)'],
   ] },
   { key: 'limpeza', icon: '🧹', label: 'Limpeza / Suporte', items: [
@@ -34,16 +35,18 @@ const GROUPS = [
     ['cleaning_other', '✏️ Outro (Limpeza/Suporte)'],
   ] },
   { key: 'embalagem', icon: '📦', label: 'Embalagem', items: [
-    ['orders', 'Ordens'], ['order_printing', 'Impressão de ordens'],
-    ['order_printing_2', '2ª impressão'], ['labeling', 'Colar labels'],
+    ['order_printing', 'Impressão de ordens'],
+    ['order_printing_2', '2ª impressão'], ['labeling', 'Colocar labels'],
     ['packaging', 'Embalagem'],
-    ['marketplace_prep', 'Trocar label / marketplace'],
+    ['marketplace_prep', 'Trocar label'],
+    ['clinic_shipment', 'Envio Clínica'],
     ['packaging_other', '✏️ Outro (Embalagem)'],
   ] },
   { key: 'envio', icon: '🚚', label: 'Envio', items: [
+    ['box_closing', 'Fechando caixas'],
     ['shipping_walmart', 'Envio Walmart'], ['shipping_amazon', 'Envio Amazon'],
-    ['dc_shipment', 'Envio DC'], ['clinic_shipment', 'Envio Clínica'],
-    ['box_closing', 'Fechar caixas'], ['shipping_other', '✏️ Outro (Envio)'],
+    ['dc_shipment', 'Envio Distribution Center'], ['clinic_shipment', 'Envio Clínica'],
+    ['shipping_other', '✏️ Outro (Envio)'],
   ] },
   { key: 'outros', icon: '⋯', label: 'Outros', items: [
     ['special_task', '✨ Algo Especial'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
@@ -74,7 +77,7 @@ async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await c.connect();
 
-  const acts = await c.query('SELECT slug, requires_product FROM v3.activity_types WHERE active = true');
+  const acts = await c.query('SELECT slug, requires_product, requires_order_count, counts_as_pp FROM v3.activity_types WHERE active = true');
   const bySlug = new Map(acts.rows.map((r) => [r.slug, r]));
 
   const groups = GROUPS.map((g) => ({
@@ -86,6 +89,8 @@ async function main() {
         requires_product: YES_PRODUCT_OVERRIDE.has(slug) ? true : (NO_PRODUCT_OVERRIDE.has(slug) ? false : !!bySlug.get(slug).requires_product),
         note_required: NOTE_REQUIRED.has(slug),
         orders_required: ORDERS_REQUIRED.has(slug),
+        requires_order_count: !!bySlug.get(slug).requires_order_count, // FASE 5: pede contagem no FINISH
+        counts_as_pp: !!bySlug.get(slug).counts_as_pp,
       })),
   })).filter((g) => g.types.length);
 
