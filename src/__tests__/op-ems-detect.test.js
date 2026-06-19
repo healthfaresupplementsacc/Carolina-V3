@@ -41,8 +41,8 @@ describe('FASE FORM — detecção passiva EMS', () => {
       }
       if (/INSERT INTO v3\.product_batches/.test(s)) { const id = 900 + mem.batches.length; mem.batches.push({ id, batch_number: params[1], product_id: params[0] }); return resp([{ id, batch_number: params[1], product_id: params[0] }]); }
       if (/INSERT INTO v3\.events/.test(s)) {
-        mem.events.push({ person: params[0], activity: params[1], batch: params[2], source: 'ems_passive_detect' });
-        return resp([{ id: 4242, person_id: params[0], activity_type_id: params[1], product_batch_id: params[2], started_at: new Date() }]);
+        mem.events.push({ person: params[0], activity: params[1], batch: params[2], source: 'ems_passive_detect', started_at_param: params[5] || null });
+        return resp([{ id: 4242, person_id: params[0], activity_type_id: params[1], product_batch_id: params[2], started_at: params[5] || new Date() }]);
       }
       return resp([]);
     } };
@@ -56,7 +56,7 @@ describe('FASE FORM — detecção passiva EMS', () => {
       acts: [{ id: 30, slug: 'encapsulation', requires_product: true }, { id: 10, slug: 'production_line', requires_product: true }],
       products: [{ id: 5, canonical_name: 'Glutathione 1000mg', aliases: [] }],
       batches: [{ id: 77, batch_number: 'BR-2026-0223', product_id: 5, product: 'Glutathione 1000mg' }],
-      cache: [{ ems_key: 'eq1:b1', tracker_person_id: 4, sync_status: 'active', machine: 'NJP1200', stage: 'encapsulating', process_type: 'encapsulation', supplement_name: 'Glutathione 1000mg', batch_number: 'BR-2026-0223', formula_code: 'FRM-30', product_image: null, started_at: new Date() }],
+      cache: [{ ems_key: 'eq1:b1', tracker_person_id: 4, sync_status: 'active', machine: 'NJP1200', machine_type: 'capsule_machine', stage: 'encapsulating', process_type: 'encapsulation', supplement_name: 'Glutathione 1000mg', batch_number: 'BR-2026-0223', formula_code: 'FRM-30', product_image: null, started_at: new Date() }],
     };
     const app = express();
     app.use('/', createOpRouter({ db: makeDb(mem), slack: { postAs: () => {} }, operatorToken: TOKEN, adminChannelId: 'C_ADMIN' }));
@@ -73,6 +73,33 @@ describe('FASE FORM — detecção passiva EMS', () => {
     const r = await get('/api/v3/op/ems/my-activity', tok);
     expect(r.status).toBe(200);
     expect(r.body.detected).toMatchObject({ ems_key: 'eq1:b1', machine: 'NJP1200', slug: 'encapsulation', batch_number: 'BR-2026-0223', product_name: 'Glutathione 1000mg' });
+  });
+  test('Parte 1: detected traz nome AMIGÁVEL da máquina (sem modelo técnico)', async () => {
+    const tok = await login();
+    const r = await get('/api/v3/op/ems/my-activity', tok);
+    expect(r.body.detected.machine_label).toBe('máquina de cápsula'); // capsule_machine → PT humano
+  });
+  test('Parte 2: register-detected com started_at PASSADO usa essa hora', async () => {
+    const tok = await login();
+    const past = new Date(Date.now() - 90 * 60000).toISOString(); // 1h30 atrás
+    const r = await post('/api/v3/op/ems/register-detected', tok, { ems_key: 'eq1:b1', started_at: past });
+    expect(r.status).toBe(200);
+    expect(mem.events[0].started_at_param).toBe(past); // hora do toque escolhida, não NOW
+    expect(r.body.late_flag).toBe(false); // < 8h → sem flag
+  });
+  test('Parte 2: register-detected com started_at FUTURO → 400', async () => {
+    const tok = await login();
+    const future = new Date(Date.now() + 3600 * 1000).toISOString();
+    const r = await post('/api/v3/op/ems/register-detected', tok, { ems_key: 'eq1:b1', started_at: future });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('started_at_future');
+  });
+  test('Parte 2: started_at >8h atrás → aceita mas late_flag=true (admin avisado)', async () => {
+    const tok = await login();
+    const old = new Date(Date.now() - 10 * 3600 * 1000).toISOString();
+    const r = await post('/api/v3/op/ems/register-detected', tok, { ems_key: 'eq1:b1', started_at: old });
+    expect(r.status).toBe(200);
+    expect(r.body.late_flag).toBe(true);
   });
   test('my-activity → null se já tem event aberto pro mesmo lote (não sugere de novo)', async () => {
     mem.openBatches = ['BR-2026-0223'];

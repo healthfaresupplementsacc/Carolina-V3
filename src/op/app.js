@@ -370,18 +370,21 @@
   // 1 toque cria a task com tempo do TOQUE. Some quando registra ou some do EMS.
   function emsDetectCard() {
     var d = S.emsDetected; if (!d) return '';
-    var stTxt = STAGE_PT[d.stage] || d.stage || '';
-    var line2 = [d.machine, d.product_name, d.batch_number].filter(Boolean).map(esc).join(' · ');
+    // Parte 1 (texto humano): "O sistema detectou que você está na {máquina amigável},
+    // fazendo {suplemento}, lote {batch}." — sem modelo técnico, voz neutra do sistema.
+    var maq = d.machine_label || 'máquina';
+    var frase = 'Você está na <b>' + esc(maq) + '</b>'
+      + (d.product_name ? ', fazendo <b>' + esc(d.product_name) + '</b>' : '')
+      + (d.batch_number ? ', lote <b>' + esc(d.batch_number) + '</b>' : '') + '.';
     var fb = svgr('<rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path>', 18, 1.8);
     var thumb = d.product_image
       ? '<span style="flex:none; width:42px; height:42px; border-radius:12px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#1f5fd0;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fb + '</span><img src="' + esc(d.product_image) + '" loading="lazy" width="38" height="38" alt="" style="position:relative; width:38px; height:38px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
       : '<span style="flex:none; width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(47,122,224,.12); color:#1f5fd0;">🏭</span>';
     var h = '<div style="background:linear-gradient(135deg,rgba(47,122,224,.09),rgba(47,122,224,.04)); border:1px solid rgba(47,122,224,.28); border-radius:20px; padding:15px 16px; display:flex; flex-direction:column; gap:11px;">';
-    h += '<div style="display:flex; align-items:center; gap:12px;">' + thumb + '<div style="flex:1; min-width:0;"><div style="font-size:12px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:#1f5fd0;">🏭 O EMS mostra você trabalhando</div>'
-      + '<div style="font-weight:700; font-size:15px; color:#0c2545; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + (line2 || '—') + '</div>'
-      + (stTxt ? '<div style="font-size:12.5px; color:#5a6e87; margin-top:1px;">' + esc(stTxt) + '</div>' : '') + '</div></div>';
-    h += '<button data-act="registerDetected" ' + (S.detectBusy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:14px; padding:13px; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -16px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.4) + (S.detectBusy ? 'Registrando…' : 'Registrar tarefa') + '</button>';
-    h += '<div style="font-size:11px; color:#8195ab; text-align:center;">Sugestão do EMS — o tempo começa quando você tocar. Pode ignorar.</div>';
+    h += '<div style="display:flex; align-items:flex-start; gap:12px;">' + thumb + '<div style="flex:1; min-width:0;"><div style="font-size:12px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:#1f5fd0;">🏭 O sistema detectou</div>'
+      + '<div style="font-size:14.5px; font-weight:500; color:#0c2545; margin-top:4px; line-height:1.4;">' + frase + '</div></div></div>';
+    h += '<button data-act="registerDetected" ' + (S.detectBusy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:14px; padding:13px; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -16px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 18, 2.6) + (S.detectBusy ? 'Registrando…' : 'Registrar') + '</button>';
+    h += '<div style="font-size:11px; color:#8195ab; text-align:center;">Sugestão do sistema — você confirma e escolhe a hora. Pode ignorar.</div>';
     h += '</div>';
     return h;
   }
@@ -787,6 +790,7 @@
     if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0) + ':' + (o.needsOrders ? 1 : 0); // exc/cowork/último/orders re-montam
     if (o.type === 'gap') return 'gap:' + (o.jtype || ''); // re-monta ao escolher o motivo (highlight)
     if (o.type === 'eod') return 'eod:' + (o.products || []).length;
+    if (o.type === 'detectWhen') return 'detectWhen:' + (o.pickTime ? 1 : 0) + ':' + (o.tpH || '') + ':' + (o.tpM || '') + ':' + (o.tpAP || '') + ':' + (S.detectBusy ? 1 : 0); // FASE FORM Parte 2
     return o.type + ':' + (o.eventId || '') + ':' + ((o.prompt && o.prompt.person_id) || '');
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
@@ -853,8 +857,29 @@
     h += '</div>';
     return h;
   }
+  // FASE FORM Parte 2 — "Quando começou?" pra detecção passiva (Agora / outra hora).
+  // Reusa o time picker do retroativo (timeSelect/apButton/startStatus) — mesma infra.
+  function detectWhenInner(o) {
+    var d = o.det || {}; var ac = accent();
+    var maq = d.machine_label || 'máquina';
+    var sub = [maq, d.product_name, d.batch_number].filter(Boolean).map(esc).join(' · ');
+    var h = cardOpen(460);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(47,122,224,.12); color:#1f5fd0; display:flex; align-items:center; justify-content:center; font-size:24px;">🏭</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Quando você começou?</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
+    h += '<div style="display:flex; gap:11px; margin-bottom:14px;"><button data-act="detectModeNow" style="' + segBtn(!o.pickTime, ac) + '">' + svgr(PLAY, 14, 0, 'currentColor') + 'Agora</button><button data-act="detectPickTime" style="' + segBtn(o.pickTime, ac) + '">' + svgr(CLOCK, 15, 2.1) + 'Marcar outra hora</button></div>';
+    if (o.pickTime) {
+      normalizeAP(o); var ss = startStatus(o); var sw = startWindow();
+      h += '<div style="background:rgba(15,40,90,.04); border-radius:16px; padding:14px; margin-bottom:8px;"><div style="display:flex; gap:9px; align-items:center;">' + timeSelect('dtH', o.tpH, 'h', sw, o.tpAP) + timeSelect('dtM', o.tpM, 'm') + apButton('toggleDetectAP', o.tpAP, sw) + '</div><div style="min-height:20px; margin-top:9px; font-size:14px; font-weight:700; color:' + ss.color + ';">' + esc(ss.text) + '</div></div>';
+    }
+    var st = startStatus(o);
+    var goAct = o.pickTime ? 'doRegisterDetectedAt' : 'doRegisterDetectedNow';
+    var goLabel = o.pickTime ? (st.ok ? 'Registrar às ' + st.label : 'Escolha a hora') : 'Registrar agora';
+    h += '<div style="display:flex; gap:11px; margin-top:14px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="' + goAct + '" ' + (S.detectBusy ? 'disabled' : '') + ' style="flex:1.6; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 18, 2.6) + (S.detectBusy ? 'Registrando…' : esc(goLabel)) + '</button></div>';
+    h += '</div>';
+    return h;
+  }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'detectWhen') return detectWhenInner(o);
     if (o.type === 'finish' && o.cowork && !o.lastFinisher) return finishCoworkInner(o);
     if (o.type === 'finish' && o.slug === 'production_line') return finishProdInner(o);
     if (o.type === 'finish' && o.needsOrders) return finishOrdersInner(o); // FASE 5 — P&P
@@ -1104,20 +1129,19 @@
         S.resumeBusy = false; S.pulse = 0.8; toast('De volta ao trabalho ✓'); loadData();
       }).catch(function () { S.resumeBusy = false; toast('Não consegui retomar — tente Finalizar a pausa'); render(); });
     },
-    // FASE FORM — 1 toque: registra a task que o EMS detectou. Tempo começa AGORA.
+    // FASE FORM — tocar "Registrar" abre a pergunta "Quando começou?" (Parte 2):
+    // Agora (toque) OU marcar outra hora (esqueceu de registrar). Nunca cria sem confirmar.
     registerDetected: function () {
       var d = S.emsDetected; if (!d || S.detectBusy) return;
-      S.detectBusy = true; render();
-      api('/api/v3/op/ems/register-detected', { method: 'POST', body: { ems_key: d.ems_key } }).then(function () {
-        S.detectBusy = false; S.emsDetected = null; toast('Tarefa registrada ✓'); loadData();
-      }).catch(function (e) {
-        S.detectBusy = false;
-        var code = (e && e.body && e.body.error) || ''; // api() põe detail em e.message; code em e.body.error
-        if (code === 'not_detected') { S.emsDetected = null; toast('O EMS não mostra mais essa atividade.'); }
-        else toast('Não consegui registrar. Tente Iniciar Tarefa.');
-        render();
-      });
+      var n = new Date(); var ap = n.getHours() >= 12 ? 'PM' : 'AM';
+      S.overlay = { type: 'detectWhen', det: d, pickTime: false, tpH: '', tpM: String(Math.floor(n.getMinutes() / 5) * 5).padStart(2, '0'), tpAP: ap };
+      render();
     },
+    detectPickTime: function () { var o = S.overlay; if (!o) return; o.pickTime = true; if (!o.tpH) { var n = new Date(); o.tpH = String(n.getHours() % 12 || 12); o.tpAP = n.getHours() >= 12 ? 'PM' : 'AM'; } render(); },
+    detectModeNow: function () { var o = S.overlay; if (!o) return; o.pickTime = false; render(); },
+    toggleDetectAP: function () { var o = S.overlay; if (!o) return; var t = o.tpAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, startWindow())) { o.tpAP = t; render(); } },
+    doRegisterDetectedNow: function () { doRegisterDetected(null); },
+    doRegisterDetectedAt: function () { var o = S.overlay; if (!o) return; var st = startStatus(o); if (!st.iso || st.block) { toast(st.text || 'Escolha uma hora válida'); return; } doRegisterDetected(st.iso); },
     setLotQuery: function () {},
     pickSupp: function (name, el) {
       S.flow.supplement = name;
@@ -1224,6 +1248,23 @@
       f.step = 'finished'; render(); return;
     }
     postStart(null, null);
+  }
+  // FASE FORM Parte 2 — registra a detecção com a hora escolhida (NOW se null).
+  function doRegisterDetected(startedAt) {
+    var o = S.overlay; var d = (o && o.det) || S.emsDetected; if (!d || S.detectBusy) return;
+    S.detectBusy = true; render();
+    var body = { ems_key: d.ems_key }; if (startedAt) body.started_at = startedAt;
+    api('/api/v3/op/ems/register-detected', { method: 'POST', body: body }).then(function (r) {
+      S.detectBusy = false; S.overlay = null; S.emsDetected = null; S.pulse = 1;
+      toast((r && r.late_flag) ? 'Registrada — início antigo, admin avisado' : 'Tarefa registrada ✓'); loadData();
+    }).catch(function (e) {
+      S.detectBusy = false;
+      var code = (e && e.body && e.body.error) || ''; // api() põe detail em e.message; code em e.body.error
+      if (code === 'not_detected') { S.overlay = null; S.emsDetected = null; toast('O sistema não mostra mais essa atividade.'); }
+      else if (code === 'started_at_future') toast('A hora não pode ser no futuro.');
+      else toast('Não consegui registrar. Tente Iniciar Tarefa.');
+      render();
+    });
   }
   function commitRetro() {
     var f = S.flow; var st = startStatus(f);
@@ -1428,6 +1469,7 @@
   ROOT.addEventListener('change', function (e) {
     var el = e.target.closest('[data-change]'); if (!el) return; bump(); var k = el.dataset.change;
     if (k === 'marketplace' && S.overlay) { S.overlay.marketplace = el.value; return; } // FASE 5 (sem render: não perde foco)
+    if ((k === 'dtH' || k === 'dtM') && S.overlay && S.overlay.type === 'detectWhen') { S.overlay[k === 'dtH' ? 'tpH' : 'tpM'] = el.value; render(); return; } // FASE FORM hora
     if (S.flow) { S.flow[k] = el.value; render(); }
   });
   // teclado p/ o ALERT: Enter / Esc / qualquer tecla 3x em 1.5s

@@ -888,6 +888,10 @@ function createOpRouter(deps = {}) {
     finalized: 'production_line', on_line: 'production_line', ready_for_line: 'production_line',
     to_separate: 'review',
   };
+  // nome AMIGÁVEL da máquina (PT, sem modelo técnico) — voz "do sistema".
+  // equipment_type reais do EMS /line: capsule_machine, tablet_machine, blender, scale.
+  const MACHINE_LABEL_PT = { capsule_machine: 'máquina de cápsula', tablet_machine: 'máquina de tablete', blender: 'misturador', scale: 'balança' };
+  function machineLabelPt(type, name) { return MACHINE_LABEL_PT[type] || name || 'máquina'; }
   // o que o EMS mostra ESTE operador fazendo agora (numa máquina) — base do card
   // sugestivo de 1 toque. Só ativo + recente (worker 45s) + máquina atribuída +
   // não-preso (>24h, quirk in_use_since) + sem event já aberto pro mesmo lote.
@@ -916,7 +920,8 @@ function createOpRouter(deps = {}) {
       if (open.rowCount) return null;
     }
     return {
-      ems_key: d.ems_key, machine: d.machine, stage: d.stage,
+      ems_key: d.ems_key, machine: d.machine, machine_type: d.machine_type || null,
+      machine_label: machineLabelPt(d.machine_type, d.machine), stage: d.stage,
       slug: EMS_STAGE_TO_SLUG[d.stage] || 'production_line',
       product_name: d.supplement_name || null, batch_number: d.batch_number || null,
       formula_code: d.formula_code || null, product_image: d.product_image || null,
@@ -951,23 +956,37 @@ function createOpRouter(deps = {}) {
     if (!det || det.ems_key !== emsKey) return res.status(409).json({ error: 'not_detected', detail: 'O EMS não mostra mais essa atividade.' });
     const act = await resolveActivity(det.slug) || await resolveActivity('production_line');
     if (!act) return res.status(400).json({ error: 'unknown_activity_slug', slug: det.slug });
+    // Parte 2: hora de início. Default AGORA (toque). Operador pode marcar hora
+    // passada (esqueceu de registrar). Nunca futura; >8h atrás aceita mas FLAGa
+    // pro admin (REGRA #0 — registra, não bloqueia). NUNCA usa in_use_since.
+    let startedAtIso = null, lateFlag = false;
+    if (req.body && req.body.started_at) {
+      const t = Date.parse(req.body.started_at);
+      if (Number.isFinite(t)) {
+        if (t > Date.now() + 60000) return res.status(400).json({ error: 'started_at_future', detail: 'A hora não pode ser no futuro.' });
+        startedAtIso = new Date(t).toISOString();
+        if (Date.now() - t > 8 * 3600 * 1000) lateFlag = true;
+      }
+    }
     const pid = await productIdByName(det.product_name);
     const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(det.batch_number, pid, s.person_id);
     let desc = '[detecção EMS: ' + (det.machine || '?') + (det.stage ? ' · ' + det.stage : '') + ']';
+    if (startedAtIso) desc += ' [início informado]';
+    if (lateFlag) desc += ' [⚠ início >8h atrás — revisar]';
     if (typedUnlinked) desc += ' [lote ' + typedUnlinked + ' — produto não identificado]';
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
           confidence, source, is_test)
-       VALUES ($1, $2, $3, NOW(), $4, 'high', 'ems_passive_detect', $5)
+       VALUES ($1, $2, $3, COALESCE($6::timestamptz, NOW()), $4, 'high', 'ems_passive_detect', $5)
        RETURNING id, person_id, activity_type_id, product_batch_id, started_at`,
-      [s.person_id, act.id, batch ? batch.id : null, desc.slice(0, 500), !!s.is_sandbox]);
+      [s.person_id, act.id, batch ? batch.id : null, desc.slice(0, 500), !!s.is_sandbox, startedAtIso]);
     const ev = ins.rows[0];
     await audit('event.created_via_ems_detect', 'event', ev.id,
-      { slug: act.slug, batch: batch ? batch.batch_number : null, ems_key: emsKey, machine: det.machine, stage: det.stage }, s.person_id);
+      { slug: act.slug, batch: batch ? batch.batch_number : null, ems_key: emsKey, machine: det.machine, stage: det.stage, started_at_informed: !!startedAtIso, late_flag: lateFlag }, s.person_id);
     await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: det.batch_number, body: { product_name: det.product_name }, slug: act.slug, s });
-    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start_ems_detect', payload: { slug: act.slug, batch_number: det.batch_number, ems_key: emsKey, machine: det.machine, stage: det.stage }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
-    res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : det.product_name || null } });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start_ems_detect', payload: { slug: act.slug, batch_number: det.batch_number, ems_key: emsKey, machine: det.machine, stage: det.stage, started_at: startedAtIso, late_flag: lateFlag }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
+    res.json({ ok: true, late_flag: lateFlag, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : det.product_name || null } });
   }));
 
   // ════════════════════════════════════════════════════════════

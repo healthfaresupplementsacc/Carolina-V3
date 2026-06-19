@@ -66,6 +66,13 @@ describe('op v4 — screens e handlers', () => {
     ['emsDetectCard', 'registerDetected', 'pauseBanner', 'resumeWork'].forEach((fn) => expect(APP).toContain(fn));
     expect(APP).toContain("usesLotList"); // formulação roteia pra lista EMS
   });
+  test('detecção: texto humano "O sistema detectou" + pergunta "Quando começou?" (Agora/outra hora)', () => {
+    expect(APP).toContain('O sistema detectou'); // não "EMS", não modelo técnico
+    expect(APP).not.toContain('O EMS mostra você trabalhando'); // texto antigo removido
+    expect(APP).toContain("o.type === 'detectWhen'"); // overlay hora
+    ['detectModeNow', 'detectPickTime', 'doRegisterDetectedNow', 'doRegisterDetectedAt'].forEach((a) => expect(APP).toContain(a));
+    expect(APP).toContain('Quando você começou?');
+  });
 });
 
 describe('op v4 — wiring de API (sem inventar endpoint)', () => {
@@ -97,8 +104,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v27 network-first', () => {
-    expect(SW).toContain("'hf-op-v27'");
+  test('sw é hf-op-v28 network-first', () => {
+    expect(SW).toContain("'hf-op-v28'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
