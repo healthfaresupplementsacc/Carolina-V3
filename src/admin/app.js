@@ -574,7 +574,7 @@
   async function loadMetrics(sub) {
     metricsSub = sub || 'hoje';
     clearInterval(linhaTimer); // sai da aba Linha → para o auto-refresh
-    const SUBS = [['hoje', '🎯 Hoje'], ['linha', '🏭 Linha'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
+    const SUBS = [['hoje', '🎯 Hoje'], ['linha', '🏭 Linha'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['unfinished', '⚠️ Não finalizadas'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
     if (isOwner()) SUBS.push(['finance', '💰 Finance']);
     const nav = $('metrics-subnav'); nav.innerHTML = '';
     SUBS.forEach(([k, lbl]) => { const b = el('button', 'subtab' + (k === metricsSub ? ' active' : ''), lbl); b.onclick = () => loadMetrics(k); nav.appendChild(b); });
@@ -582,14 +582,68 @@
     try { await M_RENDER[metricsSub](c); } catch (e) { c.innerHTML = ''; c.appendChild(el('div', 'err', e.message)); }
   }
   const M_RENDER = {
+    // FASE 6 (P6.4) — tarefas não finalizadas (pausa que virou o dia): admin
+    // resolve finalizando ou reatribuindo a outro operador (que continua/fecha).
+    unfinished: async (c) => {
+      const [r, opsR] = await Promise.all([
+        api('/api/adminpanel/metrics/unfinished'),
+        api('/api/adminpanel/operators').catch(() => ({ operators: [] })),
+      ]);
+      c.innerHTML = '';
+      c.appendChild(el('h2', null, '⚠️ Tarefas não finalizadas (pausa que virou o dia)'));
+      const list = r.unfinished || [];
+      if (!list.length) { c.appendChild(el('div', 'sub', 'Nenhuma tarefa pendente. ✅')); return; }
+      const opts = (opsR.operators || []).filter((o) => o.is_active !== false).map((o) => `<option value="${o.id}">${o.display_name}</option>`).join('');
+      list.forEach((u) => {
+        const mins = Math.round((u.worked_seconds || 0) / 60);
+        const card = el('div', 'card');
+        card.appendChild(el('div', 'row', `<span class="title">${u.operator} · ${u.task || u.slug || '?'}</span><span class="sub">${(u.product || '')}${u.batch_number ? ' · ' + u.batch_number : ''} · trabalhou ${mins}min antes da pausa</span>`));
+        const actions = el('div', 'row');
+        const sel = el('select'); sel.innerHTML = opts; sel.style.marginRight = '8px';
+        const reBtn = el('button', 'subtab', 'Reatribuir →');
+        const finBtn = el('button', 'subtab', 'Finalizar');
+        finBtn.onclick = async () => {
+          if (!window.confirm('Finalizar esta tarefa (fecha sem contagem)?')) return;
+          finBtn.disabled = reBtn.disabled = true;
+          try { await api(`/api/adminpanel/metrics/unfinished/${u.id}/resolve`, { method: 'POST', body: { action: 'finalize' } }); toast('✅ finalizada'); loadMetrics('unfinished'); }
+          catch (e) { finBtn.disabled = reBtn.disabled = false; toast('❌ ' + e.message); }
+        };
+        reBtn.onclick = async () => {
+          const to = parseInt(sel.value, 10); if (!(to > 0)) { toast('Escolha um operador'); return; }
+          finBtn.disabled = reBtn.disabled = true;
+          try { await api(`/api/adminpanel/metrics/unfinished/${u.id}/resolve`, { method: 'POST', body: { action: 'reassign', assignee_person_id: to } }); toast('✅ reatribuída — vira tarefa ativa do operador'); loadMetrics('unfinished'); }
+          catch (e) { finBtn.disabled = reBtn.disabled = false; toast('❌ ' + e.message); }
+        };
+        actions.appendChild(sel); actions.appendChild(reBtn); actions.appendChild(finBtn);
+        card.appendChild(actions); c.appendChild(card);
+      });
+    },
     hoje: async (c) => {
-      const r = await api('/api/adminpanel/metrics/realtime');
+      const [r, pp] = await Promise.all([
+        api('/api/adminpanel/metrics/realtime'),
+        api('/api/adminpanel/metrics/pp-today').catch(() => null),
+      ]);
       c.innerHTML = ''; const cards = el('div', 'metric-cards');
       cards.appendChild(mMetric(r.logged_in_operators.length, 'Logados agora'));
       cards.appendChild(mMetric(Number(r.bottles_today).toLocaleString('pt-BR'), 'Bottles hoje'));
       cards.appendChild(mMetric(r.orders_today, 'Ordens hoje'));
-      cards.appendChild(mMetric(r.hours_today + 'h', 'Horas hoje'));
+      cards.appendChild(mMetric(r.hours_today + 'h', 'Horas hoje (desc. pausa)'));
       c.appendChild(cards);
+      // FASE 6 (P6.3) — card "📦 P&P do dia" (clínica NÃO conta; tempo desconta pausa; corte 1pm)
+      if (pp) {
+        const COL = { green: '#0e7a4e', yellow: '#b35c00', red: '#b3261e' };
+        const cut = COL[pp.cutoff_color] || '#5a6e87';
+        const secO = pp.sec_per_order != null ? pp.sec_per_order + 's/ordem' : '—';
+        const mins = Math.round((pp.work_seconds || 0) / 60);
+        const box = el('div', 'card');
+        box.style.borderLeft = '4px solid ' + cut;
+        let html = `<div class="row"><span class="title">📦 P&P do dia</span><span class="sub" style="color:${cut};font-weight:700;">corte 1pm: ${pp.cutoff_color.toUpperCase()}${pp.open_pp_tasks ? ' · ' + pp.open_pp_tasks + ' aberta(s)' : ''}</span></div>`;
+        html += `<div class="sub">${Number(pp.total_orders).toLocaleString('pt-BR')} ordens · ${mins}min · ${secO} · ${pp.total_tasks} tarefa(s) — clínica NÃO conta</div>`;
+        if ((pp.by_marketplace || []).length) html += '<div class="sub">por marketplace: ' + pp.by_marketplace.map((m) => `${m.marketplace}: ${m.orders}`).join(' · ') + '</div>';
+        if ((pp.by_operator || []).length) html += '<div class="sub">por operador: ' + pp.by_operator.map((o) => `${o.operator}: ${o.orders}`).join(' · ') + '</div>';
+        box.innerHTML = html;
+        c.appendChild(box);
+      }
       c.appendChild(el('h2', null, '👷 Operadores logados'));
       r.logged_in_operators.forEach((o) => {
         const sem = o.idle_min > 120 ? '🔴' : o.idle_min > 30 ? '🟡' : '🟢';

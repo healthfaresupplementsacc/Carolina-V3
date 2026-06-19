@@ -656,8 +656,11 @@ function createAdminRouter(deps = {}) {
   // ── analytics (Fase B) ──────────────────────────────────────
   router.use('/api/adminpanel/analytics', requireAdmin, makeRateLimit({ limit: 60 }));
   const rangeDays = (r) => ({ '7d': 7, '30d': 30, '90d': 90 }[String(r)] || 7);
-  // duração só conta events FECHADOS (ended_at não-null) pra não inflar com abertos
-  const DUR_MIN = `EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60.0`;
+  // duração só conta events FECHADOS (ended_at não-null) pra não inflar com abertos.
+  // FASE 6 (P6.2): duração de TRABALHO SEMPRE desconta as pausas (total_paused_seconds).
+  // WORK_SEC é a fonte única — DUR_MIN e o bpm/seg-ordem derivam dela.
+  const WORK_SEC = `GREATEST(0, EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) - COALESCE(e.total_paused_seconds, 0))`;
+  const DUR_MIN = `${WORK_SEC} / 60.0`;
 
   router.get('/api/adminpanel/analytics/summary', h(async (req, res) => {
     const days = rangeDays(req.query.range);
@@ -885,7 +888,7 @@ function createAdminRouter(deps = {}) {
             WHERE deleted_at IS NULL AND production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS bottles_today,
          (SELECT COALESCE(SUM(orders_printed),0)::int FROM v3.events
             WHERE deleted_at IS NULL AND (started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS orders_today,
-         (SELECT COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM (COALESCE(ended_at,NOW())-started_at)))/3600.0,1),0) FROM v3.events
+         (SELECT COALESCE(ROUND(SUM(GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(ended_at,NOW())-started_at)) - COALESCE(total_paused_seconds,0)))/3600.0,1),0) FROM v3.events
             WHERE deleted_at IS NULL AND is_long_running=false AND (started_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date) AS hours_today`);
     const openLong = await db.query(
       `SELECT e.id, p.display_name, at.display_name AS task,
@@ -924,7 +927,7 @@ function createAdminRouter(deps = {}) {
        GROUP BY pr.canonical_name ORDER BY total DESC`);
     const tpOverall = await db.query(
       `SELECT ROUND(AVG(bpm)::numeric, 1) AS avg_bpm, ROUND(MAX(bpm)::numeric, 1) AS peak_bpm, COUNT(*)::int AS runs
-       FROM (SELECT pc.bottles / NULLIF(EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60, 0) AS bpm
+       FROM (SELECT pc.bottles / NULLIF(${WORK_SEC} / 60, 0) AS bpm
              FROM v3.production_counts pc
              JOIN v3.events e ON e.id = pc.source_event_id
              JOIN v3.activity_types at ON at.id = e.activity_type_id
@@ -932,7 +935,7 @@ function createAdminRouter(deps = {}) {
                AND (e.ended_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) t`);
     const tpByOp = await db.query(
       `SELECT p.display_name AS operator,
-              ROUND(AVG(pc.bottles / NULLIF(EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) / 60, 0))::numeric, 1) AS avg_bpm,
+              ROUND(AVG(pc.bottles / NULLIF(${WORK_SEC} / 60, 0))::numeric, 1) AS avg_bpm,
               COUNT(*)::int AS runs
        FROM v3.production_counts pc
        JOIN v3.events e ON e.id = pc.source_event_id
@@ -1042,6 +1045,98 @@ function createAdminRouter(deps = {}) {
   router.get('/api/adminpanel/metrics/unknown-batches-count', requireAdmin, h(async (req, res) => {
     const r = await db.query("SELECT COUNT(*)::int AS count FROM v3.product_batches WHERE origin = 'operator_created' AND deleted_at IS NULL");
     res.json({ count: r.rows[0].count });
+  }));
+
+  // ── FASE 6 (P6.4): tarefas NÃO FINALIZADAS (pausa que virou o dia) ──
+  // is_unfinished=true + abertas. worked_seconds = tempo antes da pausa (desconta pausas).
+  // Admin resolve: finalize (fecha) OU reassign (outra pessoa continua/finaliza).
+  router.get('/api/adminpanel/metrics/unfinished', h(async (req, res) => {
+    const r = await db.query(
+      `SELECT e.id, e.person_id, p.display_name AS operator, at.slug, at.display_name AS task,
+              pb.batch_number, pr.canonical_name AS product,
+              e.started_at, e.paused_at,
+              GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(e.paused_at, NOW()) - e.started_at)) - COALESCE(e.total_paused_seconds,0))::int AS worked_seconds
+       FROM v3.events e
+       JOIN v3.persons p ON p.id = e.person_id
+       LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE e.is_unfinished = TRUE AND e.ended_at IS NULL AND e.deleted_at IS NULL
+       ORDER BY e.paused_at DESC NULLS LAST, e.started_at DESC
+       LIMIT 100`);
+    res.json({ unfinished: r.rows });
+  }));
+  // ── FASE 6 (P6.3): P&P do dia ──
+  // Ordens = production_counts kind='orders' de tasks counts_as_pp (clínica/envios
+  // NÃO entram). Tempo desconta pausas (WORK_SEC). seg/ordem, breakdown marketplace
+  // + operador, corte 1pm (verde<12:30 / amarelo / vermelho>13h c/ tasks abertas).
+  router.get('/api/adminpanel/metrics/pp-today', h(async (req, res) => {
+    const today = `(NOW() AT TIME ZONE '${EDT}')::date`;
+    const ppJoin = `JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.counts_as_pp = true`;
+    const [tot, byMkt, byOp, time, openT, nowR] = await Promise.all([
+      db.query(`SELECT COALESCE(SUM(pc.bottles),0)::int AS orders, COUNT(DISTINCT e.id)::int AS tasks
+                FROM v3.production_counts pc JOIN v3.events e ON e.id = pc.source_event_id ${ppJoin}
+                WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL AND pc.production_date = ${today}`),
+      db.query(`SELECT COALESCE(NULLIF(pc.marketplace,''),'—') AS marketplace, SUM(pc.bottles)::int AS orders
+                FROM v3.production_counts pc JOIN v3.events e ON e.id = pc.source_event_id ${ppJoin}
+                WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL AND pc.production_date = ${today}
+                GROUP BY 1 ORDER BY 2 DESC`),
+      db.query(`SELECT p.display_name AS operator, SUM(pc.bottles)::int AS orders
+                FROM v3.production_counts pc JOIN v3.events e ON e.id = pc.source_event_id JOIN v3.persons p ON p.id = e.person_id ${ppJoin}
+                WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL AND pc.production_date = ${today}
+                GROUP BY 1 ORDER BY 2 DESC`),
+      db.query(`SELECT COALESCE(SUM(${WORK_SEC}),0)::int AS work_sec FROM v3.events e ${ppJoin}
+                WHERE e.deleted_at IS NULL AND e.ended_at IS NOT NULL AND (e.ended_at AT TIME ZONE '${EDT}')::date = ${today}`),
+      db.query(`SELECT COUNT(*)::int AS n FROM v3.events e ${ppJoin}
+                WHERE e.deleted_at IS NULL AND e.ended_at IS NULL AND e.is_unfinished = false`),
+      db.query(`SELECT (EXTRACT(HOUR FROM NOW() AT TIME ZONE '${EDT}')*60 + EXTRACT(MINUTE FROM NOW() AT TIME ZONE '${EDT}'))::int AS ny_min`),
+    ]);
+    const orders = tot.rows[0].orders;
+    const workSec = time.rows[0].work_sec;
+    const openTasks = openT.rows[0].n;
+    const nyMin = nowR.rows[0].ny_min;
+    // corte 1pm: verde até 12:30; vermelho depois das 13h SE ainda há P&P aberto; senão amarelo
+    let cutoff = 'green';
+    if (nyMin > 13 * 60) cutoff = openTasks > 0 ? 'red' : 'yellow';
+    else if (nyMin >= 12 * 60 + 30) cutoff = 'yellow';
+    res.json({
+      total_orders: orders,
+      total_tasks: tot.rows[0].tasks,
+      work_seconds: workSec,
+      sec_per_order: orders > 0 ? Math.round(workSec / orders) : null,
+      by_marketplace: byMkt.rows,
+      by_operator: byOp.rows,
+      open_pp_tasks: openTasks,
+      cutoff_color: cutoff,
+      ny_min: nyMin,
+    });
+  }));
+  router.post('/api/adminpanel/metrics/unfinished/:id/resolve', makeRateLimit({ limit: 60 }), h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad_id' });
+    const action = String((req.body && req.body.action) || '');
+    const note = req.body && req.body.note ? String(req.body.note).slice(0, 300) : null;
+    const ev = (await db.query('SELECT id FROM v3.events WHERE id=$1 AND is_unfinished=TRUE AND ended_at IS NULL AND deleted_at IS NULL', [id])).rows[0];
+    if (!ev) return res.status(404).json({ error: 'unfinished_not_found' });
+    if (action === 'finalize') {
+      await db.query(
+        `UPDATE v3.events SET ended_at = NOW(), is_unfinished = FALSE, closed_reason = 'admin_finalized_unfinished',
+           description = CASE WHEN $2::text IS NULL THEN description ELSE COALESCE(description,'') || ' | admin finalizou: ' || $2 END, updated_at = NOW()
+         WHERE id = $1`, [id, note]);
+      await audit('event.unfinished_finalized', 'event', id, { note }, req);
+      return res.json({ ok: true, action: 'finalize' });
+    }
+    if (action === 'reassign') {
+      const to = parseInt(req.body && req.body.assignee_person_id, 10);
+      if (!Number.isFinite(to) || to <= 0) return res.status(400).json({ error: 'assignee_required' });
+      await db.query(
+        `UPDATE v3.events SET person_id = $2, is_unfinished = FALSE, paused_at = NULL,
+           description = CASE WHEN $3::text IS NULL THEN description ELSE COALESCE(description,'') || ' | reatribuída pelo admin: ' || $3 END, updated_at = NOW()
+         WHERE id = $1`, [id, to, note]);
+      await audit('event.unfinished_reassigned', 'event', id, { to_person_id: to, note }, req);
+      return res.json({ ok: true, action: 'reassign', to });
+    }
+    return res.status(400).json({ error: 'bad_action', detail: 'action deve ser finalize ou reassign' });
   }));
 
   router.post('/api/adminpanel/unknown-batches/:id/confirm', requireAdmin, makeRateLimit({ limit: 60 }), h(async (req, res) => {
