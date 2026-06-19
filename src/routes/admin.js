@@ -1088,6 +1088,25 @@ function createAdminRouter(deps = {}) {
     res.json({ gaps: gaps.rows, summary: summary.rows });
   }));
 
+  // ── FASE 1.5 — action_log (rede de segurança, retém 5 dias) ──
+  router.get('/api/adminpanel/action-log', requireAdmin, h(async (req, res) => {
+    const day = req.query.day && /^\d{4}-\d{2}-\d{2}$/.test(req.query.day) ? req.query.day : null;
+    const pid = parseInt(req.query.person_id, 10);
+    const type = req.query.type ? String(req.query.type).slice(0, 40) : null;
+    const q = req.query.q ? String(req.query.q).slice(0, 80) : null;
+    const r = await db.query(
+      `SELECT id, person_id, person_name, action_type, source, payload, raw_text, related_event_id, is_test,
+              to_char(created_at AT TIME ZONE '${EDT}', 'MM-DD HH24:MI:SS') AS at_edt
+       FROM v3.operator_action_log
+       WHERE ($1::int IS NULL OR person_id = $1)
+         AND ($2::text IS NULL OR action_type = $2)
+         AND ($3::date IS NULL OR (created_at AT TIME ZONE '${EDT}')::date = $3::date)
+         AND ($4::text IS NULL OR person_name ILIKE '%' || $4 || '%' OR raw_text ILIKE '%' || $4 || '%' OR payload::text ILIKE '%' || $4 || '%')
+       ORDER BY created_at DESC LIMIT 300`,
+      [Number.isFinite(pid) ? pid : null, type, day, q]);
+    res.json({ entries: r.rows });
+  }));
+
   // 2) Por operador (drill-down)
   router.get('/api/adminpanel/metrics/operator/:id', h(async (req, res) => {
     const id = parseInt(req.params.id, 10); const d = mRange(req);

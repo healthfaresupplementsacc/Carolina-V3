@@ -64,6 +64,9 @@ function makeDb(mem) {
       if (/FROM v3\.activity_gaps g JOIN v3\.persons p/.test(s)) {
         return resp((mem.gaps || []).map((g) => ({ id: g.id, display_name: 'Vitor', gap_minutes: g.gap_minutes, justification_type: g.type, justification_note: g.note, started_edt: '01:00 PM', created_edt: 'Jun 18, 01:30 PM' })));
       }
+      if (/FROM v3\.operator_action_log/.test(s)) {
+        return resp((mem.actionLog || []).map((a, i) => ({ id: i + 1, person_id: a.person_id, person_name: a.person_name, action_type: a.action_type, source: a.source, payload: a.payload, raw_text: null, related_event_id: null, is_test: !!a.is_test, at_edt: '06-18 10:00:00' })));
+      }
       return resp([]);
     }),
   };
@@ -143,5 +146,17 @@ describe('admin — gaps de atividade (Passada 2)', () => {
   });
   test('sem auth → 401', async () => {
     expect((await call('GET', '/api/adminpanel/gaps')).status).toBe(401);
+  });
+});
+
+describe('admin — action-log (FASE 1.5)', () => {
+  test('lista registros do action_log; sem auth → 401', async () => {
+    mem.actionLog = [{ person_id: 6, person_name: 'Ana', action_type: 'task_start', source: 'operator_page', payload: { slug: 'review' }, is_test: false }];
+    const tok = await login(OWNER_PIN);
+    const r = await call('GET', '/api/adminpanel/action-log', undefined, tok);
+    expect(r.status).toBe(200);
+    expect(r.body.entries).toHaveLength(1);
+    expect(r.body.entries[0]).toMatchObject({ person_name: 'Ana', action_type: 'task_start' });
+    expect((await call('GET', '/api/adminpanel/action-log')).status).toBe(401);
   });
 });

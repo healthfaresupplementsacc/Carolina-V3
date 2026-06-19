@@ -66,6 +66,20 @@ function createOpRouter(deps = {}) {
     } catch (e) { console.error('[op] audit falhou:', e.message); }
   }
 
+  // ── FASE 1.5 — action_log APPEND-ONLY (rede de segurança, retém 5+ dias) ──
+  // Registra TODA ação num lugar separado que sobrevive a fechar/deletar event.
+  // Fire-and-forget: NUNCA bloqueia o operador (REGRA #0). Sandbox marcado is_test.
+  async function actionLog(o) {
+    try {
+      await db.query(
+        `INSERT INTO v3.operator_action_log
+           (person_id, person_name, action_type, source, payload, raw_text, related_event_id, is_test)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)`,
+        [o.personId || null, o.personName || null, o.actionType, o.source || 'operator_page',
+          JSON.stringify(o.payload || {}), o.rawText || null, o.relatedEventId || null, !!o.isTest]);
+    } catch (e) { console.error('[op] action_log falhou:', e.message); }
+  }
+
   // ── config público (token da página; identidade real = PIN/sessão) ──
   router.get('/op/config.js', (req, res) => {
     res.type('application/javascript').send(
@@ -110,6 +124,7 @@ function createOpRouter(deps = {}) {
       const session = await opAuth.createSession(db, { personId: person.id, ip, userAgent: req.headers['user-agent'] });
       await db.query('UPDATE v3.persons SET last_page_login_at = NOW() WHERE id = $1', [person.id]);
       await audit('op_login_success', 'person', person.id, { ip, session_id: session.id }, person.id);
+      await actionLog({ personId: person.id, personName: person.display_name, actionType: 'login', payload: { session_id: session.id }, isTest: !!person.is_sandbox });
       const forgotten = await detectForgottenOperators(person.id);
       res.json({
         session_token: session.session_token,
@@ -356,6 +371,7 @@ function createOpRouter(deps = {}) {
       await audit('event.created_via_page', 'event', starterEv.id,
         { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw, cowork_group_id: gid, cowork_size: participants.length }, s.person_id);
       await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
+      await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, cowork_with: cw, cowork_group_id: gid, note }, relatedEventId: starterEv.id, isTest: !!s.is_sandbox });
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
 
@@ -371,6 +387,7 @@ function createOpRouter(deps = {}) {
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
     await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, note }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
 
@@ -556,6 +573,7 @@ function createOpRouter(deps = {}) {
       await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
       countCreated = true;
     }
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_finish', payload: { slug: ev.slug, bottles: Number.isFinite(b) ? b : null, exception, reason, note, is_cowork: isCowork, is_last: isLast }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
 
     // ── resposta + audit por caminho ──
     if (isCowork && !isLast) {
@@ -621,6 +639,7 @@ function createOpRouter(deps = {}) {
          AND person_id <> $2 AND NOT (COALESCE(cowork_with, '{}') @> ARRAY[$2]::int[])`, [gid, s.person_id]);
     await audit('event.cowork_joined_via_page', 'event', ins.rows[0].id,
       { cowork_group_id: gid, joined_person_id: s.person_id, source_event_id: ev.id }, s.person_id);
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'cowork_join', payload: { cowork_group_id: gid, source_event_id: ev.id }, relatedEventId: ins.rows[0].id, isTest: !!s.is_sandbox });
     res.json({ ok: true, event_id: ins.rows[0].id, cowork_group_id: gid, joined: true });
   }));
 
@@ -767,6 +786,7 @@ function createOpRouter(deps = {}) {
        RETURNING id`, [s.person_id, JSON.stringify(totals), note]);
     if (!ins.rowCount) return res.status(409).json({ error: 'already_submitted', detail: 'Os totais de hoje já foram confirmados.' });
     await audit('end_of_day.submitted', 'daily_totals_log', ins.rows[0].id, { totals_keys: Object.keys(totals).length, is_test: !!s.is_sandbox }, s.person_id);
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'end_of_day', payload: { totals, general_note: note }, isTest: !!s.is_sandbox });
     // resumo no canal de produção (sandbox NÃO posta)
     if (!s.is_sandbox && slack && slack.postAs) {
       try {
@@ -826,6 +846,7 @@ function createOpRouter(deps = {}) {
        VALUES ($1, $2::timestamptz, NOW(), ROUND(EXTRACT(EPOCH FROM (NOW() - $2::timestamptz))/60)::int, $3, $4)
        RETURNING id, gap_minutes`, [s.person_id, startedAt, jtype, note.slice(0, 500)]);
     await audit('activity_gap.justified', 'activity_gap', ins.rows[0].id, { gap_minutes: ins.rows[0].gap_minutes, type: jtype, is_test: !!s.is_sandbox }, s.person_id);
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'gap_justify', payload: { gap_started_at: startedAt, gap_minutes: ins.rows[0].gap_minutes, type: jtype, note }, isTest: !!s.is_sandbox });
     res.json({ ok: true, gap_minutes: ins.rows[0].gap_minutes });
   }));
 

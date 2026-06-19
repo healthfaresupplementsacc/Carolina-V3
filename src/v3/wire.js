@@ -226,6 +226,15 @@ async function startWorker() {
     auditSilentBlocked('carolina-forgotten-dm');
   }
 
+  // FASE 1.5 — action_log APPEND-ONLY: retém 5 dias, limpa 1×/dia (só > 5 dias).
+  // NÃO toca registros recentes; é a rede de segurança de investigação.
+  setInterval(async () => {
+    try {
+      const r = await _pool.query("DELETE FROM v3.operator_action_log WHERE created_at < NOW() - INTERVAL '5 days' RETURNING id");
+      if (r.rowCount > 0) console.log('[V3] action_log cleanup: ' + r.rowCount + ' registros > 5 dias removidos');
+    } catch (e) { console.error('[V3] action_log cleanup erro:', e.message); }
+  }, 24 * 60 * 60 * 1000);
+
   // Item A — sandbox cleanup: HARD-delete dos dados de teste a cada 5s (no-op
   // barato se não houver operador sandbox). Off só via WORKER_SANDBOX_CLEANUP_ENABLED=false.
   if (process.env.WORKER_SANDBOX_CLEANUP_ENABLED !== 'false') {

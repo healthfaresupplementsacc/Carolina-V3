@@ -47,7 +47,7 @@ function makeMem() {
       { id: 39, batch_number: 'BR-2026-0190', product_id: 1, product: 'Magnesium Glycinate' },
       { id: 44, batch_number: '0200', product_id: 3, product: 'Berberine' },
     ],
-    sessions: [], events: [], counts: [], notes: [], voices: [], audits: [], notifications: [],
+    sessions: [], events: [], counts: [], notes: [], voices: [], audits: [], notifications: [], actionLog: [],
     // Passada 2 — controláveis pelos testes (defaults = sem gap, sem EOD pendente)
     eodHour: 18, eodSubmitted: false, anaActive: false, eodProducts: [],
     gapRef: null, gapMinutes: 0, dailyTotals: [], gaps: [],
@@ -63,6 +63,10 @@ function makeFakeDb(mem) {
 
       if (/INSERT INTO v3\.audit_log/.test(s)) {
         mem.audits.push({ person_id: params[0], action: params[1], target_type: params[2], target_id: params[3], metadata: JSON.parse(params[4]) });
+        return resp([]);
+      }
+      if (/INSERT INTO v3\.operator_action_log/.test(s)) {
+        mem.actionLog.push({ person_id: params[0], person_name: params[1], action_type: params[2], source: params[3], payload: JSON.parse(params[4] || '{}'), related_event_id: params[6], is_test: !!params[7] });
         return resp([]);
       }
       // ── op-auth ──
@@ -953,6 +957,27 @@ describe('op API — conta sandbox (is_test invisível)', () => {
     const sv = await login(4);
     const r = await get('/api/v3/op/active-operators', { session: sv });
     expect(r.body.operators.some((o) => o.id === 8)).toBe(false);
+  });
+});
+
+// ─── FASE 1.5: action_log (rede de segurança) ────────────────
+describe('op API — operator_action_log', () => {
+  test('login + start + finish geram registros no action_log', async () => {
+    const sv = await login(4);
+    expect(mem.actionLog.some((a) => a.action_type === 'login' && a.person_id === 4)).toBe(true);
+    const st = await post('/api/v3/op/event/start', { session: sv, body: { activity_slug: 'cleaning', note: 'teste' } });
+    const startLog = mem.actionLog.find((a) => a.action_type === 'task_start' && a.related_event_id === st.body.event.id);
+    expect(startLog).toBeTruthy();
+    expect(startLog.payload.slug).toBe('cleaning');
+    await post(`/api/v3/op/event/${st.body.event.id}/end`, { session: sv, body: { note: 'fim' } });
+    expect(mem.actionLog.some((a) => a.action_type === 'task_finish' && a.related_event_id === st.body.event.id)).toBe(true);
+  });
+  test('sandbox é logado mas marcado is_test (preservado, não some)', async () => {
+    const sb = await login(8);
+    await post('/api/v3/op/event/start', { session: sb, body: { activity_slug: 'cleaning' } });
+    const log = mem.actionLog.find((a) => a.person_id === 8 && a.action_type === 'task_start');
+    expect(log).toBeTruthy();
+    expect(log.is_test).toBe(true);
   });
 });
 

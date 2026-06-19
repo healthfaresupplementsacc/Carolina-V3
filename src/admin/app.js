@@ -37,6 +37,7 @@
     $('view-metrics').classList.toggle('hidden', v !== 'metrics');
     $('view-batches').classList.toggle('hidden', v !== 'batches');
     $('view-gaps').classList.toggle('hidden', v !== 'gaps');
+    $('view-logs').classList.toggle('hidden', v !== 'logs');
     $('view-voices').classList.toggle('hidden', v !== 'voices');
     $('view-admins').classList.toggle('hidden', v !== 'admins');
     $('view-audit').classList.toggle('hidden', v !== 'audit');
@@ -47,6 +48,7 @@
     $('tab-metrics').classList.toggle('active', v === 'metrics');
     $('tab-batches').classList.toggle('active', v === 'batches');
     $('tab-gaps').classList.toggle('active', v === 'gaps');
+    $('tab-logs').classList.toggle('active', v === 'logs');
     $('tab-voices').classList.toggle('active', v === 'voices');
     $('tab-admins').classList.toggle('active', v === 'admins');
     $('tab-audit').classList.toggle('active', v === 'audit');
@@ -79,6 +81,8 @@
   $('tab-metrics').onclick = async () => { show('metrics'); await loadMetrics(metricsSub); };
   $('tab-batches').onclick = async () => { show('batches'); await loadUnknownBatches(); };
   $('tab-gaps').onclick = async () => { show('gaps'); await loadGaps(); };
+  $('tab-logs').onclick = async () => { show('logs'); await loadActionLog(); };
+  if ($('log-apply')) $('log-apply').onclick = () => loadActionLog();
   $('tab-audit').onclick = async () => { show('audit'); auditOffset = 0; await loadAudit(false); };
   $('au-actor').onchange = async () => { auditOffset = 0; await loadAudit(false); };
   let _auDeb = null;
@@ -453,6 +457,25 @@
       const card = el('div', 'card');
       card.appendChild(el('div', 'row', `<span class="title">${g.display_name} · ${g.gap_minutes} min</span><span class="sub">${g.justification_type || '—'} · ${g.created_edt}</span>`));
       card.appendChild(el('div', 'sub', `“${g.justification_note || ''}”`));
+      box.appendChild(card);
+    });
+  }
+  // 📜 action_log: rede de segurança (5 dias). Filtra por dia + busca livre.
+  async function loadActionLog() {
+    const box = $('logs-list'); box.innerHTML = '';
+    const day = $('log-day') && $('log-day').value ? $('log-day').value : '';
+    const q = $('log-q') && $('log-q').value ? $('log-q').value.trim() : '';
+    const qs = [day ? 'day=' + day : '', q ? 'q=' + encodeURIComponent(q) : ''].filter(Boolean).join('&');
+    let r;
+    try { r = await api('/api/adminpanel/action-log' + (qs ? '?' + qs : '')); } catch (e) { box.appendChild(el('div', 'sub', '❌ ' + e.message)); return; }
+    if (!r.entries.length) { box.appendChild(el('div', 'sub', 'Nenhum registro. 🤷')); return; }
+    const ICON = { login: '🔑', task_start: '▶️', task_finish: '✅', cowork_join: '👥', gap_justify: '⏱️', end_of_day: '📊', admin_action: '🛠️', slack_message: '💬' };
+    r.entries.forEach((e) => {
+      const card = el('div', 'card');
+      const test = e.is_test ? ' <span style="color:#0a9aa6">🧪</span>' : '';
+      card.appendChild(el('div', 'row', `<span class="title">${ICON[e.action_type] || '•'} ${e.person_name || '?'} · ${e.action_type}${test}</span><span class="sub">${e.at_edt} · ${e.source}</span>`));
+      const pay = e.payload && Object.keys(e.payload).length ? JSON.stringify(e.payload) : (e.raw_text || '');
+      if (pay) card.appendChild(el('div', 'sub', `<code style="font-size:11px;word-break:break-all">${String(pay).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).slice(0, 300)}</code>`));
       box.appendChild(card);
     });
   }
