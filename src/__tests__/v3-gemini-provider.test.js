@@ -148,16 +148,17 @@ describe('getProductionProvider (flag LLM_PROVIDER)', () => {
   const OLD = process.env.LLM_PROVIDER;
   afterAll(() => { if (OLD === undefined) delete process.env.LLM_PROVIDER; else process.env.LLM_PROVIDER = OLD; });
 
-  test('default (sem env) → fallback(gemini->anthropic)', () => {
+  // ANTHROPIC OUT (FASE 0): produção é 100% Gemini, fallback DETERMINÍSTICO. Nunca Anthropic.
+  test('default (sem env) → fallback(gemini->deterministic)', () => {
     delete process.env.LLM_PROVIDER;
-    expect(getProductionProvider().name).toBe('fallback(gemini->anthropic)');
+    expect(getProductionProvider().name).toBe('fallback(gemini->deterministic)');
   });
-  test('LLM_PROVIDER=anthropic → anthropic puro (rollback 1 env)', () => {
+  test('LLM_PROVIDER=anthropic é IGNORADO → ainda Gemini (Anthropic out)', () => {
     process.env.LLM_PROVIDER = 'anthropic';
-    expect(getProductionProvider().name).toBe('anthropic');
+    expect(getProductionProvider().name).toBe('fallback(gemini->deterministic)');
   });
-  test('LLM_PROVIDER=gemini → fallback(gemini->anthropic)', () => {
+  test('LLM_PROVIDER=gemini → fallback(gemini->deterministic)', () => {
     process.env.LLM_PROVIDER = 'gemini';
-    expect(getProductionProvider().name).toBe('fallback(gemini->anthropic)');
+    expect(getProductionProvider().name).toBe('fallback(gemini->deterministic)');
   });
 });

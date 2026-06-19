@@ -124,18 +124,21 @@ function getProvider(name, opts = {}) {
 }
 
 /**
- * Provider de PRODUÇÃO conforme env (pivot 12/jun — custo):
- *   LLM_PROVIDER=gemini (default) → Gemini Flash primário com fallback
- *     automático pro Anthropic (3 falhas/5min → curto-circuito).
- *   LLM_PROVIDER=anthropic        → Anthropic puro (rollback de 1 env var).
+ * Provider de PRODUÇÃO — ANTHROPIC OUT (FASE 0, decisão Bruno): 100% Gemini.
+ *   Gemini Flash é o ÚNICO provider de LLM. Se falhar, cai pro DETERMINÍSTICO
+ *   (parsing básico, sem LLM) — NUNCA pro Anthropic (créditos esgotados quebravam
+ *   fluxos). Anthropic só é alcançável por getProvider('anthropic') explícito (testes).
+ *   `mock`/`deterministic` ainda selecionáveis via LLM_PROVIDER pra testes.
  */
 function getProductionProvider(opts = {}) {
   const FallbackProvider = require('./providers/FallbackProvider');
   const choice = String(process.env.LLM_PROVIDER || 'gemini').toLowerCase();
-  if (choice === 'anthropic') return getProvider('anthropic', opts);
+  if (choice === 'mock') return getProvider('mock', opts);
+  if (choice === 'deterministic') return getProvider('deterministic', opts);
+  // anthropic/gemini/qualquer outro → Gemini primário + fallback determinístico
   return new FallbackProvider({
     primary: getProvider('gemini', opts),
-    fallback: getProvider('anthropic', opts),
+    fallback: getProvider('deterministic', opts),
   });
 }
 
