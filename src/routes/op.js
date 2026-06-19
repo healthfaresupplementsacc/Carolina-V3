@@ -125,6 +125,8 @@ function createOpRouter(deps = {}) {
       await db.query('UPDATE v3.persons SET last_page_login_at = NOW() WHERE id = $1', [person.id]);
       await audit('op_login_success', 'person', person.id, { ip, session_id: session.id }, person.id);
       await actionLog({ personId: person.id, personName: person.display_name, actionType: 'login', payload: { session_id: session.id }, isTest: !!person.is_sandbox });
+      // FASE PAUSA: pausa não retomada que virou o dia → unfinished (nunca bloqueia login)
+      try { await expireOvernightPauses(person.id); } catch (e) { console.error('[op] expireOvernightPauses:', e.message); }
       const forgotten = await detectForgottenOperators(person.id);
       res.json({
         session_token: session.session_token,
@@ -317,6 +319,47 @@ function createOpRouter(deps = {}) {
   // slugs que exigem quantidade de ordens (Fase 0)
   const ORDERS_REQUIRED_SLUGS = new Set(['order_printing', 'order_printing_2']);
 
+  // ── FASE PAUSA — pausa congela TODOS os processos ativos do operador ──
+  const PAUSE_SLUGS = new Set(['break']); // 'break' = pausa (nota obrigatória já no NOTE_REQUIRED_SLUGS)
+  // congela: marca paused_at=NOW nos events ativos do operador (menos pausas e o
+  // próprio break). Relógio para; o tempo não conta como trabalho.
+  async function freezeActiveFor(personId, exceptEventId) {
+    await db.query(
+      `UPDATE v3.events SET paused_at = NOW(), updated_at = NOW()
+       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL
+         AND paused_at IS NULL AND is_unfinished = FALSE AND id <> $2
+         AND activity_type_id NOT IN (SELECT id FROM v3.activity_types WHERE slug = ANY($3::text[]))`,
+      [personId, exceptEventId || -1, [...PAUSE_SLUGS]]);
+  }
+  // retoma: soma o tempo pausado em total_paused_seconds e zera paused_at. O
+  // relógio volta a contar de onde parou (descontando a pausa).
+  async function resumePausedFor(personId) {
+    const r = await db.query(
+      `UPDATE v3.events
+       SET total_paused_seconds = total_paused_seconds + GREATEST(0, EXTRACT(EPOCH FROM (NOW() - paused_at))::int),
+           paused_at = NULL, updated_at = NOW()
+       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND paused_at IS NOT NULL
+       RETURNING id`, [personId]);
+    return r.rowCount;
+  }
+  // pausa não retomada que virou o dia (P-PAUSA.5): fecha o break velho e marca o
+  // trabalho congelado como is_unfinished (some das tarefas ativas; fica aberto p/
+  // outro finalizar/continuar). Roda no login. NUNCA bloqueia (try/catch no caller).
+  async function expireOvernightPauses(personId) {
+    await db.query(
+      `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'pause_expired_overnight', updated_at = NOW()
+       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL
+         AND activity_type_id IN (SELECT id FROM v3.activity_types WHERE slug = ANY($2::text[]))
+         AND (started_at AT TIME ZONE '${EDT}')::date < (NOW() AT TIME ZONE '${EDT}')::date`,
+      [personId, [...PAUSE_SLUGS]]);
+    const r = await db.query(
+      `UPDATE v3.events SET is_unfinished = TRUE, updated_at = NOW()
+       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND paused_at IS NOT NULL
+         AND (paused_at AT TIME ZONE '${EDT}')::date < (NOW() AT TIME ZONE '${EDT}')::date
+       RETURNING id`, [personId]);
+    return r.rowCount;
+  }
+
   // ── start ───────────────────────────────────────────────────
   router.post('/api/v3/op/event/start', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
@@ -372,6 +415,7 @@ function createOpRouter(deps = {}) {
         { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw, cowork_group_id: gid, cowork_size: participants.length }, s.person_id);
       await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
       await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, cowork_with: cw, cowork_group_id: gid, note }, relatedEventId: starterEv.id, isTest: !!s.is_sandbox });
+      if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, starterEv.id); // FASE PAUSA: congela o resto
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
 
@@ -388,6 +432,7 @@ function createOpRouter(deps = {}) {
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
     await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, note }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
+    if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
 
@@ -585,6 +630,10 @@ function createOpRouter(deps = {}) {
        WHERE id = $1`,
       [ev.id, note ? String(note).slice(0, 300) : null, exception, exception ? reason.slice(0, 500) : null, isCowork, isCowork && isLast]);
 
+    // FASE PAUSA: terminar a PAUSA (break) = voltar ao trabalho → descongela tudo
+    let resumedCount = 0;
+    if (PAUSE_SLUGS.has(ev.slug)) resumedCount = await resumePausedFor(s.person_id);
+
     let countCreated = false;
     if (needCount && !exception && Number.isFinite(b) && b > 0) {
       await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
@@ -619,7 +668,7 @@ function createOpRouter(deps = {}) {
     } else {
       await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null, slug: ev.slug }, s.person_id);
     }
-    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception });
+    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount });
   }));
 
   // ── join (cowork B) ─────────────────────────────────────────

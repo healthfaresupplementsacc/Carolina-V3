@@ -37,7 +37,9 @@ const EVENT_SELECT = `
          ${edtTs('e.started_at')} AS started_at_edt,
          CASE WHEN e.ended_at IS NULL THEN NULL ELSE ${edtTs('e.ended_at')} END AS ended_at_edt,
          e.cowork_with, e.cowork_group_id, e.confidence, e.is_long_running, e.closed_reason,
-         e.quantity, e.quantity_unit, e.source_message_ts, e.description
+         e.quantity, e.quantity_unit, e.source_message_ts, e.description,
+         e.paused_at, e.total_paused_seconds, e.is_unfinished,
+         (e.paused_at IS NOT NULL) AS is_paused
   FROM v3.events e
   JOIN v3.persons p ON p.id = e.person_id
   LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id

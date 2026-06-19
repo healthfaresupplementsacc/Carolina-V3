@@ -362,7 +362,8 @@
     var t = (S.myTasks || []).map(function (x) { return x.id + ':' + x.slug + ':' + (x.batch_number || ''); }).join(',');
     var tm = (S.team || []).map(function (o) { return o.id + ':' + (o.current_event_id || '') + ':' + (o.online ? 1 : 0) + ':' + (o.current_slug || '') + ':' + (o.current_batch || ''); }).join(',');
     var det = (S.emsDetected ? S.emsDetected.ems_key : '') + '|' + (S.detectBusy ? 1 : 0); // FASE FORM
-    return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0) + '|' + det;
+    var pz = (S.myTasks || []).filter(function (x) { return x.is_paused; }).length + '|' + (S.resumeBusy ? 1 : 0); // FASE PAUSA
+    return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0) + '|' + det + '|' + pz;
   }
   // FASE FORM — card de detecção passiva (SUGESTÃO, nunca obrigação — REGRA #0).
   // Aparece embaixo das tarefas quando o EMS mostra ESTE operador numa máquina.
@@ -384,6 +385,21 @@
     h += '</div>';
     return h;
   }
+  // FASE PAUSA — operador em pausa: banner com nota + "Voltar ao trabalho".
+  // Terminar a pausa descongela todos os processos (backend resumePausedFor).
+  function pauseTask() { return (S.myTasks || []).find(function (t) { return t.slug === 'break'; }) || null; }
+  function pauseBanner() {
+    var pt = pauseTask(); if (!pt) return '';
+    var note = (pt.description || '').replace(/\s*\|\s*fim:.*/i, '').trim();
+    var frozen = (S.myTasks || []).filter(function (t) { return t.is_paused; }).length;
+    var h = '<div style="background:linear-gradient(135deg,rgba(217,145,0,.16),rgba(217,145,0,.07)); border:1px solid rgba(217,145,0,.4); border-radius:20px; padding:16px 18px; display:flex; flex-direction:column; gap:12px;">';
+    h += '<div style="display:flex; align-items:center; gap:12px;"><span style="flex:none; width:46px; height:46px; border-radius:14px; background:rgba(217,145,0,.18); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:24px;">⏸️</span><div style="flex:1; min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:18px; color:#0c2545;">Você está em pausa</div>'
+      + (note ? '<div style="font-size:13.5px; color:#8a5a00; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(note) + '</div>' : '')
+      + (frozen ? '<div style="font-size:12px; color:#8a5a00; margin-top:2px;">' + frozen + ' tarefa(s) congelada(s) · o relógio parou</div>' : '') + '</div></div>';
+    h += '<button data-act="resumeWork" data-arg="' + pt.id + '" ' + (S.resumeBusy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:14px; padding:14px; background:linear-gradient(135deg,#1aa06a,#0e7a4e); color:#fff; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -16px rgba(14,122,78,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<polygon points="5 3 19 12 5 21 5 3"></polygon>', 17, 2) + (S.resumeBusy ? 'Retomando…' : 'Voltar ao trabalho') + '</button>';
+    h += '</div>';
+    return h;
+  }
   function homeInner() {
     var p = S.session.person; var ac = accent();
     var circ = 2 * Math.PI * 52; var frac = Math.min(1, S.goal ? S.completedToday / S.goal : 0);
@@ -393,6 +409,7 @@
       + '<div style="width:min(100%,1120px); margin:0 auto; display:flex; flex-direction:column; gap:clamp(16px,2vw,22px);">';
     // Item A — banner de SANDBOX (conta de teste do Bruno; tudo some em ~15s)
     if (isSandbox()) h += '<div style="display:flex; align-items:center; gap:10px; background:rgba(10,154,166,.12); border:1px solid rgba(10,154,166,.35); border-radius:16px; padding:12px 16px; color:#06707a; font-weight:700; font-size:14px;"><span style="font-size:18px;">🧪</span>Modo Sandbox · suas tarefas e contagens somem sozinhas em ~15s (nada vai pro Slack, métricas ou equipe).</div>';
+    h += pauseBanner(); // FASE PAUSA — banner "em pausa" + voltar ao trabalho
     // hero
     h += '<div style="display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
       + '<div style="min-width:0;"><div style="font-size:14px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:' + ac + '; opacity:.9;">' + esc(phaseLabel()) + ' · <span id="hf-clock">' + esc(clockNow()) + '</span></div>'
@@ -407,6 +424,15 @@
     h += '<div><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr('<path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>', 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Minhas tarefas</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
     if (!S.myTasks.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#8195ab; font-weight:500; font-size:14px;">Nenhuma tarefa aberta. Toque em Iniciar Tarefa.</div>';
     S.myTasks.forEach(function (t) {
+      if (t.slug === 'break') return; // FASE PAUSA: a pausa vive no banner, não na lista
+      // tarefa congelada (pausa ativa): relógio para, sem aging, badge "Pausada"
+      if (t.is_paused) {
+        var prodP = t.product || t.supplement || t.supplement_name || null;
+        var subP = (prodP ? prodP + (t.batch_number ? ' · ' + t.batch_number : '') : (t.batch_number || '')) || labelOf(t.slug);
+        var cardP = { display: 'flex', alignItems: 'center', gap: '14px', background: 'rgba(15,40,90,.05)', border: '1px solid rgba(15,40,90,.12)', borderLeft: '4px solid #b08400', borderRadius: '20px', padding: '15px 16px', opacity: '.78' };
+        h += '<div style="' + sty(cardP) + '"><span style="flex:none; width:46px; height:46px; border-radius:14px; background:rgba(217,145,0,.14); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:22px;">⏸️</span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:16px; color:#0c2545;">' + esc(labelOf(t.slug)) + '</div><div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(subP) + '</div><div style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11.5px; font-weight:800; color:#8a5a00; background:rgba(217,145,0,.13); padding:3px 9px; border-radius:7px;">Pausada · relógio parado</div></div></div>';
+        return;
+      }
       var a = ageState(t.started_at); var ag = AGE[a];
       var prod = t.product || t.supplement || t.supplement_name || null;
       var sub = (prod ? prod + (t.batch_number ? ' · ' + t.batch_number : '') + ' · ' : (t.batch_number ? t.batch_number + ' · ' : '')) + 'há ' + fmtDur(t.started_at);
@@ -962,7 +988,7 @@
     ]).then(function (r) {
       var mine = r[0] || { events: [] }; var ops = r[1] || { operators: [] };
       var evs = mine.events || [];
-      S.myTasks = evs.filter(function (e) { return !e.ended_at; });
+      S.myTasks = evs.filter(function (e) { return !e.ended_at && !e.is_unfinished; }); // FASE PAUSA: unfinished some
       S.completedToday = evs.filter(function (e) { return e.ended_at; }).length;
       S.goal = mine.goal || Math.max(8, evs.length);
       S.team = ops.operators || [];
@@ -1070,6 +1096,14 @@
       S.flow.viaPipeline = true; S.flow.step = 'confirm'; S._focus = null; render();
     },
     pickCatalog: function () { S.flow.viaPipeline = false; S.flow.step = 'supp'; S._focus = 'query'; render(); }, // fallback catálogo
+    // FASE PAUSA — "Voltar ao trabalho": termina a pausa → backend descongela tudo
+    resumeWork: function (id) {
+      if (S.resumeBusy) return;
+      S.resumeBusy = true; render();
+      api('/api/v3/op/event/' + id + '/end', { method: 'POST', body: {} }).then(function () {
+        S.resumeBusy = false; S.pulse = 0.8; toast('De volta ao trabalho ✓'); loadData();
+      }).catch(function () { S.resumeBusy = false; toast('Não consegui retomar — tente Finalizar a pausa'); render(); });
+    },
     // FASE FORM — 1 toque: registra a task que o EMS detectou. Tempo começa AGORA.
     registerDetected: function () {
       var d = S.emsDetected; if (!d || S.detectBusy) return;
