@@ -18,6 +18,7 @@ const REAL = [
   '/api/v3/op/products/images', '/api/v3/op/batches/recent', // Bug 2/3 (EMS enrichment)
   '/api/v3/op/end-of-day/check', '/api/v3/op/end-of-day/submit', '/api/v3/op/gap/justify', // Passada 2
   '/api/v3/op/lots/available', // FASE 4 (lista lote+produto)
+  '/api/v3/op/ems/my-activity', '/api/v3/op/ems/register-detected', // FASE FORM (detecção passiva)
   '/api/v3/architect/person/',
 ];
 
@@ -84,8 +85,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v25 network-first', () => {
-    expect(SW).toContain("'hf-op-v25'");
+  test('sw é hf-op-v26 network-first', () => {
+    expect(SW).toContain("'hf-op-v26'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

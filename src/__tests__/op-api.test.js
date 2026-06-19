@@ -356,9 +356,18 @@ function makeFakeEms() {
       { name: 'Berberine 6000mg', image_url: 'https://img/ber.jpg' },
       { name: 'Random Unrelated 100mg', image_url: 'https://img/other.jpg' },
     ]),
+    // shape REAL do EMS: pending_queue é array; formulation/production_line são
+    // objetos-de-arrays por sub-stage (não arrays planas).
     pipeline: async () => ({
-      pending_queue: [{ batch_record_number: 'BR-2026-0190', status: 'pending', target_qty_bottles: 700 }],
-      formulation: [], production_line: [],
+      pending_queue: [{ batch_record_number: 'BR-2026-0190', status: 'pending', target_qty_bottles: 700, product: { name: 'Plant Sterols' } }],
+      formulation: {
+        weighing: [{ batch_record_number: 'BR-2026-0218', status: 'weighing', product: { name: 'Plant Sterols' } }],
+        encapsulating: [{ batch_record_number: 'BR-2026-0223', status: 'encapsulating', product: { name: 'Glutathione 1000mg' } }],
+        blended: [{ batch_record_number: 'BR-2026-0230', status: 'blended', product: { name: 'Magnesium Glycinate 400mg' } }],
+      },
+      production_line: {
+        yield_review: [{ batch_record_number: 'BR-2026-0166', status: 'yield_review', target_qty_bottles: 650, queue_position: 1, product: { name: 'Berberine 6000mg' } }],
+      },
     }),
   };
 }
@@ -936,6 +945,41 @@ describe('op API — lots/available (FASE 4)', () => {
     expect(r.body.lots.length).toBeGreaterThanOrEqual(1);
     expect(r.body.lots[0]).toHaveProperty('batch_number');
     expect(r.body.lots[0]).toHaveProperty('stage');
+    expect(r.body.ems_stale).toBe(false);
+  });
+  test('production_line lê objeto-por-stage (dívida): pega yield_review + fila + formulação', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=production_line', { session: sv });
+    const bns = r.body.lots.map((l) => l.batch_number);
+    expect(bns).toContain('BR-2026-0166'); // production_line.yield_review (era invisível antes do fix)
+    expect(bns).toContain('BR-2026-0190'); // pending_queue
+    expect(r.body.lots.find((l) => l.batch_number === 'BR-2026-0166').stage).toBe('yield_review');
+  });
+  test('FASE FORM: weighing filtra só batches em pesagem/fila', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=weighing', { session: sv });
+    const bns = r.body.lots.map((l) => l.batch_number);
+    expect(bns).toContain('BR-2026-0218'); // weighing
+    expect(bns).toContain('BR-2026-0190'); // pending
+    expect(bns).not.toContain('BR-2026-0223'); // encapsulating → fora
+    expect(bns).not.toContain('BR-2026-0166'); // yield_review → fora
+  });
+  test('FASE FORM: encapsulation filtra só batches encapsulando', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=encapsulation', { session: sv });
+    const bns = r.body.lots.map((l) => l.batch_number);
+    expect(bns).toContain('BR-2026-0223'); // encapsulating
+    expect(bns).not.toContain('BR-2026-0218'); // weighing → fora
+  });
+  test('FASE FORM: mixing pega blended', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=mixing', { session: sv });
+    expect(r.body.lots.map((l) => l.batch_number)).toContain('BR-2026-0230');
+  });
+  test('slug sem lista EMS (ex: cleaning) → lots vazio (frontend usa catálogo)', async () => {
+    const sv = await login(4);
+    const r = await get('/api/v3/op/lots/available?slug=cleaning', { session: sv });
+    expect(r.body.lots).toEqual([]);
     expect(r.body.ems_stale).toBe(false);
   });
   test('EMS fora do ar → lots vazio + ems_stale (frontend cai pro catálogo)', async () => {

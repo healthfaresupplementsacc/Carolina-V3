@@ -361,7 +361,28 @@
   function homeKey() {
     var t = (S.myTasks || []).map(function (x) { return x.id + ':' + x.slug + ':' + (x.batch_number || ''); }).join(',');
     var tm = (S.team || []).map(function (o) { return o.id + ':' + (o.current_event_id || '') + ':' + (o.online ? 1 : 0) + ':' + (o.current_slug || '') + ':' + (o.current_batch || ''); }).join(',');
-    return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0);
+    var det = (S.emsDetected ? S.emsDetected.ems_key : '') + '|' + (S.detectBusy ? 1 : 0); // FASE FORM
+    return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0) + '|' + det;
+  }
+  // FASE FORM — card de detecção passiva (SUGESTÃO, nunca obrigação — REGRA #0).
+  // Aparece embaixo das tarefas quando o EMS mostra ESTE operador numa máquina.
+  // 1 toque cria a task com tempo do TOQUE. Some quando registra ou some do EMS.
+  function emsDetectCard() {
+    var d = S.emsDetected; if (!d) return '';
+    var stTxt = STAGE_PT[d.stage] || d.stage || '';
+    var line2 = [d.machine, d.product_name, d.batch_number].filter(Boolean).map(esc).join(' · ');
+    var fb = svgr('<rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path>', 18, 1.8);
+    var thumb = d.product_image
+      ? '<span style="flex:none; width:42px; height:42px; border-radius:12px; background:rgba(15,40,90,.07); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; color:#1f5fd0;"><span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">' + fb + '</span><img src="' + esc(d.product_image) + '" loading="lazy" width="38" height="38" alt="" style="position:relative; width:38px; height:38px; object-fit:contain;" onerror="this.style.display=\'none\'"></span>'
+      : '<span style="flex:none; width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:rgba(47,122,224,.12); color:#1f5fd0;">🏭</span>';
+    var h = '<div style="background:linear-gradient(135deg,rgba(47,122,224,.09),rgba(47,122,224,.04)); border:1px solid rgba(47,122,224,.28); border-radius:20px; padding:15px 16px; display:flex; flex-direction:column; gap:11px;">';
+    h += '<div style="display:flex; align-items:center; gap:12px;">' + thumb + '<div style="flex:1; min-width:0;"><div style="font-size:12px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:#1f5fd0;">🏭 O EMS mostra você trabalhando</div>'
+      + '<div style="font-weight:700; font-size:15px; color:#0c2545; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + (line2 || '—') + '</div>'
+      + (stTxt ? '<div style="font-size:12.5px; color:#5a6e87; margin-top:1px;">' + esc(stTxt) + '</div>' : '') + '</div></div>';
+    h += '<button data-act="registerDetected" ' + (S.detectBusy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:14px; padding:13px; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -16px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 18, 2.4) + (S.detectBusy ? 'Registrando…' : 'Registrar tarefa') + '</button>';
+    h += '<div style="font-size:11px; color:#8195ab; text-align:center;">Sugestão do EMS — o tempo começa quando você tocar. Pode ignorar.</div>';
+    h += '</div>';
+    return h;
   }
   function homeInner() {
     var p = S.session.person; var ac = accent();
@@ -395,6 +416,7 @@
         + (a !== 'ok' ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11.5px; font-weight:800; color:' + ag.ico + '; background:' + (a === 'over' ? 'rgba(192,53,43,.1)' : 'rgba(217,145,0,.13)') + '; padding:3px 9px 3px 7px; border-radius:7px;"><span style="width:7px; height:7px; border-radius:50%; background:' + ag.ico + ';' + (a === 'over' ? 'animation:hfPulse 1.4s ease-in-out infinite;' : '') + '"></span>' + esc(ag.badge) + '</div>' : '')
         + '</div><button data-act="finish" data-arg="' + t.id + '" style="flex:none; border:0; cursor:pointer; border-radius:14px; padding:13px 18px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-weight:700; font-size:14px; box-shadow:0 12px 26px -14px rgba(179,38,30,.7); display:flex; align-items:center; gap:7px;">' + svgr(CHECK, 17, 2.4) + 'Finalizar</button></div>';
     });
+    h += emsDetectCard(); // FASE FORM — sugestão passiva: EMS mostra o operador numa máquina
     h += '</div></div>';
     h += '<div><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr(PEOPLE, 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Equipe agora</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
     var others = (S.team || []).filter(function (o) { return o.id !== p.id && o.current_event_id; });
@@ -502,8 +524,13 @@
     });
     h += '</div><div style="display:flex; gap:11px; margin-top:22px;">' + backBtn() + '</div>'; return h;
   }
-  // FASE 4 — Step PIPELINE-LIST: lista LOTE+PRODUTO do EMS (production_line + revisão)
-  var STAGE_PT = { encapsulated: 'Encapsulado', encapsulating: 'Encapsulando', ready_for_line: 'Pronto p/ linha', on_line: 'Na linha', yield_review: 'Conferência', to_count: 'A contar', to_separate: 'A separar', label_printing: 'Imprimindo label', pending: 'Na fila', weighing: 'Pesagem', blending: 'Mistura' };
+  // FASE 4 + FASE FORM — Step PIPELINE-LIST: lista LOTE+PRODUTO do EMS.
+  // Slugs que usam a lista do EMS (vs catálogo direto): linha/revisão +
+  // formulação (pesagem/mistura/encapsulação). Cada um filtra os sub-stages
+  // certos no backend (/lots/available). Lista vazia → cai pro catálogo.
+  var LOT_LIST_SLUGS = { production_line: 1, review: 1, weighing: 1, mixing: 1, encapsulation: 1 };
+  function usesLotList(slug) { return !!LOT_LIST_SLUGS[slug]; }
+  var STAGE_PT = { encapsulated: 'Encapsulado', encapsulating: 'Encapsulando', ready_for_line: 'Pronto p/ linha', on_line: 'Na linha', yield_review: 'Conferência', to_count: 'A contar', to_separate: 'A separar', label_printing: 'Imprimindo label', pending: 'Na fila', weighing: 'Pesagem', weighed: 'Pesado', blending: 'Mistura', blended: 'Misturado' };
   function flowPipeline() {
     var lots = S.flow.lots; // null=carregando, []=nenhum
     var q = (S.flow.lotQuery || '').trim().toLowerCase();
@@ -746,7 +773,13 @@
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(47,122,224,.12); color:#1f5fd0; display:flex; align-items:center; justify-content:center;">' + svgr(PEOPLE, 26, 1.8) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Terminar sua parte</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + (rem ? ' · ' + rem + ' colega(s) ainda na tarefa' : '') + '</div>' : '') + '</div></div>';
     h += '<div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Nota da sua parte (opcional)</div>';
     h += '<textarea data-input="finNote" placeholder="Observações (opcional)…" style="width:100%; min-height:72px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
-    h += '<div style="display:flex; align-items:center; gap:8px; margin-top:12px; background:rgba(47,122,224,.07); border-left:3px solid #1f5fd0; padding:12px; border-radius:12px; font-size:12.5px; color:#42566f; font-weight:600;">' + svgr(PEOPLE, 16, 2) + 'Quem terminar por último vai informar o total de bottles do grupo.</div>';
+    // FASE FIX: a mensagem "último informa contagem do grupo" SÓ aparece se a task
+    // do cowork pede contagem — bottles p/ produção, ordens p/ P&P. Cowork de
+    // limpeza/formulação/etc NÃO mostra (não há contagem a informar).
+    var coworkCountMsg = '';
+    if (o.slug === 'production_line' || o.requiresBottleCount) coworkCountMsg = 'Quem terminar por último vai informar o total de bottles do grupo.';
+    else if (o.needsOrders) coworkCountMsg = 'Quem terminar por último vai informar o total de ordens do grupo.';
+    if (coworkCountMsg) h += '<div style="display:flex; align-items:center; gap:8px; margin-top:12px; background:rgba(47,122,224,.07); border-left:3px solid #1f5fd0; padding:12px; border-radius:12px; font-size:12.5px; color:#42566f; font-weight:600;">' + svgr(PEOPLE, 16, 2) + coworkCountMsg + '</div>';
     h += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.6; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 19, 2.6) + 'Terminei minha parte</button></div>';
     h += '</div>';
     return h;
@@ -925,6 +958,7 @@
     return Promise.all([
       api('/api/v3/architect/person/' + S.session.person.id + '/today', { headers: { 'X-Operator-Id': String(S.session.person.id) } }).catch(function () { return { events: [] }; }),
       api('/api/v3/op/active-operators').catch(function () { return { operators: [] }; }),
+      api('/api/v3/op/ems/my-activity').catch(function () { return { detected: null }; }), // FASE FORM: detecção passiva
     ]).then(function (r) {
       var mine = r[0] || { events: [] }; var ops = r[1] || { operators: [] };
       var evs = mine.events || [];
@@ -932,6 +966,7 @@
       S.completedToday = evs.filter(function (e) { return e.ended_at; }).length;
       S.goal = mine.goal || Math.max(8, evs.length);
       S.team = ops.operators || [];
+      S.emsDetected = (r[2] && r[2].detected) || null;
       render();
     });
   }
@@ -1006,7 +1041,7 @@
     cancelFlow: function () { S.flow = null; render(); },
     flowBack: function () {
       var f = S.flow; if (!f) return;
-      var isPipe = (f.slug === 'production_line' || f.slug === 'review');
+      var isPipe = usesLotList(f.slug);
       if (f.step === 'type') f.step = 'group';
       else if (f.step === 'pipeline') f.step = 'type';
       else if (f.step === 'supp') f.step = isPipe ? 'pipeline' : 'type'; // catálogo volta pra lista EMS
@@ -1020,8 +1055,9 @@
     quickLunch: function (slug) { S.flow.slug = slug; S.flow.requires_product = false; S.flow.step = 'confirm'; render(); },
     pickType: function (slug) {
       var m = typeMeta(slug); S.flow.slug = slug; S.flow.requires_product = !!m.requires_product; S.flow.viaPipeline = false;
-      // FASE 4 — production_line/revisão: lista LOTE+PRODUTO do EMS (não pede suplemento)
-      if (slug === 'production_line' || slug === 'review') {
+      // FASE 4 + FASE FORM — linha/revisão/formulação: lista LOTE+PRODUTO do EMS
+      // (não pede suplemento direto; lista vazia → operador usa o catálogo).
+      if (usesLotList(slug)) {
         S.flow.step = 'pipeline'; S.flow.lots = null; S.flow.lotQuery = ''; S._focus = 'lotQuery'; render();
         loadAvailableLots(slug); return;
       }
@@ -1034,6 +1070,20 @@
       S.flow.viaPipeline = true; S.flow.step = 'confirm'; S._focus = null; render();
     },
     pickCatalog: function () { S.flow.viaPipeline = false; S.flow.step = 'supp'; S._focus = 'query'; render(); }, // fallback catálogo
+    // FASE FORM — 1 toque: registra a task que o EMS detectou. Tempo começa AGORA.
+    registerDetected: function () {
+      var d = S.emsDetected; if (!d || S.detectBusy) return;
+      S.detectBusy = true; render();
+      api('/api/v3/op/ems/register-detected', { method: 'POST', body: { ems_key: d.ems_key } }).then(function () {
+        S.detectBusy = false; S.emsDetected = null; toast('Tarefa registrada ✓'); loadData();
+      }).catch(function (e) {
+        S.detectBusy = false;
+        var code = (e && e.body && e.body.error) || ''; // api() põe detail em e.message; code em e.body.error
+        if (code === 'not_detected') { S.emsDetected = null; toast('O EMS não mostra mais essa atividade.'); }
+        else toast('Não consegui registrar. Tente Iniciar Tarefa.');
+        render();
+      });
+    },
     setLotQuery: function () {},
     pickSupp: function (name, el) {
       S.flow.supplement = name;

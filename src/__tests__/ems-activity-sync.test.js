@@ -36,6 +36,21 @@ describe('EmsActivitySync.extract', () => {
     expect(w.extract(null, null)).toEqual([]);
     expect(w.extract({ equipment: [] }, { formulation: [], production_line: [] })).toEqual([]);
   });
+  test('pipeline OBJETO-por-stage (shape real EMS) é achatado, não ignorado', () => {
+    // EMS real: formulation/production_line são objetos {stage:[...]}, não arrays.
+    const pipelineObj = {
+      formulation: {
+        encapsulating: [{ id: 'b9', batch_record_number: 'BR-2026-0301', status: 'encapsulating', product: { name: 'Magnesium' }, operator: { name: 'Vitor' }, created_at: '2026-06-18T20:00:00Z' }],
+        weighing: [{ id: 'b10', batch_record_number: 'BR-2026-0302', operator: null }], // sem operador → ignora
+      },
+      production_line: { yield_review: [{ id: 'b11', batch_record_number: 'BR-2026-0303', status: 'yield_review', product: { name: 'Zinc' }, operator: { name: 'Bruno Sarmento' }, created_at: '2026-06-18T20:00:00Z' }] },
+    };
+    const acts = w.extract({ equipment: [] }, pipelineObj);
+    expect(acts).toHaveLength(2);
+    expect(acts.map((a) => a.batch_number).sort()).toEqual(['BR-2026-0301', 'BR-2026-0303']);
+    expect(acts.find((a) => a.batch_number === 'BR-2026-0301').process_type).toBe('encapsulation');
+    expect(acts.find((a) => a.batch_number === 'BR-2026-0303').process_type).toBe('production_line');
+  });
 });
 
 describe('EmsActivitySync._sync (upsert + stale)', () => {

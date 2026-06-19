@@ -694,12 +694,32 @@ function createOpRouter(deps = {}) {
       return data;
     } catch (e) { console.error('[op] EMS pipeline falhou:', e.message); return emsCache.pipeline.val; }
   }
+  // FASE 4 (dívida): no EMS, `pending_queue` é ARRAY, mas `formulation` e
+  // `production_line` são OBJETOS-de-arrays por sub-stage
+  // ({ yield_review:[...], encapsulating:[...], blended:[...] }). flattenStage
+  // normaliza ambos numa lista única; se o batch não traz `status`, herda a
+  // chave do sub-stage (ex.: 'encapsulating'). Sem isso, ler `pl.production_line`
+  // como array volta vazio (bug latente apontado no estudo EMS §7).
+  function flattenStage(node) {
+    if (Array.isArray(node)) return node.slice();
+    if (node && typeof node === 'object') {
+      const out = [];
+      for (const sub of Object.keys(node)) {
+        const arr = node[sub];
+        if (Array.isArray(arr)) for (const b of arr) {
+          if (b && typeof b === 'object') out.push(b.status ? b : Object.assign({}, b, { status: sub }));
+        }
+      }
+      return out;
+    }
+    return [];
+  }
   // todos os batches do pipeline (pending + formulation + production_line), por nº
   function pipelineBatchMap(pl) {
     const m = new Map();
     if (!pl) return m;
     ['pending_queue', 'formulation', 'production_line'].forEach((k) => {
-      (Array.isArray(pl[k]) ? pl[k] : []).forEach((b) => {
+      flattenStage(pl[k]).forEach((b) => {
         const bn = b && (b.batch_record_number || b.batch_number);
         if (bn) m.set(String(bn).toUpperCase(), { status: b.status || k, target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null, actual_bottles: b.actual_yield_bottles != null ? b.actual_yield_bottles : null });
       });
@@ -762,21 +782,33 @@ function createOpRouter(deps = {}) {
     res.json({ product_id: pid, batches });
   }));
 
-  // ── FASE 4: lotes disponíveis no EMS pra production_line/revisão ──
-  // Lê do pipeline EMS (cache 30s). production_line slug → lotes em formação/na
-  // linha/fila; review → lotes na linha (revisão acontece neles). EMS down/vazio →
-  // { lots:[], ems_stale } → frontend cai pro catálogo (REGRA #0, nunca bloqueia).
+  // ── FASE 4 + FASE FORM: lotes disponíveis no EMS por tipo de tarefa ──
+  // Lê do pipeline EMS (cache 30s). Cada slug que usa a lista mapeia pros grupos
+  // do pipeline + (opcional) sub-stages relevantes (P-F.2: weighing↔weighing,
+  // mixing↔blending, encapsulation↔encapsulating). Slug sem mapa → lots:[] →
+  // frontend cai pro catálogo (REGRA #0, nunca bloqueia).
+  const LOT_SLUG_STAGES = {
+    production_line: { groups: ['production_line', 'pending_queue', 'formulation'], stages: null },
+    review: { groups: ['production_line'], stages: null },
+    weighing: { groups: ['formulation', 'pending_queue'], stages: ['weighing', 'weighed', 'pending'] },
+    mixing: { groups: ['formulation'], stages: ['blending', 'blended', 'mixing'] },
+    encapsulation: { groups: ['formulation', 'production_line'], stages: ['encapsulating', 'encapsulated'] },
+  };
   router.get('/api/v3/op/lots/available', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
     const slug = String(req.query.slug || '');
+    const cfg = LOT_SLUG_STAGES[slug];
+    if (!cfg) return res.json({ lots: [], ems_stale: false }); // sem lista EMS p/ esse slug → catálogo
     const pl = await emsPipeline();
     if (!pl) return res.json({ lots: [], ems_stale: true });
-    const groups = slug === 'review' ? ['production_line'] : ['production_line', 'pending_queue', 'formulation'];
+    const stageSet = cfg.stages ? new Set(cfg.stages) : null;
     const seen = new Set(); const lots = [];
-    groups.forEach((g) => {
-      (Array.isArray(pl[g]) ? pl[g] : []).forEach((b) => {
+    cfg.groups.forEach((g) => {
+      flattenStage(pl[g]).forEach((b) => {
         const bn = b && (b.batch_record_number || b.batch_number);
-        if (!bn || seen.has(bn)) return; seen.add(bn);
+        if (!bn || seen.has(bn)) return;
+        if (stageSet && !stageSet.has(b.status)) return; // filtra por sub-stage relevante
+        seen.add(bn);
         lots.push({
           batch_number: bn,
           product_name: (b.product && b.product.name) || (b.formula && b.formula.name) || null,
@@ -792,6 +824,101 @@ function createOpRouter(deps = {}) {
     // production_line primeiro, depois fila por posição
     lots.sort((a, b2) => (a.group === 'production_line' ? -1 : 1) - (b2.group === 'production_line' ? -1 : 1) || (a.queue_position || 99) - (b2.queue_position || 99));
     res.json({ lots, ems_stale: false });
+  }));
+
+  // ════════════════════════════════════════════════════════════
+  // FASE FORM — detecção passiva: o EMS mostra o operador numa máquina
+  // ════════════════════════════════════════════════════════════
+  // Mapeia o sub-stage do EMS pro slug de atividade do tracker (≠ process_type,
+  // que é genérico). Tempo SEMPRE do toque do operador, NUNCA do in_use_since.
+  const EMS_STAGE_TO_SLUG = {
+    weighing: 'weighing', weighed: 'weighing',
+    blending: 'mixing', blended: 'mixing',
+    encapsulating: 'encapsulation', encapsulated: 'encapsulation',
+    yield_review: 'production_line', to_count: 'production_line', label_printing: 'production_line',
+    finalized: 'production_line', on_line: 'production_line', ready_for_line: 'production_line',
+    to_separate: 'review',
+  };
+  // o que o EMS mostra ESTE operador fazendo agora (numa máquina) — base do card
+  // sugestivo de 1 toque. Só ativo + recente (worker 45s) + máquina atribuída +
+  // não-preso (>24h, quirk in_use_since) + sem event já aberto pro mesmo lote.
+  // operator==null (fila/pesagem sem máquina) não entra (machine IS NOT NULL).
+  async function detectedForPerson(personId) {
+    const r = await db.query(
+      `SELECT ems_key, machine, machine_type, stage, process_type, supplement_name,
+              batch_number, formula_code, product_image, started_at
+       FROM v3.ems_activity_cache
+       WHERE tracker_person_id = $1
+         AND sync_status = 'active'
+         AND machine IS NOT NULL
+         AND last_synced_at > NOW() - INTERVAL '3 minutes'
+         AND (started_at IS NULL OR started_at > NOW() - INTERVAL '24 hours')
+       ORDER BY last_synced_at DESC
+       LIMIT 1`, [personId]);
+    const d = r.rows[0];
+    if (!d) return null;
+    if (d.batch_number) { // já tem event aberto pro lote? então já registrou → não sugere
+      const open = await db.query(
+        `SELECT 1 FROM v3.events e
+         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
+           AND (pb.batch_number = $2 OR pb.batch_number = 'BR-2026-' || $2)
+         LIMIT 1`, [personId, d.batch_number]);
+      if (open.rowCount) return null;
+    }
+    return {
+      ems_key: d.ems_key, machine: d.machine, stage: d.stage,
+      slug: EMS_STAGE_TO_SLUG[d.stage] || 'production_line',
+      product_name: d.supplement_name || null, batch_number: d.batch_number || null,
+      formula_code: d.formula_code || null, product_image: d.product_image || null,
+    };
+  }
+  router.get('/api/v3/op/ems/my-activity', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    try { res.json({ detected: await detectedForPerson(s.person_id) }); }
+    catch (e) { console.error('[op] my-activity erro:', e.message); res.json({ detected: null }); }
+  }));
+
+  // resolve product_id LOCAL por nome (best-effort) pra vincular o lote do EMS.
+  async function productIdByName(name) {
+    if (!name) return null;
+    try {
+      const locals = (await db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true')).rows;
+      const target = norm(name); if (!target) return null;
+      let hit = locals.find((p) => norm(p.canonical_name) === target);
+      if (!hit) hit = locals.find((p) => [p.canonical_name].concat(p.aliases || []).some((a) => norm(a) === target));
+      if (!hit) hit = locals.find((p) => { const n = norm(p.canonical_name); return n && target.length >= 5 && (n.indexOf(target) >= 0 || target.indexOf(n) >= 0); });
+      return hit ? hit.id : null;
+    } catch (e) { return null; }
+  }
+  // 1 toque "Registrar tarefa" → cria event com produto+lote+stage do EMS,
+  // started_at = AGORA (toque). NUNCA in_use_since. Revalida via detectedForPerson
+  // (anti-fantasma): só cria se o EMS AINDA mostra essa atividade.
+  router.post('/api/v3/op/ems/register-detected', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const emsKey = String((req.body && req.body.ems_key) || '');
+    if (!emsKey) return res.status(400).json({ error: 'ems_key_required' });
+    const det = await detectedForPerson(s.person_id);
+    if (!det || det.ems_key !== emsKey) return res.status(409).json({ error: 'not_detected', detail: 'O EMS não mostra mais essa atividade.' });
+    const act = await resolveActivity(det.slug) || await resolveActivity('production_line');
+    if (!act) return res.status(400).json({ error: 'unknown_activity_slug', slug: det.slug });
+    const pid = await productIdByName(det.product_name);
+    const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(det.batch_number, pid, s.person_id);
+    let desc = '[detecção EMS: ' + (det.machine || '?') + (det.stage ? ' · ' + det.stage : '') + ']';
+    if (typedUnlinked) desc += ' [lote ' + typedUnlinked + ' — produto não identificado]';
+    const ins = await db.query(
+      `INSERT INTO v3.events
+         (person_id, activity_type_id, product_batch_id, started_at, description,
+          confidence, source, is_test)
+       VALUES ($1, $2, $3, NOW(), $4, 'high', 'ems_passive_detect', $5)
+       RETURNING id, person_id, activity_type_id, product_batch_id, started_at`,
+      [s.person_id, act.id, batch ? batch.id : null, desc.slice(0, 500), !!s.is_sandbox]);
+    const ev = ins.rows[0];
+    await audit('event.created_via_ems_detect', 'event', ev.id,
+      { slug: act.slug, batch: batch ? batch.batch_number : null, ems_key: emsKey, machine: det.machine, stage: det.stage }, s.person_id);
+    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: det.batch_number, body: { product_name: det.product_name }, slug: act.slug, s });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start_ems_detect', payload: { slug: act.slug, batch_number: det.batch_number, ems_key: emsKey, machine: det.machine, stage: det.stage }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
+    res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : det.product_name || null } });
   }));
 
   // ════════════════════════════════════════════════════════════

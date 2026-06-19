@@ -16,6 +16,24 @@ const STAGE_TO_PROCESS = {
 };
 const MACHINE_TO_PROCESS = { blender: 'mixing', capsule_machine: 'encapsulation', tablet_machine: 'encapsulation', scale: 'formulation' };
 
+// EMS: pending_queue é array; formulation/production_line são objetos-de-arrays
+// por sub-stage. Normaliza ambos numa lista; herda a chave do sub-stage como
+// status quando o batch não traz status próprio.
+function flattenStage(node) {
+  if (Array.isArray(node)) return node.slice();
+  if (node && typeof node === 'object') {
+    const out = [];
+    for (const sub of Object.keys(node)) {
+      const arr = node[sub];
+      if (Array.isArray(arr)) for (const b of arr) {
+        if (b && typeof b === 'object') out.push(b.status ? b : Object.assign({}, b, { status: sub }));
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
 class EmsActivitySync {
   constructor(deps = {}) {
     this.db = deps.db;
@@ -54,7 +72,11 @@ class EmsActivitySync {
     });
     const groups = ['formulation', 'production_line'];
     if (pipeline) groups.forEach((g) => {
-      (Array.isArray(pipeline[g]) ? pipeline[g] : []).forEach((b) => {
+      // EMS entrega formulation/production_line como OBJETO-por-stage
+      // ({yield_review:[...], encapsulating:[...]}), não array plana — flatten
+      // (mesma dívida do /lots/available). Sem isso, o path batch-operador
+      // ficava morto e o cache só pegava máquinas.
+      flattenStage(pipeline[g]).forEach((b) => {
         if (!b.operator || !b.operator.name) return; // só batches COM alguém trabalhando
         out.push({
           ems_key: b.id + ':' + (b.status || g),
@@ -133,4 +155,4 @@ class EmsActivitySync {
     } finally { this._ticking = false; }
   }
 }
-module.exports = { EmsActivitySync, STAGE_TO_PROCESS };
+module.exports = { EmsActivitySync, STAGE_TO_PROCESS, flattenStage };
