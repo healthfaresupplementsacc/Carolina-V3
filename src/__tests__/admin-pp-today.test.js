@@ -51,4 +51,13 @@ describe('FASE 6 — P&P do dia', () => {
     nyMin = 12 * 60 + 40; await boot();
     expect((await get()).body.cutoff_color).toBe('yellow');
   });
+  test('?date passado (ontem) → is_past=true, sem corte 1pm, mas mostra as ordens', async () => {
+    nyMin = 600; await boot();
+    const r = await fetch(base + '/api/adminpanel/metrics/pp-today?date=2020-01-02', { headers: { Authorization: 'Bearer ' + token } });
+    const b = await r.json();
+    expect(b.is_past).toBe(true);
+    expect(b.date).toBe('2020-01-02');
+    expect(b.cutoff_color).toBe(null); // dia passado não tem "corte"
+    expect(b.total_orders).toBe(48); // ordens do dia aparecem (fake-db)
+  });
 });

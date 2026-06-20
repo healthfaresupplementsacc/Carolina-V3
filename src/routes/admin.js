@@ -886,8 +886,10 @@ function createAdminRouter(deps = {}) {
       `SELECT
          (SELECT COALESCE(SUM(bottles),0)::int FROM v3.production_counts
             WHERE deleted_at IS NULL AND kind = 'bottles' AND production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS bottles_today,
-         (SELECT COALESCE(SUM(orders_printed),0)::int FROM v3.events
-            WHERE deleted_at IS NULL AND (started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS orders_today,
+         (SELECT COALESCE(SUM(pc.bottles),0)::int FROM v3.production_counts pc
+            JOIN v3.events e2 ON e2.id = pc.source_event_id
+            JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id AND at2.counts_as_pp = true
+            WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND pc.production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS orders_today,
          (SELECT COALESCE(ROUND(SUM(GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(ended_at,NOW())-started_at)) - COALESCE(total_paused_seconds,0)))/3600.0,1),0) FROM v3.events
             WHERE deleted_at IS NULL AND is_long_running=false AND (started_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date) AS hours_today`);
     const openLong = await db.query(
@@ -1075,7 +1077,10 @@ function createAdminRouter(deps = {}) {
   // NÃO entram). Tempo desconta pausas (WORK_SEC). seg/ordem, breakdown marketplace
   // + operador, corte 1pm (verde<12:30 / amarelo / vermelho>13h c/ tasks abertas).
   router.get('/api/adminpanel/metrics/pp-today', h(async (req, res) => {
-    const today = `(NOW() AT TIME ZONE '${EDT}')::date`;
+    // ?date=YYYY-MM-DD (default hoje) — permite ver ONTEM (ex.: P&P do dia 19).
+    const rawDate = req.query.date;
+    const isPast = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && rawDate !== new Date().toLocaleDateString('en-CA', { timeZone: EDT });
+    const today = isPast ? `'${rawDate}'::date` : `(NOW() AT TIME ZONE '${EDT}')::date`;
     const ppJoin = `JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.counts_as_pp = true`;
     const [tot, byMkt, byOp, time, openT, nowR] = await Promise.all([
       db.query(`SELECT COALESCE(SUM(pc.bottles),0)::int AS orders, COUNT(DISTINCT e.id)::int AS tasks
@@ -1099,18 +1104,23 @@ function createAdminRouter(deps = {}) {
     const workSec = time.rows[0].work_sec;
     const openTasks = openT.rows[0].n;
     const nyMin = nowR.rows[0].ny_min;
-    // corte 1pm: verde até 12:30; vermelho depois das 13h SE ainda há P&P aberto; senão amarelo
-    let cutoff = 'green';
-    if (nyMin > 13 * 60) cutoff = openTasks > 0 ? 'red' : 'yellow';
-    else if (nyMin >= 12 * 60 + 30) cutoff = 'yellow';
+    // corte 1pm só faz sentido HOJE; em data passada não há "corte" (cutoff null).
+    let cutoff = null;
+    if (!isPast) {
+      cutoff = 'green';
+      if (nyMin > 13 * 60) cutoff = openTasks > 0 ? 'red' : 'yellow';
+      else if (nyMin >= 12 * 60 + 30) cutoff = 'yellow';
+    }
     res.json({
+      date: isPast ? rawDate : new Date().toLocaleDateString('en-CA', { timeZone: EDT }),
+      is_past: !!isPast,
       total_orders: orders,
       total_tasks: tot.rows[0].tasks,
       work_seconds: workSec,
       sec_per_order: orders > 0 ? Math.round(workSec / orders) : null,
       by_marketplace: byMkt.rows,
       by_operator: byOp.rows,
-      open_pp_tasks: openTasks,
+      open_pp_tasks: isPast ? 0 : openTasks,
       cutoff_color: cutoff,
       ny_min: nyMin,
     });

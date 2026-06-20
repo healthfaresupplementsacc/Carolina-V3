@@ -581,6 +581,32 @@
     const c = $('metrics-content'); c.innerHTML = '<div class="sub">carregando…</div>';
     try { await M_RENDER[metricsSub](c); } catch (e) { c.innerHTML = ''; c.appendChild(el('div', 'err', e.message)); }
   }
+  // FASE 6 (P6.3) — card "P&P" navegável (Ontem/Hoje). Lê pp-today?date=.
+  async function renderPpCard(box, dateStr) {
+    box.innerHTML = '<div class="sub">carregando P&P…</div>';
+    let pp; try { pp = await api('/api/adminpanel/metrics/pp-today' + (dateStr ? '?date=' + dateStr : '')); } catch (e) { box.innerHTML = ''; return; }
+    if (!pp) { box.innerHTML = ''; return; }
+    const COL = { green: '#0e7a4e', yellow: '#b35c00', red: '#b3261e' };
+    const cut = pp.cutoff_color ? (COL[pp.cutoff_color] || '#5a6e87') : '#5a6e87';
+    const secO = pp.sec_per_order != null ? pp.sec_per_order + 's/ordem' : '—';
+    const mins = Math.round((pp.work_seconds || 0) / 60);
+    const yStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    box.innerHTML = '';
+    const card = el('div', 'card'); card.style.borderLeft = '4px solid ' + cut;
+    const cutTxt = pp.cutoff_color ? `corte 1pm: ${pp.cutoff_color.toUpperCase()}${pp.open_pp_tasks ? ' · ' + pp.open_pp_tasks + ' aberta(s)' : ''}` : '';
+    let html = `<div class="row"><span class="title">📦 P&P · ${pp.is_past ? pp.date : 'hoje'}</span><span class="sub" style="color:${cut};font-weight:700;">${cutTxt}</span></div>`;
+    html += `<div class="sub">${Number(pp.total_orders).toLocaleString('pt-BR')} ordens · ${mins}min · ${secO} · ${pp.total_tasks} tarefa(s) — clínica NÃO conta</div>`;
+    if ((pp.by_marketplace || []).length) html += '<div class="sub">marketplace: ' + pp.by_marketplace.map((m) => `${m.marketplace}: ${m.orders}`).join(' · ') + '</div>';
+    if ((pp.by_operator || []).length) html += '<div class="sub">operador: ' + pp.by_operator.map((o) => `${o.operator}: ${o.orders}`).join(' · ') + '</div>';
+    card.innerHTML = html;
+    const nav = el('div', 'row');
+    const bY = el('button', 'subtab' + (pp.is_past ? ' active' : ''), '◂ Ontem');
+    const bT = el('button', 'subtab' + (pp.is_past ? '' : ' active'), 'Hoje ▸');
+    bY.onclick = () => renderPpCard(box, yStr);
+    bT.onclick = () => renderPpCard(box, null);
+    nav.appendChild(bY); nav.appendChild(bT);
+    card.appendChild(nav); box.appendChild(card);
+  }
   const M_RENDER = {
     // FASE 6 (P6.4) — tarefas não finalizadas (pausa que virou o dia): admin
     // resolve finalizando ou reatribuindo a outro operador (que continua/fecha).
@@ -619,31 +645,15 @@
       });
     },
     hoje: async (c) => {
-      const [r, pp] = await Promise.all([
-        api('/api/adminpanel/metrics/realtime'),
-        api('/api/adminpanel/metrics/pp-today').catch(() => null),
-      ]);
+      const r = await api('/api/adminpanel/metrics/realtime');
       c.innerHTML = ''; const cards = el('div', 'metric-cards');
       cards.appendChild(mMetric(r.logged_in_operators.length, 'Logados agora'));
       cards.appendChild(mMetric(Number(r.bottles_today).toLocaleString('pt-BR'), 'Bottles hoje'));
-      cards.appendChild(mMetric(r.orders_today, 'Ordens hoje'));
+      cards.appendChild(mMetric(Number(r.orders_today).toLocaleString('pt-BR'), 'Ordens hoje (P&P)'));
       cards.appendChild(mMetric(r.hours_today + 'h', 'Horas hoje (desc. pausa)'));
       c.appendChild(cards);
-      // FASE 6 (P6.3) — card "📦 P&P do dia" (clínica NÃO conta; tempo desconta pausa; corte 1pm)
-      if (pp) {
-        const COL = { green: '#0e7a4e', yellow: '#b35c00', red: '#b3261e' };
-        const cut = COL[pp.cutoff_color] || '#5a6e87';
-        const secO = pp.sec_per_order != null ? pp.sec_per_order + 's/ordem' : '—';
-        const mins = Math.round((pp.work_seconds || 0) / 60);
-        const box = el('div', 'card');
-        box.style.borderLeft = '4px solid ' + cut;
-        let html = `<div class="row"><span class="title">📦 P&P do dia</span><span class="sub" style="color:${cut};font-weight:700;">corte 1pm: ${pp.cutoff_color.toUpperCase()}${pp.open_pp_tasks ? ' · ' + pp.open_pp_tasks + ' aberta(s)' : ''}</span></div>`;
-        html += `<div class="sub">${Number(pp.total_orders).toLocaleString('pt-BR')} ordens · ${mins}min · ${secO} · ${pp.total_tasks} tarefa(s) — clínica NÃO conta</div>`;
-        if ((pp.by_marketplace || []).length) html += '<div class="sub">por marketplace: ' + pp.by_marketplace.map((m) => `${m.marketplace}: ${m.orders}`).join(' · ') + '</div>';
-        if ((pp.by_operator || []).length) html += '<div class="sub">por operador: ' + pp.by_operator.map((o) => `${o.operator}: ${o.orders}`).join(' · ') + '</div>';
-        box.innerHTML = html;
-        c.appendChild(box);
-      }
+      // FASE 6 (P6.3) — card "📦 P&P" com navegação Ontem/Hoje (clínica NÃO conta)
+      const ppBox = el('div'); c.appendChild(ppBox); renderPpCard(ppBox, null);
       c.appendChild(el('h2', null, '👷 Operadores logados'));
       r.logged_in_operators.forEach((o) => {
         const sem = o.idle_min > 120 ? '🔴' : o.idle_min > 30 ? '🟡' : '🟢';
