@@ -458,6 +458,21 @@ function createOpRouter(deps = {}) {
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
 
+    // DEDUP (anti "mesma task sobre a mesma task"): se já existe event ABERTO
+    // desta pessoa, MESMA atividade E MESMO lote → devolve o existente em vez de
+    // criar um duplicado sobreposto. Só quando há lote (caso claro: encapsular o
+    // MESMO lote 2x ao mesmo tempo não existe). REGRA #0: não bloqueia, reaproveita.
+    if (batch && cw.length === 0) {
+      const dup = (await db.query(
+        `SELECT e.id, e.started_at FROM v3.events e
+         WHERE e.person_id = $1 AND e.activity_type_id = $2 AND e.product_batch_id = $3
+           AND e.ended_at IS NULL AND e.deleted_at IS NULL AND e.is_unfinished = false
+         ORDER BY e.started_at DESC LIMIT 1`, [s.person_id, act.id, batch.id])).rows[0];
+      if (dup) {
+        await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start_dedup', payload: { slug: act.slug, batch_number: batch.batch_number, existing_event_id: dup.id }, relatedEventId: dup.id, isTest: !!s.is_sandbox });
+        return res.json({ ok: true, duplicate: true, event: { id: dup.id, person_id: s.person_id, started_at: dup.started_at, slug: act.slug, batch_number: batch.batch_number, product: batch.product } });
+      }
+    }
     // ── SOLO: comportamento original (1 event, sem grupo) ──
     const ins = await db.query(
       `INSERT INTO v3.events

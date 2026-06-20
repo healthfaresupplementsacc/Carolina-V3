@@ -192,6 +192,11 @@ function makeFakeDb(mem) {
         const open = mem.events.find((e) => e.person_id === params[0] && !e.ended_at && !e.deleted_at);
         return resp(open ? [{ '?column?': 1 }] : []);
       }
+      // DEDUP: event aberto mesmo person+activity+batch
+      if (/e\.person_id = \$1 AND e\.activity_type_id = \$2 AND e\.product_batch_id = \$3 AND e\.ended_at IS NULL/.test(s)) {
+        const dup = mem.events.filter((e) => e.person_id === params[0] && e.activity_type_id === params[1] && e.product_batch_id === params[2] && !e.ended_at && !e.deleted_at && !e.is_unfinished).sort((a, b) => (b.started_at - a.started_at))[0];
+        return resp(dup ? [{ id: dup.id, started_at: dup.started_at }] : []);
+      }
       if (/AS ref,/.test(s) && /AS minutes/.test(s)) {
         return resp([{ ref: mem.gapRef, minutes: mem.gapMinutes }]);
       }
@@ -535,6 +540,16 @@ describe('op API — events', () => {
     expect(r.status).toBe(200);
     expect(r.body.event.product).toBe('Magnesium Glycinate'); // norm casa "400mg" → produto local
     expect(slack.postAs).not.toHaveBeenCalled();
+  });
+  test('DEDUP: iniciar a MESMA task (slug+lote) 2x → devolve a existente, sem duplicar', async () => {
+    const s = await login(4);
+    const r1 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: 'BR-2026-0218' } });
+    expect(r1.status).toBe(200);
+    const id1 = r1.body.event.id; const before = mem.events.length;
+    const r2 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: 'BR-2026-0218' } });
+    expect(r2.body.duplicate).toBe(true);
+    expect(r2.body.event.id).toBe(id1); // mesma task, não criou outra
+    expect(mem.events.length).toBe(before);
   });
   test('FIX: lote NÃO no EMS e sem produto → ainda "desconhecido" (alerta legítimo)', async () => {
     const s = await login(4);

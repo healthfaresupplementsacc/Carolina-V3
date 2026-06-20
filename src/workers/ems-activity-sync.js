@@ -23,6 +23,9 @@ const EMS_STAGE_TO_SLUG = {
   yield_review: 'production_line', to_count: 'production_line', label_printing: 'production_line',
   finalized: 'production_line', on_line: 'production_line', ready_for_line: 'production_line', to_separate: 'review',
 };
+// slugs que o check-out automático pode FECHAR sozinho (sem contagem obrigatória).
+// NUNCA fecha production_line/P&P automaticamente (perderia bottles/ordens).
+const SAFE_AUTOCLOSE = new Set(['encapsulation', 'mixing', 'weighing', 'review', 'separating', 'material_handling']);
 // stage → chave do timeline (started_at/completed_at). weighing usa formulation (doc EMS).
 const STAGE_TO_TIMELINE = {
   weighing: 'formulation', weighed: 'formulation', blending: 'blending', blended: 'blending',
@@ -171,21 +174,37 @@ class EmsActivitySync {
           a.formula_code, a.employee_ems_name, pid, a.target_bottles, a.actual_bottles,
           a.product_image, a.started_at, JSON.stringify(a.raw || {})]);
     }
-    // ativas que NÃO vieram nesse tick → completaram: marca ended + duração.
-    // RETURNING auto_event_id pra FECHAR a task auto-criada (check-out automático).
+    // ativas que NÃO vieram nesse tick → completaram (saíram do stage no EMS).
+    // RETURNING dados pra FECHAR a task: a auto-criada (ems_auto) E a do /op que
+    // ficou "presa" (operador moveu de stage e não finalizou — bug do ev1040).
     const done = await this.db.query(
       `UPDATE v3.ems_activity_cache
        SET sync_status = 'completed', ended_at = NOW(),
            duration_seconds = GREATEST(0, EXTRACT(EPOCH FROM (NOW() - started_at))::int)
        WHERE sync_status = 'active' AND last_synced_at < $1::timestamptz
-       RETURNING auto_event_id`, [tickStart]);
+       RETURNING auto_event_id, tracker_person_id, batch_number, stage`, [tickStart]);
     for (const row of done.rows) {
-      if (!row.auto_event_id) continue;
       try {
-        await this.db.query(
-          `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'ems_auto_complete', updated_at = NOW()
-           WHERE id = $1 AND ended_at IS NULL AND source = 'ems_auto'`, [row.auto_event_id]);
-      } catch (e) { console.error('[ems-sync] auto check-out falhou:', e.message); }
+        if (row.auto_event_id) {
+          await this.db.query(
+            `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'ems_auto_complete', updated_at = NOW()
+             WHERE id = $1 AND ended_at IS NULL AND source = 'ems_auto'`, [row.auto_event_id]);
+        }
+        // check-OUT do /op: o stage saiu do EMS → fecha a task ABERTA correspondente
+        // (mesma pessoa+lote+slug). SÓ slugs SEM contagem obrigatória (não fecha
+        // production_line/P&P sem o número — perderia bottles/ordens). Gated.
+        if (this.autoCheckin && row.tracker_person_id && row.batch_number) {
+          const slug = EMS_STAGE_TO_SLUG[row.stage];
+          if (slug && SAFE_AUTOCLOSE.has(slug)) {
+            await this.db.query(
+              `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'ems_stage_completed', updated_at = NOW()
+               WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND source IN ('operator_page','ems_auto')
+                 AND activity_type_id IN (SELECT id FROM v3.activity_types WHERE slug = $2)
+                 AND product_batch_id IN (SELECT id FROM v3.product_batches WHERE batch_number = $3 OR batch_number = 'BR-2026-' || $3)`,
+              [row.tracker_person_id, slug, row.batch_number]);
+          }
+        }
+      } catch (e) { console.error('[ems-sync] check-out falhou:', e.message); }
     }
     await this._autoCheckin(activities); // check-in automático dos inícios recentes
     return activities.length;
