@@ -46,6 +46,7 @@ const LAUNCH_TABS = [
 
 const NATIVE_TABS = [
   { id: 'realtime',  label: 'Hoje',      en: 'Realtime' },
+  { id: 'metrics',   label: 'Métricas',  en: 'Metrics' },
   { id: 'analytics', label: 'Analytics', en: 'Analytics' },
 ];
 
@@ -83,6 +84,7 @@ function AdminPanel() {
       </div>
 
       {tab === 'realtime'  && <RealtimeTab/>}
+      {tab === 'metrics'   && <MetricsTab/>}
       {tab === 'analytics' && <AnalyticsTab/>}
 
       {/* Launcher das abas ainda não portadas (transição honesta) */}
@@ -285,6 +287,193 @@ function AnalyticsTab() {
             </tbody>
           </table>
         )}
+      </div>
+      {error && <RefreshErr error={error}/>}
+    </div>
+  );
+}
+
+// ── Aba MÉTRICAS — sub-views read-only (Linha / Anomalias / Rankings) ──
+function MetricsTab() {
+  const [sub, setSub] = React.useState('linha');
+  const SUBS = [['linha', 'Linha de Produção'], ['anomalias', 'Anomalias'], ['rankings', 'Rankings']];
+  return (
+    <div>
+      <div className="filters" style={{ marginBottom: 12 }}>
+        {SUBS.map(([id, label]) => (
+          <button key={id} className={`filter-chip ${sub === id ? 'on' : ''}`} onClick={() => setSub(id)}>{label}</button>
+        ))}
+      </div>
+      {sub === 'linha'     && <MetricsLinha/>}
+      {sub === 'anomalias' && <MetricsAnomalias/>}
+      {sub === 'rankings'  && <MetricsRankings/>}
+    </div>
+  );
+}
+
+// Linha de Produção (hoje) — /api/adminpanel/metrics/production-line
+function MetricsLinha() {
+  const { data, loading, error } = useAdmin('/metrics/production-line', [], 60000);
+  if (loading && !data) return <Loading/>;
+  if (error && !data) return <ErrBox error={error}/>;
+  const d = data || {};
+  const tp = d.throughput || {};
+  const goals = d.goals_in_progress || [];
+  const byProd = (d.production_today && d.production_today.by_product) || [];
+  const exc = d.exceptions || [];
+  return (
+    <div>
+      <div className="kpi-grid">
+        <MiniKPI label="Garrafas hoje" value={((d.production_today && d.production_today.total) || 0).toLocaleString()} suffix="garrafas"/>
+        <MiniKPI label="Throughput médio" value={tp.avg_bpm != null ? tp.avg_bpm : '—'} suffix="g/min"/>
+        <MiniKPI label="Pico" value={tp.peak_bpm != null ? tp.peak_bpm : '—'} suffix="g/min"/>
+        <MiniKPI label="Linhas rodando" value={goals.length} suffix="agora"/>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>Metas em curso (produção aberta agora)</SecTitle>
+          {goals.length === 0 ? <Empty msg="Nenhuma linha aberta"/> : (
+            <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead><Tr head cols={['Operador', 'Produto / lote', 'Há (min)']}/></thead>
+              <tbody>
+                {goals.map((g) => (
+                  <tr key={g.id} style={{ borderTop: '1px dashed var(--border)' }}>
+                    <td style={{ padding: '5px 6px 5px 0' }}><b>{g.operator}</b></td>
+                    <td style={{ padding: '5px 6px' }}>{g.product || '—'} <span className="mono" style={{ color: 'var(--text-3)' }}>{g.batch_number || ''}</span></td>
+                    <td className="mono" style={{ padding: '5px 0', textAlign: 'right' }}>{g.elapsed_min}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>Garrafas por produto (hoje)</SecTitle>
+          {byProd.length === 0 ? <Empty msg="Sem contagens hoje"/> : (
+            <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <tbody>
+                {byProd.map((p, i) => (
+                  <tr key={i} style={{ borderTop: i ? '1px dashed var(--border)' : 'none' }}>
+                    <td style={{ padding: '5px 6px 5px 0' }}>{p.product}</td>
+                    <td className="mono" style={{ padding: '5px 0', textAlign: 'right', fontWeight: 700 }}>{p.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+      {(tp.by_operator || []).length > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12 }}>
+          <SecTitle>Throughput por operador (g/min · hoje)</SecTitle>
+          <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><Tr head cols={['Operador', 'g/min médio', 'Runs']}/></thead>
+            <tbody>
+              {tp.by_operator.map((o, i) => (
+                <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
+                  <td style={{ padding: '5px 6px 5px 0' }}><b>{o.operator}</b></td>
+                  <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--flow-prod)' }}>{o.avg_bpm != null ? o.avg_bpm : '—'}</td>
+                  <td className="mono" style={{ padding: '5px 0', textAlign: 'right', color: 'var(--text-3)' }}>{o.runs}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {exc.length > 0 && (
+        <div className="card" style={{ padding: 14, marginTop: 12, borderLeft: '4px solid var(--warn,#d97706)' }}>
+          <SecTitle>Exceções sem contagem (precisam resolução)</SecTitle>
+          <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><Tr head cols={['Operador', 'Produto / lote', 'Motivo', 'Fim']}/></thead>
+            <tbody>
+              {exc.map((x) => (
+                <tr key={x.id} style={{ borderTop: '1px dashed var(--border)' }}>
+                  <td style={{ padding: '5px 6px 5px 0' }}><b>{x.operator}</b></td>
+                  <td style={{ padding: '5px 6px' }}>{x.product || '—'} <span className="mono" style={{ color: 'var(--text-3)' }}>{x.batch_number || ''}</span></td>
+                  <td style={{ padding: '5px 6px', color: 'var(--text-3)' }}>{x.exception_reason || '—'}</td>
+                  <td className="mono" style={{ padding: '5px 0', textAlign: 'right' }}>{x.ended_at}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 6, fontStyle: 'italic' }}>
+            Resolver (informar a contagem) por enquanto no painel completo — porta de escrita vem na próxima leva.
+          </div>
+        </div>
+      )}
+      {error && <RefreshErr error={error}/>}
+    </div>
+  );
+}
+
+// Anomalias — /api/adminpanel/metrics/anomalies
+function MetricsAnomalias() {
+  const { data, loading, error } = useAdmin('/metrics/anomalies', [], 60000);
+  if (loading && !data) return <Loading/>;
+  if (error && !data) return <ErrBox error={error}/>;
+  const d = data || {};
+  const idle = d.idle_operators || [];
+  const stale = d.stale_events || [];
+  return (
+    <div>
+      <div className="kpi-grid">
+        <MiniKPI label="Checkouts esquecidos" value={d.forgotten_pending || 0} suffix="pendentes"/>
+        <MiniKPI label="Idle (+2h)" value={idle.length} suffix="operadores"/>
+        <MiniKPI label="Tarefas travadas (+3h)" value={stale.length} suffix="abertas"/>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>Operadores ociosos (+2h sem atividade)</SecTitle>
+          {idle.length === 0 ? <Empty msg="Ninguém ocioso ✓"/> : idle.map((o, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: i ? '1px dashed var(--border)' : 'none', fontSize: 12.5 }}>
+              <b>{o.display_name}</b><span className="mono" style={{ color: 'var(--warn,#d97706)' }}>{o.idle_min} min</span>
+            </div>
+          ))}
+        </div>
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>Tarefas abertas há +3h</SecTitle>
+          {stale.length === 0 ? <Empty msg="Tudo em dia ✓"/> : stale.map((s) => (
+            <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px dashed var(--border)', fontSize: 12.5 }}>
+              <b>{s.display_name}</b><span className="mono" style={{ color: 'var(--warn,#d97706)' }}>{s.hours_open}h</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {error && <RefreshErr error={error}/>}
+    </div>
+  );
+}
+
+// Rankings — /api/adminpanel/metrics/rankings
+function MetricsRankings() {
+  const [period, setPeriod] = React.useState('month');
+  const { data, loading, error } = useAdmin('/metrics/rankings?period=' + period, [period]);
+  if (loading && !data) return <Loading/>;
+  if (error && !data) return <ErrBox error={error}/>;
+  const d = data || {};
+  const board = (title, rows, key, unit) => (
+    <div className="card" style={{ padding: 14 }}>
+      <SecTitle>{title}</SecTitle>
+      {(!rows || rows.length === 0) ? <Empty msg="Sem dados"/> : rows.map((r, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', borderTop: i ? '1px dashed var(--border)' : 'none', fontSize: 12.5 }}>
+          <span><b style={{ color: 'var(--text-3)', marginRight: 6 }}>{i + 1}.</b>{r.person_name}</span>
+          <span className="mono" style={{ fontWeight: 700 }}>{r[key]}<span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500, marginLeft: 3 }}>{unit}</span></span>
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <div>
+      <div className="filters" style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase', marginRight: 4 }}>Período:</span>
+        {[['week', 'Semana'], ['month', 'Mês']].map(([p, l]) => (
+          <button key={p} className={`filter-chip ${period === p ? 'on' : ''}`} onClick={() => setPeriod(p)}>{l}</button>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+        {board('Volume · eventos', d.volume_leaders, 'events', 'ev')}
+        {board('Horas trabalhadas', d.hours_leaders, 'hours', 'h')}
+        {board('Mais ajudou (cowork)', d.most_helpful_cowork, 'helped', 'x')}
       </div>
       {error && <RefreshErr error={error}/>}
     </div>
