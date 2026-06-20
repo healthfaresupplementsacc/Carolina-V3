@@ -30,8 +30,9 @@ describe('FASE FORM — detecção passiva EMS', () => {
         rows.sort((a, b) => (b.machine ? 1 : 0) - (a.machine ? 1 : 0)); // machine vence stage
         return resp(rows);
       }
-      // open-event check (já registrou esse lote?)
-      if (/SELECT 1 FROM v3\.events e LEFT JOIN v3\.product_batches pb/.test(s)) {
+      // claim check (alguém — qualquer pessoa — já tem essa função+lote aberta?)
+      // novo shape: at.slug = $1, batch_number = $2
+      if (/SELECT 1 FROM v3\.events e\s+JOIN v3\.activity_types at/.test(s)) {
         return resp(mem.openBatches.includes(params[1]) ? [{ x: 1 }] : []);
       }
       if (/SELECT id, canonical_name, aliases FROM v3\.products WHERE active = true/.test(s)) return resp(mem.products);
@@ -107,6 +108,11 @@ describe('FASE FORM — detecção passiva EMS', () => {
     mem.openBatches = ['BR-2026-0223'];
     const tok = await login();
     expect((await get('/api/v3/op/ems/my-activity', tok)).body.detected).toBe(null);
+  });
+  test('SYNC: não oferece função que OUTRA pessoa já está fazendo (claim por qualquer um)', async () => {
+    mem.openBatches = ['BR-2026-0223']; // Vitor (ou qualquer um) já está nesse lote+função
+    const tok = await login();
+    expect((await get('/api/v3/op/ems/my-activity', tok)).body.detected).toBe(null); // some pro Bruno
   });
   test('register-detected (1 toque) → cria event source=ems_passive_detect + action_log', async () => {
     const tok = await login();

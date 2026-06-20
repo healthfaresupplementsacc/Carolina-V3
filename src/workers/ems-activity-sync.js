@@ -252,12 +252,12 @@ class EmsActivitySync {
             if (open.rowCount) continue;
           }
         }
-        const act = await this.db.query('SELECT id FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
+        const act = await this.db.query('SELECT id, is_background FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
         if (!act.rows[0]) continue;
         const ins = await this.db.query(
-          `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source)
-           VALUES ($1, $2, $3, $4::timestamptz, $5, 'high', 'ems_auto') RETURNING id`,
-          [a.tracker_person_id, act.rows[0].id, batchId, a.stage_started_at, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']']);
+          `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, is_long_running)
+           VALUES ($1, $2, $3, $4::timestamptz, $5, 'high', 'ems_auto', $6) RETURNING id`,
+          [a.tracker_person_id, act.rows[0].id, batchId, a.stage_started_at, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']', !!act.rows[0].is_background]);
         const evId = ins.rows[0].id;
         await this.db.query('UPDATE v3.ems_activity_cache SET auto_event_id = $1 WHERE ems_key = $2', [evId, a.ems_key]);
         try { await this.db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'event.ems_auto_checkin', 'event', $1, $2::jsonb)", [evId, JSON.stringify({ ems_key: a.ems_key, slug, batch: a.batch_number, person_id: a.tracker_person_id, machine: a.machine })]); } catch (e) {}

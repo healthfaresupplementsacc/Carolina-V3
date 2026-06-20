@@ -220,7 +220,7 @@ function createOpRouter(deps = {}) {
   // ── helpers de domínio ──────────────────────────────────────
   async function resolveActivity(slug) {
     const r = await db.query(
-      'SELECT id, slug, requires_product FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
+      'SELECT id, slug, requires_product, is_background FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
     return r.rows[0] || null;
   }
   async function resolveBatch(batchNumber) {
@@ -444,10 +444,10 @@ function createOpRouter(deps = {}) {
         const r = await db.query(
           `INSERT INTO v3.events
              (person_id, activity_type_id, product_batch_id, started_at, description,
-              cowork_with, confidence, source, orders_printed, cowork_group_id, is_test)
-           VALUES ($1, $2, $3, $4::timestamptz, $5, $6::int[], 'high', 'operator_page', $7, $8::uuid, $9)
+              cowork_with, confidence, source, orders_printed, cowork_group_id, is_test, is_long_running)
+           VALUES ($1, $2, $3, $4::timestamptz, $5, $6::int[], 'high', 'operator_page', $7, $8::uuid, $9, $10)
            RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed, cowork_group_id`,
-          [pid, act.id, batch ? batch.id : null, startedAt, desc, others, ordersPrinted, gid, !!s.is_sandbox]);
+          [pid, act.id, batch ? batch.id : null, startedAt, desc, others, ordersPrinted, gid, !!s.is_sandbox, !!act.is_background]);
         if (pid === s.person_id) starterEv = r.rows[0];
       }
       await audit('event.created_via_page', 'event', starterEv.id,
@@ -474,13 +474,16 @@ function createOpRouter(deps = {}) {
       }
     }
     // ── SOLO: comportamento original (1 event, sem grupo) ──
+    // is_long_running = is_background (encapsulação/tablete/mistura rodam na MÁQUINA
+    // em background → não ocupam o operador em foreground; não conflitam, não entram
+    // na detecção de ausência, e a pessoa pode pegar outra função enquanto roda).
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
-          cowork_with, confidence, source, orders_printed, is_test)
-       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6, $7)
+          cowork_with, confidence, source, orders_printed, is_test, is_long_running)
+       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6, $7, $8)
        RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed`,
-      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted, !!s.is_sandbox]);
+      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted, !!s.is_sandbox, !!act.is_background]);
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
@@ -534,12 +537,12 @@ function createOpRouter(deps = {}) {
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, ended_at, description,
-          cowork_with, confidence, source, orders_printed, closed_reason, is_test)
+          cowork_with, confidence, source, orders_printed, closed_reason, is_test, is_long_running)
        VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7::int[], 'high', 'operator_page_retroactive', $8,
-               CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END, $9)
+               CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END, $9, $10)
        RETURNING id, started_at, ended_at`,
       [s.person_id, act.id, batch ? batch.id : null, started_at, ended_at || null,
-        rdesc, cw, ordersPrinted, !!s.is_sandbox]);
+        rdesc, cw, ordersPrinted, !!s.is_sandbox, !!act.is_background]);
     const ev = ins.rows[0];
     const gapMin = await db.query("SELECT ROUND(EXTRACT(EPOCH FROM (NOW() - $1::timestamptz))/60)::int g", [started_at]);
     await audit('event.retroactive_create', 'event', ev.id,
@@ -962,6 +965,9 @@ function createOpRouter(deps = {}) {
   // Staleness: o quirk in_use_since PRESO só afeta MÁQUINA → guarda >24h SÓ p/
   // máquina; batch usa created_at (idade legítima do lote), filtrado por last_synced.
   async function detectedForPerson(personId) {
+    // candidatos (máquina primeiro). Loop: oferece o 1º que NINGUÉM já está fazendo
+    // (sincronia: se Vitor já está revisando o lote X, NÃO oferece revisão de X pro
+    // Bruno; e some quando alguém assume). Operador-de-registro no EMS ≠ ativo.
     const r = await db.query(
       `SELECT ems_key, machine, machine_type, stage, process_type, supplement_name,
               batch_number, formula_code, product_image, started_at
@@ -971,26 +977,29 @@ function createOpRouter(deps = {}) {
          AND last_synced_at > NOW() - INTERVAL '3 minutes'
          AND (machine IS NULL OR started_at IS NULL OR started_at > NOW() - INTERVAL '24 hours')
        ORDER BY (machine IS NOT NULL) DESC, last_synced_at DESC
-       LIMIT 1`, [personId]);
-    const d = r.rows[0];
-    if (!d) return null;
-    if (d.batch_number) { // já tem event aberto pro lote? então já registrou → não sugere
-      const open = await db.query(
-        `SELECT 1 FROM v3.events e
-         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
-         WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
-           AND (pb.batch_number = $2 OR pb.batch_number = 'BR-2026-' || $2)
-         LIMIT 1`, [personId, d.batch_number]);
-      if (open.rowCount) return null;
+       LIMIT 8`, [personId]);
+    for (const d of r.rows) {
+      const slug = EMS_STAGE_TO_SLUG[d.stage] || 'production_line';
+      if (d.batch_number) {
+        // ALGUÉM (qualquer pessoa) já tem essa FUNÇÃO+LOTE aberta? → não oferece.
+        const claimed = await db.query(
+          `SELECT 1 FROM v3.events e
+           JOIN v3.activity_types at ON at.id = e.activity_type_id
+           LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+           WHERE e.ended_at IS NULL AND e.deleted_at IS NULL AND at.slug = $1
+             AND (pb.batch_number = $2 OR pb.batch_number = 'BR-2026-' || $2)
+           LIMIT 1`, [slug, d.batch_number]);
+        if (claimed.rowCount) continue;
+      }
+      return {
+        ems_key: d.ems_key, machine: d.machine, machine_type: d.machine_type || null,
+        machine_label: d.machine ? machineLabelPt(d.machine_type, d.machine) : null,
+        is_machine: !!d.machine, stage: d.stage, slug,
+        product_name: d.supplement_name || null, batch_number: d.batch_number || null,
+        formula_code: d.formula_code || null, product_image: d.product_image || null,
+      };
     }
-    return {
-      ems_key: d.ems_key, machine: d.machine, machine_type: d.machine_type || null,
-      machine_label: d.machine ? machineLabelPt(d.machine_type, d.machine) : null,
-      is_machine: !!d.machine, stage: d.stage,
-      slug: EMS_STAGE_TO_SLUG[d.stage] || 'production_line',
-      product_name: d.supplement_name || null, batch_number: d.batch_number || null,
-      formula_code: d.formula_code || null, product_image: d.product_image || null,
-    };
+    return null;
   }
   router.get('/api/v3/op/ems/my-activity', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
@@ -1042,10 +1051,10 @@ function createOpRouter(deps = {}) {
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
-          confidence, source, is_test)
-       VALUES ($1, $2, $3, COALESCE($6::timestamptz, NOW()), $4, 'high', 'ems_passive_detect', $5)
+          confidence, source, is_test, is_long_running)
+       VALUES ($1, $2, $3, COALESCE($6::timestamptz, NOW()), $4, 'high', 'ems_passive_detect', $5, $7)
        RETURNING id, person_id, activity_type_id, product_batch_id, started_at`,
-      [s.person_id, act.id, batch ? batch.id : null, desc.slice(0, 500), !!s.is_sandbox, startedAtIso]);
+      [s.person_id, act.id, batch ? batch.id : null, desc.slice(0, 500), !!s.is_sandbox, startedAtIso, !!act.is_background]);
     const ev = ins.rows[0];
     await audit('event.created_via_ems_detect', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, ems_key: emsKey, machine: det.machine, stage: det.stage, started_at_informed: !!startedAtIso, late_flag: lateFlag }, s.person_id);

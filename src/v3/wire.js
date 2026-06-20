@@ -252,6 +252,13 @@ async function startWorker() {
     } catch (e) { console.error('[V3] ems-activity-sync não iniciou:', e.message); }
   }
 
+  // Absence alert: operador logado sem função (foreground) há > 15min → avisa no
+  // grupo dos operadores (#orders-and-inventory). Gated por ABSENCE_ALERT_ENABLED.
+  try {
+    const { AbsenceAlert } = require('../workers/absence-alert');
+    new AbsenceAlert({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId }).start(5 * 60 * 1000);
+  } catch (e) { console.error('[V3] absence-alert não iniciou:', e.message); }
+
   // Fase 5 — refresh da matview de métricas a cada 10min (best-effort).
   setInterval(async () => {
     try { await _pool.query('SELECT v3.refresh_events_enriched()'); }
