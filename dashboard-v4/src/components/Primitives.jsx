@@ -46,7 +46,7 @@ const ProductChip = ({ product, lot = true }) => {
   );
 };
 
-const KPI = ({ label, en, value, suffix, foot, attn, children, headRight }) => (
+const KPI = ({ label, en, value, suffix, foot, attn, children, headRight, onValueClick }) => (
   <div className={`card kpi ${attn ? "attn" : ""}`}>
     <div style={{ position: "relative", zIndex: 1 }}>
       <div className="label">
@@ -56,9 +56,20 @@ const KPI = ({ label, en, value, suffix, foot, attn, children, headRight }) => (
         <span style={{ flex: 1 }}/>
         {headRight}
       </div>
-      <div className="value">
-        {value}{suffix && <small>{suffix}</small>}
-      </div>
+      {onValueClick ? (
+        <button className="value kpi-value-btn" onClick={onValueClick}
+                title="Ver detalhe (taxas)" style={{
+                  background: "none", border: "none", padding: 0, cursor: "pointer",
+                  font: "inherit", color: "inherit", textAlign: "left", display: "block", width: "100%",
+                }}>
+          {value}{suffix && <small>{suffix}</small>}
+          <span className="kpi-drill-caret" style={{ fontSize: 11, color: "var(--text-3)", marginLeft: 6, fontWeight: 500 }}>▾</span>
+        </button>
+      ) : (
+        <div className="value">
+          {value}{suffix && <small>{suffix}</small>}
+        </div>
+      )}
       {foot && <div className="foot">{foot}</div>}
       {children}
     </div>

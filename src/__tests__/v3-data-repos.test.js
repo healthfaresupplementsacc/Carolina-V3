@@ -471,6 +471,28 @@ describe('V3 data — FlowViewsRepo (Bloco 3)', () => {
     ]);
   });
 
+  test('FASE 3: reviewRate agrega cápsulas/seg + frascos/min + média POR PRODUTO', async () => {
+    const db = makeDb([
+      { match: /AND at\.slug = 'review'/, rows: [
+        // 2 runs do mesmo produto (67) → média do produto + geral.
+        { product_id: 67, product: 'Vitamin B2', batch_number: '0142', operator: 'Vitor',
+          units_per_bottle: 60, target_bottles: 100, work_sec: 600, ended_at: '2026-05-21T14:00:00Z' },
+        { product_id: 67, product: 'Vitamin B2', batch_number: '0150', operator: 'Vitor',
+          units_per_bottle: 60, target_bottles: 200, work_sec: 1200, ended_at: '2026-05-20T14:00:00Z' },
+      ] },
+    ]);
+    const out = await new FlowViewsRepo({ db }).reviewRate({ range: '30d' });
+    expect(out.n).toBe(2);
+    // caps/sec = 6000/600 = 10 (e 12000/1200 = 10) → média 10
+    expect(out.avg_capsules_per_sec).toBe(10);
+    // bottles/min = 100/(600/60)=10 ; 200/(1200/60)=10 → média 10
+    expect(out.avg_bottles_per_min).toBe(10);
+    // sec/bottle = 600/100=6 ; 1200/200=6 → média 6
+    expect(out.avg_sec_per_bottle).toBe(6);
+    expect(out.products).toHaveLength(1);
+    expect(out.products[0]).toMatchObject({ product: 'Vitamin B2', n: 2, avg_capsules_per_sec: 10 });
+  });
+
   test('supportByDay lista ocorrências; conserto marcado downtime', async () => {
     const db = makeDb(evRoute([
       { id: 1, started_at: '2026-05-21T13:00:00Z', ended_at: '2026-05-21T15:00:00Z',
@@ -516,6 +538,7 @@ describe('V3 data — repos são read-only (zero mutação)', () => {
     await new FlowViewsRepo({ db }).productionByDay('2026-05-21');
     await new FlowViewsRepo({ db }).pnpByDay('2026-05-21');
     await new FlowViewsRepo({ db }).supportByDay('2026-05-21');
+    await new FlowViewsRepo({ db }).reviewRate({ range: '30d' });
     await new DeadlinesRepo({ db }).list();
     expect(db.calls.length).toBeGreaterThan(0);
     expect(db.calls.every((c) => !/\b(INSERT|UPDATE|DELETE)\b/i.test(c.sql))).toBe(true);

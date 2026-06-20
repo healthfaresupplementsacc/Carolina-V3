@@ -301,6 +301,75 @@ class FlowViewsRepo {
     };
   }
 
+  /** REVISÃO — taxa de revisão (cápsulas/seg + frascos/min) + MÉDIA DE TEMPO
+   *  DE REVISÃO por produto e geral. Histórico (range em dias) pra Bruno saber
+   *  a média por suplemento — "média de tempo de revisão por esse produto/geral".
+   *  Mesma base do /admin review-rate (capsules = target_bottles × units_per_bottle;
+   *  work_sec desconta pausa), mas AGREGADO POR PRODUTO. Read-only. */
+  async reviewRate(opts = {}) {
+    const days = ({ '7d': 7, '30d': 30, '90d': 90, '180d': 180 }[String(opts.range)] || 30);
+    // WORK_SEC = duração de trabalho descontando pausas (igual /admin, fonte única).
+    const WORK_SEC = `GREATEST(0, EXTRACT(EPOCH FROM (e.ended_at - e.started_at)) - COALESCE(e.total_paused_seconds, 0))`;
+    const params = [];
+    let prodFilter = '';
+    const pid = Number(opts.product_id);
+    if (Number.isFinite(pid)) { params.push(pid); prodFilter = ` AND pb.product_id = $${params.length}`; }
+    let rows = [];
+    try {
+      const r = await this.db.query(
+        `SELECT pb.product_id, pr.canonical_name AS product, pb.batch_number,
+                p.display_name AS operator, pb.units_per_bottle, pb.target_bottles,
+                ${WORK_SEC} AS work_sec, e.ended_at
+         FROM v3.events e
+         JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.slug = 'review'
+         JOIN v3.persons p ON p.id = e.person_id
+         JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         LEFT JOIN v3.products pr ON pr.id = pb.product_id
+         WHERE e.ended_at IS NOT NULL AND e.deleted_at IS NULL
+           AND pb.units_per_bottle IS NOT NULL AND pb.target_bottles IS NOT NULL AND pb.target_bottles > 0
+           AND e.started_at > NOW() - INTERVAL '${days} days'${prodFilter}
+         ORDER BY e.ended_at DESC LIMIT 200`, params);
+      rows = r.rows;
+    } catch (e) { /* sem dados de revisão / colunas ausentes → vazio */ }
+    const runs = rows.map((x) => {
+      const bottles = Number(x.target_bottles);
+      const caps = bottles * Number(x.units_per_bottle);
+      const sec = Number(x.work_sec) || 0;
+      return {
+        product_id: x.product_id || null, product: x.product || 'Sem produto vinculado',
+        batch: x.batch_number || null, operator: x.operator || null,
+        bottles, capsules: caps, work_sec: Math.round(sec),
+        ended_at: toNyIso(x.ended_at),
+        capsules_per_sec: sec > 0 ? +(caps / sec).toFixed(2) : null,
+        bottles_per_min: sec > 0 ? +(bottles / (sec / 60)).toFixed(1) : null,
+        sec_per_bottle: sec > 0 && bottles > 0 ? +(sec / bottles).toFixed(1) : null,
+      };
+    }).filter((x) => x.capsules_per_sec != null && x.work_sec >= 30); // ignora ruído < 30s
+    // Agrega POR PRODUTO (média do produto) — o que o Bruno pediu.
+    const byProd = new Map();
+    for (const run of runs) {
+      const key = run.product_id || 0;
+      if (!byProd.has(key)) byProd.set(key, { product_id: run.product_id, product: run.product, _runs: [] });
+      byProd.get(key)._runs.push(run);
+    }
+    const avg = (arr, k, dp) => (arr.length ? +(arr.reduce((a, x) => a + (x[k] || 0), 0) / arr.length).toFixed(dp) : null);
+    const products = [...byProd.values()].map((g) => ({
+      product_id: g.product_id, product: g.product, n: g._runs.length,
+      avg_capsules_per_sec: avg(g._runs, 'capsules_per_sec', 2),
+      avg_bottles_per_min: avg(g._runs, 'bottles_per_min', 1),
+      avg_sec_per_bottle: avg(g._runs, 'sec_per_bottle', 1),
+    })).sort((a, b) => b.n - a.n);
+    return {
+      range_days: days,
+      n: runs.length,
+      avg_capsules_per_sec: avg(runs, 'capsules_per_sec', 2),
+      avg_bottles_per_min: avg(runs, 'bottles_per_min', 1),
+      avg_sec_per_bottle: avg(runs, 'sec_per_bottle', 1),
+      products,
+      runs: runs.slice(0, 50),
+    };
+  }
+
   /** SUPORTE — ocorrências avulsas do dia (conserto destacado como downtime). */
   async supportByDay(date) {
     const d = resolveDate(date);

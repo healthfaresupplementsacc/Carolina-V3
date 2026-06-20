@@ -175,6 +175,12 @@ const ENDPOINTS = [
       const d = await r.flowViews.supportByDay(req.query.date);
       return { data: d, meta: { date: d.date } };
     } },
+  // taxa de revisão (cápsulas/seg + frascos/min) + média de tempo de revisão
+  // por produto e geral. Histórico (?range=7d|30d|90d|180d, default 30d).
+  { path: '/api/v3/data/review-rate',
+    handler: async (req, r) => ({
+      data: await r.flowViews.reviewRate({ range: req.query.range, product_id: req.query.product_id }),
+    }) },
   { path: '/api/v3/data/deadlines',
     handler: async (req, r) => ({ data: await r.deadlines.list() }) },
   // sender profiles + manual post (porta de saída admin)

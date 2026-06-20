@@ -44,6 +44,14 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     setGear({ which, anchor: { x: e.clientX, y: e.clientY } });
   };
   const closeGear = () => setGear(null);
+  // FASE 3 — drill-down dos cards (clicar no VALOR abre painel de taxas).
+  // drill = { which: 'producao'|'revisao', anchor:{x,y} } | null
+  const [drill, setDrill] = React.useState(null);
+  const onDrill = (which) => (e) => {
+    if (drill && drill.which === which) { setDrill(null); return; }
+    setDrill({ which, anchor: { x: e.clientX, y: e.clientY } });
+  };
+  const closeDrill = () => setDrill(null);
 
   // E6 Leva A #3 — toggle do card de notificações (bell icon).
   const [notifsVisible, setNotifsVisible] = React.useState(() => {
@@ -78,6 +86,9 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const prodSecs = (prod.lotes || []).reduce((s, l) => s + (Number(l.total_seconds) || 0), 0);
   const prodPerMin = prodSecs > 0 ? +(liveProd / (prodSecs / 60)).toFixed(1) : null;
   const prodPerSec = prodSecs > 0 ? +(liveProd / prodSecs).toFixed(2) : null;
+  // FASE 3 — REVISÃO: média histórica (30d) de cápsulas/seg + frascos/min +
+  // tempo médio de revisão por produto e geral (fonte canônica /review-rate).
+  const review = HFD.review || { products: [], runs: [], n: 0, avg_capsules_per_sec: null, avg_bottles_per_min: null, avg_sec_per_bottle: null, range_days: 30 };
   const topLotes = goals.slice().sort((a, b) => (b.done || 0) - (a.done || 0)).slice(0, 3);
   const goalsActive = goals.filter((g) => !g.completed).length;
   const goalsHit = goals.filter((g) => g.completed).length;
@@ -281,9 +292,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
       {/* ── KPI strip ──────────────────────────────────────── */}
       <div className="kpi-grid">
 
-        {/* PRODUÇÃO HOJE — engrenagem */}
+        {/* PRODUÇÃO HOJE — engrenagem + valor clicável (drill bottle/seg) */}
         <KPI label="Produção hoje" en="Production today"
              value={liveProd.toLocaleString()} suffix="garrafas"
+             onValueClick={onDrill('producao')}
              headRight={<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                <FlowDot flow="production"/>
                <GearButton onClick={onGearToggle('producao')} active={gearOpen === 'producao'}/>
@@ -332,6 +344,23 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                             ack(`Apagado ✓ — contagem ${it.id}`);
                           }}/>
                </EditPopover>
+             </>}/>
+
+        {/* REVISÃO — FASE 3: cápsulas/seg + frascos/min (média 30d), clicável */}
+        <KPI label="Revisão" en="Review rate"
+             value={review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : '—'}
+             suffix={review.avg_capsules_per_sec != null ? 'cáps/seg' : ''}
+             onValueClick={onDrill('revisao')}
+             headRight={<FlowDot flow="production"/>}
+             foot={<>
+               {review.avg_bottles_per_min != null ? (
+                 <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, marginBottom: 4 }}>
+                   {review.avg_bottles_per_min}/min · {review.avg_sec_per_bottle != null ? `${review.avg_sec_per_bottle}s/frasco` : '—'}
+                 </div>
+               ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem revisões com lote no período</div>}
+               <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                 média de {review.n || 0} revisão(ões) · últimos {review.range_days || 30}d · clique p/ detalhe por produto
+               </div>
              </>}/>
 
         {/* METAS — engrenagem */}
@@ -924,6 +953,118 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           </>
         )}
       </FloatingPopover>
+
+      {/* FASE 3 — drill-down de taxas (Produção bottle/seg · Revisão cápsula/seg por produto) */}
+      <FloatingPopover
+        open={!!drill}
+        anchor={drill?.anchor}
+        width={420}
+        onClose={closeDrill}
+        anchorSelector=".kpi-value-btn"
+        header={
+          <>
+            <Icon name={drill?.which === 'revisao' ? 'search' : 'factory'} size={14}/>
+            <b style={{ fontSize: 13, flex: 1 }}>
+              {drill?.which === 'revisao' ? 'Taxa de revisão · por produto' : 'Produção · taxa por lote'}
+            </b>
+            <button className="icon-btn" onClick={closeDrill} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
+          </>
+        }>
+        {drill?.which === 'producao' && (
+          <div>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+              <DrillStat label="Total hoje" value={liveProd.toLocaleString()} unit="garrafas"/>
+              <DrillStat label="Por minuto" value={prodPerMin != null ? prodPerMin : '—'} unit="/min" color="var(--flow-prod)"/>
+              <DrillStat label="Por segundo" value={prodPerSec != null ? prodPerSec : '—'} unit="/seg" color="var(--flow-prod)"/>
+            </div>
+            {(prod.lotes || []).filter((l) => (l.bottles || 0) > 0).length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>
+                Sem garrafas contadas hoje. Quando os operadores informarem as bottles, a taxa por lote aparece aqui.
+              </div>
+            ) : (
+              <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 }}>
+                    <th style={{ padding: '4px 6px 4px 0' }}>Lote</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Garrafas</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>/min</th>
+                    <th style={{ padding: '4px 0 4px 6px', textAlign: 'right' }}>/seg</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(prod.lotes || []).filter((l) => (l.bottles || 0) > 0)
+                    .sort((a, b) => (b.bottles || 0) - (a.bottles || 0)).map((l, i) => (
+                    <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
+                      <td style={{ padding: '5px 6px 5px 0' }}>
+                        <b>{l.product}</b>
+                        <span className="mono" style={{ color: 'var(--text-3)', marginLeft: 4 }}>{l.batch_number || ''}</span>
+                      </td>
+                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700 }}>{l.bottles}</td>
+                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{l.bottles_per_min != null ? l.bottles_per_min : '—'}</td>
+                      <td className="mono" style={{ padding: '5px 0 5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{l.bottles_per_sec != null ? l.bottles_per_sec : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>
+              Taxa = garrafas ÷ tempo efetivo de produção do lote (descontando paradas).
+            </div>
+          </div>
+        )}
+        {drill?.which === 'revisao' && (
+          <div>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+              <DrillStat label="Cápsulas/seg" value={review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : '—'} unit="média" color="var(--flow-prod)"/>
+              <DrillStat label="Frascos/min" value={review.avg_bottles_per_min != null ? review.avg_bottles_per_min : '—'} unit="média" color="var(--flow-prod)"/>
+              <DrillStat label="Tempo/frasco" value={review.avg_sec_per_bottle != null ? review.avg_sec_per_bottle : '—'} unit="seg médio"/>
+            </div>
+            {(review.products || []).length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>
+                Sem revisões com lote vinculado (units_per_bottle + meta de garrafas) nos últimos {review.range_days || 30} dias.
+              </div>
+            ) : (
+              <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 }}>
+                    <th style={{ padding: '4px 6px 4px 0' }}>Produto</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>n</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>cáps/seg</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>frasco/min</th>
+                    <th style={{ padding: '4px 0 4px 6px', textAlign: 'right' }}>seg/frasco</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(review.products || []).map((p, i) => (
+                    <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
+                      <td style={{ padding: '5px 6px 5px 0' }}><b>{p.product}</b></td>
+                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--text-3)' }}>{p.n}</td>
+                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--flow-prod)' }}>{p.avg_capsules_per_sec != null ? p.avg_capsules_per_sec : '—'}</td>
+                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{p.avg_bottles_per_min != null ? p.avg_bottles_per_min : '—'}</td>
+                      <td className="mono" style={{ padding: '5px 0 5px 6px', textAlign: 'right' }}>{p.avg_sec_per_bottle != null ? p.avg_sec_per_bottle : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>
+              Cápsulas = garrafas × cápsulas-por-frasco do lote; tempo de revisão desconta pausas. Guardado por produto pra média histórica.
+            </div>
+          </div>
+        )}
+      </FloatingPopover>
+    </div>
+  );
+}
+
+/* FASE 3 — mini-stat do drill-down (taxa em destaque). */
+function DrillStat({ label, value, unit, color }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700 }}>{label}</div>
+      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: color || 'var(--hf-navy-700)', marginTop: 2 }}>
+        {value}{unit && <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, marginLeft: 4 }}>{unit}</span>}
+      </div>
     </div>
   );
 }

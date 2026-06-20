@@ -94,7 +94,7 @@ function slugify(s) {
 function adaptToHFData(input) {
   const {
     timeline = null, production = null, pp = null, support = null,
-    goals = null, /* counts = null, */ deadlines = null, catalog = {}, date = null,
+    goals = null, /* counts = null, */ deadlines = null, review = null, catalog = {}, date = null,
   } = input || {};
 
   // ── 1. Operators ──────────────────────────────────────────
@@ -309,16 +309,35 @@ function adaptToHFData(input) {
     total_bottles: (production && production.total_bottles != null)
       ? production.total_bottles
       : prodLotes.reduce((s, l) => s + (Number(l.bottles) || 0), 0),
-    lotes: prodLotes.map((l) => ({
-      batch_number: l.batch_number, product: l.product, bottles: Number(l.bottles) || 0,
-      total_seconds: l.total_seconds, bottles_per_min: l.bottles_per_min != null ? l.bottles_per_min : null,
-    })),
+    lotes: prodLotes.map((l) => {
+      const sec = Number(l.total_seconds) || 0;
+      const bottles = Number(l.bottles) || 0;
+      return {
+        batch_number: l.batch_number,
+        product: (l.product && l.product.canonical_name) || l.product || '(produto)',
+        bottles, total_seconds: l.total_seconds,
+        bottles_per_min: l.bottles_per_min != null ? l.bottles_per_min : (sec > 0 ? +(bottles / (sec / 60)).toFixed(1) : null),
+        bottles_per_sec: sec > 0 ? +(bottles / sec).toFixed(2) : null,
+      };
+    }),
     _raw: production,
   };
+
+  // ── Revisão (histórico) — cápsulas/seg + frascos/min + média por produto ──
+  const reviewBlock = review ? {
+    range_days: review.range_days || null,
+    n: review.n || 0,
+    avg_capsules_per_sec: review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : null,
+    avg_bottles_per_min: review.avg_bottles_per_min != null ? review.avg_bottles_per_min : null,
+    avg_sec_per_bottle: review.avg_sec_per_bottle != null ? review.avg_sec_per_bottle : null,
+    products: review.products || [],
+    runs: review.runs || [],
+  } : { range_days: null, n: 0, avg_capsules_per_sec: null, avg_bottles_per_min: null, avg_sec_per_bottle: null, products: [], runs: [] };
+
   return {
     DAY_START, DAY_END, NOW_MIN, DEADLINE_MIN,
     operators, products, activities, FLOWS,
-    events, goals: adaptedGoals, alerts, pp: ppBlock, production: productionBlock,
+    events, goals: adaptedGoals, alerts, pp: ppBlock, production: productionBlock, review: reviewBlock,
     _gaps: gaps,
     _meta: {
       date,

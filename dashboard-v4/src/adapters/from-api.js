@@ -149,6 +149,8 @@ export function useSnapshotAsHFData(date, opts = {}) {
   const persons    = useFetch('/catalog/persons',          [bump]);
   const acts       = useFetch('/catalog/activity-types',   [bump]);
   const products   = useFetch('/catalog/products',         [bump]);
+  // Revisão: média histórica (30d) — slow-changing, fetch único + refresh manual.
+  const review     = useFetch('/review-rate?range=30d',    [bump]);
 
   // Adaptado: memoizado pelos data refs (mudam quando algum poll resolve).
   const hfdata = React.useMemo(() => {
@@ -161,6 +163,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
       goals: goals.data,
       counts: counts.data,
       deadlines: deadlines.data,
+      review: review.data,
       catalog: {
         persons: (persons.data && persons.data.persons) || [],
         activity_types: (acts.data && acts.data.activity_types) || [],
@@ -169,7 +172,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
     });
   }, [date,
       timeline.data, production.data, pp.data, support.data,
-      goals.data, counts.data, deadlines.data,
+      goals.data, counts.data, deadlines.data, review.data,
       persons.data, acts.data, products.data]);
 
   // Side-effect: popula window.HFData pros componentes do template que
@@ -193,7 +196,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
     raw: {
       timeline: timeline.data, production: production.data, pp: pp.data,
       support: support.data, goals: goals.data, counts: counts.data,
-      deadlines: deadlines.data,
+      deadlines: deadlines.data, review: review.data,
       persons: persons.data, acts: acts.data, products: products.data,
     },
   };
