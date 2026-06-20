@@ -20,17 +20,20 @@ class CountsRepo {
   async countsByDay(date) {
     const d = resolveDate(date);
     const r = await this.db.query(
+      // SINCRONIA: LEFT JOIN products (não derruba contagem de lote sem produto) +
+      // só kind='bottles' (ordens do P&P são kind='orders', não inflam garrafas).
       `SELECT pc.id, pc.bottles, pc.reported_at, pc.confidence, pc.notes,
-              pc.product_id, pr.canonical_name AS product,
+              pc.product_id, COALESCE(pr.canonical_name, 'Sem produto vinculado') AS product,
               pc.product_batch_id, pb.batch_number,
               pc.reported_by_person_id, per.display_name AS reporter
        FROM v3.production_counts pc
-       JOIN v3.products pr ON pr.id = pc.product_id
+       LEFT JOIN v3.products pr ON pr.id = pc.product_id
        LEFT JOIN v3.product_batches pb ON pb.id = pc.product_batch_id
        LEFT JOIN v3.persons per ON per.id = pc.reported_by_person_id
        WHERE pc.production_date = $1
+         AND COALESCE(pc.kind, 'bottles') = 'bottles'
          AND pc.superseded_by IS NULL AND pc.deleted_at IS NULL
-       ORDER BY pr.canonical_name, pc.reported_at`, [d]);
+       ORDER BY product, pc.reported_at`, [d]);
 
     const counts = (r.rows || []).map((c) => ({
       id: c.id,

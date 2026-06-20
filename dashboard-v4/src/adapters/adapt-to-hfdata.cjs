@@ -303,10 +303,22 @@ function adaptToHFData(input) {
     };
   }
 
+  // ── Produção (canônico) — garrafas do dia vindas de production_counts via /production ──
+  const prodLotes = (production && production.lotes) || [];
+  const productionBlock = {
+    total_bottles: (production && production.total_bottles != null)
+      ? production.total_bottles
+      : prodLotes.reduce((s, l) => s + (Number(l.bottles) || 0), 0),
+    lotes: prodLotes.map((l) => ({
+      batch_number: l.batch_number, product: l.product, bottles: Number(l.bottles) || 0,
+      total_seconds: l.total_seconds, bottles_per_min: l.bottles_per_min != null ? l.bottles_per_min : null,
+    })),
+    _raw: production,
+  };
   return {
     DAY_START, DAY_END, NOW_MIN, DEADLINE_MIN,
     operators, products, activities, FLOWS,
-    events, goals: adaptedGoals, alerts, pp: ppBlock,
+    events, goals: adaptedGoals, alerts, pp: ppBlock, production: productionBlock,
     _gaps: gaps,
     _meta: {
       date,

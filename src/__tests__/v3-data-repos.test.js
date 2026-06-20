@@ -129,7 +129,7 @@ describe('V3 data — CatalogRepo', () => {
 
 describe('V3 data — CountsRepo', () => {
   test('countsByDay mapeia, soma por produto e repassa a data', async () => {
-    const db = makeDb([{ match: /FROM v3\.production_counts pc JOIN/, rows: [
+    const db = makeDb([{ match: /FROM v3\.production_counts pc/, rows: [
       { id: 1, bottles: 684, reported_at: 'x', confidence: 'high', notes: null, product_id: 67, product: 'Vitamin B2', product_batch_id: 12, batch_number: '0142', reported_by_person_id: 6, reporter: 'Ana' },
       { id: 2, bottles: 300, reported_at: 'y', confidence: 'high', notes: null, product_id: 67, product: 'Vitamin B2', product_batch_id: 12, batch_number: '0142', reported_by_person_id: 6, reporter: 'Ana' },
     ] }]);
@@ -423,6 +423,32 @@ describe('V3 data — FlowViewsRepo (Bloco 3)', () => {
     expect(out.total_seconds).toBe(1800);
     expect(out.packages).toBeNull();
     expect(out.sub_steps).toEqual([{ activity: 'Impressão de Ordens', seconds: 1800, wall_seconds: 1800 }]);
+  });
+
+  test('SYNC: pnpByDay tira ordens de production_counts kind=orders (canônico)', async () => {
+    const db = makeDb([
+      { match: /FROM v3\.events e LEFT JOIN v3\.activity_types at/, rows: [
+        { id: 1, person_id: 5, started_at: '2026-05-21T13:00:00Z', ended_at: '2026-05-21T13:30:00Z',
+          activity_name: 'Packaging', activity_slug: 'packaging', person_name: 'Simone' },
+      ] },
+      { match: /COALESCE\(SUM\(pc\.bottles\),0\)::int AS orders/, rows: [{ orders: 48 }] },
+    ]);
+    const out = await new FlowViewsRepo({ db }).pnpByDay('2026-05-21');
+    expect(out.orders).toBe(48);                              // veio de production_counts, não events.quantity
+    expect(out.seconds_per_order).toBe(Math.round(1800 / 48));
+  });
+
+  test('SYNC: productionByDay tira garrafas de production_counts kind=bottles (total + por lote)', async () => {
+    const db = makeDb([
+      { match: /FROM v3\.events e LEFT JOIN v3\.activity_types at/, rows: [
+        { id: 1, product_batch_id: 9, person_id: 4, started_at: '2026-05-21T13:00:00Z', ended_at: '2026-05-21T14:00:00Z',
+          activity_name: 'Linha', activity_slug: 'production_line', batch_number: '0142', product_id: 67, product: 'Vitamin B2', person_name: 'Vitor' },
+      ] },
+      { match: /AS bottles FROM v3\.production_counts pc WHERE pc\.kind = 'bottles'/, rows: [{ product_batch_id: 9, bottles: 684 }] },
+    ]);
+    const out = await new FlowViewsRepo({ db }).productionByDay('2026-05-21');
+    expect(out.total_bottles).toBe(684);
+    expect(out.lotes[0].bottles).toBe(684);
   });
 
   test('pnpByDay com COWORK (2 pessoas mesma atividade overlap) — total = união, sub_steps tem wall_seconds', async () => {

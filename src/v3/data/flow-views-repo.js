@@ -165,11 +165,28 @@ class FlowViewsRepo {
       const ph = e.activity_name || '(não classificado)';
       b._phases.set(ph, (b._phases.get(ph) || 0) + secs);
     }
+    // SINCRONIA: garrafas vêm da FONTE CANÔNICA v3.production_counts (kind='bottles'),
+    // por lote + total do dia. Antes a "Produção hoje" lia events.qty (que o /op não
+    // grava) → "0 garrafas". LEFT-friendly: não derruba lote sem produto.
+    const bottlesByBatch = new Map();
+    let totalBottles = 0;
+    try {
+      const bc = await this.db.query(
+        `SELECT pc.product_batch_id, COALESCE(SUM(pc.bottles),0)::int AS bottles
+         FROM v3.production_counts pc
+         WHERE pc.kind = 'bottles' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+           AND pc.production_date = $1
+         GROUP BY pc.product_batch_id`, [d]);
+      for (const row of bc.rows) { bottlesByBatch.set(row.product_batch_id || 0, row.bottles); totalBottles += row.bottles; }
+    } catch (e) { /* canônico falhou */ }
     return {
       date: d, flow: 'production', mode: 'ordered',
+      total_bottles: totalBottles,
       lotes: [...byBatch.values()].map((b) => ({
         batch_id: b.batch_id, batch_number: b.batch_number, product: b.product,
         total_seconds: Math.round(b.total_seconds),
+        bottles: bottlesByBatch.get(b.batch_id || 0) || 0,
+        bottles_per_min: b.total_seconds > 0 ? +((bottlesByBatch.get(b.batch_id || 0) || 0) / (b.total_seconds / 60)).toFixed(1) : null,
         invalid_event_count: b.invalid_event_count,
         people: [...b._people],
         phases: [...b._phases.entries()].map(([activity, s]) => ({ activity, seconds: Math.round(s) })),
@@ -235,8 +252,30 @@ class FlowViewsRepo {
       }
     }
     const wallSeconds = unionSeconds(allIntervals);
-    // sub_steps com tempo-de-parede por atividade (uniao) + carga total
-    // (soma pessoa-hora). Frontend pode escolher qual mostrar.
+    // SINCRONIA: ordens vêm da FONTE CANÔNICA v3.production_counts (kind='orders'),
+    // dos events counts_as_pp (clínica fora) — igual /admin. Antes só lia
+    // events.quantity_unit='order' (o /op grava em production_counts) → "ordens 0".
+    let pcOrders = 0;
+    try {
+      pcOrders = (await this.db.query(
+        `SELECT COALESCE(SUM(pc.bottles),0)::int AS orders
+         FROM v3.production_counts pc
+         JOIN v3.events e ON e.id = pc.source_event_id
+         JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.counts_as_pp = true
+         WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL AND pc.production_date = $1`,
+        [d])).rows[0].orders;
+    } catch (e) { /* canônico falhou → usa fallback abaixo */ }
+    const orders = pcOrders > 0 ? pcOrders : ordersTotal; // canônico, com fallback events.quantity
+    // P&P "do dia" = SPAN corrido (1º início P&P → último fim), incluindo gaps (decisão Bruno).
+    let spanStart = null, spanEnd = null;
+    for (const e of evs) {
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      if (!Number.isNaN(s) && (spanStart == null || s < spanStart)) spanStart = s;
+      if (!Number.isNaN(en) && (spanEnd == null || en > spanEnd)) spanEnd = en;
+    }
+    const spanSeconds = (spanStart != null && spanEnd != null && spanEnd > spanStart)
+      ? Math.round((spanEnd - spanStart) / 1000) : wallSeconds;
     const subStepsOut = [...subIntervals.entries()].map(([activity, ivs]) => ({
       activity,
       seconds: Math.round(subSteps.get(activity) || 0),    // soma (pessoa-hora)
@@ -244,7 +283,9 @@ class FlowViewsRepo {
     }));
     return {
       date: d, flow: 'pnp', mode: 'block',
-      total_seconds: wallSeconds,         // NOVO MODELO: união de intervalos
+      total_seconds: spanSeconds,         // P&P do dia = SPAN corrido (Bruno)
+      wall_seconds: wallSeconds,          // união de intervalos (referência)
+      span_seconds: spanSeconds,
       person_seconds_total: Math.round([...personSeconds.values()].reduce((s, v) => s + v, 0)),
       person_seconds: [...personSeconds.entries()].map(([person, s]) => ({ person, seconds: Math.round(s) })),
       invalid_event_count: invalid,
@@ -252,11 +293,11 @@ class FlowViewsRepo {
       event_count: evs.length,
       people: [...people],
       sub_steps: subStepsOut,
-      orders: ordersTotal,
-      seconds_per_order: ordersTotal > 0 ? Math.round(wallSeconds / ordersTotal) : null,
+      orders,
+      seconds_per_order: orders > 0 ? Math.round(spanSeconds / orders) : null,
       quantities,
-      packages: ordersTotal > 0 ? ordersTotal : null,
-      seconds_per_package: ordersTotal > 0 ? Math.round(wallSeconds / ordersTotal) : null,
+      packages: orders > 0 ? orders : null,
+      seconds_per_package: orders > 0 ? Math.round(spanSeconds / orders) : null,
     };
   }
 

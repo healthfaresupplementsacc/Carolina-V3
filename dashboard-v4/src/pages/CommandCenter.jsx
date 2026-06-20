@@ -68,9 +68,16 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   }, []);
 
   // ── Derivações reais ─────────────────────────────────────
-  const liveProd = state.events
+  // SINCRONIA: garrafas do dia vêm da fonte CANÔNICA (production_counts via /production),
+  // não mais de events.qty (que o /op não grava). Fallback p/ o modelo antigo se vazio.
+  const prod = HFD.production || { total_bottles: 0, lotes: [] };
+  const legacyQty = state.events
     .filter((ev) => HFD.activities && HFD.activities[ev.activity] && HFD.activities[ev.activity].flow === 'production' && ev.qty)
     .reduce((s, ev) => s + (Number(ev.qty) || 0), 0);
+  const liveProd = (prod.total_bottles != null && prod.total_bottles > 0) ? prod.total_bottles : legacyQty;
+  const prodSecs = (prod.lotes || []).reduce((s, l) => s + (Number(l.total_seconds) || 0), 0);
+  const prodPerMin = prodSecs > 0 ? +(liveProd / (prodSecs / 60)).toFixed(1) : null;
+  const prodPerSec = prodSecs > 0 ? +(liveProd / prodSecs).toFixed(2) : null;
   const topLotes = goals.slice().sort((a, b) => (b.done || 0) - (a.done || 0)).slice(0, 3);
   const goalsActive = goals.filter((g) => !g.completed).length;
   const goalsHit = goals.filter((g) => g.completed).length;
@@ -282,6 +289,11 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                <GearButton onClick={onGearToggle('producao')} active={gearOpen === 'producao'}/>
              </div>}
              foot={<>
+               {prodPerMin != null && (
+                 <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, marginBottom: 4 }}>
+                   {prodPerMin}/min · {prodPerSec}/seg
+                 </div>
+               )}
                {topLotes.length ? (
                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
                    {topLotes.map((g) => (
