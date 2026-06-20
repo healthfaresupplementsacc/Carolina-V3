@@ -16,6 +16,25 @@ const STAGE_TO_PROCESS = {
 };
 const MACHINE_TO_PROCESS = { blender: 'mixing', capsule_machine: 'encapsulation', tablet_machine: 'encapsulation', scale: 'formulation' };
 
+// auto check-in: stage EMS → slug de atividade do tracker
+const EMS_STAGE_TO_SLUG = {
+  weighing: 'weighing', weighed: 'weighing', blending: 'mixing', blended: 'mixing',
+  encapsulating: 'encapsulation', encapsulated: 'encapsulation',
+  yield_review: 'production_line', to_count: 'production_line', label_printing: 'production_line',
+  finalized: 'production_line', on_line: 'production_line', ready_for_line: 'production_line', to_separate: 'review',
+};
+// stage → chave do timeline (started_at/completed_at). weighing usa formulation (doc EMS).
+const STAGE_TO_TIMELINE = {
+  weighing: 'formulation', weighed: 'formulation', blending: 'blending', blended: 'blending',
+  encapsulating: 'encapsulating', encapsulated: 'encapsulating',
+  yield_review: 'production', to_count: 'production', to_separate: 'production', label_printing: 'production', finalized: 'production',
+};
+function timelineAt(timeline, stage, which) {
+  if (!timeline) return null;
+  const k = STAGE_TO_TIMELINE[stage]; const t = k && timeline[k];
+  return (t && t[which]) || null;
+}
+
 // EMS: pending_queue é array; formulation/production_line são objetos-de-arrays
 // por sub-stage. Normaliza ambos numa lista; herda a chave do sub-stage como
 // status quando o batch não traz status próprio.
@@ -40,6 +59,11 @@ class EmsActivitySync {
     this.ems = deps.ems;
     this._timer = null;
     this._ticking = false;
+    // auto check-in: cria task automática quando um STAGE inicia. Gate por env +
+    // só dispara em início RECENTE (timeline.started_at ou in_use_since), nunca
+    // back-fill de assignment velho. Kill-switch: EMS_AUTO_CHECKIN_ENABLED.
+    this.autoCheckin = deps.autoCheckin !== undefined ? deps.autoCheckin : (process.env.EMS_AUTO_CHECKIN_ENABLED === 'true');
+    this.checkinWindowMin = deps.checkinWindowMin || parseInt(process.env.EMS_AUTO_CHECKIN_WINDOW_MIN, 10) || 20;
   }
   start(intervalMs = 45000) {
     this._timer = setInterval(() => this.tick().catch((e) => console.error('[ems-sync] tick erro:', e.message)), intervalMs);
@@ -54,6 +78,8 @@ class EmsActivitySync {
     eq.forEach((m) => {
       if (!m.running || !m.current_batch) return;
       const cb = m.current_batch;
+      // início real: timeline do stage (quando EMS publicar) → senão in_use_since (máquina).
+      const stageStart = timelineAt(cb.timeline, cb.status, 'started_at') || m.in_use_since || null;
       out.push({
         ems_key: m.id + ':' + cb.id,
         process_type: STAGE_TO_PROCESS[cb.status] || MACHINE_TO_PROCESS[m.equipment_type] || 'other',
@@ -63,10 +89,11 @@ class EmsActivitySync {
         batch_number: cb.batch_record_number || null,
         formula_code: cb.formula && cb.formula.formula_code || null,
         employee_ems_name: (m.operator && m.operator.name) || (cb.operator && cb.operator.name) || null,
+        ems_user_id: (m.operator && m.operator.user_id) || (cb.operator && cb.operator.user_id) || null,
         target_bottles: cb.target_qty_bottles != null ? cb.target_qty_bottles : null,
         actual_bottles: cb.actual_yield_bottles != null ? cb.actual_yield_bottles : null,
         product_image: cb.product && cb.product.image_url || null,
-        started_at: m.in_use_since || null,
+        started_at: stageStart, stage_started_at: stageStart,
         raw: { equipment: m.name, batch: cb },
       });
     });
@@ -78,6 +105,10 @@ class EmsActivitySync {
       // ficava morto e o cache só pegava máquinas.
       flattenStage(pipeline[g]).forEach((b) => {
         if (!b.operator || !b.operator.name) return; // só batches COM alguém trabalhando
+        // stage_started_at = SÓ o timeline real (created_at NÃO é início de stage —
+        // sem timeline fica null → auto check-in de stage não dispara, evita
+        // back-fill de assignment velho). started_at do cache mantém created_at p/ display.
+        const stageStart = timelineAt(b.timeline, b.status, 'started_at');
         out.push({
           ems_key: b.id + ':' + (b.status || g),
           process_type: STAGE_TO_PROCESS[b.status] || g,
@@ -86,10 +117,11 @@ class EmsActivitySync {
           batch_number: b.batch_record_number || null,
           formula_code: b.formula && b.formula.formula_code || null,
           employee_ems_name: b.operator.name,
+          ems_user_id: (b.operator && b.operator.user_id) || null,
           target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null,
           actual_bottles: b.actual_yield_bottles != null ? b.actual_yield_bottles : null,
           product_image: b.product && b.product.image_url || null,
-          started_at: b.created_at || null,
+          started_at: stageStart || b.created_at || null, stage_started_at: stageStart,
           raw: { batch: b },
         });
       });
@@ -97,9 +129,13 @@ class EmsActivitySync {
     return out;
   }
 
-  async _resolvePersonId(name) {
+  async _resolvePersonId(name, emsUserId) {
+    // UUID (ems_user_id) primeiro — robusto (estudo: nome é frágil). Nome é fallback.
+    if (emsUserId) {
+      try { const u = await this.db.query('SELECT id FROM v3.persons WHERE ems_user_id = $1 AND deleted_at IS NULL LIMIT 1', [emsUserId]); if (u.rows[0]) return u.rows[0].id; } catch (e) {}
+    }
     if (!name) return null;
-    const r = await this.db.query('SELECT id, display_name FROM v3.persons WHERE active = true AND deleted_at IS NULL');
+    const r = await this.db.query('SELECT id, display_name, ems_user_id FROM v3.persons WHERE active = true AND deleted_at IS NULL');
     const lc = String(name).toLowerCase();
     let hit = r.rows.find((p) => p.display_name.toLowerCase() === lc);
     if (!hit) hit = r.rows.find((p) => lc.indexOf(p.display_name.toLowerCase()) >= 0 || p.display_name.toLowerCase().indexOf(lc) >= 0);
@@ -108,13 +144,18 @@ class EmsActivitySync {
       const matches = r.rows.filter((p) => p.display_name.toLowerCase().split(/\s+/)[0] === first);
       if (matches.length === 1) hit = matches[0];
     }
+    // backfill: casou por nome e ainda não tem UUID → grava (próximas vezes casa por UUID)
+    if (hit && emsUserId && !hit.ems_user_id) {
+      try { await this.db.query('UPDATE v3.persons SET ems_user_id = $1 WHERE id = $2 AND ems_user_id IS NULL', [emsUserId, hit.id]); } catch (e) {}
+    }
     return hit ? hit.id : null;
   }
 
   async _sync(activities) {
     const tickStart = new Date();
     for (const a of activities) {
-      const pid = await this._resolvePersonId(a.employee_ems_name);
+      const pid = await this._resolvePersonId(a.employee_ems_name, a.ems_user_id);
+      a.tracker_person_id = pid; // anexa p/ o auto check-in
       await this.db.query(
         `INSERT INTO v3.ems_activity_cache
            (ems_key, process_type, stage, machine, machine_type, supplement_name, batch_number,
@@ -130,13 +171,66 @@ class EmsActivitySync {
           a.formula_code, a.employee_ems_name, pid, a.target_bottles, a.actual_bottles,
           a.product_image, a.started_at, JSON.stringify(a.raw || {})]);
     }
-    // ativas que NÃO vieram nesse tick → completaram: marca ended + duração
-    await this.db.query(
+    // ativas que NÃO vieram nesse tick → completaram: marca ended + duração.
+    // RETURNING auto_event_id pra FECHAR a task auto-criada (check-out automático).
+    const done = await this.db.query(
       `UPDATE v3.ems_activity_cache
        SET sync_status = 'completed', ended_at = NOW(),
            duration_seconds = GREATEST(0, EXTRACT(EPOCH FROM (NOW() - started_at))::int)
-       WHERE sync_status = 'active' AND last_synced_at < $1::timestamptz`, [tickStart]);
+       WHERE sync_status = 'active' AND last_synced_at < $1::timestamptz
+       RETURNING auto_event_id`, [tickStart]);
+    for (const row of done.rows) {
+      if (!row.auto_event_id) continue;
+      try {
+        await this.db.query(
+          `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'ems_auto_complete', updated_at = NOW()
+           WHERE id = $1 AND ended_at IS NULL AND source = 'ems_auto'`, [row.auto_event_id]);
+      } catch (e) { console.error('[ems-sync] auto check-out falhou:', e.message); }
+    }
+    await this._autoCheckin(activities); // check-in automático dos inícios recentes
     return activities.length;
+  }
+
+  // FASE auto check-in: cria uma task automática quando um STAGE INICIOU recentemente
+  // pra um operador MAPEADO e que não tem event aberto pro lote. Só início recente
+  // (timeline/in_use_since dentro da janela) — nunca back-fill de assignment velho.
+  async _autoCheckin(activities) {
+    if (!this.autoCheckin) return 0;
+    const windowMs = this.checkinWindowMin * 60000;
+    let created = 0;
+    for (const a of activities) {
+      try {
+        if (!a.tracker_person_id || !a.stage_started_at) continue; // só mapeado + início real
+        const startMs = Date.parse(a.stage_started_at);
+        if (!Number.isFinite(startMs) || (Date.now() - startMs) > windowMs) continue; // só RECENTE
+        const slug = EMS_STAGE_TO_SLUG[a.stage]; if (!slug) continue;
+        const cur = await this.db.query('SELECT auto_event_id FROM v3.ems_activity_cache WHERE ems_key = $1', [a.ems_key]);
+        if (cur.rows[0] && cur.rows[0].auto_event_id) continue; // já criou pra essa atividade
+        let batchId = null;
+        if (a.batch_number) {
+          const b = await this.db.query("SELECT id FROM v3.product_batches WHERE batch_number = $1 OR batch_number = 'BR-2026-' || $1 ORDER BY id DESC LIMIT 1", [a.batch_number]);
+          if (b.rows[0]) batchId = b.rows[0].id;
+          else { try { const ins = await this.db.query("INSERT INTO v3.product_batches (product_id, batch_number, started_at, status, origin, created_via) VALUES (NULL, $1, NOW(), 'in_progress', 'ems_auto', 'ems_sync') RETURNING id", [a.batch_number]); batchId = ins.rows[0].id; } catch (e) {} }
+          // já tem event aberto pro person+batch (/op, slack, etc)? → NÃO duplica
+          if (batchId) {
+            const open = await this.db.query('SELECT 1 FROM v3.events WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND product_batch_id = $2 LIMIT 1', [a.tracker_person_id, batchId]);
+            if (open.rowCount) continue;
+          }
+        }
+        const act = await this.db.query('SELECT id FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
+        if (!act.rows[0]) continue;
+        const ins = await this.db.query(
+          `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source)
+           VALUES ($1, $2, $3, $4::timestamptz, $5, 'high', 'ems_auto') RETURNING id`,
+          [a.tracker_person_id, act.rows[0].id, batchId, a.stage_started_at, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']']);
+        const evId = ins.rows[0].id;
+        await this.db.query('UPDATE v3.ems_activity_cache SET auto_event_id = $1 WHERE ems_key = $2', [evId, a.ems_key]);
+        try { await this.db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'event.ems_auto_checkin', 'event', $1, $2::jsonb)", [evId, JSON.stringify({ ems_key: a.ems_key, slug, batch: a.batch_number, person_id: a.tracker_person_id, machine: a.machine })]); } catch (e) {}
+        created++;
+      } catch (e) { console.error('[ems-sync] auto check-in falhou:', e.message); }
+    }
+    if (created) console.log('[ems-sync] auto check-in criou ' + created + ' task(s)');
+    return created;
   }
 
   async tick() {

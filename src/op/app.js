@@ -1024,8 +1024,11 @@
   // ════════════════════════════════════════════════════════════
   // DADOS
   // ════════════════════════════════════════════════════════════
+  // dia EDT (NY) atual — usado pra detectar virada de dia com a página aberta
+  function edtDay() { try { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } catch (e) { return ''; } }
   function loadData() {
     if (!S.session) return Promise.resolve();
+    S.dataDay = edtDay(); // carimba o dia dos dados (rollover detecta virada)
     loadProductImages(); // Bug 3: imagens dos produtos (uma vez)
     return Promise.all([
       api('/api/v3/architect/person/' + S.session.person.id + '/today', { headers: { 'X-Operator-Id': String(S.session.person.id) } }).catch(function () { return { events: [] }; }),
@@ -1518,7 +1521,14 @@
       }
       var ck = document.getElementById('hf-clock'); if (ck) ck.textContent = clockNow();
     }, 1000);
-    tBeat = setInterval(function () { if (S.session) api('/api/v3/op/auth/heartbeat', { method: 'POST' }).catch(function () {}); }, 45000);
+    tBeat = setInterval(function () {
+      if (!S.session) return;
+      // VIRADA DE DIA: página aberta de ontem pro novo dia → recarrega (não trava
+      // mais nas tarefas de ontem). Só na home, sem overlay/flow aberto pra não
+      // interromper algo em andamento.
+      if (S.dataDay && edtDay() !== S.dataDay && S.screen === 'home' && !S.overlay && !S.flow) { loadData(); return; }
+      api('/api/v3/op/auth/heartbeat', { method: 'POST' }).catch(function () {});
+    }, 45000);
     tMantra = setInterval(function () {
       S.mantraIdx = (S.mantraIdx + 1) % MANTRAS.length; S.mantraLangTick += 1;
       if (S.settings.mantras && S.screen === 'home' && MANTRA) { var m = document.getElementById('hf-mantra-text'); if (m) { m.textContent = curMantra(); m.style.animation = 'none'; void m.offsetWidth; m.style.animation = 'hfMantra 7s ease-in-out infinite'; } }
@@ -1526,6 +1536,12 @@
   }
   function stopTimers() { clearInterval(tClock); clearInterval(tBeat); clearInterval(tMantra); S.logoffLeft = null; }
 
+  // operador volta de manhã e foca a aba (deixada aberta de ontem) → se virou o
+  // dia, recarrega na hora em vez de mostrar o estado congelado de ontem.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !S.session) return;
+    if (S.dataDay && edtDay() !== S.dataDay && !S.overlay && !S.flow) loadData();
+  });
   window.addEventListener('online', function () { S.online = true; if (Q && Q.flush) Q.flush(function (item) { return fetch(item.path, { method: 'POST', headers: { Authorization: 'Bearer ' + CFG.pageToken, 'X-Session-Token': item.sessionToken || (S.session && S.session.token), 'Content-Type': 'application/json' }, body: JSON.stringify(item.body) }).then(function (r) { return r.ok; }); }).then(function () { loadData(); }); });
   window.addEventListener('offline', function () { S.online = false; });
 

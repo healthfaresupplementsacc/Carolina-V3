@@ -114,8 +114,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v29 network-first', () => {
-    expect(SW).toContain("'hf-op-v29'");
+  test('sw é hf-op-v30 network-first', () => {
+    expect(SW).toContain("'hf-op-v30'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

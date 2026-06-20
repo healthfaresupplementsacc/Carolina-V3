@@ -61,7 +61,9 @@ describe('EmsActivitySync._sync (upsert + stale)', () => {
       cache,
       query: jest.fn(async (sql, params = []) => {
         const s = String(sql).replace(/\s+/g, ' ').trim();
-        if (/SELECT id, display_name FROM v3\.persons/.test(s)) return { rows: persons };
+        if (/SELECT id FROM v3\.persons WHERE ems_user_id/.test(s)) return { rows: [] }; // sem UUID nestes mocks
+        if (/FROM v3\.persons WHERE active = true/.test(s)) return { rows: persons };
+        if (/UPDATE v3\.persons SET ems_user_id/.test(s)) return { rows: [] }; // backfill UUID
         if (/INSERT INTO v3\.ems_activity_cache/.test(s)) {
           const key = params[0]; const existing = cache.find((c) => c.ems_key === key);
           if (existing) { existing.stage = params[2]; existing.sync_status = 'active'; existing.ended_at = null; existing.last_synced_at = new Date(); }
@@ -77,6 +79,16 @@ describe('EmsActivitySync._sync (upsert + stale)', () => {
       }),
     };
   }
+  test('UUID (ems_user_id) mapeia direto, sem depender do nome', async () => {
+    const db = { query: jest.fn(async (sql) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim();
+      if (/SELECT id FROM v3\.persons WHERE ems_user_id/.test(s)) return { rows: [{ id: 99 }] };
+      return { rows: [] };
+    }) };
+    const w = new EmsActivitySync({ db });
+    expect(await w._resolvePersonId('Nome Qualquer', 'uuid-abc')).toBe(99); // casou por UUID
+  });
+
   test('upsert mapeia operador→person; tick seguinte sem a atividade → completed', async () => {
     const db = makeDb();
     const w = new EmsActivitySync({ db });
@@ -89,5 +101,54 @@ describe('EmsActivitySync._sync (upsert + stale)', () => {
     await w._sync([]);
     expect(db.cache[0].sync_status).toBe('completed');
     expect(db.cache[0].ended_at).toBeTruthy();
+  });
+});
+
+describe('EmsActivitySync._autoCheckin (gate de início recente)', () => {
+  function makeDb(opts = {}) {
+    const events = []; const cacheAuto = opts.cacheAuto || {}; let seq = 700;
+    return {
+      events,
+      query: jest.fn(async (sql, params = []) => {
+        const s = String(sql).replace(/\s+/g, ' ').trim();
+        if (/SELECT auto_event_id FROM v3\.ems_activity_cache WHERE ems_key/.test(s)) return { rows: [{ auto_event_id: cacheAuto[params[0]] || null }] };
+        if (/FROM v3\.product_batches WHERE batch_number/.test(s)) return { rows: [{ id: 55 }] };
+        if (/SELECT 1 FROM v3\.events WHERE person_id/.test(s)) return { rows: opts.openEvent ? [{ x: 1 }] : [], rowCount: opts.openEvent ? 1 : 0 };
+        if (/FROM v3\.activity_types WHERE slug/.test(s)) return { rows: [{ id: 30 }] };
+        if (/INSERT INTO v3\.events/.test(s)) { const id = seq++; events.push({ id, person: params[0], activity: params[1], batch: params[2], started_at: params[3], source: 'ems_auto' }); return { rows: [{ id }] }; }
+        return { rows: [] };
+      }),
+    };
+  }
+  const recent = () => new Date(Date.now() - 5 * 60000).toISOString();  // 5 min atrás
+  const old = () => new Date(Date.now() - 90 * 60000).toISOString();    // 90 min atrás
+  const act = (over) => Object.assign({ ems_key: 'k1', stage: 'encapsulating', batch_number: 'BR-2026-0223', machine: 'NJP1200', tracker_person_id: 7, stage_started_at: recent() }, over);
+
+  test('início RECENTE + mapeado + sem event aberto → cria task ems_auto com started_at do stage', async () => {
+    const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });
+    const a = act();
+    const n = await w._autoCheckin([a]);
+    expect(n).toBe(1);
+    expect(db.events[0]).toMatchObject({ person: 7, source: 'ems_auto', started_at: a.stage_started_at });
+  });
+  test('início VELHO (fora da janela) → NÃO cria (não back-fill de assignment)', async () => {
+    const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });
+    expect(await w._autoCheckin([act({ stage_started_at: old() })])).toBe(0);
+  });
+  test('sem operador mapeado → NÃO cria', async () => {
+    const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });
+    expect(await w._autoCheckin([act({ tracker_person_id: null })])).toBe(0);
+  });
+  test('já tem event aberto pro lote → NÃO duplica', async () => {
+    const db = makeDb({ openEvent: true }); const w = new EmsActivitySync({ db, autoCheckin: true });
+    expect(await w._autoCheckin([act()])).toBe(0);
+  });
+  test('já criou auto_event pra essa atividade → NÃO recria', async () => {
+    const db = makeDb({ cacheAuto: { k1: 999 } }); const w = new EmsActivitySync({ db, autoCheckin: true });
+    expect(await w._autoCheckin([act()])).toBe(0);
+  });
+  test('kill-switch OFF → não cria nada', async () => {
+    const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: false });
+    expect(await w._autoCheckin([act()])).toBe(0);
   });
 });
