@@ -34,8 +34,9 @@
   /* Flow colors — tuned for both themes */
   --flow-prod:    var(--hf-navy-600);
   --flow-prod-2:  var(--hf-navy-400);
-  --flow-pnp:     var(--hf-leaf-600);
-  --flow-pnp-2:   var(--hf-leaf-400);
+  /* FASE 4 — P&P em ÂMBAR/AMARELO (antes era verde = igual à marca; Bruno pediu distinto) */
+  --flow-pnp:     #d97706;
+  --flow-pnp-2:   #f59e0b;
   --flow-support: #7c5cd6;
   --flow-support-2: #a98be8;
 

@@ -118,13 +118,15 @@ function OperatorLinkBar() {
     try { await navigator.clipboard.writeText(opUrl); setCopied(true); setTimeout(() => setCopied(false), 1800); }
     catch (_) { window.prompt('Copia o link:', opUrl); }
   };
+  // FASE 4 — versão compacta (vertical) pra viver no menu lateral, não em faixa full-width.
   return (
-    <div className="op-link-bar">
-      <span>👷 Página dos operadores:</span>
-      <code>{opUrl}</code>
-      <button className="btn" onClick={copy}>{copied ? '✅ Copiado' : '📋 Copiar'}</button>
-      <a className="btn" href={opUrl} target="_blank" rel="noreferrer">Abrir ↗</a>
-      <span className="op-link-hint">Entram com PIN de 4 dígitos · esqueceu o PIN de alguém? Redefina na aba Operadores do <a href="/admin/" target="_blank" rel="noreferrer">/admin/</a></span>
+    <div className="op-link-side">
+      <div className="op-link-side-title">👷 Página dos operadores</div>
+      <code className="op-link-side-url">{opUrl}</code>
+      <div className="op-link-side-btns">
+        <button className="btn sm" onClick={copy}>{copied ? '✅' : '📋 Copiar'}</button>
+        <a className="btn sm" href={opUrl} target="_blank" rel="noreferrer">Abrir ↗</a>
+      </div>
     </div>
   );
 }
@@ -394,7 +396,7 @@ function AuthedApp({ onLogout }) {
 
   return (
     <div className={`app`}>
-      <Sidebar route={route} onRoute={(id) => { location.hash = "#" + id; }}/>
+      <Sidebar route={route} onRoute={(id) => { location.hash = "#" + id; }} opLink={<OperatorLinkBar/>}/>
       <TopBar
         pageId={route} date={date} onDate={setDate}
         theme={tweaks.theme} onTheme={toggleTheme}
@@ -404,7 +406,6 @@ function AuthedApp({ onLogout }) {
         onLogout={onLogout}
         ack={ack}
       />
-      <OperatorLinkBar/>
       <main className="main">
         <div className="main-inner">{pageNode}</div>
       </main>

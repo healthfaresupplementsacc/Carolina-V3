@@ -18,7 +18,7 @@ const HOUR_PX_DEFAULT = 140; // px per hour on desktop
 
 function snap(min) { return Math.round(min / 5) * 5; } // 5-min snap during drag
 
-function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
+function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filterFlows,
                     onUpdateEvent, onMergeRequest, onSelectEvent, selectedId,
                     expandedOpIds, onToggleExpand,
                     gaps,
@@ -173,6 +173,18 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
           <span className="legend-item"><Icon name="link" size={11}/>cowork</span>
           <span className="legend-item"><Icon name="live" size={11}/>live</span>
         </div>
+        {/* FASE 4 — zoom in/out do eixo de tempo */}
+        {setHourPx && (
+          <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: 4, marginRight: 8 }}>
+            <button className="btn sm ghost" title="Menos zoom"
+                    onClick={() => setHourPx((p) => Math.max(70, Math.round(p / 1.4)))}
+                    style={{ minWidth: 28, padding: "2px 8px", fontWeight: 800 }}>−</button>
+            <span style={{ fontSize: 10.5, color: "var(--text-3)", minWidth: 24, textAlign: "center" }} title="zoom">🔍</span>
+            <button className="btn sm ghost" title="Mais zoom"
+                    onClick={() => setHourPx((p) => Math.min(360, Math.round(p * 1.4)))}
+                    style={{ minWidth: 28, padding: "2px 8px", fontWeight: 800 }}>+</button>
+          </div>
+        )}
         <div style={{ flex: "0 0 auto", fontSize: 11.5, color: "var(--text-3)" }}>
           arraste para mover · resize nas bordas · solte em cima para juntar
         </div>
@@ -272,6 +284,28 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
             // Separa foreground vs background (E7 #2)
             const fgEvents = opEvents.filter((e) => !e._is_background);
             const bgEvents = opEvents.filter((e) => e._is_background);
+            // FASE 4 — SUB-LANES: tasks que se SOBREPÕEM no tempo vão pra linhas
+            // diferentes (mesma row do operador), em vez de empilhar e ficar
+            // impossível de ver/clicar. Algoritmo guloso de partição de intervalos.
+            const effEnd = (e) => (e.ended_min == null ? Math.min(now, DAY_END) : e.ended_min);
+            const assignLanes = (list) => {
+              const sorted = list.slice().filter((e) => e.started_min != null)
+                .sort((a, b) => a.started_min - b.started_min || effEnd(a) - effEnd(b));
+              const laneEnds = []; const laneOf = {};
+              for (const e of sorted) {
+                let lane = laneEnds.findIndex((le) => le <= e.started_min);
+                if (lane === -1) { lane = laneEnds.length; laneEnds.push(effEnd(e)); }
+                else laneEnds[lane] = effEnd(e);
+                laneOf[e.id] = lane;
+              }
+              return { laneOf, count: Math.max(1, laneEnds.length) };
+            };
+            const BG_H = 20, BG_GAP = 3, FG_H = 54, FG_GAP = 6, TOP_PAD = 6;
+            const bgLanes = assignLanes(bgEvents);
+            const bgCount = bgEvents.length ? bgLanes.count : 0;
+            const fgLanes = assignLanes(fgEvents);
+            const fgTop0 = TOP_PAD + bgCount * (BG_H + BG_GAP) + (bgCount ? 4 : 0);
+            const rowMinH = Math.max(96, fgTop0 + fgLanes.count * (FG_H + FG_GAP) + TOP_PAD);
             // Compute idle / sem registro (só sobre foreground)
             const last = fgEvents.length ? fgEvents[fgEvents.length - 1] : null;
             const isLive = last && last.ended_min == null;
@@ -281,7 +315,8 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
 
             return (
               <React.Fragment key={op.id}>
-              <div className={`tl-row ${dimmed ? "dim" : ""} ${isDropActive ? "drop-active" : ""} ${expanded ? "expanded" : ""}`}>
+              <div className={`tl-row ${dimmed ? "dim" : ""} ${isDropActive ? "drop-active" : ""} ${expanded ? "expanded" : ""}`}
+                   style={{ minHeight: rowMinH }}>
                 <div className="tl-name tl-name-clickable"
                      onClick={() => onToggleExpand && onToggleExpand(op.id)}
                      title={expanded ? "Recolher detalhes" : "Expandir detalhes"}>
@@ -325,11 +360,12 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                     const left = ((start - DAY_START) / 60) * hourPx;
                     const width = Math.max(40, ((endMin - start) / 60) * hourPx);
                     const flow = act.flow;
+                    const bgTop = TOP_PAD + (bgLanes.laneOf[ev.id] || 0) * (BG_H + BG_GAP); // FASE 4 — empilha bg sem sobrepor
                     const productName = ev.product ? window.HFData.products[ev.product]?.name : null;
                     return (
                       <div key={`bg-${ev.id}`}
                            className={`tl-bg-tab flow-${flow} ${isLiveBg ? 'live' : ''} ${selectedId === ev.id ? 'selected' : ''}`}
-                           style={{ left, width }}
+                           style={{ left, width, top: bgTop, height: BG_H }}
                            onMouseDown={(e) => { e.stopPropagation(); startDrag(e, ev, opIdx, "body"); }}
                            title={`background · ${act.name}${productName ? ' · ' + productName : ''}`}>
                         <span className="bg-tab-dot"/>
@@ -358,6 +394,8 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
 
                     const left = ((start - DAY_START) / 60) * hourPx;
                     const width = Math.max(28, ((end - start) / 60) * hourPx);
+                    const fgLane = fgLanes.laneOf[ev.id] || 0; // FASE 4 — sub-lane (sobreposição)
+                    const blockTop = fgTop0 + fgLane * (FG_H + FG_GAP);
                     const isSelected = selectedId === ev.id;
                     const isMergeTarget = drag && drag.hoveredEventId === ev.id;
                     const isInvalid = invalidIds && invalidIds.has(ev.id);
@@ -369,7 +407,7 @@ function Timeline({ operators, events, now, hourPx, filterOps, filterFlows,
                            data-block-id={ev.id}
                            className={`tl-block ${isLiveEv ? "live" : ""} ${ev.overrun ? "overrun" : ""} ${isDragging ? "dragging" : ""} ${isSelected ? "selected" : ""} ${isMergeTarget ? "merge-target" : ""} ${flowDimmed ? "dim" : ""} ${isInvalid ? "tl-block-invalid" : ""}`}
                            style={{
-                             left, width,
+                             left, width, top: blockTop, height: FG_H, bottom: 'auto',
                              "--bk-color": flowColor,
                              "--bk-color2": flowColor2,
                            }}

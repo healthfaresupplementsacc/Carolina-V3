@@ -39,7 +39,7 @@ function findPage(id) {
   return ALL_PAGES.find(p => p.id === id) || ALL_PAGES[0];
 }
 
-const Sidebar = ({ route, onRoute, collapsed }) => {
+const Sidebar = ({ route, onRoute, collapsed, opLink }) => {
   return (
     <aside className="sidebar">
       <div className="brand brand-with-logo">
@@ -74,6 +74,7 @@ const Sidebar = ({ route, onRoute, collapsed }) => {
           </React.Fragment>
         ))}
       </nav>
+      {!collapsed && opLink ? <div className="sidebar-oplink">{opLink}</div> : null}
       <div className="sidebar-foot">
         <div className="live-dot"/>
         {!collapsed && (

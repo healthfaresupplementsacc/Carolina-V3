@@ -619,3 +619,10 @@ textarea.input { resize: vertical; min-height: 70px; font-family: inherit; }
   border-radius: 6px; padding: 3px 8px; font-size: 13px; color: var(--text-1); }
 .op-link-bar .op-link-hint { color: var(--text-3); margin-left: auto; }
 .op-link-bar .op-link-hint a { color: var(--hf-leaf-700); }
+
+/* FASE 4 — operadores no menu lateral (compacto, vertical) */
+.sidebar-oplink { padding: 10px 12px; margin: 4px 8px 0; border-top: 1px solid var(--border); }
+.op-link-side-title { font-size: 11px; font-weight: 800; color: var(--text-2); margin-bottom: 6px; }
+.op-link-side-url { display: block; font-size: 10px; color: var(--text-3); word-break: break-all; margin-bottom: 6px; }
+.op-link-side-btns { display: flex; gap: 6px; }
+.op-link-side-btns .btn.sm { padding: 3px 8px; font-size: 11px; }

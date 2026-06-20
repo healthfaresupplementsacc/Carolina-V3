@@ -30,7 +30,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   // ── State local ──────────────────────────────────────────
   const [filterOps, setFilterOps] = React.useState(new Set());
   const [filterFlows, setFilterFlows] = React.useState(new Set());
-  const [hourPx] = React.useState(140);
+  const [hourPx, setHourPx] = React.useState(140); // FASE 4 — zoom da timeline
   const [expandedOpIds, setExpandedOpIds] = React.useState(new Set());
   const toggleExpand = (id) => setExpandedOpIds((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
@@ -620,6 +620,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             events={state.events}
             now={now}
             hourPx={hourPx}
+            setHourPx={setHourPx}
             filterOps={filterOps}
             filterFlows={filterFlows}
             onUpdateEvent={updateEvent}
