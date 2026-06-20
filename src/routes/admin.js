@@ -1076,6 +1076,46 @@ function createAdminRouter(deps = {}) {
   // Ordens = production_counts kind='orders' de tasks counts_as_pp (clínica/envios
   // NÃO entram). Tempo desconta pausas (WORK_SEC). seg/ordem, breakdown marketplace
   // + operador, corte 1pm (verde<12:30 / amarelo / vermelho>13h c/ tasks abertas).
+  // ITEM 3 — limpeza das máquinas (espelho do EMS /line.last_cleaning)
+  router.get('/api/adminpanel/metrics/cleaning', h(async (req, res) => {
+    const perMachine = await db.query(
+      `SELECT DISTINCT ON (machine) machine, machine_type, cleaning_type, cleaning_method,
+              cleaned_by_name, to_char(cleaned_at AT TIME ZONE '${EDT}', 'MM-DD HH24:MI') AS cleaned_at,
+              status, inspection_result, previous_formula
+       FROM v3.ems_cleaning_log WHERE machine IS NOT NULL
+       ORDER BY machine, cleaned_at DESC NULLS LAST`);
+    const recent = await db.query(
+      `SELECT log_number, machine, cleaning_type, cleaned_by_name,
+              to_char(cleaned_at AT TIME ZONE '${EDT}', 'MM-DD HH24:MI') AS cleaned_at, status
+       FROM v3.ems_cleaning_log ORDER BY cleaned_at DESC NULLS LAST LIMIT 25`);
+    res.json({ per_machine: perMachine.rows, recent: recent.rows });
+  }));
+
+  // ITEM 2 — taxa de revisão: cápsulas/seg + frascos/min (via units_per_bottle +
+  // duração real descontando pausa) + estimativa de tempo de revisão.
+  router.get('/api/adminpanel/metrics/review-rate', h(async (req, res) => {
+    const days = rangeDays(req.query.range);
+    const r = await db.query(
+      `SELECT p.display_name AS operator, pb.batch_number, pr.canonical_name AS product,
+              pb.units_per_bottle, pb.target_bottles, ${WORK_SEC} AS work_sec
+       FROM v3.events e
+       JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.slug = 'review'
+       JOIN v3.persons p ON p.id = e.person_id
+       JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
+       WHERE e.ended_at IS NOT NULL AND e.deleted_at IS NULL
+         AND pb.units_per_bottle IS NOT NULL AND pb.target_bottles IS NOT NULL AND pb.target_bottles > 0
+         AND e.started_at > NOW() - INTERVAL '${days} days'
+       ORDER BY e.ended_at DESC LIMIT 50`);
+    const runs = r.rows.map((x) => {
+      const bottles = x.target_bottles; const caps = bottles * x.units_per_bottle; const sec = Number(x.work_sec) || 0;
+      return { operator: x.operator, batch: x.batch_number, product: x.product, bottles, capsules: caps, work_sec: sec,
+        capsules_per_sec: sec > 0 ? +(caps / sec).toFixed(2) : null, bottles_per_min: sec > 0 ? +(bottles / (sec / 60)).toFixed(1) : null };
+    }).filter((x) => x.capsules_per_sec != null && x.work_sec >= 30); // ignora ruído < 30s
+    const avg = (k) => runs.length ? +(runs.reduce((a, x) => a + x[k], 0) / runs.length).toFixed(k === 'capsules_per_sec' ? 2 : 1) : null;
+    res.json({ runs, n: runs.length, avg_capsules_per_sec: avg('capsules_per_sec'), avg_bottles_per_min: avg('bottles_per_min') });
+  }));
+
   router.get('/api/adminpanel/metrics/pp-today', h(async (req, res) => {
     // ?date=YYYY-MM-DD (default hoje) — permite ver ONTEM (ex.: P&P do dia 19).
     const rawDate = req.query.date;

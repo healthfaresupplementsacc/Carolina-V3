@@ -104,6 +104,26 @@ describe('EmsActivitySync._sync (upsert + stale)', () => {
   });
 });
 
+describe('EmsActivitySync._syncCleaning (ITEM 3 — limpeza)', () => {
+  test('espelha last_cleaning das máquinas em ems_cleaning_log (idempotente)', async () => {
+    const ups = [];
+    const db = { query: async (sql, params = []) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim();
+      if (/SELECT id, display_name.*FROM v3\.persons/.test(s) || /FROM v3\.persons WHERE active/.test(s)) return { rows: [{ id: 4, display_name: 'Vitor Leite' }] };
+      if (/INSERT INTO v3\.ems_cleaning_log/.test(s)) { ups.push({ log: params[0], machine: params[1], by: params[5], pid: params[6] }); return { rows: [] }; }
+      return { rows: [] };
+    } };
+    const w = new EmsActivitySync({ db });
+    const line = { equipment: [
+      { name: 'NJP1200', equipment_type: 'capsule_machine', last_cleaning: { log_number: 'CL-1', cleaning_type: 'full_changeover', cleaned_by: 'Vitor Leite', cleaned_at: '2026-06-20T16:15:00Z', status: 'passed' } },
+      { name: 'Scale #01', equipment_type: 'scale', last_cleaning: null }, // sem limpeza → ignora
+    ] };
+    const n = await w._syncCleaning(line);
+    expect(n).toBe(1);
+    expect(ups[0]).toMatchObject({ log: 'CL-1', machine: 'NJP1200', by: 'Vitor Leite', pid: 4 });
+  });
+});
+
 describe('EmsActivitySync._autoCheckin (gate de início recente)', () => {
   function makeDb(opts = {}) {
     const events = []; const cacheAuto = opts.cacheAuto || {}; let seq = 700;

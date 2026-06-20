@@ -235,14 +235,16 @@ function createOpRouter(deps = {}) {
   }
   // FILOSOFIA: o sistema NUNCA bloqueia o operador. Lote que ele digitou e não
   // existe → AUTO-CRIA (origin='operator_created') e segue; admin revisa depois.
-  async function autoCreateBatch(batchNumber, productId, personId, targetBottles) {
+  async function autoCreateBatch(batchNumber, productId, personId, targetBottles, unitsPerBottle) {
     const bn = String(batchNumber).trim();
-    const notes = (targetBottles != null && Number.isFinite(+targetBottles)) ? ('EMS target: ' + targetBottles + ' bottles') : null;
+    const tb = (targetBottles != null && Number.isFinite(+targetBottles)) ? +targetBottles : null;
+    const upb = (unitsPerBottle != null && Number.isFinite(+unitsPerBottle)) ? +unitsPerBottle : null;
+    const notes = tb != null ? ('EMS target: ' + tb + ' bottles') : null;
     const ins = await db.query(
       `INSERT INTO v3.product_batches
-         (product_id, batch_number, started_at, status, origin, created_by_person_id, created_via, notes)
-       VALUES ($1, $2, NOW(), 'in_progress', 'operator_created', $3, 'op_page', $4)
-       RETURNING id, batch_number, product_id`, [productId, bn, personId, notes]);
+         (product_id, batch_number, started_at, status, origin, created_by_person_id, created_via, notes, target_bottles, units_per_bottle)
+       VALUES ($1, $2, NOW(), 'in_progress', 'operator_created', $3, 'op_page', $4, $5, $6)
+       RETURNING id, batch_number, product_id`, [productId, bn, personId, notes, tb, upb]);
     const row = ins.rows[0];
     let product = null;
     try { const p = await db.query('SELECT canonical_name FROM v3.products WHERE id = $1', [productId]); product = p.rows[0] ? p.rows[0].canonical_name : null; } catch (e) {}
@@ -266,6 +268,7 @@ function createOpRouter(deps = {}) {
               product_name: (b.product && b.product.name) || (b.formula && b.formula.name) || null,
               formula_code: (b.formula && b.formula.formula_code) || null,
               target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null,
+              units_per_bottle: (b.formula && b.formula.units_per_bottle != null) ? b.formula.units_per_bottle : null,
             };
           }
         }
@@ -281,18 +284,26 @@ function createOpRouter(deps = {}) {
     const existing = await resolveBatch(batchNumber);
     if (existing) return { batch: existing, autoCreated: false, typedUnlinked: null, resolvedFromEms: false };
     let pid = parseInt(productIdRaw, 10);
-    let resolvedFromEms = false, targetBottles = null;
-    if (!(Number.isFinite(pid) && pid > 0)) {
-      // sem product_id → tenta pelo NOME (hint que o frontend já manda) + pelo EMS
-      let name = hints && hints.product_name;
+    let resolvedFromEms = false, targetBottles = null, unitsPerBottle = null;
+    {
+      // SEMPRE consulta o EMS pelo nº (fonte da verdade) p/ pegar target + cápsulas/frasco,
+      // mesmo quando o product_id veio explícito (assim o lote guarda estimated bottles).
       const ems = await emsBatchInfo(batchNumber);
-      if (ems) { resolvedFromEms = true; if (!name) name = ems.product_name; if (ems.target_bottles != null) targetBottles = ems.target_bottles; }
-      if (name) { const byName = await productIdByName(name); if (Number.isFinite(byName) && byName > 0) pid = byName; }
-      if (!(Number.isFinite(pid) && pid > 0)) resolvedFromEms = false; // achou no EMS mas sem produto local → ainda não linka
+      if (ems) {
+        if (ems.target_bottles != null) targetBottles = ems.target_bottles;
+        if (ems.units_per_bottle != null) unitsPerBottle = ems.units_per_bottle;
+      }
+      if (!(Number.isFinite(pid) && pid > 0)) {
+        // sem product_id → resolve pelo NOME (hint do frontend) ou pelo nome do EMS
+        let name = (hints && hints.product_name) || (ems && ems.product_name) || null;
+        if (ems && name) resolvedFromEms = true;
+        if (name) { const byName = await productIdByName(name); if (Number.isFinite(byName) && byName > 0) pid = byName; }
+        if (!(Number.isFinite(pid) && pid > 0)) resolvedFromEms = false; // no EMS mas sem produto local
+      }
     }
     if (Number.isFinite(pid) && pid > 0) {
       try {
-        const batch = await autoCreateBatch(batchNumber, pid, personId, targetBottles);
+        const batch = await autoCreateBatch(batchNumber, pid, personId, targetBottles, unitsPerBottle);
         return { batch, autoCreated: true, typedUnlinked: null, resolvedFromEms };
       } catch (e) { console.error('[op] auto-create batch falhou:', e.message); }
     }
@@ -557,10 +568,12 @@ function createOpRouter(deps = {}) {
     if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'bad_id' }); return null; }
     const r = await db.query(
       `SELECT e.id, e.person_id, e.cowork_with, e.product_batch_id, e.ended_at, e.deleted_at,
-              e.is_long_running, e.cowork_group_id, at.slug, at.requires_order_count, pb.product_id
+              e.is_long_running, e.cowork_group_id, at.slug, at.requires_order_count, pb.product_id,
+              pb.batch_number, pb.target_bottles, pr.canonical_name AS product
        FROM v3.events e
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
        LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+       LEFT JOIN v3.products pr ON pr.id = pb.product_id
        WHERE e.id = $1 LIMIT 1`, [id]);
     const ev = r.rows[0];
     if (!ev || ev.deleted_at) { res.status(404).json({ error: 'event_not_found' }); return null; }
@@ -606,6 +619,21 @@ function createOpRouter(deps = {}) {
       await audit('slack.notification.production_exception', 'event', ev.id, { channel: productionChannel }, s.person_id);
     } catch (e) { console.error('[op] aviso exceção falhou:', e.message); }
   }
+  // ITEM 1 — aviso de divergência bottles (real vs estimado do EMS) → produção.
+  async function notifyBottleMismatch({ ev, target, actual, pct, s }) {
+    if (!slack || !slack.postAs) return;
+    const arrow = pct > 0 ? ':arrow_up:' : ':arrow_down:';
+    const text =
+      ':bar_chart: *Contagem fora do estimado*\n\n' +
+      '*Operador(a):* ' + (s.display_name || '?') + '\n' +
+      '*Produto/Lote:* ' + (ev.product || '—') + ' · ' + (ev.batch_number || '—') + '\n' +
+      '*Estimado (EMS):* ' + target + ' bottles\n' +
+      '*Informado:* ' + actual + ' bottles  ' + arrow + ' ' + (pct > 0 ? '+' : '') + pct + '%\n\n' +
+      '_Diferença ≥ 10% — verificar se a contagem está correta._';
+    try {
+      await slack.postAs({ channel: productionChannel, sender: { name: 'HealthFare Tracker (Sistema)', icon: ':bar_chart:' }, thread_ts: null, text, unfurl_links: false, unfurl_media: false });
+    } catch (e) { console.error('[op] aviso bottle mismatch falhou:', e.message); }
+  }
 
   // ── finish-preview ──────────────────────────────────────────
   // Detecta UPFRONT (antes de abrir o overlay de finalizar) se ESTE operador
@@ -632,6 +660,7 @@ function createOpRouter(deps = {}) {
       is_cowork: isCowork,
       is_last_finisher: isLast,
       requires_bottle_count: (!isCowork || isLast) && isProd,
+      estimated_bottles: ev.target_bottles != null ? ev.target_bottles : null, // ITEM 1 — EMS target
       cowork_remaining: isCowork ? Math.max(0, remaining - 1) : 0, // colegas além de mim ainda na tarefa
     });
   }));
@@ -696,6 +725,22 @@ function createOpRouter(deps = {}) {
       await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
       countCreated = true;
     }
+    // ITEM 1 — estimated bottles: compara o real com o target do EMS. Diferença
+    // relevante (>=10%) → warning na resposta + aviso na produção (sistema).
+    let bottleWarning = null;
+    if (needCount && countCreated && ev.product_batch_id) {
+      try {
+        const target = ev.target_bottles;
+        if (target && target > 0) {
+          const pct = Math.round(((b - target) / target) * 100);
+          if (Math.abs(pct) >= 10) {
+            bottleWarning = { target, actual: b, diff: b - target, pct };
+            await audit('bottle.count_mismatch', 'event', ev.id, { target, actual: b, pct }, s.person_id);
+            if (!s.is_sandbox) notifyBottleMismatch({ ev, target, actual: b, pct, s });
+          }
+        }
+      } catch (e) { console.error('[op] estimated-bottles warning falhou:', e.message); }
+    }
     // FASE 5 — contagem de ORDENS (P&P): production_counts kind='orders' + marketplace
     if (needOrders && !exception && Number.isFinite(oc) && oc > 0) {
       await db.query(
@@ -716,7 +761,7 @@ function createOpRouter(deps = {}) {
     if (isCowork && isLast) {
       await audit('cowork.group.completed', 'event', ev.id, { cowork_group_id: ev.cowork_group_id, slug: ev.slug, bottles: countCreated ? b : null, exception }, s.person_id);
       if (exception) await notifyProductionException(ev, reason, s);
-      return res.json({ ok: true, event_id: ev.id, is_last_finisher: true, count_created: countCreated, exception });
+      return res.json({ ok: true, event_id: ev.id, is_last_finisher: true, count_created: countCreated, exception, bottle_warning: bottleWarning });
     }
     // SOLO (sem grupo) — comportamento original
     if (exception) {
@@ -725,7 +770,7 @@ function createOpRouter(deps = {}) {
     } else {
       await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null, slug: ev.slug }, s.person_id);
     }
-    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount });
+    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, bottle_warning: bottleWarning });
   }));
 
   // ── join (cowork B) ─────────────────────────────────────────

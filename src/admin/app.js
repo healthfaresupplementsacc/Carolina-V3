@@ -574,7 +574,7 @@
   async function loadMetrics(sub) {
     metricsSub = sub || 'hoje';
     clearInterval(linhaTimer); // sai da aba Linha → para o auto-refresh
-    const SUBS = [['hoje', '🎯 Hoje'], ['linha', '🏭 Linha'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['unfinished', '⚠️ Não finalizadas'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
+    const SUBS = [['hoje', '🎯 Hoje'], ['linha', '🏭 Linha'], ['operador', '👤 Operador'], ['tasks', '📋 Tasks'], ['unfinished', '⚠️ Não finalizadas'], ['revisao', '🔬 Revisão'], ['cleaning', '🧽 Limpeza'], ['targets', '📊 Targets'], ['tendencias', '📈 Tendências'], ['anomalias', '🔥 Anomalias'], ['rankings', '🏆 Rankings'], ['insights', '🤖 Insights']];
     if (isOwner()) SUBS.push(['finance', '💰 Finance']);
     const nav = $('metrics-subnav'); nav.innerHTML = '';
     SUBS.forEach(([k, lbl]) => { const b = el('button', 'subtab' + (k === metricsSub ? ' active' : ''), lbl); b.onclick = () => loadMetrics(k); nav.appendChild(b); });
@@ -608,6 +608,36 @@
     card.appendChild(nav); box.appendChild(card);
   }
   const M_RENDER = {
+    // ITEM 3 — limpeza das máquinas (do EMS)
+    cleaning: async (c) => {
+      const r = await api('/api/adminpanel/metrics/cleaning');
+      c.innerHTML = '';
+      c.appendChild(el('h2', null, '🧽 Última limpeza por máquina'));
+      if (!(r.per_machine || []).length) { c.appendChild(el('div', 'sub', 'Sem registros de limpeza ainda.')); }
+      (r.per_machine || []).forEach((m) => {
+        const ok = m.status === 'passed' || m.inspection_result === 'pass';
+        c.appendChild(el('div', 'card', `<div class="row"><span class="title">${ok ? '✅' : '⚠️'} ${m.machine}</span><span class="sub">${m.cleaning_type || ''} · ${m.cleaned_by_name || '?'} · ${m.cleaned_at || '—'}${m.previous_formula ? ' · após ' + m.previous_formula : ''}</span></div>`));
+      });
+      if ((r.recent || []).length) {
+        c.appendChild(el('h2', null, '🗒️ Limpezas recentes'));
+        r.recent.forEach((x) => c.appendChild(el('div', 'card', `<div class="sub">${x.log_number} · ${x.machine} · ${x.cleaning_type || ''} · ${x.cleaned_by_name || '?'} · ${x.cleaned_at || '—'} · ${x.status || ''}</div>`)));
+      }
+    },
+    // ITEM 2 — taxa de revisão (cápsulas/seg, frascos/min) + estimativa
+    revisao: async (c) => {
+      const r = await api('/api/adminpanel/metrics/review-rate?range=30d');
+      c.innerHTML = ''; const cards = el('div', 'metric-cards');
+      cards.appendChild(mMetric(r.avg_capsules_per_sec != null ? r.avg_capsules_per_sec : '—', '🔬 Cápsulas/seg (méd)'));
+      cards.appendChild(mMetric(r.avg_bottles_per_min != null ? r.avg_bottles_per_min : '—', '🔬 Frascos/min (méd)'));
+      cards.appendChild(mMetric(r.n, 'Revisões medidas (30d)'));
+      c.appendChild(cards);
+      if (r.avg_capsules_per_sec) {
+        c.appendChild(el('div', 'sub', `Estimativa: revisar 1 frasco de 200 cáps ≈ ${Math.round(200 / r.avg_capsules_per_sec)}s · 1 frasco de 400 ≈ ${Math.round(400 / r.avg_capsules_per_sec)}s`));
+      }
+      c.appendChild(el('h2', null, 'Revisões recentes'));
+      if (!(r.runs || []).length) c.appendChild(el('div', 'sub', 'Sem revisões com lote+fórmula vinculados ainda (precisa do produto linkado).'));
+      (r.runs || []).slice(0, 15).forEach((x) => c.appendChild(el('div', 'card', `<div class="row"><span class="title">${x.operator} · ${x.product || x.batch}</span><span class="sub">${x.bottles} frascos · ${Number(x.capsules).toLocaleString('pt-BR')} cáps · ${Math.round(x.work_sec / 60)}min · ${x.capsules_per_sec} cáps/s · ${x.bottles_per_min} frasco/min</span></div>`)));
+    },
     // FASE 6 (P6.4) — tarefas não finalizadas (pausa que virou o dia): admin
     // resolve finalizando ou reatribuindo a outro operador (que continua/fecha).
     unfinished: async (c) => {

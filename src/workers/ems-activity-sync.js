@@ -280,8 +280,35 @@ class EmsActivitySync {
       if (!line && !pipeline) return { ems: false }; // EMS down → no-op
       const acts = this.extract(line, pipeline);
       const n = await this._sync(acts);
-      return { synced: n };
+      const cleaned = await this._syncCleaning(line); // ITEM 3 — limpeza das máquinas
+      return { synced: n, cleaning: cleaned };
     } finally { this._ticking = false; }
+  }
+
+  // ITEM 3 — espelha /line.last_cleaning em v3.ems_cleaning_log (idempotente por
+  // log_number). Mapeia quem limpou por nome. "Não deixar nada escapar".
+  async _syncCleaning(line) {
+    const eq = (line && Array.isArray(line.equipment)) ? line.equipment : [];
+    let n = 0;
+    for (const m of eq) {
+      const c = m && m.last_cleaning; if (!c || !c.log_number) continue;
+      try {
+        const pid = await this._resolvePersonId(c.cleaned_by, null);
+        await this.db.query(
+          `INSERT INTO v3.ems_cleaning_log
+             (log_number, machine, machine_type, cleaning_type, cleaning_method, cleaned_by_name,
+              tracker_person_id, cleaned_at, status, inspection_result, previous_formula, raw_json)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,$9,$10,$11,$12::jsonb)
+           ON CONFLICT (log_number) DO UPDATE SET
+             status = EXCLUDED.status, inspection_result = EXCLUDED.inspection_result,
+             tracker_person_id = COALESCE(EXCLUDED.tracker_person_id, v3.ems_cleaning_log.tracker_person_id),
+             raw_json = EXCLUDED.raw_json`,
+          [c.log_number, m.name || null, m.equipment_type || null, c.cleaning_type || null, c.cleaning_method || null,
+            c.cleaned_by || null, pid, c.cleaned_at || null, c.status || null, c.inspection_result || null, c.previous_formula || null, JSON.stringify(c)]);
+        n++;
+      } catch (e) { console.error('[ems-sync] cleaning upsert falhou:', e.message); }
+    }
+    return n;
   }
 }
 module.exports = { EmsActivitySync, STAGE_TO_PROCESS, flattenStage };

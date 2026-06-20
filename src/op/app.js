@@ -843,7 +843,8 @@
     var h = cardOpen(480);
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(ICONS.factory, 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: Linha de Produção</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
     if (o.lastFinisher) h += '<div style="margin-bottom:14px; padding:12px 14px; border-radius:12px; background:rgba(217,145,0,.12); border-left:3px solid #d99100; font-size:13px; font-weight:700; color:#8a5a00;">Você é o último a finalizar — informe o TOTAL de bottles que o grupo produziu.</div>';
-    h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas bottles foram produzidas?</div><input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="ex: 754" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
+    var estLine = o.estimatedBottles ? '<div style="font-size:12.5px; color:#1f5fd0; font-weight:700; margin-bottom:6px;">📦 Estimado (EMS): ' + o.estimatedBottles + ' frascos</div>' : '';
+    h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas bottles foram produzidas?</div>' + estLine + '<input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="' + (o.estimatedBottles ? 'ex: ' + o.estimatedBottles : 'ex: 754') + '" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
     h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#8195ab;">(será notificado em Orders &amp; Inventory)</span></span></button>';
     if (o.exc) {
       h += '<div style="margin-top:14px; animation:hfRise .3s ease both;">'
@@ -1201,6 +1202,7 @@
         o.cowork = !!pv.is_cowork;
         o.lastFinisher = !!(pv.is_cowork && pv.is_last_finisher); // banner/contagem só p/ ÚLTIMO do cowork
         o.requiresBottleCount = !!pv.requires_bottle_count;
+        o.estimatedBottles = pv.estimated_bottles != null ? pv.estimated_bottles : null; // ITEM 1
         if (pv.cowork_remaining != null) o.coworkRemaining = pv.cowork_remaining;
         o.previewing = false; render();
       }).catch(function () {
@@ -1434,9 +1436,12 @@
     } else {
       body = { bottles: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
     }
-    api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function () {
+    api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function (res) {
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
-      toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
+      // ITEM 1 — divergência vs estimado: alerta o operador (já avisou a produção no backend)
+      var w = res && res.bottle_warning;
+      if (w) toast('⚠️ ' + w.actual + ' bottles vs estimado ' + w.target + ' (' + (w.pct > 0 ? '+' : '') + w.pct + '%) — produção avisada');
+      else toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
       loadData(); checkEndOfDay(); // PASSADA 2 — pergunta os totais do dia se for a hora
     }).catch(function (e) {
       var code = (e && e.body && e.body.error) || e.message;
