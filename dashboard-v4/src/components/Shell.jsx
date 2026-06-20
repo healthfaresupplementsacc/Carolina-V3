@@ -31,6 +31,10 @@ const NAV = [
     { id: "carolina",     pt: "Carolina",       en: "Carolina",        icon: "chat" },
     { id: "config",       pt: "Config",         en: "Settings",        icon: "config" },
   ]},
+  // FASE 2 — admin unificado no dashboard (seção própria, login admin/RBAC).
+  { section: "Admin", en: "Admin", items: [
+    { id: "admin",        pt: "Admin",          en: "Admin panel",     icon: "config" },
+  ]},
 ];
 
 const ALL_PAGES = NAV.flatMap(s => s.items);

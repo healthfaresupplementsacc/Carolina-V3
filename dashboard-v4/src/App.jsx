@@ -32,6 +32,7 @@ import { SidePanel } from './components/SidePanel.jsx';
 // páginas
 import { CommandCenter } from './pages/CommandCenter.jsx';
 import { FloorDisplay } from './pages/FloorDisplay.jsx';
+import { AdminPanel } from './pages/AdminPanel.jsx';
 import {
   ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage,
   ProductPage, FalarPage, PlanPage, ConfigPage,
@@ -391,6 +392,7 @@ function AuthedApp({ onLogout }) {
     case "planejamento":  pageNode = <PlanPage/>; break;
     case "carolina":      pageNode = <CarolinaPage/>; break;
     case "config":        pageNode = <ConfigPage {...pageProps}/>; break;
+    case "admin":         pageNode = <AdminPanel/>; break;
     default:              pageNode = <CommandCenter {...pageProps}/>;
   }
 
