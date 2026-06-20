@@ -194,6 +194,19 @@ class EmsActivitySync {
   // FASE auto check-in: cria uma task automática quando um STAGE INICIOU recentemente
   // pra um operador MAPEADO e que não tem event aberto pro lote. Só início recente
   // (timeline/in_use_since dentro da janela) — nunca back-fill de assignment velho.
+  // resolve product_id LOCAL por nome do EMS (canonical + aliases, normalizado).
+  async _resolveProductId(name) {
+    if (!name) return null;
+    try {
+      const r = await this.db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true');
+      const norm = (sx) => String(sx || '').toLowerCase().replace(/\b\d+(\.\d+)?\s*(mg|mcg|g|iu|ml|ct|count|caps?|capsules?|softgels?|tablets?|servings?)\b/g, '').replace(/[^a-z0-9]+/g, '');
+      const t = norm(name); if (!t) return null;
+      let hit = r.rows.find((p) => norm(p.canonical_name) === t);
+      if (!hit) hit = r.rows.find((p) => [p.canonical_name].concat(p.aliases || []).some((a) => norm(a) === t));
+      if (!hit) hit = r.rows.find((p) => { const n = norm(p.canonical_name); return n && t.length >= 5 && (n.indexOf(t) >= 0 || t.indexOf(n) >= 0); });
+      return hit ? hit.id : null;
+    } catch (e) { return null; }
+  }
   async _autoCheckin(activities) {
     if (!this.autoCheckin) return 0;
     const windowMs = this.checkinWindowMin * 60000;
@@ -210,7 +223,10 @@ class EmsActivitySync {
         if (a.batch_number) {
           const b = await this.db.query("SELECT id FROM v3.product_batches WHERE batch_number = $1 OR batch_number = 'BR-2026-' || $1 ORDER BY id DESC LIMIT 1", [a.batch_number]);
           if (b.rows[0]) batchId = b.rows[0].id;
-          else { try { const ins = await this.db.query("INSERT INTO v3.product_batches (product_id, batch_number, started_at, status, origin, created_via) VALUES (NULL, $1, NOW(), 'in_progress', 'ems_auto', 'ems_sync') RETURNING id", [a.batch_number]); batchId = ins.rows[0].id; } catch (e) {} }
+          else { // product_batches.product_id é NOT NULL → só cria lote se resolver o produto (por nome do EMS)
+            const prodId = await this._resolveProductId(a.supplement_name);
+            if (prodId) { try { const ins = await this.db.query("INSERT INTO v3.product_batches (product_id, batch_number, started_at, status, origin, created_via) VALUES ($1, $2, NOW(), 'in_progress', 'ems_auto', 'ems_sync') RETURNING id", [prodId, a.batch_number]); batchId = ins.rows[0].id; } catch (e) {} }
+          }
           // já tem event aberto pro person+batch (/op, slack, etc)? → NÃO duplica
           if (batchId) {
             const open = await this.db.query('SELECT 1 FROM v3.events WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND product_batch_id = $2 LIMIT 1', [a.tracker_person_id, batchId]);

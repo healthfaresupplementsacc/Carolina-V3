@@ -518,6 +518,32 @@ describe('op API — events', () => {
     expect(slack.postAs).not.toHaveBeenCalled();
   });
 
+  // FIX sync canônico: lote conhecido no EMS deve LINKAR o produto (não "desconhecido")
+  test('FIX: lote do EMS só com o número (sem product_id/nome) → LINKA via EMS, SEM alerta', async () => {
+    const s = await login(4);
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: 'BR-2026-0218' } });
+    expect(r.status).toBe(200);
+    expect(r.body.event.product).toBe('Plant Sterols'); // EMS resolveu o produto (estava só o número)
+    expect(r.body.event.batch_number).toBe('BR-2026-0218');
+    const created = mem.batches.find((b) => b.batch_number === 'BR-2026-0218');
+    expect(created && created.product_id).toBe(9);
+    expect(slack.postAs).not.toHaveBeenCalled(); // não é "desconhecido" → não spamma o admin
+  });
+  test('FIX: lote do EMS com product_name (hint do frontend) e sem product_id → LINKA (alias/norm)', async () => {
+    const s = await login(4);
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: 'BR-2026-0230', product_name: 'Magnesium Glycinate 400mg' } });
+    expect(r.status).toBe(200);
+    expect(r.body.event.product).toBe('Magnesium Glycinate'); // norm casa "400mg" → produto local
+    expect(slack.postAs).not.toHaveBeenCalled();
+  });
+  test('FIX: lote NÃO no EMS e sem produto → ainda "desconhecido" (alerta legítimo)', async () => {
+    const s = await login(4);
+    const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'production_line', batch_number: 'ZZZ-NAO-EXISTE' } });
+    expect(r.status).toBe(200); // nunca bloqueia
+    expect(mem.events[0].product_batch_id).toBeFalsy();
+    expect(slack.postAs).toHaveBeenCalled(); // genuinamente desconhecido → avisa
+  });
+
   test('Fase 0 — order_printing SEM orders_printed → 400; COM → 200 e grava', async () => {
     const s = await login(4);
     const r1 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', note: 'imprimindo' } });

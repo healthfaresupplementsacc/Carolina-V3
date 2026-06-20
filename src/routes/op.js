@@ -235,13 +235,14 @@ function createOpRouter(deps = {}) {
   }
   // FILOSOFIA: o sistema NUNCA bloqueia o operador. Lote que ele digitou e não
   // existe → AUTO-CRIA (origin='operator_created') e segue; admin revisa depois.
-  async function autoCreateBatch(batchNumber, productId, personId) {
+  async function autoCreateBatch(batchNumber, productId, personId, targetBottles) {
     const bn = String(batchNumber).trim();
+    const notes = (targetBottles != null && Number.isFinite(+targetBottles)) ? ('EMS target: ' + targetBottles + ' bottles') : null;
     const ins = await db.query(
       `INSERT INTO v3.product_batches
-         (product_id, batch_number, started_at, status, origin, created_by_person_id, created_via)
-       VALUES ($1, $2, NOW(), 'in_progress', 'operator_created', $3, 'op_page')
-       RETURNING id, batch_number, product_id`, [productId, bn, personId]);
+         (product_id, batch_number, started_at, status, origin, created_by_person_id, created_via, notes)
+       VALUES ($1, $2, NOW(), 'in_progress', 'operator_created', $3, 'op_page', $4)
+       RETURNING id, batch_number, product_id`, [productId, bn, personId, notes]);
     const row = ins.rows[0];
     let product = null;
     try { const p = await db.query('SELECT canonical_name FROM v3.products WHERE id = $1', [productId]); product = p.rows[0] ? p.rows[0].canonical_name : null; } catch (e) {}
@@ -249,19 +250,54 @@ function createOpRouter(deps = {}) {
   }
   // resolve OU cria. Nunca lança "unknown_batch". Se não dá pra criar (sem produto
   // identificável), volta typedUnlinked pro nº ser preservado na descrição do event.
-  async function resolveOrCreateBatch(batchNumber, productIdRaw, personId) {
-    if (!batchNumber) return { batch: null, autoCreated: false, typedUnlinked: null };
+  // PRINCÍPIO ÚNICO: o EMS é a fonte da verdade dos lotes. Acha o lote no pipeline
+  // EMS por nº → devolve produto/fórmula/target bottles, pra LINKAR (não "desconhecido").
+  async function emsBatchInfo(batchNumber) {
+    if (!batchNumber) return null;
+    try {
+      const pl = await emsPipeline(); if (!pl) return null;
+      const bn = String(batchNumber).trim().toUpperCase();
+      const alt = bn.indexOf('BR-2026-') === 0 ? bn.slice(8) : ('BR-2026-' + bn);
+      for (const g of ['pending_queue', 'formulation', 'production_line']) {
+        for (const b of flattenStage(pl[g])) {
+          const x = String((b && (b.batch_record_number || b.batch_number)) || '').toUpperCase();
+          if (x && (x === bn || x === alt)) {
+            return {
+              product_name: (b.product && b.product.name) || (b.formula && b.formula.name) || null,
+              formula_code: (b.formula && b.formula.formula_code) || null,
+              target_bottles: b.target_qty_bottles != null ? b.target_qty_bottles : null,
+            };
+          }
+        }
+      }
+    } catch (e) { console.error('[op] emsBatchInfo falhou:', e.message); }
+    return null;
+  }
+  // resolve OU cria + LINKA produto. Ordem: lote local → product_id explícito →
+  // nome (hint do frontend) → EMS (fonte da verdade). Só vira "desconhecido" se
+  // realmente não dá pra identificar o produto em lugar nenhum. NUNCA bloqueia.
+  async function resolveOrCreateBatch(batchNumber, productIdRaw, personId, hints) {
+    if (!batchNumber) return { batch: null, autoCreated: false, typedUnlinked: null, resolvedFromEms: false };
     const existing = await resolveBatch(batchNumber);
-    if (existing) return { batch: existing, autoCreated: false, typedUnlinked: null };
-    const pid = parseInt(productIdRaw, 10);
+    if (existing) return { batch: existing, autoCreated: false, typedUnlinked: null, resolvedFromEms: false };
+    let pid = parseInt(productIdRaw, 10);
+    let resolvedFromEms = false, targetBottles = null;
+    if (!(Number.isFinite(pid) && pid > 0)) {
+      // sem product_id → tenta pelo NOME (hint que o frontend já manda) + pelo EMS
+      let name = hints && hints.product_name;
+      const ems = await emsBatchInfo(batchNumber);
+      if (ems) { resolvedFromEms = true; if (!name) name = ems.product_name; if (ems.target_bottles != null) targetBottles = ems.target_bottles; }
+      if (name) { const byName = await productIdByName(name); if (Number.isFinite(byName) && byName > 0) pid = byName; }
+      if (!(Number.isFinite(pid) && pid > 0)) resolvedFromEms = false; // achou no EMS mas sem produto local → ainda não linka
+    }
     if (Number.isFinite(pid) && pid > 0) {
       try {
-        const batch = await autoCreateBatch(batchNumber, pid, personId);
-        return { batch, autoCreated: true, typedUnlinked: null };
+        const batch = await autoCreateBatch(batchNumber, pid, personId, targetBottles);
+        return { batch, autoCreated: true, typedUnlinked: null, resolvedFromEms };
       } catch (e) { console.error('[op] auto-create batch falhou:', e.message); }
     }
     // sem produto p/ vincular (ou falhou): NÃO bloqueia — segue sem batch
-    return { batch: null, autoCreated: false, typedUnlinked: String(batchNumber).trim() };
+    return { batch: null, autoCreated: false, typedUnlinked: String(batchNumber).trim(), resolvedFromEms: false };
   }
   // alerta operacional pros owners/manager (canal admin). Voz do SISTEMA (não Carolina).
   async function notifyUnknownBatch({ batchNumber, productName, operatorName, slug, autoCreated }) {
@@ -289,13 +325,16 @@ function createOpRouter(deps = {}) {
   }
   // audita + alerta admin quando um lote foi auto-criado ou não pôde ser vinculado.
   // Notificação é fire-and-forget (não atrasa a resposta ao operador).
-  async function flagUnknownBatch({ res, autoCreated, typedUnlinked, batch, batchNumber, body, slug, s }) {
+  async function flagUnknownBatch({ res, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber, body, slug, s }) {
     if (!autoCreated && !typedUnlinked) return;
     const bn = String(batchNumber || '').trim();
     const productId = batch ? batch.product_id : (body && parseInt(body.product_id, 10)) || null;
     await audit('batch.auto_created', batch ? 'product_batch' : 'event', batch ? batch.id : res.id,
-      { batch_number: bn, product_id: Number.isFinite(productId) ? productId : null, person_id: s.person_id, auto_created: !!autoCreated, linked: !!batch, reason: 'operator_input_not_found', is_test: !!s.is_sandbox }, s.person_id);
+      { batch_number: bn, product_id: Number.isFinite(productId) ? productId : null, person_id: s.person_id, auto_created: !!autoCreated, linked: !!batch, resolved_from_ems: !!resolvedFromEms, reason: 'operator_input_not_found', is_test: !!s.is_sandbox }, s.person_id);
     if (s.is_sandbox) return; // sandbox: NÃO notifica Slack (invisível pro resto do sistema)
+    // lote do EMS resolvido e LINKADO ao produto → é legítimo, não é "desconhecido":
+    // só auditа, NÃO spamma o admin. Notifica só quando realmente não deu pra identificar.
+    if (resolvedFromEms && batch) return;
     notifyUnknownBatch({ batchNumber: bn, productName: batch ? batch.product : (body && body.product_name) || null, operatorName: s.display_name, slug, autoCreated: !!autoCreated });
   }
   async function insertCount({ event, bottles, unit, personId }) {
@@ -385,7 +424,7 @@ function createOpRouter(deps = {}) {
       }
     }
     // NUNCA bloqueia: resolve o lote OU auto-cria (alerta admin depois)
-    const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id);
+    const { batch, autoCreated, typedUnlinked, resolvedFromEms } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id, { product_name: req.body && req.body.product_name });
     const cw = Array.isArray(cowork_with)
       ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id)
       : [];
@@ -413,7 +452,7 @@ function createOpRouter(deps = {}) {
       }
       await audit('event.created_via_page', 'event', starterEv.id,
         { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw, cowork_group_id: gid, cowork_size: participants.length }, s.person_id);
-      await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
+      await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
       await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, cowork_with: cw, cowork_group_id: gid, note }, relatedEventId: starterEv.id, isTest: !!s.is_sandbox });
       if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, starterEv.id); // FASE PAUSA: congela o resto
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
@@ -430,7 +469,7 @@ function createOpRouter(deps = {}) {
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
-    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
+    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, note }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
     if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
@@ -472,7 +511,7 @@ function createOpRouter(deps = {}) {
     if (!v.end_same_day) return res.status(400).json({ error: 'ended_at_not_today', detail: 'O fim tem que ser no mesmo dia do início.' });
     if (!v.end_before_2300) return res.status(400).json({ error: 'ended_at_too_late', detail: 'O fim não pode passar das 11pm.' });
     // NUNCA bloqueia: resolve OU auto-cria o lote (alerta admin depois)
-    const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id);
+    const { batch, autoCreated, typedUnlinked, resolvedFromEms } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id, { product_name: req.body && req.body.product_name });
     const cw = Array.isArray(cowork_with)
       ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id) : [];
     let rdesc = note ? String(note).slice(0, 500) : null;
@@ -490,7 +529,7 @@ function createOpRouter(deps = {}) {
     const gapMin = await db.query("SELECT ROUND(EXTRACT(EPOCH FROM (NOW() - $1::timestamptz))/60)::int g", [started_at]);
     await audit('event.retroactive_create', 'event', ev.id,
       { slug: act.slug, retroactive: true, gap_minutes: gapMin.rows[0].g, ended: !!ended_at, batch: batch ? batch.batch_number : null }, s.person_id);
-    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
+    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     res.json({ ok: true, event_id: ev.id, status: 'created' });
   }));
 
@@ -980,7 +1019,7 @@ function createOpRouter(deps = {}) {
       }
     }
     const pid = await productIdByName(det.product_name);
-    const { batch, autoCreated, typedUnlinked } = await resolveOrCreateBatch(det.batch_number, pid, s.person_id);
+    const { batch, autoCreated, typedUnlinked, resolvedFromEms } = await resolveOrCreateBatch(det.batch_number, pid, s.person_id, { product_name: det.product_name });
     let desc = '[detecção EMS: ' + (det.machine || '?') + (det.stage ? ' · ' + det.stage : '') + ']';
     if (startedAtIso) desc += ' [início informado]';
     if (lateFlag) desc += ' [⚠ início >8h atrás — revisar]';
@@ -995,7 +1034,7 @@ function createOpRouter(deps = {}) {
     const ev = ins.rows[0];
     await audit('event.created_via_ems_detect', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, ems_key: emsKey, machine: det.machine, stage: det.stage, started_at_informed: !!startedAtIso, late_flag: lateFlag }, s.person_id);
-    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, batch, batchNumber: det.batch_number, body: { product_name: det.product_name }, slug: act.slug, s });
+    await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: det.batch_number, body: { product_name: det.product_name }, slug: act.slug, s });
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start_ems_detect', payload: { slug: act.slug, batch_number: det.batch_number, ems_key: emsKey, machine: det.machine, stage: det.stage, started_at: startedAtIso, late_flag: lateFlag }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
     res.json({ ok: true, late_flag: lateFlag, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : det.product_name || null } });
   }));
