@@ -626,3 +626,7 @@ textarea.input { resize: vertical; min-height: 70px; font-family: inherit; }
 .op-link-side-url { display: block; font-size: 10px; color: var(--text-3); word-break: break-all; margin-bottom: 6px; }
 .op-link-side-btns { display: flex; gap: 6px; }
 .op-link-side-btns .btn.sm { padding: 3px 8px; font-size: 11px; }
+
+/* Mobile: a grade do "Resumo do dia" (320px + 1fr) empilha no celular. */
+.day-summary-grid { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
+@media (max-width: 880px) { .day-summary-grid { grid-template-columns: 1fr !important; } }

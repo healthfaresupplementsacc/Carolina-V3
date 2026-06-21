@@ -688,7 +688,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         const lotes = dayStats.lotesEnriched((raw && raw.production && raw.production.lotes) || [], state.events);
         const goalsDone = goals.filter((g) => g.completed).length;
         return (
-        <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12 }}>
+        <div className="day-summary-grid" style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12 }}>
           <div className="card" style={{ padding: 16 }}>
             <Row label="Data"                value={date}/>
             <Row label="Operadores hoje"     value={`${operators.length} pessoa(s)`}/>

@@ -142,6 +142,11 @@ function AuthedApp({ onLogout }) {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Mobile: sidebar vira drawer deslizante (hambúrguer no topbar). Fecha ao
+  // trocar de página. Em desktop o estado é ignorado (sidebar sempre visível).
+  const [navOpen, setNavOpen] = React.useState(false);
+  React.useEffect(() => { setNavOpen(false); }, [route]);
+
   // Date global (YYYY-MM-DD NY) — compartilhado por todas as páginas.
   const [date, setDate] = React.useState(() => nyToday());
 
@@ -398,11 +403,14 @@ function AuthedApp({ onLogout }) {
 
   return (
     <div className={`app`}>
-      <Sidebar route={route} onRoute={(id) => { location.hash = "#" + id; }} opLink={<OperatorLinkBar/>}/>
+      <Sidebar route={route} onRoute={(id) => { location.hash = "#" + id; }} opLink={<OperatorLinkBar/>}
+               open={navOpen} onClose={() => setNavOpen(false)}/>
+      {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true"/>}
       <TopBar
         pageId={route} date={date} onDate={setDate}
         theme={tweaks.theme} onTheme={toggleTheme}
         onNewEvent={newEvent}
+        onMenu={() => setNavOpen((v) => !v)}
         workerNode={<WorkerPill/>}
         readOnly={!V4_ALLOW_WRITES}
         onLogout={onLogout}

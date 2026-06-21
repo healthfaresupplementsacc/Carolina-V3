@@ -43,9 +43,9 @@ function findPage(id) {
   return ALL_PAGES.find(p => p.id === id) || ALL_PAGES[0];
 }
 
-const Sidebar = ({ route, onRoute, collapsed, opLink }) => {
+const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${open ? "sidebar--open" : ""}`}>
       <div className="brand brand-with-logo">
         {collapsed ? (
           // Sidebar colapsada: só o H+leaf cortado da extremidade esquerda
@@ -65,7 +65,7 @@ const Sidebar = ({ route, onRoute, collapsed, opLink }) => {
             {sec.items.map(it => (
               <a key={it.id} href={`#${it.id}`}
                  className={`nav-item ${route === it.id ? "active" : ""}`}
-                 onClick={e => { e.preventDefault(); onRoute(it.id); }}>
+                 onClick={e => { e.preventDefault(); onRoute(it.id); if (onClose) onClose(); }}>
                 <span className="nav-ico"><Icon name={it.icon} size={17}/></span>
                 {!collapsed && (
                   <>
@@ -95,10 +95,14 @@ const Sidebar = ({ route, onRoute, collapsed, opLink }) => {
 // (E7-refine2) BrandH SVG removido — agora usa healthfare-logo.png direto.
 
 const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
-                  workerNode, readOnly, onLogout, ack }) => {
+                  workerNode, readOnly, onLogout, ack, onMenu }) => {
   const page = findPage(pageId);
   return (
     <header className="topbar">
+      {/* Hambúrguer — só aparece no mobile (CSS .topbar-burger), abre o drawer */}
+      <button className="icon-btn topbar-burger" onClick={onMenu} aria-label="Menu" title="Menu">
+        <Icon name="menu" size={18}/>
+      </button>
       <div className="page-title">
         <h1>{page.pt}</h1>
         <span className="en">· {page.en}</span>
@@ -120,10 +124,12 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
         )}
       </div>
       <div className="topbar-spacer"/>
-      {workerNode}
-      <FalarCarolinaButton ack={ack}/>
-      <button className="icon-btn" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
-      <button className="icon-btn" title="Notificações" aria-label="Notifications" style={{ position: "relative" }}>
+      {/* hide-mobile: secundários somem no celular (workerNode/falar/busca/bell/admin/op
+          ficam acessíveis pelo drawer ou não-essenciais na tela pequena). */}
+      <span className="hide-mobile" style={{ display: "contents" }}>{workerNode}</span>
+      <span className="hide-mobile"><FalarCarolinaButton ack={ack}/></span>
+      <button className="icon-btn hide-mobile" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
+      <button className="icon-btn hide-mobile" title="Notificações" aria-label="Notifications" style={{ position: "relative" }}>
         <Icon name="bell" size={17}/>
         <span style={{ position: "absolute", top: 6, right: 7, width: 7, height: 7, borderRadius: "50%", background: "var(--bad)", boxShadow: "0 0 0 2px var(--surface)" }}/>
       </button>
@@ -138,12 +144,12 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
       )}
       {/* 🔧 gear → Painel Admin (nova aba). ANTES o gear estava no botão de
           logout (Icon config) e deslogava — bug. Agora gear = admin. */}
-      <a className="icon-btn" href="/admin/" target="_blank" rel="noreferrer"
+      <a className="icon-btn hide-mobile" href="/admin/" target="_blank" rel="noreferrer"
          title="Painel Admin (/admin/, nova aba)" aria-label="Admin">
         <Icon name="config" size={17}/>
       </a>
       {/* 👷 Página dos Operadores (nova aba) */}
-      <a className="icon-btn" href="/op/" target="_blank" rel="noreferrer"
+      <a className="icon-btn hide-mobile" href="/op/" target="_blank" rel="noreferrer"
          title="Página dos Operadores (/op/, nova aba)" aria-label="Operadores">
         <Icon name="people" size={17}/>
       </a>
