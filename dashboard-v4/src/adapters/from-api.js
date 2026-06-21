@@ -149,8 +149,9 @@ export function useSnapshotAsHFData(date, opts = {}) {
   const persons    = useFetch('/catalog/persons',          [bump]);
   const acts       = useFetch('/catalog/activity-types',   [bump]);
   const products   = useFetch('/catalog/products',         [bump]);
-  // Revisão: média histórica (30d) — slow-changing, fetch único + refresh manual.
-  const review     = useFetch('/review-rate?range=30d',    [bump]);
+  // Revisão DO DIA selecionado (card mostra por dia). Detalhe 30d/custom é
+  // buscado sob demanda no popover. Polla junto quando é hoje.
+  const review     = usePoll('/review-rate?from=' + date + '&to=' + date, [date, bump], pollMs);
 
   // Adaptado: memoizado pelos data refs (mudam quando algum poll resolve).
   const hfdata = React.useMemo(() => {

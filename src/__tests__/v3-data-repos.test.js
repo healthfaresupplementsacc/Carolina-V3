@@ -471,26 +471,39 @@ describe('V3 data — FlowViewsRepo (Bloco 3)', () => {
     ]);
   });
 
-  test('FASE 3: reviewRate agrega cápsulas/seg + frascos/min + média POR PRODUTO', async () => {
+  test('FASE 3: reviewRate agrega cápsulas/seg + frascos/min + média POR PRODUTO e POR PESSOA', async () => {
     const db = makeDb([
       { match: /AND at\.slug = 'review'/, rows: [
-        // 2 runs do mesmo produto (67) → média do produto + geral.
-        { product_id: 67, product: 'Vitamin B2', batch_number: '0142', operator: 'Vitor',
+        // 2 runs do mesmo produto (67), 2 pessoas → média por produto, por pessoa e geral.
+        { product_id: 67, product: 'Vitamin B2', batch_number: '0142', operator_id: 4, operator: 'Vitor',
           units_per_bottle: 60, target_bottles: 100, work_sec: 600, ended_at: '2026-05-21T14:00:00Z' },
-        { product_id: 67, product: 'Vitamin B2', batch_number: '0150', operator: 'Vitor',
+        { product_id: 67, product: 'Vitamin B2', batch_number: '0150', operator_id: 5, operator: 'Simone',
           units_per_bottle: 60, target_bottles: 200, work_sec: 1200, ended_at: '2026-05-20T14:00:00Z' },
       ] },
     ]);
     const out = await new FlowViewsRepo({ db }).reviewRate({ range: '30d' });
     expect(out.n).toBe(2);
-    // caps/sec = 6000/600 = 10 (e 12000/1200 = 10) → média 10
-    expect(out.avg_capsules_per_sec).toBe(10);
-    // bottles/min = 100/(600/60)=10 ; 200/(1200/60)=10 → média 10
+    expect(out.avg_capsules_per_sec).toBe(10);   // 6000/600 e 12000/1200 → 10
     expect(out.avg_bottles_per_min).toBe(10);
-    // sec/bottle = 600/100=6 ; 1200/200=6 → média 6
     expect(out.avg_sec_per_bottle).toBe(6);
     expect(out.products).toHaveLength(1);
     expect(out.products[0]).toMatchObject({ product: 'Vitamin B2', n: 2, avg_capsules_per_sec: 10 });
+    // NOVO: por pessoa
+    expect(out.operators).toHaveLength(2);
+    expect(out.operators.map((o) => o.operator).sort()).toEqual(['Simone', 'Vitor']);
+    expect(out.runs[0]).toHaveProperty('operator_id');
+  });
+
+  test('FASE 3: reviewRate aceita janela from/to (datas custom)', async () => {
+    let captured = null;
+    const db = makeDb([
+      { match: /AND at\.slug = 'review'/, rows: (p) => { captured = p; return []; } },
+    ]);
+    const out = await new FlowViewsRepo({ db }).reviewRate({ from: '2026-06-01', to: '2026-06-15' });
+    // usa BETWEEN nas datas (não o rolling de N dias)
+    expect(captured).toEqual(['2026-06-01', '2026-06-15']);
+    expect(out.scope).toBe('2026-06-01..2026-06-15');
+    expect(out.from).toBe('2026-06-01');
   });
 
   test('supportByDay lista ocorrências; conserto marcado downtime', async () => {

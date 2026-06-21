@@ -179,7 +179,10 @@ const ENDPOINTS = [
   // por produto e geral. Histórico (?range=7d|30d|90d|180d, default 30d).
   { path: '/api/v3/data/review-rate',
     handler: async (req, r) => ({
-      data: await r.flowViews.reviewRate({ range: req.query.range, product_id: req.query.product_id }),
+      data: await r.flowViews.reviewRate({
+        range: req.query.range, product_id: req.query.product_id,
+        person_id: req.query.person_id, from: req.query.from, to: req.query.to,
+      }),
     }) },
   { path: '/api/v3/data/deadlines',
     handler: async (req, r) => ({ data: await r.deadlines.list() }) },

@@ -12,6 +12,7 @@ import { Timeline } from '../components/Timeline.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import { apiGet } from '../adapters/from-api.js';
 import nyTime from '../utils/ny-time.cjs';
 import dayStats from '../utils/day-stats.cjs';
 
@@ -346,8 +347,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                </EditPopover>
              </>}/>
 
-        {/* REVISÃO — FASE 3: cápsulas/seg + frascos/min (média 30d), clicável */}
-        <KPI label="Revisão" en="Review rate"
+        {/* REVISÃO DO DIA — FASE 3: cáps/seg + frascos/min + POR PESSOA, clicável */}
+        <KPI label="Revisão (dia)" en="Review · day"
              value={review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : '—'}
              suffix={review.avg_capsules_per_sec != null ? 'cáps/seg' : ''}
              onValueClick={onDrill('revisao')}
@@ -357,9 +358,18 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, marginBottom: 4 }}>
                    {review.avg_bottles_per_min}/min · {review.avg_sec_per_bottle != null ? `${review.avg_sec_per_bottle}s/frasco` : '—'}
                  </div>
-               ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem revisões com lote no período</div>}
-               <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                 média de {review.n || 0} revisão(ões) · últimos {review.range_days || 30}d · clique p/ detalhe por produto
+               ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem revisão com lote neste dia</div>}
+               {(review.operators || []).length > 0 ? (
+                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                   {(review.operators || []).slice(0, 4).map((o, i) => (
+                     <span key={i} className="pill prod" title={`${o.n} revisão(ões)`}>
+                       <span className="dot"/>{o.operator || '(?)'} {o.avg_capsules_per_sec}/s
+                     </span>
+                   ))}
+                 </div>
+               ) : null}
+               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                 {review.n || 0} revisão(ões) no dia · clique p/ detalhe (30d / custom / por pessoa)
                </div>
              </>}/>
 
@@ -1012,47 +1022,99 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </div>
           </div>
         )}
-        {drill?.which === 'revisao' && (
-          <div>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
-              <DrillStat label="Cápsulas/seg" value={review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : '—'} unit="média" color="var(--flow-prod)"/>
-              <DrillStat label="Frascos/min" value={review.avg_bottles_per_min != null ? review.avg_bottles_per_min : '—'} unit="média" color="var(--flow-prod)"/>
-              <DrillStat label="Tempo/frasco" value={review.avg_sec_per_bottle != null ? review.avg_sec_per_bottle : '—'} unit="seg médio"/>
-            </div>
-            {(review.products || []).length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>
-                Sem revisões com lote vinculado (units_per_bottle + meta de garrafas) nos últimos {review.range_days || 30} dias.
-              </div>
-            ) : (
-              <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 }}>
-                    <th style={{ padding: '4px 6px 4px 0' }}>Produto</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>n</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>cáps/seg</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>frasco/min</th>
-                    <th style={{ padding: '4px 0 4px 6px', textAlign: 'right' }}>seg/frasco</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(review.products || []).map((p, i) => (
-                    <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
-                      <td style={{ padding: '5px 6px 5px 0' }}><b>{p.product}</b></td>
-                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--text-3)' }}>{p.n}</td>
-                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--flow-prod)' }}>{p.avg_capsules_per_sec != null ? p.avg_capsules_per_sec : '—'}</td>
-                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{p.avg_bottles_per_min != null ? p.avg_bottles_per_min : '—'}</td>
-                      <td className="mono" style={{ padding: '5px 0 5px 6px', textAlign: 'right' }}>{p.avg_sec_per_bottle != null ? p.avg_sec_per_bottle : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>
-              Cápsulas = garrafas × cápsulas-por-frasco do lote; tempo de revisão desconta pausas. Guardado por produto pra média histórica.
-            </div>
-          </div>
-        )}
+        {drill?.which === 'revisao' && <ReviewDetail date={date} today={review}/>}
       </FloatingPopover>
+    </div>
+  );
+}
+
+/* FASE 3 — detalhe da Revisão: escopo (Hoje/7d/30d/custom) + por pessoa + por produto.
+   Busca /review-rate sob demanda. `today` = snapshot do dia (escopo inicial). */
+function ReviewDetail({ date, today }) {
+  const [scope, setScope] = React.useState('today'); // today | 7d | 30d | custom
+  const [from, setFrom] = React.useState(date);
+  const [to, setTo] = React.useState(date);
+  const [data, setData] = React.useState(today || null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+
+  const query = React.useMemo(() => {
+    if (scope === 'today') return `from=${date}&to=${date}`;
+    if (scope === '7d') return 'range=7d';
+    if (scope === '30d') return 'range=30d';
+    return `from=${from}&to=${to}`; // custom
+  }, [scope, date, from, to]);
+
+  React.useEffect(() => {
+    if (scope === 'today' && today) { setData(today); return undefined; }
+    let alive = true; setLoading(true); setErr(null);
+    apiGet('/review-rate?' + query).then(
+      (j) => { if (alive) { setData(j.data); setLoading(false); } },
+      (e) => { if (alive) { setErr(e); setLoading(false); } },
+    );
+    return () => { alive = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const d = data || {};
+  const Tbl = ({ rows, firstLabel, firstKey }) => (
+    (!rows || rows.length === 0) ? <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '6px 0' }}>—</div> : (
+      <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead><tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 }}>
+          <th style={{ padding: '4px 6px 4px 0' }}>{firstLabel}</th>
+          <th style={{ padding: '4px 6px', textAlign: 'right' }}>n</th>
+          <th style={{ padding: '4px 6px', textAlign: 'right' }}>cáps/seg</th>
+          <th style={{ padding: '4px 6px', textAlign: 'right' }}>frasco/min</th>
+          <th style={{ padding: '4px 0 4px 6px', textAlign: 'right' }}>seg/frasco</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
+              <td style={{ padding: '5px 6px 5px 0' }}><b>{r[firstKey] || '(?)'}</b></td>
+              <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--text-3)' }}>{r.n}</td>
+              <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--flow-prod)' }}>{r.avg_capsules_per_sec != null ? r.avg_capsules_per_sec : '—'}</td>
+              <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{r.avg_bottles_per_min != null ? r.avg_bottles_per_min : '—'}</td>
+              <td className="mono" style={{ padding: '5px 0 5px 6px', textAlign: 'right' }}>{r.avg_sec_per_bottle != null ? r.avg_sec_per_bottle : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  );
+
+  return (
+    <div>
+      <div className="filters" style={{ marginBottom: 10 }}>
+        {[['today', 'Hoje'], ['7d', '7d'], ['30d', '30d'], ['custom', 'Custom']].map(([id, label]) => (
+          <button key={id} className={`filter-chip ${scope === id ? 'on' : ''}`} onClick={() => setScope(id)}>{label}</button>
+        ))}
+      </div>
+      {scope === 'custom' && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }}/>
+          <span style={{ color: 'var(--text-3)' }}>→</span>
+          <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }}/>
+        </div>
+      )}
+      {loading ? <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>Carregando…</div>
+        : err ? <div style={{ fontSize: 12, color: 'var(--bad)', padding: '8px 0' }}>Erro: {err.message}</div>
+        : (
+        <>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
+            <DrillStat label="Cápsulas/seg" value={d.avg_capsules_per_sec != null ? d.avg_capsules_per_sec : '—'} unit="média" color="var(--flow-prod)"/>
+            <DrillStat label="Frascos/min" value={d.avg_bottles_per_min != null ? d.avg_bottles_per_min : '—'} unit="média" color="var(--flow-prod)"/>
+            <DrillStat label="Tempo/frasco" value={d.avg_sec_per_bottle != null ? d.avg_sec_per_bottle : '—'} unit="seg médio"/>
+            <DrillStat label="Revisões" value={d.n || 0} unit={scope === 'today' ? 'no dia' : (d.scope || '')}/>
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, margin: '4px 0' }}>Por pessoa</div>
+          <Tbl rows={d.operators} firstLabel="Operador" firstKey="operator"/>
+          <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, margin: '10px 0 4px' }}>Por produto</div>
+          <Tbl rows={d.products} firstLabel="Produto" firstKey="product"/>
+        </>
+      )}
+      <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>
+        Cápsulas = garrafas × cápsulas-por-frasco do lote; tempo desconta pausas. Card mostra o dia; aqui dá pra ver 30d ou datas custom.
+      </div>
     </div>
   );
 }

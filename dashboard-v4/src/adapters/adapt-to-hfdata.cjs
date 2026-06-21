@@ -325,14 +325,16 @@ function adaptToHFData(input) {
 
   // ── Revisão (histórico) — cápsulas/seg + frascos/min + média por produto ──
   const reviewBlock = review ? {
-    range_days: review.range_days || null,
+    range_days: review.range_days || null, scope: review.scope || null,
+    from: review.from || null, to: review.to || null,
     n: review.n || 0,
     avg_capsules_per_sec: review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : null,
     avg_bottles_per_min: review.avg_bottles_per_min != null ? review.avg_bottles_per_min : null,
     avg_sec_per_bottle: review.avg_sec_per_bottle != null ? review.avg_sec_per_bottle : null,
     products: review.products || [],
+    operators: review.operators || [],
     runs: review.runs || [],
-  } : { range_days: null, n: 0, avg_capsules_per_sec: null, avg_bottles_per_min: null, avg_sec_per_bottle: null, products: [], runs: [] };
+  } : { range_days: null, scope: null, from: null, to: null, n: 0, avg_capsules_per_sec: null, avg_bottles_per_min: null, avg_sec_per_bottle: null, products: [], operators: [], runs: [] };
 
   return {
     DAY_START, DAY_END, NOW_MIN, DEADLINE_MIN,
