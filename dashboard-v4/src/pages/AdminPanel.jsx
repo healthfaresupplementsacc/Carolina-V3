@@ -32,14 +32,11 @@ function useAdmin(path, deps = [], pollMs = 0) {
 }
 
 // Abas ainda não portadas — abrem o painel admin completo (mesma origem).
+// (As com escrita ficam aqui até a próxima leva; as read-only já são nativas.)
 const LAUNCH_TABS = [
   { id: 'notifs',    label: 'Notificações', en: 'Inbox',      icon: 'bell',    desc: 'Eventos do Slack, anomalias, idle/stale' },
   { id: 'ops',       label: 'Operadores',   en: 'Operators',  icon: 'people',  desc: 'PINs, auto-logoff, escala, retroativos' },
   { id: 'batches',   label: 'Lotes',        en: 'Batches',    icon: 'product', desc: 'Lotes desconhecidos pra revisar' },
-  { id: 'gaps',      label: 'Gaps',         en: 'Gaps',       icon: 'clock',   desc: 'Gaps do dia (>20min) + justificativa' },
-  { id: 'logs',      label: 'Ação Log',     en: 'Action log', icon: 'support', desc: 'Log de segurança (5 dias)' },
-  { id: 'ems',       label: 'EMS',          en: 'EMS',        icon: 'factory', desc: 'Atividade EMS em tempo real' },
-  { id: 'voices',    label: 'Voices',       en: 'Voice',      icon: 'chat',    desc: 'Gravações de voz dos operadores' },
   { id: 'audit',     label: 'Audit',        en: 'Audit',      icon: 'config',  desc: 'Log de auditoria + export CSV' },
   { id: 'admins',    label: 'Admins',       en: 'Admins',     icon: 'config',  desc: 'Gestão de admins (owner)' },
 ];
@@ -48,6 +45,10 @@ const NATIVE_TABS = [
   { id: 'realtime',  label: 'Hoje',      en: 'Realtime' },
   { id: 'metrics',   label: 'Métricas',  en: 'Metrics' },
   { id: 'analytics', label: 'Analytics', en: 'Analytics' },
+  { id: 'gaps',      label: 'Gaps',      en: 'Gaps' },
+  { id: 'logs',      label: 'Ação Log',  en: 'Action log' },
+  { id: 'ems',       label: 'EMS',       en: 'EMS' },
+  { id: 'voices',    label: 'Voices',    en: 'Voice' },
 ];
 
 function AdminPanel() {
@@ -86,6 +87,10 @@ function AdminPanel() {
       {tab === 'realtime'  && <RealtimeTab/>}
       {tab === 'metrics'   && <MetricsTab/>}
       {tab === 'analytics' && <AnalyticsTab/>}
+      {tab === 'gaps'      && <GapsTab/>}
+      {tab === 'logs'      && <LogsTab/>}
+      {tab === 'ems'       && <EmsTab/>}
+      {tab === 'voices'    && <VoicesTab/>}
 
       {/* Launcher das abas ainda não portadas (transição honesta) */}
       <div className="section-title" style={{ marginTop: 24 }}>
@@ -480,6 +485,192 @@ function MetricsRankings() {
     </div>
   );
 }
+
+// ── Aba GAPS — /api/adminpanel/gaps?day= ───────────────────
+function GapsTab() {
+  const [day, setDay] = React.useState('');
+  const { data, loading, error } = useAdmin('/gaps' + (day ? '?day=' + day : ''), [day]);
+  if (loading && !data) return <Loading/>;
+  if (error && !data) return <ErrBox error={error}/>;
+  const d = data || {};
+  const gaps = d.gaps || [];
+  const totalMin = (d.summary || []).reduce((a, s) => a + (s.total_min || 0), 0);
+  return (
+    <div>
+      <div className="filters" style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700, textTransform: 'uppercase', marginRight: 4 }}>Dia:</span>
+        <input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} style={{ width: 150 }}/>
+        {day && <button className="btn sm ghost" onClick={() => setDay('')}>Hoje</button>}
+      </div>
+      <div className="kpi-grid">
+        <MiniKPI label="Gaps" value={gaps.length} suffix="(>20min)"/>
+        <MiniKPI label="Tempo total parado" value={totalMin} suffix="min"/>
+        <MiniKPI label="Pessoas com gap" value={(d.summary || []).length} suffix=""/>
+      </div>
+      <div className="card" style={{ marginTop: 12, padding: 14 }}>
+        <SecTitle>Gaps justificados</SecTitle>
+        {gaps.length === 0 ? <Empty msg="Sem gaps no dia ✓"/> : (
+          <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><Tr head cols={['Operador', 'Início', 'Min', 'Tipo', 'Nota']}/></thead>
+            <tbody>
+              {gaps.map((g) => (
+                <tr key={g.id} style={{ borderTop: '1px dashed var(--border)' }}>
+                  <td style={{ padding: '6px 6px 6px 0' }}><b>{g.display_name}</b></td>
+                  <td className="mono" style={{ padding: '6px' }}>{g.started_edt}</td>
+                  <td className="mono" style={{ padding: '6px', textAlign: 'right', color: 'var(--warn,#d97706)' }}>{g.gap_minutes}</td>
+                  <td style={{ padding: '6px' }}>{g.justification_type || '—'}</td>
+                  <td style={{ padding: '6px', color: 'var(--text-3)' }}>{g.justification_note || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {error && <RefreshErr error={error}/>}
+    </div>
+  );
+}
+
+// ── Aba AÇÃO LOG — /api/adminpanel/action-log ──────────────
+function LogsTab() {
+  const [applied, setApplied] = React.useState({ day: '', q: '' });
+  const [day, setDay] = React.useState('');
+  const [q, setQ] = React.useState('');
+  const qs = new URLSearchParams();
+  if (applied.day) qs.set('day', applied.day);
+  if (applied.q) qs.set('q', applied.q);
+  const { data, loading, error } = useAdmin('/action-log' + (qs.toString() ? '?' + qs.toString() : ''), [applied.day, applied.q]);
+  const entries = (data && data.entries) || [];
+  return (
+    <div>
+      <form className="filters" style={{ marginBottom: 12 }} onSubmit={(e) => { e.preventDefault(); setApplied({ day, q }); }}>
+        <input className="input" type="date" value={day} onChange={(e) => setDay(e.target.value)} style={{ width: 150 }}/>
+        <input className="input" placeholder="buscar (pessoa, texto, payload)…" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 160 }}/>
+        <button className="btn sm primary" type="submit">Buscar</button>
+        {(applied.day || applied.q) && <button className="btn sm ghost" type="button" onClick={() => { setDay(''); setQ(''); setApplied({ day: '', q: '' }); }}>Limpar</button>}
+      </form>
+      {loading && !data ? <Loading/> : error && !data ? <ErrBox error={error}/> : (
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>{entries.length} ação(ões) · últimos 5 dias</SecTitle>
+          {entries.length === 0 ? <Empty msg="Nada encontrado"/> : (
+            <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead><Tr head cols={['Quando', 'Pessoa', 'Ação', 'Origem', 'Detalhe']}/></thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id} style={{ borderTop: '1px dashed var(--border)' }}>
+                    <td className="mono" style={{ padding: '5px 6px 5px 0', whiteSpace: 'nowrap', color: 'var(--text-3)' }}>{e.at_edt}</td>
+                    <td style={{ padding: '5px 6px' }}>{e.person_name}{e.is_test ? <span style={{ color: 'var(--text-3)' }}> (teste)</span> : ''}</td>
+                    <td style={{ padding: '5px 6px' }}><span className="pill" style={{ fontSize: 10.5 }}>{e.action_type}</span></td>
+                    <td style={{ padding: '5px 6px', color: 'var(--text-3)' }}>{e.source || '—'}</td>
+                    <td style={{ padding: '5px 6px', color: 'var(--text-2)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {e.raw_text || (e.payload ? JSON.stringify(e.payload) : '—')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {error && <RefreshErr error={error}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Aba EMS — /api/adminpanel/ems-activity (auto 60s) ──────
+function EmsTab() {
+  const { data, loading, error } = useAdmin('/ems-activity', [], 60000);
+  if (loading && !data) return <Loading/>;
+  if (error && !data) return <ErrBox error={error}/>;
+  const d = data || {};
+  const active = d.active || [];
+  return (
+    <div>
+      <div className="kpi-grid">
+        <MiniKPI label="Processos ativos" value={active.length} suffix="agora"/>
+        <MiniKPI label="Máquinas hoje" value={(d.by_machine || []).length} suffix=""/>
+        <MiniKPI label="Operadores hoje" value={(d.by_employee || []).length} suffix=""/>
+      </div>
+      <div className="card" style={{ marginTop: 12, padding: 14 }}>
+        <SecTitle>Ativo agora (espelho EMS)</SecTitle>
+        {active.length === 0 ? <Empty msg="Nada rodando no EMS"/> : (
+          <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><Tr head cols={['Máquina', 'Estágio', 'Suplemento / lote', 'Operador', 'Há']}/></thead>
+            <tbody>
+              {active.map((a, i) => (
+                <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
+                  <td style={{ padding: '6px 6px 6px 0' }}><b>{a.machine || '—'}</b> <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{a.machine_type || ''}</span></td>
+                  <td style={{ padding: '6px' }}>{a.stage || a.process_type || '—'}</td>
+                  <td style={{ padding: '6px' }}>{a.supplement_name || '—'} <span className="mono" style={{ color: 'var(--text-3)' }}>{a.batch_number || ''}</span></td>
+                  <td style={{ padding: '6px' }}>{a.tracker_name || a.employee_ems_name || '—'}</td>
+                  <td className="mono" style={{ padding: '6px', textAlign: 'right' }}>{fmtSec(a.elapsed_seconds)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>Por máquina (hoje)</SecTitle>
+          {(d.by_machine || []).length === 0 ? <Empty msg="—"/> : (d.by_machine || []).map((m, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: i ? '1px dashed var(--border)' : 'none', fontSize: 12.5 }}>
+              <span>{m.machine} <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{m.machine_type || ''}</span></span>
+              <span className="mono">{fmtSec(m.total_seconds)} <span style={{ color: 'var(--text-3)' }}>· {m.runs}×</span></span>
+            </div>
+          ))}
+        </div>
+        <div className="card" style={{ padding: 14 }}>
+          <SecTitle>Por operador (hoje)</SecTitle>
+          {(d.by_employee || []).length === 0 ? <Empty msg="—"/> : (d.by_employee || []).map((m, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: i ? '1px dashed var(--border)' : 'none', fontSize: 12.5 }}>
+              <span>{m.name}</span><span className="mono">{fmtSec(m.total_seconds)} <span style={{ color: 'var(--text-3)' }}>· {m.runs}×</span></span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {error && <RefreshErr error={error}/>}
+    </div>
+  );
+}
+
+// ── Aba VOICES — /api/adminpanel/voice/recent ──────────────
+function VoicesTab() {
+  const { data, loading, error } = useAdmin('/voice/recent?limit=30', []);
+  if (loading && !data) return <Loading/>;
+  if (error && !data) return <ErrBox error={error}/>;
+  const voice = (data && data.voice) || [];
+  return (
+    <div>
+      <div className="card" style={{ padding: 14 }}>
+        <SecTitle>Gravações de voz recentes</SecTitle>
+        {voice.length === 0 ? <Empty msg="Sem gravações"/> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {voice.map((v) => (
+              <div key={v.id} style={{ padding: 10, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <b style={{ fontSize: 12.5 }}>{v.person}</b>
+                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>{v.created_edt} · {fmtSec(v.audio_duration_seconds)}</span>
+                </div>
+                {v.transcript && <div style={{ fontSize: 12, color: 'var(--text-2)', fontStyle: 'italic', marginBottom: 6 }}>"{v.transcript}"</div>}
+                <audio controls preload="none" src={'/api/adminpanel/voice/' + v.id} style={{ width: '100%', height: 32 }}/>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {error && <RefreshErr error={error}/>}
+    </div>
+  );
+}
+
+const fmtSec = (s) => {
+  const n = Number(s) || 0;
+  if (n < 60) return n + 's';
+  const m = Math.floor(n / 60); const r = n % 60;
+  if (m < 60) return m + 'm' + (r ? ' ' + r + 's' : '');
+  return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+};
 
 // ── pequenos helpers de UI ─────────────────────────────────
 const SecTitle = ({ children }) => (
