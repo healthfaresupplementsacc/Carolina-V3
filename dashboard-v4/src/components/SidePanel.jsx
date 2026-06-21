@@ -239,6 +239,33 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
                 <span style={{ fontSize: 11, color: "var(--text-3)", marginLeft: 8 }}>esperado {fmtDur(act.expected)}</span>
               )}
             </Field>
+            {/* FASE 3b — Revisão: taxa por TASK (cáps/seg + cáps/min + total cápsulas
+                pelo lote que a pessoa está revisando). Casa com a run do dia (review.runs). */}
+            {event.activity === 'review' && (() => {
+              const runs = (window.HFData.review && window.HFData.review.runs) || [];
+              const bn = prod ? prod.batch : null;
+              const run = runs.find(r => bn && r.batch === bn && (!op || r.operator === op.name))
+                       || runs.find(r => bn && r.batch === bn);
+              if (!run) return (
+                <Field label="Taxa de revisão" en="Review rate">
+                  <span style={{ color: 'var(--text-3)', fontSize: 12 }}>sem dados — lote sem cápsulas-por-frasco, ou revisão ainda aberta/de outro dia</span>
+                </Field>
+              );
+              const capsMin = run.capsules_per_sec != null ? Math.round(run.capsules_per_sec * 60) : null;
+              const perBottle = (run.bottles && run.capsules) ? Math.round(run.capsules / run.bottles) : null;
+              return (
+                <Field label="Taxa de revisão" en="Review rate">
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                    <span><b className="mono" style={{ color: 'var(--flow-prod)', fontSize: 15 }}>{run.capsules_per_sec != null ? run.capsules_per_sec : '—'}</b> <small style={{ color: 'var(--text-3)' }}>cáps/seg</small></span>
+                    <span><b className="mono" style={{ color: 'var(--flow-prod)', fontSize: 15 }}>{capsMin != null ? capsMin : '—'}</b> <small style={{ color: 'var(--text-3)' }}>cáps/min</small></span>
+                    <span><b className="mono" style={{ fontSize: 15 }}>{run.capsules != null ? run.capsules.toLocaleString() : '—'}</b> <small style={{ color: 'var(--text-3)' }}>cáps total</small></span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 4 }}>
+                    {run.bottles} frascos × {perBottle != null ? perBottle : '?'} cáps/frasco · {run.bottles_per_min}/min · lote {run.batch || '—'}
+                  </div>
+                </Field>
+              );
+            })()}
             {cowork.length > 0 && (
               <Field label="Cowork" en="Co-work">
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
