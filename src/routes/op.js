@@ -371,6 +371,10 @@ function createOpRouter(deps = {}) {
 
   // ── FASE PAUSA — pausa congela TODOS os processos ativos do operador ──
   const PAUSE_SLUGS = new Set(['break']); // 'break' = pausa (nota obrigatória já no NOTE_REQUIRED_SLUGS)
+  // FASE OVERLAP+ALMOÇO (regra Bruno): almoço PARA o trabalho e não pode
+  // trabalhar durante o almoço; duas tasks de foreground ao mesmo tempo exigem
+  // confirmação. Background (máquina) NUNCA conflita.
+  const LUNCH_SLUGS = new Set(['lunch']);
   // congela: marca paused_at=NOW nos events ativos do operador (menos pausas e o
   // próprio break). Relógio para; o tempo não conta como trabalho.
   async function freezeActiveFor(personId, exceptEventId) {
@@ -432,6 +436,55 @@ function createOpRouter(deps = {}) {
       const gap = await detectGap(s.person_id);
       if (gap && gap.minutes > 20 && gap.minutes < 480) {
         return res.json({ ok: true, gap_detected: true, gap_minutes: gap.minutes, gap_started_at: gap.since });
+      }
+    }
+    // ── EXCLUSIVIDADE (overlap + almoço) ─────────────────────────
+    // Regra Bruno (06/19 Victor estava em linha+limpeza+almoço ao mesmo tempo):
+    //  • almoço PARA (fecha) as tasks de foreground ativas; máquina/background segue.
+    //  • durante o almoço, NÃO pode começar trabalho de foreground (precisa encerrar).
+    //  • duas tasks de foreground (slug diferente) ao mesmo tempo → confirma
+    //    ("fechar a anterior" OU "tem certeza que vai fazer 2 ao mesmo tempo").
+    //  • background (encapsulação/mistura/tablete) nunca conflita.
+    // Mesmo padrão do gap: devolve ok:true + flag (NUNCA 4xx); o front confirma e
+    // recama com concurrent_ack ('close' | 'both' | 'end_lunch').
+    const isBackground = !!act.is_background;
+    const isLunch = LUNCH_SLUGS.has(act.slug);
+    const isPause = PAUSE_SLUGS.has(act.slug);
+    const cAck = (req.body && req.body.concurrent_ack) || null;
+    if (!s.is_sandbox) {
+      const openFg = (await db.query(
+        `SELECT e.id, e.started_at, at.slug, at.display_name AS activity_name
+         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+         WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
+           AND e.is_unfinished = false AND COALESCE(at.is_background, false) = false
+         ORDER BY e.started_at`, [s.person_id])).rows;
+      const openLunch = openFg.find((o) => LUNCH_SLUGS.has(o.slug));
+      if (isLunch) {
+        // começar almoço PARA o trabalho de foreground (fecha); máquina segue rodando.
+        const toClose = openFg.filter((o) => !LUNCH_SLUGS.has(o.slug)).map((o) => o.id);
+        if (toClose.length) {
+          await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'lunch_started', updated_at = NOW() WHERE id = ANY($1::int[])`, [toClose]);
+        }
+      } else if (!isBackground && !isPause) {
+        // (a) almoço aberto → não pode trabalhar (a menos que encerre o almoço)
+        if (openLunch) {
+          if (cAck === 'end_lunch') {
+            await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'lunch_ended_to_work', updated_at = NOW() WHERE id = $1`, [openLunch.id]);
+          } else {
+            return res.json({ ok: true, lunch_active: true, lunch_event_id: openLunch.id });
+          }
+        }
+        // (b) outra foreground (slug diferente) já aberta → confirma
+        const others = openFg.filter((o) => !LUNCH_SLUGS.has(o.slug) && o.slug !== act.slug);
+        if (others.length) {
+          if (cAck === 'close') {
+            await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'closed_for_new_task', updated_at = NOW() WHERE id = ANY($1::int[])`, [others.map((o) => o.id)]);
+          } else if (cAck !== 'both') {
+            return res.json({ ok: true, concurrent_open: true,
+              open_tasks: others.map((o) => ({ id: o.id, slug: o.slug, activity: o.activity_name, started_at: o.started_at })) });
+          }
+          // cAck === 'both' → segue e permite a sobreposição (operador confirmou)
+        }
       }
     }
     // NUNCA bloqueia: resolve o lote OU auto-cria (alerta admin depois)

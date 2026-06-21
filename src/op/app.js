@@ -1321,6 +1321,20 @@
     if (m.orders_required) body.orders_printed = parseInt(f.ordersInput, 10);
     var path = startedAt ? '/api/v3/op/event/retroactive' : '/api/v3/op/event/start';
     if (startedAt) { body.started_at = startedAt; body.ended_at = endedAt || null; }
+    var onOk = function (res) {
+      S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
+      toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
+      loadData();
+    };
+    var onErr = function (e) {
+      var M = { note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade', started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra hoje', ended_at_invalid: 'Hora de fim inválida', unknown_batch: 'Lote não encontrado' };
+      toast(M[e.message] || e.message);
+    };
+    // recama o start com o ack de exclusividade ('close' | 'both' | 'end_lunch')
+    var resend = function (ack) {
+      var b = Object.assign({}, body, { concurrent_ack: ack });
+      api(path, { method: 'POST', body: b }).then(onOk).catch(onErr);
+    };
     api(path, { method: 'POST', body: body }).then(function (res) {
       // PASSADA 2 — gap detectado: pausa pra justificar ANTES de iniciar (só start ao vivo)
       if (res && res.gap_detected) {
@@ -1328,13 +1342,26 @@
         S.overlay = { type: 'gap', gapMinutes: res.gap_minutes, gapStartedAt: res.gap_started_at, jtype: null, note: '' };
         render(); return;
       }
-      S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
-      toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
-      loadData();
-    }).catch(function (e) {
-      var M = { note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade', started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra hoje', ended_at_invalid: 'Hora de fim inválida', unknown_batch: 'Lote não encontrado' };
-      toast(M[e.message] || e.message);
-    });
+      // FASE OVERLAP — almoço aberto: não pode trabalhar até encerrar o almoço.
+      if (res && res.lunch_active) {
+        showAlert({ title: 'Você está em almoço 🍽️', message: 'Não dá pra trabalhar durante o almoço. Quer encerrar o almoço e começar esta tarefa agora?', okLabel: 'Encerrar almoço e começar', cancel: 'Voltar' })
+          .then(function (ok) { if (ok) resend('end_lunch'); });
+        return;
+      }
+      // FASE OVERLAP — já tem outra task de foreground aberta: fechar a anterior OU
+      // confirmar 2 ao mesmo tempo (exatamente o pedido do Bruno).
+      if (res && res.concurrent_open) {
+        var names = (res.open_tasks || []).map(function (t) { return t.activity || t.slug; }).join(', ');
+        showAlert({ title: 'Você já tem tarefa aberta', message: 'Já está aberta: ' + names + '. Quer FECHAR ela e começar esta nova?', okLabel: 'Fechar a outra e começar', cancel: 'Não, manter aberta' })
+          .then(function (closeIt) {
+            if (closeIt) { resend('close'); return; }
+            showAlert({ title: 'TEM CERTEZA?', message: 'Você vai ficar com 2 tarefas abertas AO MESMO TEMPO. Confirma que vai fazer as duas juntas?', okLabel: 'Sim, começar as 2', cancel: 'Cancelar' })
+              .then(function (both) { if (both) resend('both'); });
+          });
+        return;
+      }
+      onOk(res);
+    }).catch(onErr);
   }
   // PASSADA 2 — justifica o gap e RECAMA o start com gap_ack (cascade no frontend)
   function doGapJustify() {
