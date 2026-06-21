@@ -50,8 +50,12 @@ describe('P&P — ordens contam do 1º-abre', () => {
       }
       if (/UPDATE v3\.events SET ended_at = NOW\(\), closed_reason = '(lunch_started|closed_for_new_task)'/.test(s)) { const ids = params[0] || []; mem.events.forEach((e) => { if (ids.includes(e.id)) e.ended_at = new Date(); }); return resp([]); }
       if (/FROM v3\.product_batches pb LEFT JOIN v3\.products pr/.test(s)) return resp([]);
-      // production_counts (ordens, no START)
-      if (/INSERT INTO v3\.production_counts/.test(s)) { mem.counts.push({ orders: params[2], kind: 'orders', source_event_id: params[4] }); return resp([]); }
+      // production_counts. START (insertOrdersCount): kind hardcoded 'orders'.
+      // FINISH: kind = params[5] (clinic vira 'clinic'). Detecta pelo "'high', $6".
+      if (/INSERT INTO v3\.production_counts/.test(s)) {
+        const kind = /'high', \$6/.test(s) ? params[5] : 'orders';
+        mem.counts.push({ orders: params[2], kind, source_event_id: params[4] }); return resp([]);
+      }
       if (/INSERT INTO v3\.events/.test(s)) {
         const id = 500 + mem.events.length;
         mem.events.push({ id, person: params[0], activity: params[1], slug: slugOf(params[1]), ended_at: null, deleted_at: null, is_unfinished: false });
@@ -73,7 +77,10 @@ describe('P&P — ordens contam do 1º-abre', () => {
     mem = {
       persons: [{ id: 4, display_name: 'Vitor', role: 'operator', pin_hash: ph.pin_hash, pin_salt: ph.pin_salt, is_sandbox: false }],
       sessions: [], events: [], counts: [],
-      acts: [{ id: 20, slug: 'order_printing', requires_product: false, is_background: false, requires_order_count: true }],
+      acts: [
+        { id: 20, slug: 'order_printing', requires_product: false, is_background: false, requires_order_count: true },
+        { id: 21, slug: 'clinic_shipment', requires_product: false, is_background: false, requires_order_count: true },
+      ],
     };
     const app = express();
     app.use('/', createOpRouter({ db: makeDb(mem), slack: { postAs: () => {} }, operatorToken: TOKEN, adminChannelId: 'C_ADMIN' }));
@@ -111,5 +118,14 @@ describe('P&P — ordens contam do 1º-abre', () => {
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
     expect(mem.counts).toHaveLength(1); // só a do START; o fim não escreve nada
+  });
+  test('Envio Clínica grava MÉTRICA PRÓPRIA (kind=clinic), separada do P&P', async () => {
+    const tok = await login();
+    const a = await start(tok, { activity_slug: 'clinic_shipment' }); // sem qty no start
+    expect(a.body.ok).toBe(true);
+    const r = await end(tok, a.body.event.id, { orders_count: 5 }); // quantidade no fim
+    expect(r.status).toBe(200);
+    expect(mem.counts).toHaveLength(1);
+    expect(mem.counts[0]).toMatchObject({ orders: 5, kind: 'clinic' }); // NÃO 'orders'
   });
 });

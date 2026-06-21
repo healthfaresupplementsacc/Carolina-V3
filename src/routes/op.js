@@ -834,14 +834,18 @@ function createOpRouter(deps = {}) {
         }
       } catch (e) { console.error('[op] estimated-bottles warning falhou:', e.message); }
     }
-    // FASE 5 — contagem de ORDENS (P&P): production_counts kind='orders' + marketplace
+    // FASE 5 — contagem de ORDENS no fim. Envio Clínica = MÉTRICA PRÓPRIA
+    // (kind='clinic'), separada do P&P (regra Bruno: empacotamento da clínica tem
+    // métrica própria). Demais seguem kind='orders'. unit fica 'orders' (tem CHECK).
+    // kind='clinic' fica fora do P&P (counts_as_pp=false) E fora das garrafas (kind!='bottles').
     if (needOrders && !exception && Number.isFinite(oc) && oc > 0) {
+      const ckind = ev.slug === 'clinic_shipment' ? 'clinic' : 'orders';
       await db.query(
         `INSERT INTO v3.production_counts
            (product_id, product_batch_id, bottles, reported_at, production_date,
             reported_by_person_id, source_event_id, unit, confidence, kind, marketplace)
-         VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'orders', 'high', 'orders', $6)`,
-        [ev.product_id || null, ev.product_batch_id || null, oc, s.person_id, ev.id, marketplace]);
+         VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'orders', 'high', $6, $7)`,
+        [ev.product_id || null, ev.product_batch_id || null, oc, s.person_id, ev.id, ckind, marketplace]);
       countCreated = true;
     }
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_finish', payload: { slug: ev.slug, bottles: Number.isFinite(b) ? b : null, orders_count: Number.isFinite(oc) ? oc : null, marketplace, exception, reason, note, is_cowork: isCowork, is_last: isLast }, relatedEventId: ev.id, isTest: !!s.is_sandbox });

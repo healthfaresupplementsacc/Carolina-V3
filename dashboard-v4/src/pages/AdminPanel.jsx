@@ -171,7 +171,8 @@ function RealtimeTab() {
     <div>
       <div className="kpi-grid">
         <MiniKPI label="Garrafas hoje" value={(d.bottles_today || 0).toLocaleString()} suffix="garrafas"/>
-        <MiniKPI label="Ordens hoje" value={(d.orders_today || 0).toLocaleString()} suffix="ordens"/>
+        <MiniKPI label="Ordens P&P hoje" value={(d.orders_today || 0).toLocaleString()} suffix="ordens"/>
+        <MiniKPI label="Clínica hoje" value={(d.clinic_today || 0).toLocaleString()} suffix="envios (separado)"/>
         <MiniKPI label="Horas hoje" value={d.hours_today != null ? d.hours_today : '—'} suffix="h (s/ pausa)"/>
         <MiniKPI label="Operadores online" value={ops.length} suffix="logados"/>
       </div>

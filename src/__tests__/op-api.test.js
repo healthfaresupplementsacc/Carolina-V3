@@ -239,8 +239,8 @@ function makeFakeDb(mem) {
         const b = mem.batches.find((x) => x.id === ev.product_batch_id) || {};
         return resp([{ ...ev, slug: act.slug, requires_order_count: !!act.requires_order_count, product_id: b.product_id || null }]);
       }
-      if (/INSERT INTO v3\.production_counts/.test(s) && /'orders'/.test(s)) { // FASE 5 — contagem de ordens
-        mem.counts.push({ kind: 'orders', product_id: params[0], product_batch_id: params[1], bottles: params[2], reported_by: params[3], source_event_id: params[4], marketplace: params[5] });
+      if (/INSERT INTO v3\.production_counts/.test(s) && /'orders'/.test(s)) { // FASE 5 — contagem de ordens (kind=$6, marketplace=$7)
+        mem.counts.push({ kind: params[5], product_id: params[0], product_batch_id: params[1], bottles: params[2], reported_by: params[3], source_event_id: params[4], marketplace: params[6] });
         return resp([]);
       }
       if (/UPDATE v3\.events SET ended_at = NOW\(\), closed_reason = 'operator_page'/.test(s)) {

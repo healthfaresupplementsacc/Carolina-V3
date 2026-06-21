@@ -891,7 +891,9 @@ function createAdminRouter(deps = {}) {
             JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id AND at2.counts_as_pp = true
             WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND pc.production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS orders_today,
          (SELECT COALESCE(ROUND(SUM(GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(ended_at,NOW())-started_at)) - COALESCE(total_paused_seconds,0)))/3600.0,1),0) FROM v3.events
-            WHERE deleted_at IS NULL AND is_long_running=false AND (started_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date) AS hours_today`);
+            WHERE deleted_at IS NULL AND is_long_running=false AND (started_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date) AS hours_today,
+         (SELECT COALESCE(SUM(bottles),0)::int FROM v3.production_counts
+            WHERE deleted_at IS NULL AND kind = 'clinic' AND production_date = (NOW() AT TIME ZONE '${EDT}')::date) AS clinic_today`);
     const openLong = await db.query(
       `SELECT e.id, p.display_name, at.display_name AS task,
               ROUND(EXTRACT(EPOCH FROM (NOW()-e.started_at))/3600.0,1) AS hours_open
