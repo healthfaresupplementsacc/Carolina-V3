@@ -334,6 +334,21 @@ function createOpRouter(deps = {}) {
       });
     } catch (e) { console.error('[op] aviso lote desconhecido falhou:', e.message); }
   }
+  // FASE 3b — Revisão SEM lote #: avisa o GRUPO DOS OPERADORES (canal produção).
+  // Regra Bruno: "antes da revisão pedir o lote; se usar bottle sem lote, anunciar
+  // no grupo". REGRA #0: NÃO bloqueia — captura e avisa. Voz do sistema, fire-and-forget.
+  async function notifyReviewNoLot({ operatorName }) {
+    if (!slack || !slack.postAs) return;
+    const text = ':mag: *Revisão sem lote* — *' + (operatorName || '?') +
+      '* começou uma revisão sem informar o lote (lot #). Por favor, sempre informe o lote na revisão pra gente medir cápsulas/frascos por lote.';
+    try {
+      await slack.postAs({
+        channel: productionChannel,
+        sender: { name: 'HealthFare Tracker (Sistema)', icon: ':mag:' },
+        thread_ts: null, text, unfurl_links: false, unfurl_media: false,
+      });
+    } catch (e) { console.error('[op] aviso revisão sem lote falhou:', e.message); }
+  }
   // audita + alerta admin quando um lote foi auto-criado ou não pôde ser vinculado.
   // Notificação é fire-and-forget (não atrasa a resposta ao operador).
   async function flagUnknownBatch({ res, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber, body, slug, s }) {
@@ -520,6 +535,10 @@ function createOpRouter(deps = {}) {
     }
     // NUNCA bloqueia: resolve o lote OU auto-cria (alerta admin depois)
     const { batch, autoCreated, typedUnlinked, resolvedFromEms } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id, { product_name: req.body && req.body.product_name });
+    // FASE 3b — Revisão sem lote #: avisa o grupo dos operadores (não bloqueia, fire-and-forget).
+    if (act.slug === 'review' && !(batch_number && String(batch_number).trim()) && !s.is_sandbox) {
+      notifyReviewNoLot({ operatorName: s.display_name });
+    }
     const cw = Array.isArray(cowork_with)
       ? cowork_with.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0 && x !== s.person_id)
       : [];

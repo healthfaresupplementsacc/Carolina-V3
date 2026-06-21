@@ -68,16 +68,17 @@ describe('FASE OVERLAP + ALMOÇO — exclusividade de foreground', () => {
     const ph = opAuth.hashPin('1234');
     mem = {
       persons: [{ id: 4, display_name: 'Vitor', role: 'operator', pin_hash: ph.pin_hash, pin_salt: ph.pin_salt, is_sandbox: false }],
-      sessions: [], events: [],
+      sessions: [], events: [], posts: [],
       acts: [
         { id: 10, slug: 'production_line', requires_product: false, is_background: false },
         { id: 11, slug: 'cleaning', requires_product: false, is_background: false },
         { id: 12, slug: 'lunch', requires_product: false, is_background: false },
         { id: 13, slug: 'encapsulation', requires_product: false, is_background: true },
+        { id: 14, slug: 'review', requires_product: true, is_background: false },
       ],
     };
     const app = express();
-    app.use('/', createOpRouter({ db: makeDb(mem), slack: { postAs: () => {} }, operatorToken: TOKEN, adminChannelId: 'C_ADMIN' }));
+    app.use('/', createOpRouter({ db: makeDb(mem), slack: { postAs: (o) => { mem.posts.push(o); } }, operatorToken: TOKEN, adminChannelId: 'C_ADMIN', productionChannelId: 'C_PROD' }));
     server = await new Promise((res) => { const x = app.listen(0, '127.0.0.1', () => res(x)); });
     base = `http://127.0.0.1:${server.address().port}`;
   });
@@ -85,6 +86,20 @@ describe('FASE OVERLAP + ALMOÇO — exclusividade de foreground', () => {
   async function login() { const r = await fetch(base + '/api/v3/op/auth/login', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ pin: '1234' }) }); return (await r.json()).session_token; }
   async function start(tok, body) { const r = await fetch(base + '/api/v3/op/event/start', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'X-Session-Token': tok, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch (_) {} return { status: r.status, body: j }; }
   const openCount = () => mem.events.filter((e) => !e.ended_at).length;
+
+  test('FASE 3b: Revisão SEM lote # → avisa o grupo dos operadores (canal produção), não bloqueia', async () => {
+    const tok = await login();
+    const r = await start(tok, { activity_slug: 'review' }); // sem batch_number
+    expect(r.status).toBe(200);                                // não bloqueia
+    const post = mem.posts.find((p) => p.channel === 'C_PROD' && /Revis[aã]o sem lote/i.test(p.text || ''));
+    expect(post).toBeTruthy();
+    expect(post.text).toMatch(/Vitor/);
+  });
+  test('FASE 3b: Revisão COM lote # → NÃO avisa', async () => {
+    const tok = await login();
+    await start(tok, { activity_slug: 'review', batch_number: '0142' });
+    expect(mem.posts.find((p) => /Revis[aã]o sem lote/i.test(p.text || ''))).toBeFalsy();
+  });
 
   test('2 foreground (slug diferente) → concurrent_open (não cria, pede confirmação)', async () => {
     const tok = await login();
