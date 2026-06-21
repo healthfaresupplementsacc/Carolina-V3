@@ -568,11 +568,11 @@ describe('op API — events', () => {
     expect(r2.status).toBe(200);
     expect(mem.events[mem.events.length - 1].orders_printed).toBe(206);
   });
-  test('Fase 0 — order_printing exige nota também (note_required)', async () => {
+  test('order_printing NÃO exige mais nota (regra Bruno: só a quantidade no 1º-abre)', async () => {
     const s = await login(4);
+    // sem nota, mas com a quantidade obrigatória do 1º-abre → 200 (nota deixou de ser obrigatória)
     const r = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', orders_printed: 10 } });
-    expect(r.status).toBe(400);
-    expect(r.body.error).toBe('note_required');
+    expect(r.status).toBe(200);
   });
   test('Fase 0 — special_task SEM nota → 400; COM → 200', async () => {
     const s = await login(4);

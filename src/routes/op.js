@@ -360,14 +360,30 @@ function createOpRouter(deps = {}) {
   // slugs cuja nota é OBRIGATÓRIA (Fase 0: + impressão de ordens, especial, Outros;
   // patch outros-por-grupo: + os 5 "*_other", tarefa livre exige explicação).
   const NOTE_REQUIRED_SLUGS = new Set([
-    'break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
+    'break', 'special_task', 'meeting', 'training',
     'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
     'label_change', 'label_repair',
     'machine_downtime', // mudança #5: motivo da parada obrigatório
     'repair',           // Fase 3.3: conserto de máquina exige nota
   ]);
-  // slugs que exigem quantidade de ordens (Fase 0)
-  const ORDERS_REQUIRED_SLUGS = new Set(['order_printing', 'order_printing_2']);
+  // Impressão de ordens — a P&P do dia conta a partir da QUANTIDADE informada na
+  // PRIMEIRA ABERTURA (regra Bruno). order_printing_2 = 2ª impressão (outro lote
+  // de ordens no dia). Quem ABRE primeiro informa a quantidade (obrigatório) e ela
+  // já é gravada como production_counts kind='orders' no START — não depende mais
+  // do fim (que perdia conta em exceção / esquecimento). Quem ENTRA depois (joiner)
+  // ou SAI não precisa informar nada (nem motivo). NÃO pede mais no fim.
+  const ORDER_PRINTING_SLUGS = new Set(['order_printing', 'order_printing_2']);
+  // slugs que exigem quantidade de ordens no retroativo (mantém regra antiga lá)
+  const ORDERS_REQUIRED_SLUGS = ORDER_PRINTING_SLUGS;
+  // grava a contagem de ordens (P&P) a partir da abertura — fonte única do total.
+  async function insertOrdersCount({ eventId, productId, batchId, orders, personId }) {
+    await db.query(
+      `INSERT INTO v3.production_counts
+         (product_id, product_batch_id, bottles, reported_at, production_date,
+          reported_by_person_id, source_event_id, unit, confidence, kind, marketplace)
+       VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'orders', 'high', 'orders', NULL)`,
+      [productId || null, batchId || null, orders, personId, eventId]);
+  }
 
   // ── FASE PAUSA — pausa congela TODOS os processos ativos do operador ──
   const PAUSE_SLUGS = new Set(['break']); // 'break' = pausa (nota obrigatória já no NOTE_REQUIRED_SLUGS)
@@ -423,11 +439,26 @@ function createOpRouter(deps = {}) {
     if (NOTE_REQUIRED_SLUGS.has(act.slug) && !(note && String(note).trim())) {
       return res.status(400).json({ error: 'note_required', detail: 'Esta task exige uma nota.' });
     }
+    // IMPRESSÃO DE ORDENS — a quantidade só é OBRIGATÓRIA na PRIMEIRA ABERTURA do
+    // dia (ninguém com esse slug aberto agora). Quem entra depois (joiner) não
+    // precisa informar. A quantidade do 1º-abre é o total de ordens do P&P.
     let ordersPrinted = null;
-    if (ORDERS_REQUIRED_SLUGS.has(act.slug)) {
-      ordersPrinted = parseInt(req.body && req.body.orders_printed, 10);
-      if (!Number.isFinite(ordersPrinted) || ordersPrinted <= 0) {
-        return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe quantas ordens (número > 0).' });
+    let isFirstOrderOpen = false;
+    if (ORDER_PRINTING_SLUGS.has(act.slug)) {
+      const openSame = (await db.query(
+        `SELECT 1 FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+         WHERE at.slug = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
+           AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date LIMIT 1`,
+        [act.slug])).rows[0];
+      isFirstOrderOpen = !openSame;
+      const qty = parseInt(req.body && req.body.orders_printed, 10);
+      if (isFirstOrderOpen) {
+        if (!Number.isFinite(qty) || qty <= 0) {
+          return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe quantas ordens vão imprimir (número > 0).' });
+        }
+        ordersPrinted = qty;
+      } else {
+        ordersPrinted = (Number.isFinite(qty) && qty > 0) ? qty : null; // joiner: opcional
       }
     }
     // PASSADA 2 — gap detection: >20min sem atividade → pausa pra justificar ANTES
@@ -519,6 +550,9 @@ function createOpRouter(deps = {}) {
       await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
       await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, cowork_with: cw, cowork_group_id: gid, note }, relatedEventId: starterEv.id, isTest: !!s.is_sandbox });
       if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, starterEv.id); // FASE PAUSA: congela o resto
+      if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
+        await insertOrdersCount({ eventId: starterEv.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
+      }
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
 
@@ -554,6 +588,9 @@ function createOpRouter(deps = {}) {
     await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, note }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
     if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
+    if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
+      await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
+    }
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
 
@@ -741,7 +778,10 @@ function createOpRouter(deps = {}) {
     }
     // contagem/exceção só p/ SOLO ou ÚLTIMO do cowork.
     const needCount = (!isCowork || isLast) && isProd;                       // bottles (linha)
-    const needOrders = (!isCowork || isLast) && !!ev.requires_order_count;   // ordens (P&P/embalagem)
+    // ordens: NÃO pede mais no fim da impressão de ordens — a P&P conta a partir
+    // da quantidade da PRIMEIRA ABERTURA (gravada no START). Some o "quantas
+    // foram empacotadas?" e a exceção "não tenho o número" (regra Bruno).
+    const needOrders = (!isCowork || isLast) && !!ev.requires_order_count && !ORDER_PRINTING_SLUGS.has(ev.slug);
     const oc = parseInt(body.orders_count, 10);
     const marketplace = body.marketplace ? String(body.marketplace).slice(0, 40) : null;
     const exception = (needCount || needOrders) && (body.exception_no_count === true || body.exception_no_count === 'true');

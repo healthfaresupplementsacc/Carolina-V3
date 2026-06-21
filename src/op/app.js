@@ -1192,7 +1192,7 @@
       var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {};
       var isCw = !!t.cowork_group_id;
       var tm = typeMeta(t.slug) || {};
-      S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, needsOrders: !!tm.requires_order_count, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
+      S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, needsOrders: !!tm.requires_order_count && ['order_printing', 'order_printing_2'].indexOf(t.slug) < 0, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
       render();
       // DETECT UPFRONT: pergunta ao backend se ESTE operador é o último do grupo
       // cowork e se precisa de contagem — pra abrir a tela CERTA de cara, sem
