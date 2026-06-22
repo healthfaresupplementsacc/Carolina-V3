@@ -682,7 +682,7 @@
       h += '<button data-act="toggleCowork" data-arg="' + o.id + '" style="' + chipS + '"><span style="' + boxS + '">' + (on ? svgr(CHECK, 15, 3.4) : '') + '</span><span style="position:relative; flex:none; width:34px; height:34px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:11px; height:11px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><span style="flex:1; min-width:0; text-align:left;"><span style="display:block; font-weight:700; font-size:14.5px; color:#0c2545;">' + esc(o.display_name) + '</span><span style="display:block; font-size:12px; color:#8195ab;">' + esc(o.current_slug ? labelOf(o.current_slug) : (o.online ? 'disponível' : 'offline')) + '</span></span></button>';
     });
     h += '</div>';
-    if (ordersReq) { h += sectionLabel('Quantas ordens vai imprimir?', '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2); h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" data-focus="orders" inputmode="numeric" placeholder="ex: 206" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">'; }
+    if (ordersReq) { h += sectionLabel((f.slug === 'clinic_shipment' ? 'Quantos envios da clínica?' : 'Quantas ordens vai imprimir?'), '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2); h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" data-focus="orders" inputmode="numeric" placeholder="ex: 206" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">'; }
     h += sectionLabel(noteReq ? 'Motivo (obrigatório)' : 'Notas (opcional)', EDITP, 2);
     h += '<textarea data-input="note" data-focus="note" placeholder="' + (noteReq ? 'Conte o que está acontecendo, ou use a voz…' : 'Escreva ou use o microfone…') + '" style="width:100%; min-height:84px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;">' + esc(f.note || '') + '</textarea>';
     h += '<div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('flow') + '</div>';
@@ -1179,7 +1179,10 @@
     pickBatch: function (b) { S.flow.batch = b; S.flow.step = 'confirm'; S._focus = null; render(); },
     skipBatch: function () { S.flow.batch = null; S.flow.step = 'confirm'; S._focus = null; render(); },
     batchOk: function () { var v = (S.flow.batchInput || '').trim(); S.flow.batch = v || null; S.flow.step = 'confirm'; S._focus = null; render(); },
-    modeNow: function () { S.flow.forgot = false; render(); },
+    // "Agora" INICIA a tarefa direto (regra Bruno: o botão Agora começa o processo).
+    // Valida campos obrigatórios (quantidade/motivo) como o "Começar"; se faltar,
+    // alerta e foca o campo. "Esqueci de marcar" (modeForgot) segue usando o Começar.
+    modeNow: function () { S.flow.forgot = false; confirmStart(); },
     modeForgot: function () { S.flow.forgot = true; if (!S.flow.tpH) { var n = new Date(); S.flow.tpH = String(n.getHours() % 12 || 12); S.flow.tpAP = n.getHours() >= 12 ? 'PM' : 'AM'; } render(); },
     toggleAP: function () { var t = S.flow.tpAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, startWindow())) { S.flow.tpAP = t; render(); } },
     toggleEndAP: function () { var t = S.flow.endAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, endWindow(S.flow))) { S.flow.endAP = t; render(); } },

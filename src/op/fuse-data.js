@@ -248,8 +248,8 @@ window.HF_DATA = {
      "label": "Envio Clínica",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false,
-     "requires_order_count": true,
+     "orders_required": true,
+     "requires_order_count": false,
      "counts_as_pp": false
     },
     {
@@ -309,8 +309,8 @@ window.HF_DATA = {
      "label": "Envio Clínica",
      "requires_product": false,
      "note_required": false,
-     "orders_required": false,
-     "requires_order_count": true,
+     "orders_required": true,
+     "requires_order_count": false,
      "counts_as_pp": false
     },
     {

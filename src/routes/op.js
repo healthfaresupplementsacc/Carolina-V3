@@ -395,13 +395,13 @@ function createOpRouter(deps = {}) {
   // slugs que exigem quantidade de ordens no retroativo (mantém regra antiga lá)
   const ORDERS_REQUIRED_SLUGS = ORDER_PRINTING_SLUGS;
   // grava a contagem de ordens (P&P) a partir da abertura — fonte única do total.
-  async function insertOrdersCount({ eventId, productId, batchId, orders, personId }) {
+  async function insertOrdersCount({ eventId, productId, batchId, orders, personId, kind = 'orders' }) {
     await db.query(
       `INSERT INTO v3.production_counts
          (product_id, product_batch_id, bottles, reported_at, production_date,
           reported_by_person_id, source_event_id, unit, confidence, kind, marketplace)
-       VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'orders', 'high', 'orders', NULL)`,
-      [productId || null, batchId || null, orders, personId, eventId]);
+       VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, 'orders', 'high', $6, NULL)`,
+      [productId || null, batchId || null, orders, personId, eventId, kind]);
   }
 
   // ── FASE PAUSA — pausa congela TODOS os processos ativos do operador ──
@@ -479,6 +479,15 @@ function createOpRouter(deps = {}) {
       } else {
         ordersPrinted = (Number.isFinite(qty) && qty > 0) ? qty : null; // joiner: opcional
       }
+    } else if (act.slug === 'clinic_shipment') {
+      // ENVIO CLÍNICA = igual impressão de ordens (regra Bruno): quantidade
+      // OBRIGATÓRIA no começo, contada como métrica própria (kind='clinic') no
+      // START. Cada envio informa a sua (não tem lógica de 1º-abre).
+      const qty = parseInt(req.body && req.body.orders_printed, 10);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe a quantidade da clínica (número > 0).' });
+      }
+      ordersPrinted = qty;
     }
     // PASSADA 2 — gap detection: >20min sem atividade → pausa pra justificar ANTES
     // de iniciar (captura info, NÃO nega trabalho). Sandbox e retry (gap_ack) pulam.
@@ -575,6 +584,8 @@ function createOpRouter(deps = {}) {
       if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, starterEv.id); // FASE PAUSA: congela o resto
       if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
         await insertOrdersCount({ eventId: starterEv.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
+      } else if (act.slug === 'clinic_shipment' && ordersPrinted > 0) {
+        await insertOrdersCount({ eventId: starterEv.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id, kind: 'clinic' });
       }
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
@@ -613,6 +624,8 @@ function createOpRouter(deps = {}) {
     if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
     if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
       await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
+    } else if (act.slug === 'clinic_shipment' && ordersPrinted > 0) {
+      await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id, kind: 'clinic' });
     }
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
@@ -804,7 +817,9 @@ function createOpRouter(deps = {}) {
     // ordens: NÃO pede mais no fim da impressão de ordens — a P&P conta a partir
     // da quantidade da PRIMEIRA ABERTURA (gravada no START). Some o "quantas
     // foram empacotadas?" e a exceção "não tenho o número" (regra Bruno).
-    const needOrders = (!isCowork || isLast) && !!ev.requires_order_count && !ORDER_PRINTING_SLUGS.has(ev.slug);
+    // clinic_shipment agora conta no START (kind='clinic'), igual impressão de
+    // ordens → NÃO pergunta de novo no fim.
+    const needOrders = (!isCowork || isLast) && !!ev.requires_order_count && !ORDER_PRINTING_SLUGS.has(ev.slug) && ev.slug !== 'clinic_shipment';
     const oc = parseInt(body.orders_count, 10);
     const marketplace = body.marketplace ? String(body.marketplace).slice(0, 40) : null;
     const exception = (needCount || needOrders) && (body.exception_no_count === true || body.exception_no_count === 'true');

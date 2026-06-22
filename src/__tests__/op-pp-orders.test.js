@@ -119,13 +119,23 @@ describe('P&P — ordens contam do 1º-abre', () => {
     expect(r.body.ok).toBe(true);
     expect(mem.counts).toHaveLength(1); // só a do START; o fim não escreve nada
   });
-  test('Envio Clínica grava MÉTRICA PRÓPRIA (kind=clinic), separada do P&P', async () => {
+  test('Envio Clínica = igual impressão: quantidade OBRIGATÓRIA no START, métrica kind=clinic', async () => {
     const tok = await login();
-    const a = await start(tok, { activity_slug: 'clinic_shipment' }); // sem qty no start
+    // sem quantidade no começo → 400 (obrigatório, igual impressão de ordens)
+    const bad = await start(tok, { activity_slug: 'clinic_shipment' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe('orders_printed_required');
+    // com quantidade no começo → grava kind='clinic' NO START (não no fim)
+    const a = await start(tok, { activity_slug: 'clinic_shipment', orders_printed: 5 });
     expect(a.body.ok).toBe(true);
-    const r = await end(tok, a.body.event.id, { orders_count: 5 }); // quantidade no fim
-    expect(r.status).toBe(200);
     expect(mem.counts).toHaveLength(1);
-    expect(mem.counts[0]).toMatchObject({ orders: 5, kind: 'clinic' }); // NÃO 'orders'
+    expect(mem.counts[0]).toMatchObject({ orders: 5, kind: 'clinic' });
+  });
+  test('Envio Clínica: FIM não pede nem conta de novo (já contou no START)', async () => {
+    const tok = await login();
+    const a = await start(tok, { activity_slug: 'clinic_shipment', orders_printed: 5 });
+    const r = await end(tok, a.body.event.id, {}); // sem qty no fim
+    expect(r.status).toBe(200);
+    expect(mem.counts).toHaveLength(1); // só a do START
   });
 });
