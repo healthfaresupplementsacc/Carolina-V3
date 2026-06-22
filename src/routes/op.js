@@ -214,7 +214,11 @@ function createOpRouter(deps = {}) {
   router.post('/api/v3/op/auth/heartbeat', h(async (req, res) => {
     const alive = await opAuth.touchSession(db, req.headers['x-session-token']);
     if (!alive) return res.status(401).json({ error: 'invalid_session' });
-    res.json({ ok: true, person_id: alive.person_id });
+    // version = id do build/deploy. O app compara com o que carregou; se mudou
+    // (deploy novo) → recarrega sozinho. Resolve "página aberta o dia todo não
+    // atualiza". RAILWAY_GIT_COMMIT_SHA muda a cada deploy.
+    const version = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_DEPLOYMENT_ID || process.env.npm_package_version || 'dev';
+    res.json({ ok: true, person_id: alive.person_id, version });
   }));
 
   // ── helpers de domínio ──────────────────────────────────────

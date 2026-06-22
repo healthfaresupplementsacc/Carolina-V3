@@ -6,7 +6,7 @@
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v31';
+const CACHE = 'hf-op-v32';
 const SHELL = [
   '/op/', '/op/index.html', '/op/app.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',

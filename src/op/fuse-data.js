@@ -202,7 +202,7 @@ window.HF_DATA = {
      "slug": "order_printing",
      "label": "Impressão de ordens",
      "requires_product": false,
-     "note_required": true,
+     "note_required": false,
      "orders_required": true,
      "requires_order_count": true,
      "counts_as_pp": true
@@ -211,7 +211,7 @@ window.HF_DATA = {
      "slug": "order_printing_2",
      "label": "2ª impressão",
      "requires_product": false,
-     "note_required": true,
+     "note_required": false,
      "orders_required": true,
      "requires_order_count": true,
      "counts_as_pp": true

@@ -34,12 +34,22 @@
   <script src="/shared/hf-design.js"></script>
   <script src="/op/app.js"></script>
   <script>
-    // registra o service worker v4 (network-first + reload em update)
+    // Service worker (network-first) + AUTO-UPDATE de verdade: a página fica
+    // aberta o dia todo, então (1) checamos por SW novo a cada 60s e (2) quando
+    // um SW novo assume o controle, RECARREGAMOS — antes só atualizava se
+    // fechasse o app inteiro. Guard hadController evita reload na 1ª instalação.
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/op/sw.js').catch(function () {});
+      var _hadController = !!navigator.serviceWorker.controller;
       var _reloaded = false;
+      function _swReload() { if (_reloaded) return; _reloaded = true; location.reload(); }
+      navigator.serviceWorker.register('/op/sw.js').then(function (reg) {
+        setInterval(function () { try { reg.update(); } catch (e) {} }, 60000);
+      }).catch(function () {});
       navigator.serviceWorker.addEventListener('message', function (e) {
-        if (e.data === 'sw-updated' && !_reloaded) { _reloaded = true; /* próxima navegação já pega o novo */ }
+        if (e.data === 'sw-updated' && _hadController) _swReload();
+      });
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (_hadController) _swReload();
       });
     }
   </script>

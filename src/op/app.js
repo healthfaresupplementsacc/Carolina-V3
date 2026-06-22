@@ -421,8 +421,8 @@
     // hero
     h += '<div style="display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
       + '<div style="min-width:0;"><div style="font-size:14px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:' + ac + '; opacity:.9;">' + esc(phaseLabel()) + ' · <span id="hf-clock">' + esc(clockNow()) + '</span></div>'
-      + '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(28px,4.4vw,46px); line-height:1.05; margin:6px 0 4px; color:#0c2545;">' + esc(greetingTxt()) + ', ' + esc(p.display_name) + '</div>'
-      + '<div style="font-size:15px; color:#5a6e87; text-transform:capitalize; font-weight:500;">' + esc(dateNow()) + '</div></div>'
+      + '<div id="hf-greet" style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(28px,4.4vw,46px); line-height:1.05; margin:6px 0 4px; color:#0c2545;">' + esc(greetingTxt()) + ', ' + esc(p.display_name) + '</div>'
+      + '<div id="hf-date" style="font-size:15px; color:#5a6e87; text-transform:capitalize; font-weight:500;">' + esc(dateNow()) + '</div></div>'
       + '<div style="position:relative; width:clamp(118px,13vw,150px); height:clamp(118px,13vw,150px); display:flex; align-items:center; justify-content:center;"><svg viewBox="0 0 120 120" style="width:100%; height:100%; transform:rotate(-90deg);"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(15,40,90,.1)" stroke-width="11"></circle><circle cx="60" cy="60" r="52" fill="none" stroke="' + ac + '" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + dash + '" style="transition:stroke-dasharray .8s cubic-bezier(.2,.8,.2,1); filter:drop-shadow(0 0 6px rgba(14,122,78,.4));"></circle></svg>'
       + '<div style="position:absolute; text-align:center;"><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:clamp(26px,3vw,34px); color:#0c2545; line-height:1;">' + S.completedToday + '</div><div style="font-size:12px; font-weight:600; color:#8195ab;">de ' + S.goal + ' hoje</div></div></div></div>';
     // CTA
@@ -683,7 +683,7 @@
     });
     h += '</div>';
     if (ordersReq) { h += sectionLabel('Quantas ordens vai imprimir?', '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2); h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" data-focus="orders" inputmode="numeric" placeholder="ex: 206" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">'; }
-    h += sectionLabel(noteReq ? 'Motivo (obrigatório)' : 'Nota (opcional)', EDITP, 2);
+    h += sectionLabel(noteReq ? 'Motivo (obrigatório)' : 'Notas (opcional)', EDITP, 2);
     h += '<textarea data-input="note" data-focus="note" placeholder="' + (noteReq ? 'Conte o que está acontecendo, ou use a voz…' : 'Escreva ou use o microfone…') + '" style="width:100%; min-height:84px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;">' + esc(f.note || '') + '</textarea>';
     h += '<div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('flow') + '</div>';
     var st = startStatus(f);
@@ -1552,6 +1552,13 @@
         var lg = document.getElementById('hf-logoff'); if (lg) lg.textContent = (S.logoffLeft <= 120 ? 'sai em ' + S.logoffLeft + 's' : '');
       }
       var ck = document.getElementById('hf-clock'); if (ck) ck.textContent = clockNow();
+      // Saudação/data ao vivo: "Boa noite" vira "Bom dia" sozinho quando o
+      // dia/horário muda (página aberta de um dia pro outro não trava mais).
+      if (S.session) {
+        var gr = document.getElementById('hf-greet');
+        if (gr) { var ng = greetingTxt() + ', ' + S.session.person.display_name; if (gr.textContent !== ng) gr.textContent = ng; }
+        var dt = document.getElementById('hf-date'); if (dt) { var nd = dateNow(); if (dt.textContent !== nd) dt.textContent = nd; }
+      }
     }, 1000);
     tBeat = setInterval(function () {
       if (!S.session) return;
@@ -1559,7 +1566,14 @@
       // mais nas tarefas de ontem). Só na home, sem overlay/flow aberto pra não
       // interromper algo em andamento.
       if (S.dataDay && edtDay() !== S.dataDay && S.screen === 'home' && !S.overlay && !S.flow) { loadData(); return; }
-      api('/api/v3/op/auth/heartbeat', { method: 'POST' }).catch(function () {});
+      api('/api/v3/op/auth/heartbeat', { method: 'POST' }).then(function (r) {
+        if (!r || !r.version) return;
+        if (!S.appVersion) { S.appVersion = r.version; return; }   // 1ª resposta: guarda a versão atual
+        // DEPLOY NOVO no servidor → recarrega sozinho (só na home, sem nada aberto,
+        // pra não interromper um registro em andamento). Resolve "página aberta o
+        // dia todo não pega atualização".
+        if (r.version !== S.appVersion && S.screen === 'home' && !S.overlay && !S.flow) location.reload();
+      }).catch(function () {});
     }, 45000);
     tMantra = setInterval(function () {
       S.mantraIdx = (S.mantraIdx + 1) % MANTRAS.length; S.mantraLangTick += 1;
