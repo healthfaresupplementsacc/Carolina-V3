@@ -24,7 +24,7 @@ function PinGate({ onOk }) {
       background: 'var(--bg, #f7f8fb)', zIndex: 9999,
     }}>
       <div className="card" style={{
-        padding: '28px 32px', minWidth: 320, maxWidth: 400,
+        padding: '28px 24px', width: 'min(360px, 92vw)', maxWidth: 400,
         textAlign: 'center', boxShadow: 'var(--shadow-lg)',
       }}>
         <div style={{
@@ -39,12 +39,13 @@ function PinGate({ onOk }) {
         <form onSubmit={submit}>
           <input
             type="password"
+            inputMode="numeric"
             value={v}
             placeholder="PIN"
             autoFocus
             onChange={(e) => { setV(e.target.value); setErr(false); }}
             style={{
-              width: '100%', padding: '10px 12px', fontSize: 15,
+              width: '100%', padding: '12px 12px', fontSize: 16,
               border: '1px solid var(--border, #d8dce5)', borderRadius: 8,
               background: 'var(--surface, #fff)', color: 'var(--text-1)',
               boxSizing: 'border-box',

@@ -43,6 +43,12 @@ app.use('/api', workflowRouter); // Entrega 3 — workflow_templates et al
 // V3 (shadow) — rotas ADITIVAS, montadas antes do dashboardRouter.
 require('./v3/wire').mount(app);
 
+// Raiz → dashboard-v4 (responsivo, canônico). O dashboard legado (template.js)
+// tem container fixo de 1280px e NÃO é mobile-friendly; v4 é o atual. Só o
+// GET exato de "/" redireciona — as outras rotas do dashboardRouter (APIs etc.)
+// seguem funcionando. (Decisão do Bruno: raiz → v4.)
+app.get('/', (req, res) => res.redirect(302, '/dashboard-v4/'));
+
 app.use('/', dashboardRouter);
 
 // ===== STARTUP =====
