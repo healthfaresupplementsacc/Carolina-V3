@@ -147,8 +147,14 @@ a { color: inherit; text-decoration: none; }
   grid-template-areas:
     "side  top"
     "side  main";
+  /* iOS Safari: 100vh inclui a barra do navegador → conteúdo cortado / não cabe.
+     100dvh (dynamic viewport height) usa a área REAL visível. No desktop dvh==vh,
+     então não muda nada lá. Fallback 100vh pra browsers sem dvh. */
   height: 100vh;
+  height: 100dvh;
   min-height: 0;
+  width: 100%;
+  overflow: hidden;
 }
 .app.collapsed { grid-template-columns: 72px 1fr; }
 /* Hambúrguer escondido no desktop; aparece no mobile (ver media query). */
@@ -176,6 +182,10 @@ a { color: inherit; text-decoration: none; }
   .date-picker .date-value { min-width: 78px; font-size: 12px; padding: 4px 6px; }
   .date-picker .date-value .small { display: none; }
   .hide-mobile { display: none !important; }
+  /* iOS: nada de scroll/zoom horizontal da página inteira; rolagem suave por toque. */
+  html, body { overflow-x: hidden; }
+  .main { -webkit-overflow-scrolling: touch; }
+  .main-inner { max-width: 100%; }
 }
 
 /* ===== Sidebar ===== */
