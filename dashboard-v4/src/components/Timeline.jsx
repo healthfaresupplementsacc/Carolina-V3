@@ -110,18 +110,30 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
         setDrag(null);
         return;
       }
-      // OK: aplica horário/resize na mesma lane (mantém op)
-      onUpdateEvent && onUpdateEvent(d.id, {
-        started_min: d.newStart,
-        ended_min: d.newEnd,
-      });
+      // OK: aplica horário/resize na mesma lane (mantém op). Regra do "agora":
+      //  • AO VIVO → arrastar só desloca o início; nunca grava fim (não fecha).
+      //  • FECHADO arrastado até "agora" (ou além) → está acontecendo agora →
+      //    reabre AO VIVO (ended_min=null). Uma tarefa não pode terminar no futuro.
+      //  • senão → aplica o novo fim normalmente.
+      // (bug do Vitor: arrastar pra ajustar gap gravava fim="agora" e fechava a
+      //  Linha de Produção que ainda estava rolando.)
+      const nowMin = Math.floor(now);
+      let patch;
+      if (d.live) patch = { started_min: d.newStart };
+      else if (d.newEnd >= nowMin - 3) patch = { started_min: d.newStart, ended_min: null };
+      else patch = { started_min: d.newStart, ended_min: d.newEnd };
+      onUpdateEvent && onUpdateEvent(d.id, patch);
       setDrag(null);
     }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    // POINTER events (Bruno 06-23): funcionam pra MOUSE e TOUCH — antes era só
+    // mouse, então no iPhone/iPad não dava pra arrastar (mover/estender início/fim).
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, [drag != null]);
 
@@ -304,6 +316,21 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
             const bgLanes = assignLanes(bgEvents);
             const bgCount = bgEvents.length ? bgLanes.count : 0;
             const fgLanes = assignLanes(fgEvents);
+            // SIMULTÂNEO (Bruno 06-24): tarefas de FOREGROUND do mesmo operador que se
+            // SOBREPÕEM no tempo = "trabalhando em N ao mesmo tempo" → ficam ROSA + label.
+            const fgSimul = {};
+            {
+              // EXCLUI pausa/almoço/fim-de-dia (Bruno 06-24): pausa NÃO é "trabalho
+              // simultâneo" — antes a Pausa e a tarefa congelada por baixo dela
+              // apareciam rosas. Só conta tarefa de trabalho real sobreposta.
+              const NOT_WORK = new Set(['break', 'lunch', 'pausa', 'end_of_day']);
+              const fl = fgEvents.filter((e) => e.started_min != null && !NOT_WORK.has(e.activity));
+              for (const e of fl) {
+                const es = e.started_min, ee = effEnd(e); let n = 0;
+                for (const o of fl) { if (o.started_min < ee && effEnd(o) > es) n += 1; }
+                if (n >= 2) fgSimul[e.id] = n;
+              }
+            }
             const fgTop0 = TOP_PAD + bgCount * (BG_H + BG_GAP) + (bgCount ? 4 : 0);
             const rowMinH = Math.max(96, fgTop0 + fgLanes.count * (FG_H + FG_GAP) + TOP_PAD);
             // Compute idle / sem registro (só sobre foreground)
@@ -366,7 +393,7 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
                       <div key={`bg-${ev.id}`}
                            className={`tl-bg-tab flow-${flow} ${isLiveBg ? 'live' : ''} ${selectedId === ev.id ? 'selected' : ''}`}
                            style={{ left, width, top: bgTop, height: BG_H }}
-                           onMouseDown={(e) => { e.stopPropagation(); startDrag(e, ev, opIdx, "body"); }}
+                           onPointerDown={(e) => { e.stopPropagation(); startDrag(e, ev, opIdx, "body"); }}
                            title={`background · ${act.name}${productName ? ' · ' + productName : ''}`}>
                         <span className="bg-tab-dot"/>
                         <span className="bg-tab-label">{act.name}</span>
@@ -408,15 +435,15 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
                            className={`tl-block ${isLiveEv ? "live" : ""} ${ev.overrun ? "overrun" : ""} ${isDragging ? "dragging" : ""} ${isSelected ? "selected" : ""} ${isMergeTarget ? "merge-target" : ""} ${flowDimmed ? "dim" : ""} ${isInvalid ? "tl-block-invalid" : ""}`}
                            style={{
                              left, width, top: blockTop, height: FG_H, bottom: 'auto',
-                             "--bk-color": flowColor,
-                             "--bk-color2": flowColor2,
+                             "--bk-color": fgSimul[ev.id] ? "#db2777" : flowColor,
+                             "--bk-color2": fgSimul[ev.id] ? "#f472b6" : flowColor2,
                            }}
-                           onMouseDown={e => startDrag(e, ev, opIdx, "body")}
-                           title={`${act.name}${productName ? ` · ${productName}` : ""}`}>
+                           onPointerDown={e => startDrag(e, ev, opIdx, "body")}
+                           title={fgSimul[ev.id] ? `TRABALHANDO SIMULTANEAMENTE EM ${fgSimul[ev.id]} TASKS — ${act.name}${productName ? ` · ${productName}` : ""}` : `${act.name}${productName ? ` · ${productName}` : ""}`}>
                         {!isLiveEv && (
                           <>
-                            <div className="tl-handle left" onMouseDown={e => startDrag(e, ev, opIdx, "left")}/>
-                            <div className="tl-handle right" onMouseDown={e => startDrag(e, ev, opIdx, "right")}/>
+                            <div className="tl-handle left" onPointerDown={e => startDrag(e, ev, opIdx, "left")}/>
+                            <div className="tl-handle right" onPointerDown={e => startDrag(e, ev, opIdx, "right")}/>
                           </>
                         )}
                         {ev.overrun && <span className="bk-overrun">⏰</span>}
@@ -431,6 +458,12 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
                         <div className="bk-fn" style={{ paddingLeft: ev.overrun ? 22 : 0, paddingRight: ev.cowork && ev.cowork.length ? 38 : 0 }}>
                           {act.name}
                         </div>
+                        {fgSimul[ev.id] && (
+                          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.2, color: "#fff", background: "rgba(0,0,0,0.22)", borderRadius: 5, padding: "1px 5px", marginTop: 2, display: "inline-block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}
+                               title={`TRABALHANDO SIMULTANEAMENTE EM ${fgSimul[ev.id]} TASKS`}>
+                            ⚡ SIMULTÂNEO ×{fgSimul[ev.id]}
+                          </div>
+                        )}
                         {productName && <div className="bk-pr">{productName}</div>}
                         <div className="bk-time">
                           {isLiveEv

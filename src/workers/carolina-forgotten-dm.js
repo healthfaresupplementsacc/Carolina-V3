@@ -52,19 +52,20 @@ class CarolinaForgottenDM {
 
   async _sendDM(fc) {
     if (!this.slack || !this.slack.postAs) return false;
-    const dmText = `Bom dia ${fc.display_name}! Ontem você esqueceu de fazer checkout no sistema. `
-      + `Não se preocupa, foi corrigido automaticamente.\n\n`
-      + `Por favor, não esquece da próxima vez — isso faz suas tasks parecerem mais longas que o normal `
-      + `e pode baixar sua pontuação de produção.\n\nSempre faz logout no final do dia, tá? Obrigada! 💚`;
+    // Tom PROFISSIONAL, com uma PONTA de frustração (regra Bruno 06-24): avisa que
+    // esqueceu o checkout, que tive que corrigir, e pede pra não repetir. Sem emojis fofos.
+    const dmText = `Bom dia, ${fc.display_name}. No último dia de trabalho você saiu *sem fazer o checkout* no sistema novamente. `
+      + `Tive que corrigir o seu registro manualmente.\n\n`
+      + `Isso bagunça os horários e a contagem de produção, e gera retrabalho de quem precisa arrumar. `
+      + `Peço que, por favor, *não esqueça de fazer o logout/checkout no fim do expediente* — é parte da rotina e preciso que isso seja levado a sério.\n\n`
+      + `Conto com você pra não se repetir. Obrigada.`;
+    const channelText = `${fc.display_name}, no último dia você saiu *sem fazer o checkout* no sistema. Tive que corrigir o seu registro na mão. `
+      + `Por favor *não esqueça do logout no fim do expediente* — isso atrapalha os horários e a produção, e dá retrabalho. Conto com você pra não se repetir. — Carolina`;
     try {
       if (fc.slack_user_id) {
         await this.slack.postAs({ channel: fc.slack_user_id, sender: { name: 'Carolina' }, thread_ts: null, text: dmText });
       } else {
-        await this.slack.postAs({
-          channel: this.ordersChannel, sender: { name: 'Carolina' }, thread_ts: null,
-          text: `${fc.display_name}, ontem você esqueceu de fazer checkout. Foi corrigido automaticamente. `
-            + `Não esquece da próxima vez — baixa sua pontuação de produção. Obrigada! 💚`,
-        });
+        await this.slack.postAs({ channel: this.ordersChannel, sender: { name: 'Carolina' }, thread_ts: null, text: channelText });
       }
       return true;
     } catch (e) { console.error('[forgotten-dm] envio falhou:', e.message); return false; }

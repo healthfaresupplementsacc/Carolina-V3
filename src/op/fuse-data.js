@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-19T01:18:30.722Z",
+ "generated_at": "2026-06-23T17:54:37.616Z",
  "groups": [
   {
    "key": "linha",
@@ -19,6 +19,24 @@ window.HF_DATA = {
      "slug": "review",
      "label": "Revisão",
      "requires_product": true,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
+    },
+    {
+     "slug": "labeling",
+     "label": "Colocar labels",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
+    },
+    {
+     "slug": "fnsku_labeling",
+     "label": "Colocando FNSKU / Código de Barras",
+     "requires_product": false,
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
@@ -117,7 +135,7 @@ window.HF_DATA = {
   {
    "key": "limpeza",
    "icon": "🧹",
-   "label": "Limpeza / Suporte",
+   "label": "Limpeza / Organização",
    "types": [
     {
      "slug": "cleaning",
@@ -148,7 +166,16 @@ window.HF_DATA = {
     },
     {
      "slug": "organization",
-     "label": "Organização",
+     "label": "Organização do Warehouse",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
+    },
+    {
+     "slug": "stock_organization",
+     "label": "Organização de Stock (Inventário)",
      "requires_product": false,
      "note_required": false,
      "orders_required": false,
@@ -166,17 +193,8 @@ window.HF_DATA = {
     },
     {
      "slug": "label_change",
-     "label": "🏷️ Troca de label",
+     "label": "🏷️ Troca/Ajuste de Label",
      "requires_product": false,
-     "note_required": true,
-     "orders_required": false,
-     "requires_order_count": false,
-     "counts_as_pp": false
-    },
-    {
-     "slug": "label_repair",
-     "label": "🔧 Conserto de label",
-     "requires_product": true,
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
@@ -196,13 +214,13 @@ window.HF_DATA = {
   {
    "key": "embalagem",
    "icon": "📦",
-   "label": "Embalagem",
+   "label": "Envio De Pacotes",
    "types": [
     {
      "slug": "order_printing",
      "label": "Impressão de ordens",
      "requires_product": false,
-     "note_required": false,
+     "note_required": true,
      "orders_required": true,
      "requires_order_count": true,
      "counts_as_pp": true
@@ -211,27 +229,18 @@ window.HF_DATA = {
      "slug": "order_printing_2",
      "label": "2ª impressão",
      "requires_product": false,
-     "note_required": false,
+     "note_required": true,
      "orders_required": true,
      "requires_order_count": true,
      "counts_as_pp": true
     },
     {
-     "slug": "labeling",
-     "label": "Colocar labels",
-     "requires_product": false,
-     "note_required": false,
-     "orders_required": false,
-     "requires_order_count": true,
-     "counts_as_pp": true
-    },
-    {
      "slug": "packaging",
-     "label": "Embalagem",
+     "label": "Empacotando Suplementos",
      "requires_product": false,
      "note_required": false,
      "orders_required": false,
-     "requires_order_count": true,
+     "requires_order_count": false,
      "counts_as_pp": true
     },
     {
@@ -248,8 +257,8 @@ window.HF_DATA = {
      "label": "Envio Clínica",
      "requires_product": false,
      "note_required": false,
-     "orders_required": true,
-     "requires_order_count": false,
+     "orders_required": false,
+     "requires_order_count": true,
      "counts_as_pp": false
     },
     {
@@ -258,7 +267,7 @@ window.HF_DATA = {
      "requires_product": false,
      "note_required": true,
      "orders_required": false,
-     "requires_order_count": true,
+     "requires_order_count": false,
      "counts_as_pp": true
     }
    ]
@@ -266,11 +275,20 @@ window.HF_DATA = {
   {
    "key": "envio",
    "icon": "🚚",
-   "label": "Envio",
+   "label": "Envio De Caixas",
    "types": [
     {
      "slug": "box_closing",
      "label": "Fechando caixas",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
+    },
+    {
+     "slug": "fnsku_labeling",
+     "label": "Colocando FNSKU / Código de Barras",
      "requires_product": false,
      "note_required": false,
      "orders_required": false,
@@ -309,8 +327,8 @@ window.HF_DATA = {
      "label": "Envio Clínica",
      "requires_product": false,
      "note_required": false,
-     "orders_required": true,
-     "requires_order_count": false,
+     "orders_required": false,
+     "requires_order_count": true,
      "counts_as_pp": false
     },
     {
@@ -402,7 +420,7 @@ window.HF_DATA = {
     "activated charcoal",
     "carbon ativado"
    ],
-   "last_used_at": "2026-06-15T20:14:53.147Z"
+   "last_used_at": "2026-06-23T17:14:22.580Z"
   },
   {
    "id": 17,
@@ -415,7 +433,7 @@ window.HF_DATA = {
     "garlic",
     "alho"
    ],
-   "last_used_at": "2026-05-27T18:28:31.200Z"
+   "last_used_at": "2026-06-22T18:27:17.121Z"
   },
   {
    "id": 18,
@@ -528,7 +546,7 @@ window.HF_DATA = {
     "ruscus",
     "butcher broom"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-23T12:49:16.100Z"
   },
   {
    "id": 26,
@@ -551,7 +569,7 @@ window.HF_DATA = {
     "chlorophyl",
     "clorofill"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-23T16:56:47.259Z"
   },
   {
    "id": 28,
@@ -607,7 +625,7 @@ window.HF_DATA = {
     "fadogia",
     "fadogia agrestis"
    ],
-   "last_used_at": "2026-06-18T12:37:48.573Z"
+   "last_used_at": "2026-06-23T15:20:59.596Z"
   },
   {
    "id": 33,
@@ -615,7 +633,7 @@ window.HF_DATA = {
    "aliases": [
     "feminiva"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-20T16:26:13.331Z"
   },
   {
    "id": 34,
@@ -641,7 +659,7 @@ window.HF_DATA = {
     "folate",
     "folic"
    ],
-   "last_used_at": "2026-06-19T01:09:36.275Z"
+   "last_used_at": "2026-06-23T15:35:50.116Z"
   },
   {
    "id": 5,
@@ -685,7 +703,7 @@ window.HF_DATA = {
     "glutation",
     "glutathione"
    ],
-   "last_used_at": "2026-06-18T22:02:56.529Z"
+   "last_used_at": "2026-06-19T20:16:59.026Z"
   },
   {
    "id": 6,
@@ -778,7 +796,7 @@ window.HF_DATA = {
     "regaliz",
     "glycyrrhiza"
    ],
-   "last_used_at": "2026-05-21T20:44:37.529Z"
+   "last_used_at": null
   },
   {
    "id": 46,
@@ -837,7 +855,7 @@ window.HF_DATA = {
     "melatonina",
     "melatonin"
    ],
-   "last_used_at": "2026-06-18T15:38:58.636Z"
+   "last_used_at": "2026-06-23T15:43:54.543Z"
   },
   {
    "id": 50,
@@ -872,7 +890,7 @@ window.HF_DATA = {
     "mioinositol",
     "myo inositol"
    ],
-   "last_used_at": null
+   "last_used_at": "2026-06-22T17:18:00.616Z"
   },
   {
    "id": 52,
@@ -952,7 +970,7 @@ window.HF_DATA = {
     "phytosterols",
     "plant"
    ],
-   "last_used_at": "2026-06-18T19:05:29.574Z"
+   "last_used_at": "2026-06-23T17:46:31.225Z"
   },
   {
    "id": 57,
@@ -1044,7 +1062,7 @@ window.HF_DATA = {
     "stinging nettle root",
     "stinging nettle leaf"
    ],
-   "last_used_at": "2026-05-22T14:36:19.250Z"
+   "last_used_at": null
   },
   {
    "id": 63,
@@ -1055,7 +1073,7 @@ window.HF_DATA = {
     "tribulus terrestris",
     "trib"
    ],
-   "last_used_at": "2026-05-22T18:11:52.195Z"
+   "last_used_at": null
   },
   {
    "id": 64,
@@ -1134,14 +1152,119 @@ window.HF_DATA = {
  ],
  "recent_batches": [
   {
-   "batch_number": "1234",
+   "batch_number": "BR-2026-0230",
+   "product_id": 56,
+   "last_used": "2026-06-23T17:46:31.225Z"
+  },
+  {
+   "batch_number": "BR-2026-0199",
+   "product_id": 16,
+   "last_used": "2026-06-23T17:14:22.580Z"
+  },
+  {
+   "batch_number": "BR-2026-0225",
+   "product_id": 27,
+   "last_used": "2026-06-23T16:56:47.259Z"
+  },
+  {
+   "batch_number": "0230",
+   "product_id": 56,
+   "last_used": "2026-06-23T15:58:33.727Z"
+  },
+  {
+   "batch_number": "BR-2026-0219",
+   "product_id": 49,
+   "last_used": "2026-06-23T15:43:54.543Z"
+  },
+  {
+   "batch_number": "BR-2026-0213",
    "product_id": 35,
-   "last_used": "2026-06-19T01:09:36.275Z"
+   "last_used": "2026-06-23T15:35:50.116Z"
+  },
+  {
+   "batch_number": "BR-2026-0198",
+   "product_id": 32,
+   "last_used": "2026-06-23T15:20:59.596Z"
+  },
+  {
+   "batch_number": "BR-2026-0165",
+   "product_id": 49,
+   "last_used": "2026-06-23T15:10:46.207Z"
+  },
+  {
+   "batch_number": "BR-2026-0220",
+   "product_id": 25,
+   "last_used": "2026-06-23T12:49:16.100Z"
+  },
+  {
+   "batch_number": "BR-2026-0218",
+   "product_id": 56,
+   "last_used": "2026-06-22T18:42:17.346Z"
+  },
+  {
+   "batch_number": "BR-2026-0224",
+   "product_id": 17,
+   "last_used": "2026-06-22T18:27:17.121Z"
+  },
+  {
+   "batch_number": "BR-2026-0221",
+   "product_id": 10,
+   "last_used": "2026-06-22T17:18:00.616Z"
+  },
+  {
+   "batch_number": "BR-2026-0222",
+   "product_id": 10,
+   "last_used": "2026-06-22T13:52:33.496Z"
+  },
+  {
+   "batch_number": "BR-2026-0204",
+   "product_id": 33,
+   "last_used": "2026-06-20T16:26:13.331Z"
+  },
+  {
+   "batch_number": "0219",
+   "product_id": 49,
+   "last_used": "2026-06-20T14:25:24.545Z"
+  },
+  {
+   "batch_number": "BR-2026-0223",
+   "product_id": 38,
+   "last_used": "2026-06-19T20:16:59.026Z"
+  },
+  {
+   "batch_number": "0220",
+   "product_id": 25,
+   "last_used": "2026-06-19T19:37:20.216Z"
+  },
+  {
+   "batch_number": "0222",
+   "product_id": 10,
+   "last_used": "2026-06-19T16:22:08.814Z"
+  },
+  {
+   "batch_number": "0217",
+   "product_id": 56,
+   "last_used": "2026-06-19T15:16:08.755Z"
+  },
+  {
+   "batch_number": "0215",
+   "product_id": 49,
+   "last_used": "2026-06-19T14:14:12.452Z"
   },
   {
    "batch_number": "0213",
    "product_id": 35,
-   "last_used": "2026-06-18T22:52:41.483Z"
+   "last_used": "2026-06-19T13:55:44.890Z"
+  },
+  {
+   "batch_number": "0221",
+   "product_id": 10,
+   "last_used": "2026-06-19T13:54:54.217Z"
+  },
+  {
+   "batch_number": "1234",
+   "product_id": 35,
+   "last_used": "2026-06-19T01:09:36.275Z"
   },
   {
    "batch_number": "0223",
@@ -1157,21 +1280,6 @@ window.HF_DATA = {
    "batch_number": "0211",
    "product_id": 67,
    "last_used": "2026-06-18T20:56:12.927Z"
-  },
-  {
-   "batch_number": "0217",
-   "product_id": 56,
-   "last_used": "2026-06-18T19:05:29.574Z"
-  },
-  {
-   "batch_number": "0215",
-   "product_id": 49,
-   "last_used": "2026-06-18T15:38:58.636Z"
-  },
-  {
-   "batch_number": "BR-2026-0213",
-   "product_id": 35,
-   "last_used": "2026-06-18T15:31:57.184Z"
   },
   {
    "batch_number": "0218",
@@ -1242,96 +1350,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0207",
    "product_id": 56,
    "last_used": "2026-06-15T14:13:35.693Z"
-  },
-  {
-   "batch_number": "BR-2026-0194",
-   "product_id": 2,
-   "last_used": "2026-06-12T20:39:41.056Z"
-  },
-  {
-   "batch_number": "0207",
-   "product_id": 56,
-   "last_used": "2026-06-12T20:23:46.138Z"
-  },
-  {
-   "batch_number": "0149",
-   "product_id": 26,
-   "last_used": "2026-06-12T20:06:34.136Z"
-  },
-  {
-   "batch_number": "0208",
-   "product_id": 56,
-   "last_used": "2026-06-12T15:39:38.252Z"
-  },
-  {
-   "batch_number": "0209",
-   "product_id": 5,
-   "last_used": "2026-06-12T13:56:49.086Z"
-  },
-  {
-   "batch_number": "0201",
-   "product_id": 69,
-   "last_used": "2026-06-11T19:31:17.155Z"
-  },
-  {
-   "batch_number": "BR-2026-0198",
-   "product_id": 32,
-   "last_used": "2026-06-11T19:06:13.825Z"
-  },
-  {
-   "batch_number": "BR-2026-0184",
-   "product_id": 56,
-   "last_used": "2026-06-10T22:41:20.875Z"
-  },
-  {
-   "batch_number": "0165",
-   "product_id": 49,
-   "last_used": "2026-06-10T13:09:04.853Z"
-  },
-  {
-   "batch_number": "BR-2026-0200",
-   "product_id": 23,
-   "last_used": "2026-06-09T20:12:08.720Z"
-  },
-  {
-   "batch_number": "0200",
-   "product_id": 23,
-   "last_used": "2026-06-09T19:11:53.571Z"
-  },
-  {
-   "batch_number": "BR-2026-0196",
-   "product_id": 65,
-   "last_used": "2026-06-09T19:01:55.868Z"
-  },
-  {
-   "batch_number": "BR-2026-0195",
-   "product_id": 60,
-   "last_used": "2026-06-09T17:44:44.266Z"
-  },
-  {
-   "batch_number": "BR-2026-0190",
-   "product_id": 8,
-   "last_used": "2026-06-09T17:29:37.417Z"
-  },
-  {
-   "batch_number": "BR-2026-0197",
-   "product_id": 23,
-   "last_used": "2026-06-08T21:34:26.313Z"
-  },
-  {
-   "batch_number": "0183",
-   "product_id": 20,
-   "last_used": "2026-06-05T20:09:47.917Z"
-  },
-  {
-   "batch_number": "BR-2026-0187",
-   "product_id": 43,
-   "last_used": "2026-06-05T16:39:52.881Z"
-  },
-  {
-   "batch_number": "BR-2026-0185",
-   "product_id": 67,
-   "last_used": "2026-06-05T13:58:47.390Z"
   }
  ]
 };

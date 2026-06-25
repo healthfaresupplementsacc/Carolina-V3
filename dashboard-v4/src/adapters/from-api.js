@@ -140,6 +140,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
   const timeline   = usePoll('/timeline?date='   + date, [date, bump], pollMs);
   const production = usePoll('/production?date=' + date, [date, bump], pollMs);
   const pp         = usePoll('/pp?date='         + date, [date, bump], pollMs);
+  const fnsku      = usePoll('/fnsku?date='      + date, [date, bump], pollMs);
   const support    = usePoll('/support?date='    + date, [date, bump], pollMs);
   const goals      = usePoll('/goals?date='      + date, [date, bump], pollMs);
   const counts     = usePoll('/counts?date='     + date, [date, bump], pollMs);
@@ -160,6 +161,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
       timeline: timeline.data,
       production: production.data,
       pp: pp.data,
+      fnsku: fnsku.data,
       support: support.data,
       goals: goals.data,
       counts: counts.data,
@@ -172,7 +174,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
       },
     });
   }, [date,
-      timeline.data, production.data, pp.data, support.data,
+      timeline.data, production.data, pp.data, fnsku.data, support.data,
       goals.data, counts.data, deadlines.data, review.data,
       persons.data, acts.data, products.data]);
 
@@ -196,6 +198,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
     refresh,
     raw: {
       timeline: timeline.data, production: production.data, pp: pp.data,
+      fnsku: fnsku.data,
       support: support.data, goals: goals.data, counts: counts.data,
       deadlines: deadlines.data, review: review.data,
       persons: persons.data, acts: acts.data, products: products.data,

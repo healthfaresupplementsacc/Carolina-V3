@@ -93,7 +93,7 @@ function slugify(s) {
  */
 function adaptToHFData(input) {
   const {
-    timeline = null, production = null, pp = null, support = null,
+    timeline = null, production = null, pp = null, fnsku = null, support = null,
     goals = null, /* counts = null, */ deadlines = null, review = null, catalog = {}, date = null,
   } = input || {};
 
@@ -195,6 +195,9 @@ function adaptToHFData(input) {
         _ended_at: ev.ended_at,
         _source_message_ts: ev.source_message_ts || null,
         _expected_seconds: a && a.expected_seconds != null ? a.expected_seconds : null,
+        _estimated_bottles: ev.estimated_bottles != null ? ev.estimated_bottles : null, // EMS target do lote
+        _bottle_counts: Array.isArray(ev.bottle_counts) ? ev.bottle_counts : [],        // quem/quando/quanto
+        _fnsku_counts: Array.isArray(ev.fnsku_counts) ? ev.fnsku_counts : [],           // FNSKU labels deste evento
       });
     }
   }
@@ -253,7 +256,13 @@ function adaptToHFData(input) {
   const ppBlock = {
     total_minutes: pp && pp.total_seconds != null ? Math.round(pp.total_seconds / 60) : 0,
     orders: (pp && pp.orders) || 0,
+    orders_inputs: (pp && pp.orders_inputs) || [],   // input bruto por impressão (auditoria)
+    orders_reset: (pp && pp.orders_reset) || null,   // { old_total, new_total, by, at } se reajustado
     seconds_per_order: (pp && pp.seconds_per_order) || 0,
+    // pessoa-hora (Bruno 06-22): tempo por pessoa + soma + média/pacote
+    person_seconds: (pp && pp.person_seconds) || [],
+    person_seconds_total: (pp && pp.person_seconds_total) || 0,
+    person_seconds_per_order: (pp && pp.person_seconds_per_order) != null ? pp.person_seconds_per_order : null,
     deadline_min: null,
     _raw: pp,
   };
@@ -320,6 +329,8 @@ function adaptToHFData(input) {
         bottles_per_sec: sec > 0 ? +(bottles / sec).toFixed(2) : null,
       };
     }),
+    line: (production && production.line) || null,
+    flow_total: (production && production.flow_total) || null,
     _raw: production,
   };
 
@@ -340,6 +351,7 @@ function adaptToHFData(input) {
     DAY_START, DAY_END, NOW_MIN, DEADLINE_MIN,
     operators, products, activities, FLOWS,
     events, goals: adaptedGoals, alerts, pp: ppBlock, production: productionBlock, review: reviewBlock,
+    fnsku: fnsku || null,   // bloco FNSKU do dia (labels, tempo/pessoa, labels/min) — Bruno 06-23
     _gaps: gaps,
     _meta: {
       date,

@@ -60,9 +60,11 @@
   --border:     #e3e8f0;
   --border-strong: #cfd6e3;
   --text:       #0c193b;
-  --text-2:     #4a5878;
-  --text-3:     #7a87a3;
-  --muted:      #94a0bd;
+  /* Bruno 06-24: secundário/muted escurecidos no tema LIGHT (estavam claros demais,
+     difíceis de ler). Dark theme não muda. */
+  --text-2:     #35425e;
+  --text-3:     #4d5b78;
+  --muted:      #616f8d;
   --shadow-sm:  0 1px 2px rgba(12,25,59,0.04), 0 1px 1px rgba(12,25,59,0.03);
   --shadow:     0 6px 18px -8px rgba(12,25,59,0.18), 0 2px 6px -3px rgba(12,25,59,0.08);
   --shadow-lg:  0 24px 60px -24px rgba(12,25,59,0.30), 0 8px 24px -10px rgba(12,25,59,0.14);
@@ -157,10 +159,29 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
 }
 .app.collapsed { grid-template-columns: 72px 1fr; }
-/* Hambúrguer escondido no desktop; aparece no mobile (ver media query). */
-.topbar-burger { display: none; }
+/* DESKTOP (Bruno 06-23): hambúrguer esconde a barra lateral → mais espaço pra
+   página. Só >880px; no mobile a sidebar é drawer e o side-hidden é ignorado. */
+@media (min-width: 881px) {
+  .app.side-hidden { grid-template-columns: 1fr; grid-template-areas: "top" "main"; }
+  .app.side-hidden .sidebar { display: none; }
+}
+/* Hambúrguer: aparece em TODA largura. Mobile abre/fecha o drawer; desktop
+   esconde/mostra a barra lateral. */
+.topbar-burger { display: grid; flex: 0 0 auto; }
 @media (max-width: 880px) {
-  .app, .app.collapsed { grid-template-columns: 1fr; grid-template-rows: 56px 1fr; grid-template-areas: "top" "main"; }
+  /* iOS FIX (Bruno 06-22): o shell de GRID de altura fixa (.app grid 100dvh +
+     overflow:hidden, scroller interno .main) é frágil no Safari do iPhone — dava
+     "não rola / áreas em branco" e depois "tudo espremido numa faixa". No celular
+     largamos o GRID: .app vira bloco normal, topbar + main EMPILHAM em fluxo e a
+     PÁGINA (body) rola. Sem trilhas de grid pra colapsar a altura. */
+  html, body, #root { height: auto; min-height: 100dvh; }
+  body { background-attachment: scroll; }   /* fixed bg trava/janka no iOS */
+  .app, .app.collapsed {
+    display: block;                 /* sem grid: empilha e cresce com o conteúdo */
+    height: auto; min-height: 100dvh; overflow: visible;
+  }
+  .topbar { position: sticky; top: 0; z-index: 40; }
+  .main { display: block; width: 100%; }
   /* ANTES: .sidebar { display:none } → no celular não dava pra navegar.
      AGORA: vira drawer deslizante controlado pelo hambúrguer do topbar. */
   .sidebar {
@@ -184,7 +205,8 @@ a { color: inherit; text-decoration: none; }
   .hide-mobile { display: none !important; }
   /* iOS: nada de scroll/zoom horizontal da página inteira; rolagem suave por toque. */
   html, body { overflow-x: hidden; }
-  .main { -webkit-overflow-scrolling: touch; }
+  /* .main NÃO é mais o scroller no mobile — a página inteira rola (body). */
+  .main { overflow: visible; -webkit-overflow-scrolling: touch; }
   .main-inner { max-width: 100%; }
   /* iOS Safari faz ZOOM no input quando o font-size < 16px (foco) → página "não
      encaixa". Forçar 16px em todos os campos mata esse zoom. */

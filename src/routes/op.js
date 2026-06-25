@@ -46,6 +46,7 @@ function createOpRouter(deps = {}) {
   // canal orders-and-inventory (operadores veem) — aviso de exceção da linha
   const productionChannel = deps.productionChannelId || process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
   const slack = deps.slack || null; // { postAs }
+  const noteAnalyzer = deps.noteAnalyzer || null; // ③ Gemini lê motivos/notas (gated)
   const now = deps.now || (() => Date.now());
   const bf = deps.bruteForce || null; // Fase D brute-force guard
   const ems = deps.ems !== undefined ? deps.ems : emsSingleton; // EMS read-only (server-side; chave nunca vai ao browser)
@@ -224,7 +225,7 @@ function createOpRouter(deps = {}) {
   // ── helpers de domínio ──────────────────────────────────────
   async function resolveActivity(slug) {
     const r = await db.query(
-      'SELECT id, slug, requires_product, is_background FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
+      'SELECT id, slug, requires_product, is_background, flow FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
     return r.rows[0] || null;
   }
   async function resolveBatch(batchNumber) {
@@ -264,7 +265,10 @@ function createOpRouter(deps = {}) {
       const pl = await emsPipeline(); if (!pl) return null;
       const bn = String(batchNumber).trim().toUpperCase();
       const alt = bn.indexOf('BR-2026-') === 0 ? bn.slice(8) : ('BR-2026-' + bn);
-      for (const g of ['pending_queue', 'formulation', 'production_line']) {
+      // Bruno 06-24: varre TODAS as stages do EMS (não só 3). BR-2026-0231 estava em
+      // production_line.yield_review — flattenStage acha sub-stages, mas iterar todas
+      // as chaves cobre qualquer stage futura/extra. flattenStage ignora não-arrays.
+      for (const g of Object.keys(pl)) {
         for (const b of flattenStage(pl[g])) {
           const x = String((b && (b.batch_record_number || b.batch_number)) || '').toUpperCase();
           if (x && (x === bn || x === alt)) {
@@ -367,13 +371,23 @@ function createOpRouter(deps = {}) {
     if (resolvedFromEms && batch) return;
     notifyUnknownBatch({ batchNumber: bn, productName: batch ? batch.product : (body && body.product_name) || null, operatorName: s.display_name, slug, autoCreated: !!autoCreated });
   }
-  async function insertCount({ event, bottles, unit, personId }) {
+  // PRODUÇÃO (Bruno 06-23): existe OUTRA pessoa ainda na linha (production_line aberta)
+  // do MESMO lote? Se sim, quem fecha agora NÃO informa bottles — só o último conta.
+  async function othersOnBatchLine(batchId, exceptEventId) {
+    if (!batchId) return false;
+    const r = await db.query(
+      `SELECT 1 FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+       WHERE at.slug = 'production_line' AND e.ended_at IS NULL AND e.deleted_at IS NULL
+         AND e.product_batch_id = $1 AND e.id <> $2 LIMIT 1`, [batchId, exceptEventId]);
+    return r.rowCount > 0;
+  }
+  async function insertCount({ event, bottles, unit, personId, kind = 'bottles' }) {
     await db.query(
       `INSERT INTO v3.production_counts
          (product_id, product_batch_id, bottles, reported_at, production_date,
-          reported_by_person_id, source_event_id, unit, confidence)
-       VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, $6, 'high')`,
-      [event.product_id || null, event.product_batch_id || null, bottles, personId, event.id, unit || 'bottle']);
+          reported_by_person_id, source_event_id, unit, confidence, kind)
+       VALUES ($1, $2, $3, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $4, $5, $6, 'high', $7)`,
+      [event.product_id || null, event.product_batch_id || null, bottles, personId, event.id, unit || 'bottle', kind]);
   }
 
   // slugs cuja nota é OBRIGATÓRIA (Fase 0: + impressão de ordens, especial, Outros;
@@ -404,6 +418,66 @@ function createOpRouter(deps = {}) {
       [productId || null, batchId || null, orders, personId, eventId, kind]);
   }
 
+  // ── COWORK AUTOMÁTICO DE P&P (regra Bruno) ──────────────────────────────
+  // O P&P é uma CADEIA síncrona: quem está ativo no P&P trabalha junto. Sempre
+  // que alguém inicia/termina uma tarefa P&P, religamos TODAS as P&P ao vivo do
+  // dia num cowork_group compartilhado (cada event aponta cowork_with pros outros
+  // participantes). Quando sobra 1 (ou 0), limpa o grupo.
+  // EXCLUI clinic_shipment: envio da clínica é tarefa ISOLADA, NÃO é P&P.
+  // É display-friendly: o dashboard já desenha cowork a partir de cowork_with.
+  const PNP_COWORK_EXCLUDE = new Set(['clinic_shipment']);
+  function isPnpCowork(act) { return !!act && act.flow === 'pnp' && !PNP_COWORK_EXCLUDE.has(act.slug); }
+  async function syncPnpCowork(isSandbox) {
+    try {
+      const live = (await db.query(
+        `SELECT e.id, e.person_id, e.cowork_group_id
+           FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+          WHERE e.ended_at IS NULL AND e.deleted_at IS NULL AND COALESCE(e.is_test, false) = $1
+            AND at.flow = 'pnp' AND at.slug <> 'clinic_shipment'
+            AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+          ORDER BY e.started_at`, [!!isSandbox])).rows;
+      const persons = [...new Set(live.map((e) => e.person_id))];
+      // >=2 pessoas → grupo compartilhado; <2 → limpa (gid null, cowork_with vazio).
+      const existing = live.find((e) => e.cowork_group_id);
+      const gid = persons.length >= 2 ? (existing ? existing.cowork_group_id : crypto.randomUUID()) : null;
+      for (const e of live) {
+        const others = persons.filter((p) => p !== e.person_id);
+        await db.query(
+          'UPDATE v3.events SET cowork_with = $2::int[], cowork_group_id = $3::uuid, updated_at = NOW() WHERE id = $1',
+          [e.id, others, gid]);
+      }
+    } catch (err) {
+      console.error('[op] syncPnpCowork falhou (não bloqueia):', err.message);
+    }
+  }
+
+  // ── COWORK GERAL: limpeza ao SAIR (regra Bruno 06-24) ───────────────────
+  // Vale pra QUALQUER cowork (produção, limpeza, etc — não só P&P). Quando alguém
+  // FECHA um event que tinha cowork_group_id, recomputa quem AINDA está aberto no
+  // grupo e atualiza o cowork_with de cada um; sobrando <2 limpa o grupo. Era isso
+  // que deixava o Vitor "em grupo / Já junto" com a Ana DEPOIS que ela saiu pro
+  // almoço (cowork_with órfão). REGRA: todo fim de cowork chama isto.
+  async function cleanupCoworkGroup(groupId) {
+    if (!groupId) return;
+    try {
+      const live = (await db.query(
+        `SELECT id, person_id FROM v3.events
+          WHERE cowork_group_id = $1 AND ended_at IS NULL AND deleted_at IS NULL`, [groupId])).rows;
+      const persons = [...new Set(live.map((e) => e.person_id))];
+      if (persons.length >= 2) {
+        for (const e of live) {
+          const others = persons.filter((p) => p !== e.person_id);
+          await db.query('UPDATE v3.events SET cowork_with = $2::int[], updated_at = NOW() WHERE id = $1', [e.id, others]);
+        }
+      } else {
+        // 0 ou 1 → não é mais cowork: limpa grupo + cowork_with dos remanescentes.
+        for (const e of live) {
+          await db.query("UPDATE v3.events SET cowork_with = '{}'::int[], cowork_group_id = NULL, updated_at = NOW() WHERE id = $1", [e.id]);
+        }
+      }
+    } catch (err) { console.error('[op] cleanupCoworkGroup falhou (não bloqueia):', err.message); }
+  }
+
   // ── FASE PAUSA — pausa congela TODOS os processos ativos do operador ──
   const PAUSE_SLUGS = new Set(['break']); // 'break' = pausa (nota obrigatória já no NOTE_REQUIRED_SLUGS)
   // FASE OVERLAP+ALMOÇO (regra Bruno): almoço PARA o trabalho e não pode
@@ -429,7 +503,111 @@ function createOpRouter(deps = {}) {
            paused_at = NULL, updated_at = NOW()
        WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND paused_at IS NOT NULL
        RETURNING id`, [personId]);
-    return r.rowCount;
+    if (!r.rowCount) return { count: 0, tasks: [] };
+    // detalhes das tarefas DESCONGELADAS → o app pergunta "continuar ou finalizar?"
+    // (regra Bruno: ao voltar da pausa, escolhe; se finalizar e a task pede contagem,
+    // o fluxo de finalizar já cobra a quantidade). needs_count: linha/encaps/fnsku/ordens.
+    const det = await db.query(
+      `SELECT e.id, at.slug, at.display_name AS label, pb.batch_number,
+              pr.canonical_name AS product,
+              (at.slug IN ('production_line','encapsulation','fnsku_labeling') OR at.requires_order_count = true) AS needs_count
+         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         LEFT JOIN v3.products pr ON pr.id = pb.product_id
+        WHERE e.id = ANY($1::int[])`, [r.rows.map((x) => x.id)]);
+    return { count: r.rowCount, tasks: det.rows };
+  }
+
+  // ── OPERADORES DE MÁQUINA — handoff de background no almoço/pausa (regra Bruno 06-22) ──
+  // Operador de máquina (Bruno/Vitor) vai pro almoço/pausa enquanto roda background
+  // (encapsulação/tablete/mistura/formulação) → as máquinas PASSAM pro próximo operador
+  // de máquina disponível (e SEGUEM rodando lá; não congelam). Quando ele volta, voltam
+  // pra ele — só as que eram dele (bg_handoff_from_person_id), não as que o outro abriu.
+  async function machineSlack(text) {
+    if (!slack || !slack.postAs) return;
+    try {
+      await slack.postAs({ channel: 'production', sender: { name: 'HealthFare Tracker', icon: ':gear:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
+    } catch (e) { console.error('[machine] slack falhou:', e.message); }
+  }
+  async function handoffMachineWork(personId, isSandbox) {
+    try {
+      const me = (await db.query('SELECT is_machine_operator, display_name FROM v3.persons WHERE id = $1', [personId])).rows[0];
+      if (!me || !me.is_machine_operator) return;
+      const mine = (await db.query(
+        `SELECT e.id, e.activity_type_id, e.product_batch_id, e.is_test, at.slug, at.display_name AS act_name
+           FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+          WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
+            AND at.is_background = true AND e.bg_handoff_from_person_id IS NULL`, [personId])).rows;
+      if (!mine.length) return;
+      const breakSlugs = [...PAUSE_SLUGS, ...LUNCH_SLUGS];
+      // PRÓXIMO operador de máquina DISPONÍVEL (Bruno 06-24): outro machine-op PRESENTE
+      // — com tarefa ABERTA que não é almoço/pausa (sinal real de presença, ex.: Vitor
+      // na linha de produção) OU com sessão viva — e que NÃO está em almoço/pausa.
+      // (Antes exigia só operator_session ativa → perdia o Vitor, que trabalha com
+      //  evento aberto mas sem sessão viva, e mandava o falso "ninguém disponível".)
+      const recv = (await db.query(
+        `SELECT p.id, p.display_name, p.slack_user_id FROM v3.persons p
+          WHERE p.is_machine_operator = true AND p.active = true AND p.deleted_at IS NULL
+            AND COALESCE(p.is_sandbox, false) = $2 AND p.id <> $1
+            AND (
+              EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id AND s.logged_out_at IS NULL)
+              OR EXISTS (SELECT 1 FROM v3.events ea JOIN v3.activity_types ata ON ata.id = ea.activity_type_id
+                         WHERE ea.person_id = p.id AND ea.ended_at IS NULL AND ea.deleted_at IS NULL AND ata.slug <> ALL($3::text[]))
+            )
+            AND NOT EXISTS (SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
+                            WHERE e2.person_id = p.id AND e2.ended_at IS NULL AND e2.deleted_at IS NULL AND at2.slug = ANY($3::text[]))
+          ORDER BY p.id LIMIT 1`, [personId, !!isSandbox, breakSlugs])).rows[0];
+      if (!recv) {
+        await machineSlack(`:warning: *${me.display_name}* saiu (almoço/pausa) com máquina(s) rodando, mas não há outro operador de máquina disponível pra assumir. Alguém precisa checar as máquinas.`);
+        return;
+      }
+      // FECHA pra ele e ABRE um novo pro receptor — rastreia o PERÍODO de cada um
+      // (regra Bruno 06-24: dá pra ver quanto tempo cada um foi responsável pela máquina).
+      const slugs = [];
+      for (const m of mine) {
+        await db.query("UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_handoff', updated_at = NOW() WHERE id = $1", [m.id]);
+        await db.query(
+          `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, bg_handoff_from_person_id, is_long_running, is_test)
+           VALUES ($1, $2, $3, NOW(), $4, 'high', 'operator_page', $5, true, $6)`,
+          [recv.id, m.activity_type_id, m.product_batch_id, `Máquina assumida de ${me.display_name} (almoço/pausa)`, personId, !!m.is_test]);
+        slugs.push(m.act_name || m.slug);
+      }
+      await audit('machine.handoff', 'person', personId, { from: personId, to: recv.id, slugs }, personId);
+      const ping = recv.slack_user_id ? `<@${recv.slack_user_id}>` : recv.display_name;
+      await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu para almoço/pausa — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho! Voltam pro ${me.display_name} quando ele retornar.`);
+    } catch (e) { console.error('[machine] handoff falhou:', e.message); }
+  }
+  async function returnMachineWork(personId) {
+    try {
+      // tarefas de máquina que o RECEPTOR (substituto) está tocando, herdadas de personId.
+      // Traz QUEM cobriu (sub) e DESDE QUANDO (started_at) pra reportar o período.
+      const back = (await db.query(
+        `SELECT e.id, e.activity_type_id, e.product_batch_id, e.is_test, at.slug, at.display_name AS act_name,
+                sub.display_name AS sub_name,
+                to_char(e.started_at AT TIME ZONE '${EDT}', 'HH24:MI') AS since_t,
+                to_char(NOW() AT TIME ZONE '${EDT}', 'HH24:MI') AS now_t
+           FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+           LEFT JOIN v3.persons sub ON sub.id = e.person_id
+          WHERE e.bg_handoff_from_person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL`, [personId])).rows;
+      if (!back.length) return;
+      // FECHA pro substituto e REABRE pro dono original — fecha o período do substituto.
+      const slugs = [];
+      for (const b of back) {
+        await db.query("UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_return', updated_at = NOW() WHERE id = $1", [b.id]);
+        await db.query(
+          `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, is_long_running, is_test)
+           VALUES ($1, $2, $3, NOW(), 'Máquina retomada (voltou do almoço/pausa)', 'high', 'operator_page', true, $4)`,
+          [personId, b.activity_type_id, b.product_batch_id, !!b.is_test]);
+        slugs.push(b.act_name || b.slug);
+      }
+      const me = (await db.query('SELECT display_name FROM v3.persons WHERE id = $1', [personId])).rows[0];
+      const meName = me ? me.display_name : 'Operador';
+      const sub = back[0].sub_name || 'o substituto';
+      const since = back[0].since_t, nowT = back[0].now_t;
+      await audit('machine.return', 'person', personId, { to: personId, slugs, sub, since, now: nowT }, personId);
+      // Mensagem (regra Bruno 06-24): registra o PERÍODO que o substituto foi responsável.
+      await machineSlack(`:white_check_mark: *${meName} voltou* — a operação de máquina (${slugs.join(', ')}) volta de ${sub} pra ${meName}. Ficou registrado como responsabilidade de *${sub}* das *${since}* às *${nowT}* (enquanto ${meName} estava em almoço/pausa).`);
+    } catch (e) { console.error('[machine] return falhou:', e.message); }
   }
   // pausa não retomada que virou o dia (P-PAUSA.5): fecha o break velho e marca o
   // trabalho congelado como is_unfinished (some das tarefas ativas; fica aberto p/
@@ -480,14 +658,12 @@ function createOpRouter(deps = {}) {
         ordersPrinted = (Number.isFinite(qty) && qty > 0) ? qty : null; // joiner: opcional
       }
     } else if (act.slug === 'clinic_shipment') {
-      // ENVIO CLÍNICA = igual impressão de ordens (regra Bruno): quantidade
-      // OBRIGATÓRIA no começo, contada como métrica própria (kind='clinic') no
-      // START. Cada envio informa a sua (não tem lógica de 1º-abre).
+      // ENVIO CLÍNICA (regra Bruno 06-22): quantidade OPCIONAL no começo. Se vier,
+      // grava como métrica PRÓPRIA (kind='clinic') no START — NUNCA soma no P&P.
+      // Se NÃO vier aqui, é obrigatória no FIM (ver needClinic no /end). Cada envio
+      // informa a sua (não tem lógica de 1º-abre).
       const qty = parseInt(req.body && req.body.orders_printed, 10);
-      if (!Number.isFinite(qty) || qty <= 0) {
-        return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe a quantidade da clínica (número > 0).' });
-      }
-      ordersPrinted = qty;
+      ordersPrinted = (Number.isFinite(qty) && qty > 0) ? qty : null;
     }
     // PASSADA 2 — gap detection: >20min sem atividade → pausa pra justificar ANTES
     // de iniciar (captura info, NÃO nega trabalho). Sandbox e retry (gap_ack) pulam.
@@ -512,23 +688,32 @@ function createOpRouter(deps = {}) {
     const cAck = (req.body && req.body.concurrent_ack) || null;
     if (!s.is_sandbox) {
       const openFg = (await db.query(
-        `SELECT e.id, e.started_at, at.slug, at.display_name AS activity_name
+        `SELECT e.id, e.started_at, e.cowork_group_id, at.slug, at.display_name AS activity_name
          FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
          WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
            AND e.is_unfinished = false AND COALESCE(at.is_background, false) = false
          ORDER BY e.started_at`, [s.person_id])).rows;
+      // COWORK (Bruno 06-24): ao auto-fechar tarefas do operador (almoço/troca de
+      // task), limpa o cowork_with dos COLEGAS que ficaram nos grupos fechados —
+      // senão eles seguem "em grupo / Já junto" com quem saiu (bug Ana×Vitor).
+      const cleanupGids = (ids) => {
+        const gids = [...new Set(openFg.filter((o) => ids.indexOf(o.id) >= 0 && o.cowork_group_id).map((o) => o.cowork_group_id))];
+        return Promise.all(gids.map((g) => cleanupCoworkGroup(g)));
+      };
       const openLunch = openFg.find((o) => LUNCH_SLUGS.has(o.slug));
       if (isLunch) {
         // começar almoço PARA o trabalho de foreground (fecha); máquina segue rodando.
         const toClose = openFg.filter((o) => !LUNCH_SLUGS.has(o.slug)).map((o) => o.id);
         if (toClose.length) {
           await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'lunch_started', updated_at = NOW() WHERE id = ANY($1::int[])`, [toClose]);
+          await cleanupGids(toClose); // tira o operador do cowork dos colegas
         }
       } else if (!isBackground && !isPause) {
         // (a) almoço aberto → não pode trabalhar (a menos que encerre o almoço)
         if (openLunch) {
           if (cAck === 'end_lunch') {
             await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'lunch_ended_to_work', updated_at = NOW() WHERE id = $1`, [openLunch.id]);
+            await returnMachineWork(s.person_id); // voltou do almoço pra trabalhar → devolve as máquinas dele
           } else {
             return res.json({ ok: true, lunch_active: true, lunch_event_id: openLunch.id });
           }
@@ -537,7 +722,9 @@ function createOpRouter(deps = {}) {
         const others = openFg.filter((o) => !LUNCH_SLUGS.has(o.slug) && o.slug !== act.slug);
         if (others.length) {
           if (cAck === 'close') {
-            await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'closed_for_new_task', updated_at = NOW() WHERE id = ANY($1::int[])`, [others.map((o) => o.id)]);
+            const oids = others.map((o) => o.id);
+            await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'closed_for_new_task', updated_at = NOW() WHERE id = ANY($1::int[])`, [oids]);
+            await cleanupGids(oids); // tira o operador do cowork dos colegas
           } else if (cAck !== 'both') {
             return res.json({ ok: true, concurrent_open: true,
               open_tasks: others.map((o) => ({ id: o.id, slug: o.slug, activity: o.activity_name, started_at: o.started_at })) });
@@ -587,6 +774,7 @@ function createOpRouter(deps = {}) {
       } else if (act.slug === 'clinic_shipment' && ordersPrinted > 0) {
         await insertOrdersCount({ eventId: starterEv.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id, kind: 'clinic' });
       }
+      if (isPnpCowork(act)) await syncPnpCowork(s.is_sandbox);   // cadeia P&P → cowork automático
       return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
     }
 
@@ -621,12 +809,17 @@ function createOpRouter(deps = {}) {
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
     await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, note }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
+    if (noteAnalyzer && note && String(note).trim()) noteAnalyzer.queue({ text: String(note).trim(), personId: s.person_id, personName: s.display_name, slug: act.slug, isSandbox: !!s.is_sandbox }); // ③ lê o motivo
+    // operador de máquina indo pro almoço/pausa → passa as máquinas ANTES de congelar
+    // (handoff reatribui o background; o que sobra dele é que congela).
+    if (LUNCH_SLUGS.has(act.slug) || PAUSE_SLUGS.has(act.slug)) await handoffMachineWork(s.person_id, s.is_sandbox);
     if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
     if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
       await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
     } else if (act.slug === 'clinic_shipment' && ordersPrinted > 0) {
       await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id, kind: 'clinic' });
     }
+    if (isPnpCowork(act)) await syncPnpCowork(s.is_sandbox);   // cadeia P&P → cowork automático
     res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
   }));
 
@@ -694,7 +887,7 @@ function createOpRouter(deps = {}) {
     if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'bad_id' }); return null; }
     const r = await db.query(
       `SELECT e.id, e.person_id, e.cowork_with, e.product_batch_id, e.ended_at, e.deleted_at,
-              e.is_long_running, e.cowork_group_id, at.slug, at.requires_order_count, pb.product_id,
+              e.is_long_running, e.cowork_group_id, at.slug, at.flow, at.requires_order_count, pb.product_id,
               pb.batch_number, pb.target_bottles, pr.canonical_name AS product
        FROM v3.events e
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
@@ -770,6 +963,7 @@ function createOpRouter(deps = {}) {
     const ev = await loadOwnedOpenEvent(req, res, s); if (!ev) return;
     if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
     const isProd = ev.slug === 'production_line';
+    const isFnsku = ev.slug === 'fnsku_labeling';   // FNSKU: conta LABELS colados
     const isCowork = !!ev.cowork_group_id;
     let isLast = true, remaining = 1;
     if (isCowork) {
@@ -779,13 +973,31 @@ function createOpRouter(deps = {}) {
       remaining = rc.rows[0].n; // inclui o event atual (ainda aberto)
       isLast = remaining <= 1;
     }
+    // precisa pedir contagem de ordens no fim? clinic_shipment: SÓ se não foi
+    // informada no início (senão duplicava). Outros: pelo requires_order_count.
+    let needsOrderCount = (!isCowork || isLast) && !!ev.requires_order_count && !ORDER_PRINTING_SLUGS.has(ev.slug) && ev.slug !== 'clinic_shipment';
+    if (ev.slug === 'clinic_shipment' && (!isCowork || isLast)) {
+      const cc = await db.query(
+        "SELECT 1 FROM v3.production_counts WHERE source_event_id = $1 AND kind = 'clinic' AND deleted_at IS NULL LIMIT 1", [ev.id]);
+      needsOrderCount = cc.rowCount === 0;
+    }
+    // PRODUÇÃO (Bruno 06-23): só o ÚLTIMO a fechar a linha do MESMO LOTE informa as
+    // bottles. Se OUTRA pessoa ainda está na linha do mesmo lote (cowork de fato,
+    // mesmo sem cowork_group), NÃO pede agora — não pergunta pra quem sai pro almoço
+    // enquanto o colega continua produzindo. (FNSKU é por pessoa → não entra aqui.)
+    let requiresBottleCount = (!isCowork || isLast) && isProd;
+    if (requiresBottleCount && ev.product_batch_id && await othersOnBatchLine(ev.product_batch_id, ev.id)) {
+      requiresBottleCount = false;
+    }
     res.json({
       ok: true,
       event_id: ev.id,
       slug: ev.slug,
       is_cowork: isCowork,
       is_last_finisher: isLast,
-      requires_bottle_count: (!isCowork || isLast) && isProd,
+      requires_bottle_count: requiresBottleCount,
+      requires_fnsku_count: (!isCowork || isLast) && isFnsku,  // FNSKU: # labels colados
+      needs_order_count: needsOrderCount,
       estimated_bottles: ev.target_bottles != null ? ev.target_bottles : null, // ITEM 1 — EMS target
       cowork_remaining: isCowork ? Math.max(0, remaining - 1) : 0, // colegas além de mim ainda na tarefa
     });
@@ -797,10 +1009,12 @@ function createOpRouter(deps = {}) {
     if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
     const body = req.body || {};
     const { unit, note } = body;
-    // aceita bottles OU bottles_count (alias)
-    const bottlesRaw = body.bottles != null ? body.bottles : body.bottles_count;
+    // aceita bottles OU bottles_count (alias) OU fnsku_labels (FNSKU usa o MESMO campo de contagem)
+    const bottlesRaw = body.bottles != null ? body.bottles
+      : (body.bottles_count != null ? body.bottles_count : body.fnsku_labels);
     const b = parseInt(bottlesRaw, 10);
     const isProd = ev.slug === 'production_line';
+    const isFnsku = ev.slug === 'fnsku_labeling';   // FNSKU: conta LABELS colados (kind='fnsku')
 
     // ── cowork: este é o ÚLTIMO a finalizar do grupo? ──
     const isCowork = !!ev.cowork_group_id;
@@ -813,27 +1027,63 @@ function createOpRouter(deps = {}) {
       isLast = remainingBefore <= 1;
     }
     // contagem/exceção só p/ SOLO ou ÚLTIMO do cowork.
-    const needCount = (!isCowork || isLast) && isProd;                       // bottles (linha)
+    let needCount = (!isCowork || isLast) && isProd;                         // bottles (linha)
+    // Bruno 06-23: se OUTRA pessoa ainda está na linha do MESMO lote, quem fecha
+    // agora NÃO informa bottles (só o último conta). Não vale p/ FNSKU (é por pessoa).
+    if (needCount && ev.product_batch_id && await othersOnBatchLine(ev.product_batch_id, ev.id)) {
+      needCount = false;
+    }
+    const needFnsku = (!isCowork || isLast) && isFnsku;                      // labels (FNSKU)
+    const needBottleLike = needCount || needFnsku;   // ambos usam o valor `b` (mesma UI)
+    const countKind = needFnsku ? 'fnsku' : 'bottles';
+    const countUnit = needFnsku ? 'label' : (unit || 'bottle');
     // ordens: NÃO pede mais no fim da impressão de ordens — a P&P conta a partir
     // da quantidade da PRIMEIRA ABERTURA (gravada no START). Some o "quantas
     // foram empacotadas?" e a exceção "não tenho o número" (regra Bruno).
-    // clinic_shipment agora conta no START (kind='clinic'), igual impressão de
-    // ordens → NÃO pergunta de novo no fim.
+    // clinic_shipment (regra Bruno 06-22): conta no START se informado (kind='clinic').
+    // Se NÃO foi informado no início → OBRIGATÓRIO no FIM (needClinic). Se já foi,
+    // não pergunta de novo (não duplica). NUNCA soma no P&P.
     const needOrders = (!isCowork || isLast) && !!ev.requires_order_count && !ORDER_PRINTING_SLUGS.has(ev.slug) && ev.slug !== 'clinic_shipment';
+    let needClinic = false;
+    if (ev.slug === 'clinic_shipment' && (!isCowork || isLast)) {
+      const cc = await db.query(
+        "SELECT 1 FROM v3.production_counts WHERE source_event_id = $1 AND kind = 'clinic' AND deleted_at IS NULL LIMIT 1", [ev.id]);
+      needClinic = cc.rowCount === 0; // não informou no início → exige agora
+    }
     const oc = parseInt(body.orders_count, 10);
     const marketplace = body.marketplace ? String(body.marketplace).slice(0, 40) : null;
-    const exception = (needCount || needOrders) && (body.exception_no_count === true || body.exception_no_count === 'true');
+    const exception = (needBottleLike || needOrders || needClinic) && (body.exception_no_count === true || body.exception_no_count === 'true');
     const reason = exception ? String(body.exception_reason || '').trim() : null;
 
     if (!exception) {
-      if (needCount && !(Number.isFinite(b) && b > 0)) {
-        return res.status(400).json({ error: 'bottles_required', detail: 'Informe quantas bottles foram produzidas (ou marque a exceção).' });
+      if (needBottleLike && !(Number.isFinite(b) && b > 0)) {
+        return res.status(400).json({
+          error: needFnsku ? 'fnsku_required' : 'bottles_required',
+          detail: needFnsku ? 'Informe quantos FNSKU / labels foram colados (ou marque a exceção).' : 'Informe quantas bottles foram produzidas (ou marque a exceção).',
+        });
       }
-      if (needOrders && !(Number.isFinite(oc) && oc > 0)) {
-        return res.status(400).json({ error: 'orders_required', detail: 'Informe quantas ordens/unidades (ou marque a exceção).' });
+      if ((needOrders || needClinic) && !(Number.isFinite(oc) && oc > 0)) {
+        return res.status(400).json({ error: 'orders_required', detail: needClinic ? 'Informe a quantidade de ordens da clínica (ou marque a exceção).' : 'Informe quantas ordens/unidades (ou marque a exceção).' });
       }
-    } else if ((needCount || needOrders) && reason.length < 10) {
+    } else if ((needBottleLike || needOrders || needClinic) && reason.length < 10) {
       return res.status(400).json({ error: 'exception_reason_required', detail: 'Explique por que não tem a contagem (mín. 10 caracteres).' });
+    }
+
+    // PROTEÇÃO CONTRA CONTAGEM DOBRADA (regra Bruno 06-22): se ESTE lote já tem
+    // contagem de bottles hoje (de OUTRO evento), confirma antes de somar de novo
+    // — pega o caso da Ana+Vitor contando o mesmo lote 2× (1136 vs 600). Evento
+    // ainda NÃO foi fechado aqui → na confirmação (dup_count_ack) refaz e fecha.
+    if (needCount && !exception && Number.isFinite(b) && b > 0 && ev.product_batch_id && body.dup_count_ack !== true) {
+      const dup = await db.query(
+        `SELECT COALESCE(SUM(pc.bottles),0)::int AS total, MAX(pe.display_name) AS by_name
+         FROM v3.production_counts pc LEFT JOIN v3.persons pe ON pe.id = pc.reported_by_person_id
+         WHERE pc.kind = 'bottles' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+           AND pc.product_batch_id = $1 AND pc.source_event_id <> $2
+           AND pc.production_date = (NOW() AT TIME ZONE '${EDT}')::date`, [ev.product_batch_id, ev.id]);
+      const drow = dup.rows[0] || {};
+      if (Number(drow.total) > 0) {
+        return res.json({ ok: true, dup_count_warning: true, existing_total: Number(drow.total), existing_by: drow.by_name || null, attempted: b });
+      }
     }
 
     await db.query(
@@ -847,13 +1097,26 @@ function createOpRouter(deps = {}) {
        WHERE id = $1`,
       [ev.id, note ? String(note).slice(0, 300) : null, exception, exception ? reason.slice(0, 500) : null, isCowork, isCowork && isLast]);
 
+    // Cadeia P&P: ao terminar, religa o cowork das que sobraram ao vivo (tira
+    // quem saiu; limpa o grupo se sobrou 1). clinic_shipment não é P&P.
+    if (ev.flow === 'pnp' && ev.slug !== 'clinic_shipment') await syncPnpCowork(s.is_sandbox);
+    // COWORK GERAL (Bruno 06-24): qualquer cowork (produção, limpeza…) ao fechar
+    // tira quem saiu do cowork_with dos que ficaram. Sem isto o colega seguia
+    // "em grupo / Já junto" com quem já tinha saído (bug recorrente da Ana×Vitor).
+    if (ev.cowork_group_id) await cleanupCoworkGroup(ev.cowork_group_id);
+
     // FASE PAUSA: terminar a PAUSA (break) = voltar ao trabalho → descongela tudo
     let resumedCount = 0;
-    if (PAUSE_SLUGS.has(ev.slug)) resumedCount = await resumePausedFor(s.person_id);
+    let resumedTasks = [];
+    if (PAUSE_SLUGS.has(ev.slug)) { const ri = await resumePausedFor(s.person_id); resumedCount = ri.count; resumedTasks = ri.tasks; }
+    // voltou do almoço/pausa → devolve as máquinas que eram dele (regra Bruno).
+    if (PAUSE_SLUGS.has(ev.slug) || LUNCH_SLUGS.has(ev.slug)) await returnMachineWork(s.person_id);
 
     let countCreated = false;
-    if (needCount && !exception && Number.isFinite(b) && b > 0) {
-      await insertCount({ event: ev, bottles: b, unit, personId: s.person_id });
+    if (needBottleLike && !exception && Number.isFinite(b) && b > 0) {
+      // FNSKU → kind='fnsku'/unit='label' (some por pessoa no cowork, estilo P&P);
+      // linha → kind='bottles' (com proteção de dobra acima).
+      await insertCount({ event: ev, bottles: b, unit: countUnit, personId: s.person_id, kind: countKind });
       countCreated = true;
     }
     // ITEM 1 — estimated bottles: compara o real com o target do EMS. Diferença
@@ -876,7 +1139,7 @@ function createOpRouter(deps = {}) {
     // (kind='clinic'), separada do P&P (regra Bruno: empacotamento da clínica tem
     // métrica própria). Demais seguem kind='orders'. unit fica 'orders' (tem CHECK).
     // kind='clinic' fica fora do P&P (counts_as_pp=false) E fora das garrafas (kind!='bottles').
-    if (needOrders && !exception && Number.isFinite(oc) && oc > 0) {
+    if ((needOrders || needClinic) && !exception && Number.isFinite(oc) && oc > 0) {
       const ckind = ev.slug === 'clinic_shipment' ? 'clinic' : 'orders';
       await db.query(
         `INSERT INTO v3.production_counts
@@ -905,7 +1168,7 @@ function createOpRouter(deps = {}) {
     } else {
       await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null, slug: ev.slug }, s.person_id);
     }
-    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, bottle_warning: bottleWarning });
+    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, resumed_tasks: resumedTasks, bottle_warning: bottleWarning });
   }));
 
   // ── join (cowork B) ─────────────────────────────────────────
@@ -1086,10 +1349,54 @@ function createOpRouter(deps = {}) {
   router.get('/api/v3/op/lots/available', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
     const slug = String(req.query.slug || '');
+    // FNSKU: lista os LOTES PRODUZIDOS nas últimas 2 semanas (linha já completada),
+    // mais recentes em cima, produto + lote. Não-achou → catálogo (fallback padrão).
+    if (slug === 'fnsku_labeling') {
+      // METAS DE HOJE primeiro (o que o Henrique manda de manhã = o que vão etiquetar
+      // hoje), depois os LOTES PRODUZIDOS nas últimas 2 semanas. Dedupe por batch.
+      const goalRows = (await db.query(
+        `SELECT g.batch_number, COALESCE(pr.canonical_name, '(produto)') AS product_name
+         FROM v3.production_goals g LEFT JOIN v3.products pr ON pr.id = g.product_id
+         WHERE g.production_date = (NOW() AT TIME ZONE '${EDT}')::date
+           AND g.deleted_at IS NULL AND g.superseded_by IS NULL AND g.batch_number IS NOT NULL
+         ORDER BY pr.canonical_name NULLS LAST, g.batch_number`)).rows;
+      const prod = await db.query(
+        `SELECT pb.batch_number, pr.canonical_name AS product_name,
+                to_char(MAX(e.ended_at) AT TIME ZONE '${EDT}', 'DD/MM') AS produced_at
+         FROM v3.events e
+         JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         JOIN v3.products pr ON pr.id = pb.product_id
+         JOIN v3.activity_types at ON at.id = e.activity_type_id
+         WHERE at.slug = 'production_line' AND e.ended_at IS NOT NULL AND e.deleted_at IS NULL
+           AND e.ended_at > NOW() - INTERVAL '14 days'
+         GROUP BY pb.batch_number, pr.canonical_name
+         ORDER BY MAX(e.ended_at) DESC LIMIT 40`);
+      const goalSet = new Set(goalRows.map((r) => String(r.batch_number).toUpperCase()));
+      const goalLots = goalRows.map((r) => ({
+        batch_number: r.batch_number, product_name: r.product_name, stage: 'meta de hoje',
+        is_related: true, queue_position: null, group: 'goal', produced_at: null,
+      }));
+      const producedLots = prod.rows
+        .filter((r) => !goalSet.has(String(r.batch_number).toUpperCase()))
+        .map((r) => ({
+          batch_number: r.batch_number, product_name: r.product_name, stage: 'produced',
+          is_related: false, queue_position: null, group: 'produced', produced_at: r.produced_at,
+        }));
+      return res.json({ lots: [...goalLots, ...producedLots], related_count: goalLots.length, ems_stale: false });
+    }
     const cfg = LOT_SLUG_STAGES[slug];
     if (!cfg) return res.json({ lots: [], ems_stale: false }); // sem lista EMS p/ esse slug → catálogo
+    // Lotes RECENTES do banco (resiliência, Bruno 06-24): mesmo com EMS fora do ar a
+    // lista NUNCA fica vazia — assim o operador clica num lote conhecido em vez de
+    // digitar à mão e cair em "lote desconhecido".
+    const dbLots = (await db.query(
+      `SELECT pb.batch_number, pr.canonical_name AS product_name
+         FROM v3.product_batches pb JOIN v3.products pr ON pr.id = pb.product_id
+        WHERE pb.deleted_at IS NULL AND pb.created_at > NOW() - INTERVAL '45 days'
+        ORDER BY pb.created_at DESC LIMIT 60`).catch(() => ({ rows: [] }))).rows
+      .map((x) => ({ batch_number: x.batch_number, product_name: x.product_name, stage: 'recente', is_related: false, group: 'db', queue_position: null }));
     const pl = await emsPipeline();
-    if (!pl) return res.json({ lots: [], ems_stale: true });
+    if (!pl) return res.json({ lots: dbLots, related_count: 0, ems_stale: true }); // EMS down → recentes do banco
     const relatedSet = new Set(cfg.related || []);
     const seen = new Set(); const lots = [];
     cfg.groups.forEach((g) => {
@@ -1111,6 +1418,9 @@ function createOpRouter(deps = {}) {
         });
       });
     });
+    // completa com lotes recentes do banco que o EMS não trouxe (ex.: já saíram do
+    // pipeline) — sempre clicáveis, com produto, evitando digitação manual.
+    dbLots.forEach((d) => { const k = String(d.batch_number).toUpperCase(); if (!seen.has(d.batch_number) && !seen.has(k)) { seen.add(d.batch_number); lots.push(d); } });
     // RELACIONADOS primeiro; depois production_line; depois fila por posição.
     lots.sort((a, b2) =>
       (b2.is_related ? 1 : 0) - (a.is_related ? 1 : 0)
@@ -1366,7 +1676,67 @@ function createOpRouter(deps = {}) {
     const r = await db.query(
       'INSERT INTO v3.op_notes (person_id, text) VALUES ($1, $2) RETURNING id', [s.person_id, text.slice(0, 2000)]);
     await audit('op_note.created', 'op_note', r.rows[0].id, { len: text.length }, s.person_id);
+    if (noteAnalyzer) noteAnalyzer.queue({ text, personId: s.person_id, personName: s.display_name, slug: 'nota', isSandbox: !!s.is_sandbox }); // ③ fire-and-forget
     res.json({ ok: true, note_id: r.rows[0].id });
+  }));
+
+  // ── ajuste de ordens do dia (Embalagem/Outro) — regra Bruno 06-22 ──────────
+  // mode='additional' soma N ao total; mode='reset' ZERA (supersede) as contagens
+  // do dia e grava só o novo total N (antigas ficam visíveis riscadas no dashboard)
+  // + warning no Slack pra todos. Permite corrigir ordens entradas erradas.
+  router.post('/api/v3/op/orders/adjust', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const body = req.body || {};
+    const mode = body.mode === 'reset' ? 'reset' : (body.mode === 'additional' ? 'additional' : null);
+    const qty = parseInt(body.quantity, 10);
+    const srcEventId = Number.isFinite(parseInt(body.source_event_id, 10)) ? parseInt(body.source_event_id, 10) : null;
+    if (!mode) return res.status(400).json({ error: 'bad_mode', detail: "mode deve ser 'additional' ou 'reset'." });
+    if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'quantity_required', detail: 'Informe um número de ordens maior que 0.' });
+    // total vivo atual das ordens do P&P hoje (mesma base do card "P&P do dia")
+    const oldTotal = (await db.query(
+      `SELECT COALESCE(SUM(pc.bottles),0)::int total FROM v3.production_counts pc
+       WHERE pc.kind='orders' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+         AND pc.production_date=(NOW() AT TIME ZONE '${EDT}')::date`)).rows[0].total;
+    const ins = (await db.query(
+      `INSERT INTO v3.production_counts
+         (product_id, product_batch_id, bottles, reported_at, production_date, reported_by_person_id,
+          source_event_id, unit, confidence, kind, marketplace, adjustment_kind)
+       VALUES (NULL, NULL, $1, NOW(), (NOW() AT TIME ZONE '${EDT}')::date, $2, $3, 'orders', 'high', 'orders', NULL, $4)
+       RETURNING id`, [qty, s.person_id, srcEventId, mode])).rows[0];
+    let newTotal = oldTotal + qty;
+    if (mode === 'reset') {
+      await db.query(
+        `UPDATE v3.production_counts SET superseded_by=$1, updated_at=NOW()
+         WHERE kind='orders' AND deleted_at IS NULL AND superseded_by IS NULL AND id<>$1
+           AND production_date=(NOW() AT TIME ZONE '${EDT}')::date`, [ins.id]);
+      newTotal = qty;
+      if (!s.is_sandbox && slack && slack.postAs) {
+        try {
+          await slack.postAs({ channel: 'production', sender: { name: 'HealthFare Tracker', icon: ':warning:' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
+            text: `:warning: *${s.display_name} reajustou o TOTAL de ordens do dia.*\nAntes: *${oldTotal}* → Agora: *${qty}* ordens (edição manual do operador — confiram se está certo).` });
+        } catch (e) { console.error('[orders.adjust] slack falhou:', e.message); }
+      }
+    }
+    await audit('orders.adjust', 'production_count', ins.id, { mode, quantity: qty, old_total: oldTotal, new_total: newTotal }, s.person_id);
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'orders_adjust', payload: { mode, quantity: qty, old_total: oldTotal, new_total: newTotal }, relatedEventId: srcEventId, isTest: !!s.is_sandbox });
+    res.json({ ok: true, mode, old_total: oldTotal, new_total: newTotal });
+  }));
+
+  // ── trocar o TIPO de uma task AO VIVO (operador escolheu errado) — regra Bruno ──
+  // Ex.: marcou "Especial/Outros" mas era "Envio Clínica". Só a própria task aberta.
+  router.post('/api/v3/op/event/:id/reclassify', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const ev = await loadOwnedOpenEvent(req, res, s); if (!ev) return;
+    if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
+    const act = await resolveActivity(String((req.body && req.body.activity_slug) || ''));
+    if (!act) return res.status(400).json({ error: 'unknown_activity_slug', slug: (req.body && req.body.activity_slug) || null });
+    if (act.slug === ev.slug) return res.json({ ok: true, unchanged: true, slug: act.slug });
+    const oldSlug = ev.slug;
+    await db.query('UPDATE v3.events SET activity_type_id = $2, is_long_running = $3, updated_at = NOW() WHERE id = $1',
+      [ev.id, act.id, !!act.is_background]);
+    await audit('event.reclassified', 'event', ev.id, { from: oldSlug, to: act.slug }, s.person_id);
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_reclassify', payload: { from: oldSlug, to: act.slug }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
+    res.json({ ok: true, slug: act.slug });
   }));
 
   // ── voz: upload (Fase 0) ────────────────────────────────────
@@ -1423,17 +1793,41 @@ function createOpRouter(deps = {}) {
                       WHERE os.person_id = p.id AND os.logged_out_at IS NULL
                         AND os.last_activity_at > NOW() - INTERVAL '16 hours')) AS online,
              ce.id AS current_event_id, ce.slug AS current_slug, ce.batch_number AS current_batch,
-             ce.started_at AS current_started_at, ce.cowork_with AS current_cowork
+             ce.product AS current_product,
+             ce.started_at AS current_started_at,
+             -- COWORK AO VIVO (Bruno 06-24): quem está REALMENTE aberto no mesmo grupo
+             -- AGORA (não o cowork_with armazenado, que ficava órfão quando alguém saía
+             -- pro almoço → "em grupo / Já junto" fantasma). Bulletproof contra stale.
+             COALESCE((SELECT array_agg(DISTINCT e3.person_id)
+                       FROM v3.events e3
+                       WHERE ce.cowork_group_id IS NOT NULL AND e3.cowork_group_id = ce.cowork_group_id
+                         AND e3.ended_at IS NULL AND e3.deleted_at IS NULL AND e3.person_id <> p.id), '{}') AS current_cowork,
+             COALESCE(bg.items, '[]'::json) AS bg_tasks
       FROM v3.persons p
       LEFT JOIN LATERAL (
-        SELECT e.id, at.slug, pb.batch_number, e.started_at, e.cowork_with
+        SELECT e.id, at.slug, pb.batch_number, pr.canonical_name AS product, e.started_at, e.cowork_with, e.cowork_group_id
         FROM v3.events e
         LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+        LEFT JOIN v3.products pr ON pr.id = pb.product_id
         WHERE e.person_id = p.id AND e.ended_at IS NULL AND e.deleted_at IS NULL
           AND e.is_long_running = false
         ORDER BY e.started_at DESC LIMIT 1
       ) ce ON true
+      LEFT JOIN LATERAL (
+        -- tarefas de BACKGROUND (na máquina: encapsulação/mistura/tablete) abertas.
+        -- Antes não apareciam em "Equipe agora" (ce filtra is_long_running=false).
+        SELECT json_agg(json_build_object(
+                 'event_id', e2.id, 'slug', at2.slug, 'batch', pb2.batch_number,
+                 'product', pr2.canonical_name,
+                 'started_at', e2.started_at) ORDER BY e2.started_at) AS items
+        FROM v3.events e2
+        LEFT JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
+        LEFT JOIN v3.product_batches pb2 ON pb2.id = e2.product_batch_id
+        LEFT JOIN v3.products pr2 ON pr2.id = pb2.product_id
+        WHERE e2.person_id = p.id AND e2.ended_at IS NULL AND e2.deleted_at IS NULL
+          AND e2.is_long_running = true
+      ) bg ON true
       WHERE p.role = 'operator' AND p.active = true AND p.deleted_at IS NULL
         AND p.is_sandbox = false
       ORDER BY p.display_name LIMIT 50`);
@@ -1602,7 +1996,10 @@ function createOpRouter(deps = {}) {
          (person_id, discovered_by_person_id, discovered_via, last_activity_at, last_task_description,
           expected_end_time, auto_logout_at, carolina_dm_scheduled_for, admin_alert_sent_at, resolution)
        VALUES ($1, $2, $3, $4, $5, $6, NOW(),
-               ((((NOW() AT TIME ZONE '${EDT}')::date + 1) + TIME '08:30') AT TIME ZONE '${EDT}'),
+               (((CASE EXTRACT(DOW FROM ((NOW() AT TIME ZONE '${EDT}')::date + 1))::int
+                    WHEN 6 THEN (NOW() AT TIME ZONE '${EDT}')::date + 3   -- amanhã=sábado → segunda
+                    WHEN 0 THEN (NOW() AT TIME ZONE '${EDT}')::date + 2   -- amanhã=domingo → segunda
+                    ELSE (NOW() AT TIME ZONE '${EDT}')::date + 1 END) + TIME '08:30') AT TIME ZONE '${EDT}'),
                NOW(), 'auto_logout')
        RETURNING id, to_char(carolina_dm_scheduled_for AT TIME ZONE '${EDT}', 'MM-DD HH12:MI AM') AS dm_edt`,
       [personId, s.person_id, via, sus.last_activity_at || null, taskDesc, sus.expected_end_time || null]);

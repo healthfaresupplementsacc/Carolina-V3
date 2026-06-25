@@ -95,7 +95,8 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
 // (E7-refine2) BrandH SVG removido — agora usa healthfare-logo.png direto.
 
 const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
-                  workerNode, readOnly, onLogout, ack, onMenu }) => {
+                  workerNode, readOnly, onLogout, ack, onMenu,
+                  onBell, notifTotal = 0, notifBad = 0 }) => {
   const page = findPage(pageId);
   return (
     <header className="topbar">
@@ -129,9 +130,16 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
       <span className="hide-mobile" style={{ display: "contents" }}>{workerNode}</span>
       <span className="hide-mobile"><FalarCarolinaButton ack={ack}/></span>
       <button className="icon-btn hide-mobile" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
-      <button className="icon-btn hide-mobile" title="Notificações" aria-label="Notifications" style={{ position: "relative" }}>
+      <button className="icon-btn" title="Notificações" aria-label="Notifications" onClick={onBell} style={{ position: "relative" }}>
         <Icon name="bell" size={17}/>
-        <span style={{ position: "absolute", top: 6, right: 7, width: 7, height: 7, borderRadius: "50%", background: "var(--bad)", boxShadow: "0 0 0 2px var(--surface)" }}/>
+        {notifTotal > 0 && (
+          <span style={{
+            position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, padding: "0 4px",
+            borderRadius: 9, background: notifBad > 0 ? "var(--bad)" : "var(--text-3)", color: "#fff",
+            fontSize: 10, fontWeight: 800, lineHeight: "16px", textAlign: "center",
+            boxShadow: "0 0 0 2px var(--surface)",
+          }}>{notifTotal > 99 ? "99+" : notifTotal}</span>
+        )}
       </button>
       <button className="icon-btn" title={`Tema: ${theme}`} aria-label="Toggle theme" onClick={onTheme}>
         <Icon name={theme === "dark" ? "sun" : "moon"} size={17}/>

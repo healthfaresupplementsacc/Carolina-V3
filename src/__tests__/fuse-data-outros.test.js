@@ -46,12 +46,15 @@ describe('outros por grupo — config build-fuse-data', () => {
   });
 });
 
-describe('label tasks — grupo Limpeza/Suporte', () => {
-  const LABELS = ['label_change', 'label_repair'];
-  test('label_change e label_repair estão no grupo limpeza', () => {
+describe('label tasks — grupo Limpeza/Organização', () => {
+  // label_repair ("Conserto de label") removido do menu (Bruno 06-22); label_change
+  // renomeado p/ "Troca/Ajuste de Label" mas o SLUG segue 'label_change'.
+  const LABELS = ['label_change'];
+  test('label_change está no grupo limpeza', () => {
     const start = SRC.indexOf("key: 'limpeza'");
     const segment = SRC.slice(start, SRC.indexOf("key: 'embalagem'"));
     LABELS.forEach((slug) => expect(segment).toContain(`'${slug}'`));
+    expect(segment).not.toContain("'label_repair'"); // removido do menu
   });
   test('label tasks estão em NOTE_REQUIRED', () => {
     const m = SRC.match(/const NOTE_REQUIRED = new Set\(\[([\s\S]*?)\]\)/);

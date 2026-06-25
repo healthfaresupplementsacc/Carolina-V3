@@ -39,7 +39,7 @@ function makeDb() {
   };
 }
 
-function makeObserver(db, slack) {
+function makeObserver(db, slack, opts = {}) {
   return new Observer({
     db,
     provider: { classify: jest.fn() },
@@ -49,7 +49,7 @@ function makeObserver(db, slack) {
     batchService: {}, productionCountService: {},
     botUserId: 'U_BOT', mode: 'shadow',
     slack: slack || null,
-    enableWorkerAlerts: false,
+    enableWorkerAlerts: opts.enableWorkerAlerts === true,
   });
 }
 
@@ -68,10 +68,10 @@ describe('Fase A — dead-letter no Observer', () => {
     expect(db.mem.notifications).toHaveLength(0);
   });
 
-  test('falha com attempts=3 → dead-letter + audit llm_observer + notification + Carolina avisa', async () => {
+  test('attempts=3 + worker-alerts ON → dead-letter + audit + notification + Carolina avisa', async () => {
     const db = makeDb();
     const slack = { postAs: jest.fn(async () => ({ ts: 'x' })) };
-    const o = makeObserver(db, slack);
+    const o = makeObserver(db, slack, { enableWorkerAlerts: true });
     await o._markError(msg(3), new Error('invalid_llm_response: garbage'));
     expect(db.mem.deadLettered.has(42)).toBe(true);
     const audit = db.mem.audits.find((a) => a.action === 'message_dead_lettered');
@@ -83,6 +83,16 @@ describe('Fase A — dead-letter no Observer', () => {
     expect(post.thread_ts).toBeNull();
     expect(post.text).toContain('dead-letter');
     expect(post.text).toContain('1781.42');
+  });
+
+  test('attempts=3 + worker-alerts OFF → registra (audit+notification) mas NÃO posta no Slack (Bruno 06-22)', async () => {
+    const db = makeDb();
+    const slack = { postAs: jest.fn(async () => ({ ts: 'x' })) };
+    const o = makeObserver(db, slack); // enableWorkerAlerts=false (default)
+    await o._markError(msg(3), new Error('invalid_llm_response: garbage'));
+    expect(db.mem.deadLettered.has(42)).toBe(true);                 // ainda marca dead-letter
+    expect(db.mem.notifications[0]).toMatchObject({ message_id: 42, attempts: 3 }); // ainda registra
+    expect(slack.postAs).not.toHaveBeenCalled();                    // mas NÃO spamma a Carolina
   });
 
   test('attempts=5 (corrida): segunda chamada não duplica notification', async () => {

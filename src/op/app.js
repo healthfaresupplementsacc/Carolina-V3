@@ -316,7 +316,7 @@
   }
   function topbarHTML() {
     var p = S.session.person;
-    var logoff = '<span id="hf-logoff" style="font-size:12px; color:#8195ab; font-weight:600; margin-right:2px;">' + (S.logoffLeft != null && S.logoffLeft <= 120 ? 'sai em ' + S.logoffLeft + 's' : '') + '</span>';
+    var logoff = '<span id="hf-logoff" style="font-size:12px; color:#566681; font-weight:600; margin-right:2px;">' + (S.logoffLeft != null && S.logoffLeft <= 120 ? 'sai em ' + S.logoffLeft + 's' : '') + '</span>';
     return '<div style="position:relative; z-index:6; display:flex; align-items:center; gap:14px; padding:clamp(12px,1.6vw,18px) clamp(14px,2.6vw,30px);">'
       + '<div style="display:flex; align-items:center; min-width:0;"><span style="display:inline-flex; align-items:center; padding:9px 17px; border-radius:17px; background:rgba(255,255,255,.8); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,.9); box-shadow:0 12px 30px -16px rgba(15,40,90,.5);"><img src="/op/assets/healthfare-logo.png" alt="HealthFare" style="height:clamp(34px,3.2vw,46px); width:auto; display:block;"></span></div>'
       + '<div style="flex:1;"></div>' + logoff
@@ -353,14 +353,14 @@
       + '<div style="' + (S.shake ? 'animation:hfShake .4s;' : '') + '"><div style="display:flex; justify-content:center; gap:16px; margin-bottom:10px;">' + dots + '</div></div>'
       + '<div style="min-height:22px; color:#c0352b; font-weight:700; font-size:14px; margin-bottom:14px;">' + esc(S.pinError) + '</div>'
       + '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:clamp(10px,1.8vw,15px); max-width:320px; margin:0 auto;">' + kp + '</div>'
-      + '<div style="margin-top:22px; font-size:12.5px; color:#8195ab; font-weight:500;">Toque seu PIN de 4 dígitos para entrar</div>'
+      + '<div style="margin-top:22px; font-size:12.5px; color:#566681; font-weight:500;">Toque seu PIN de 4 dígitos para entrar</div>'
       + '</div>';
   }
 
   // ── HOME (topbar + conteúdo rolável) ───────────────────────
   function homeKey() {
     var t = (S.myTasks || []).map(function (x) { return x.id + ':' + x.slug + ':' + (x.batch_number || ''); }).join(',');
-    var tm = (S.team || []).map(function (o) { return o.id + ':' + (o.current_event_id || '') + ':' + (o.online ? 1 : 0) + ':' + (o.current_slug || '') + ':' + (o.current_batch || ''); }).join(',');
+    var tm = (S.team || []).map(function (o) { return o.id + ':' + (o.current_event_id || '') + ':' + (o.online ? 1 : 0) + ':' + (o.current_slug || '') + ':' + (o.current_batch || '') + ':' + ((o.bg_tasks || []).map(function (b) { return b.event_id; }).join('-')); }).join(',');
     var det = (S.emsDetected ? S.emsDetected.ems_key : '') + '|' + (S.detectBusy ? 1 : 0); // FASE FORM
     var pz = (S.myTasks || []).filter(function (x) { return x.is_paused; }).length + '|' + (S.resumeBusy ? 1 : 0); // FASE PAUSA
     return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0) + '|' + det + '|' + pz;
@@ -389,7 +389,7 @@
     h += '<div style="display:flex; align-items:flex-start; gap:12px;">' + thumb + '<div style="flex:1; min-width:0;"><div style="font-size:12px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:#1f5fd0;">🏭 O sistema detectou</div>'
       + '<div style="font-size:14.5px; font-weight:500; color:#0c2545; margin-top:4px; line-height:1.4;">' + frase + '</div></div></div>';
     h += '<button data-act="registerDetected" ' + (S.detectBusy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:14px; padding:13px; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -16px rgba(31,95,208,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 18, 2.6) + (S.detectBusy ? 'Registrando…' : 'Registrar') + '</button>';
-    h += '<div style="font-size:11px; color:#8195ab; text-align:center;">Sugestão do sistema — você confirma e escolhe a hora. Pode ignorar.</div>';
+    h += '<div style="font-size:11px; color:#566681; text-align:center;">Sugestão do sistema — você confirma e escolhe a hora. Pode ignorar.</div>';
     h += '</div>';
     return h;
   }
@@ -424,13 +424,13 @@
       + '<div id="hf-greet" style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(28px,4.4vw,46px); line-height:1.05; margin:6px 0 4px; color:#0c2545;">' + esc(greetingTxt()) + ', ' + esc(p.display_name) + '</div>'
       + '<div id="hf-date" style="font-size:15px; color:#5a6e87; text-transform:capitalize; font-weight:500;">' + esc(dateNow()) + '</div></div>'
       + '<div style="position:relative; width:clamp(118px,13vw,150px); height:clamp(118px,13vw,150px); display:flex; align-items:center; justify-content:center;"><svg viewBox="0 0 120 120" style="width:100%; height:100%; transform:rotate(-90deg);"><circle cx="60" cy="60" r="52" fill="none" stroke="rgba(15,40,90,.1)" stroke-width="11"></circle><circle cx="60" cy="60" r="52" fill="none" stroke="' + ac + '" stroke-width="11" stroke-linecap="round" stroke-dasharray="' + dash + '" style="transition:stroke-dasharray .8s cubic-bezier(.2,.8,.2,1); filter:drop-shadow(0 0 6px rgba(14,122,78,.4));"></circle></svg>'
-      + '<div style="position:absolute; text-align:center;"><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:clamp(26px,3vw,34px); color:#0c2545; line-height:1;">' + S.completedToday + '</div><div style="font-size:12px; font-weight:600; color:#8195ab;">de ' + S.goal + ' hoje</div></div></div></div>';
+      + '<div style="position:absolute; text-align:center;"><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:clamp(26px,3vw,34px); color:#0c2545; line-height:1;">' + S.completedToday + '</div><div style="font-size:12px; font-weight:600; color:#566681;">de ' + S.goal + ' hoje</div></div></div></div>';
     // CTA
     h += '<button data-act="startFlow" style="position:relative; overflow:hidden; border:0; cursor:pointer; border-radius:26px; padding:clamp(22px,2.8vw,30px) 28px; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #19c277) 0%, var(--accent) 100%); color:#fff; box-shadow:0 26px 50px -18px color-mix(in srgb, var(--accent) 60%, transparent), inset 0 1px 0 rgba(255,255,255,.3); display:flex; align-items:center; justify-content:center; gap:16px;"><span style="position:absolute; top:0; left:0; width:40%; height:100%; background:linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent); animation:hfSheen 5s ease-in-out infinite; pointer-events:none;"></span><span style="display:flex; align-items:center; justify-content:center; width:clamp(40px,4.4vw,52px); height:clamp(40px,4.4vw,52px); border-radius:50%; background:rgba(255,255,255,.2);">' + svgr('<line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>', 26, 2.4) + '</span><span style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(20px,2.6vw,27px); letter-spacing:.01em;">Iniciar Tarefa</span></button>';
     // colunas
     h += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:clamp(16px,2vw,22px);">';
     h += '<div><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr('<path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>', 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Minhas tarefas</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
-    if (!S.myTasks.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#8195ab; font-weight:500; font-size:14px;">Nenhuma tarefa aberta. Toque em Iniciar Tarefa.</div>';
+    if (!S.myTasks.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#566681; font-weight:500; font-size:14px;">Nenhuma tarefa aberta. Toque em Iniciar Tarefa.</div>';
     S.myTasks.forEach(function (t) {
       if (t.slug === 'break') return; // FASE PAUSA: a pausa vive no banner, não na lista
       // tarefa congelada (pausa ativa): relógio para, sem aging, badge "Pausada"
@@ -441,30 +441,52 @@
         h += '<div style="' + sty(cardP) + '"><span style="flex:none; width:46px; height:46px; border-radius:14px; background:rgba(217,145,0,.14); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:22px;">⏸️</span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:16px; color:#0c2545;">' + esc(labelOf(t.slug)) + '</div><div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(subP) + '</div><div style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11.5px; font-weight:800; color:#8a5a00; background:rgba(217,145,0,.13); padding:3px 9px; border-radius:7px;">Pausada · relógio parado</div></div></div>';
         return;
       }
-      var a = ageState(t.started_at); var ag = AGE[a];
+      // background (na máquina: encapsulação/mistura/tablete) roda longo de
+      // propósito → NÃO envelhece (sem badge "demorando"); ganha pill própria.
+      var isBg = !!t.is_long_running;
+      var a = isBg ? 'ok' : ageState(t.started_at); var ag = AGE[a];
       var prod = t.product || t.supplement || t.supplement_name || null;
       var sub = (prod ? prod + (t.batch_number ? ' · ' + t.batch_number : '') + ' · ' : (t.batch_number ? t.batch_number + ' · ' : '')) + 'há ' + fmtDur(t.started_at);
       var card = { display: 'flex', alignItems: 'center', gap: '14px', background: 'rgba(255,255,255,.74)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,.85)', borderLeft: '4px solid ' + ag.border, borderRadius: '20px', padding: '15px 16px', boxShadow: ag.glow, transition: 'box-shadow .5s, border-color .5s' };
       var ico = { flex: 'none', width: '46px', height: '46px', borderRadius: '14px', background: ag.icoBg, color: ag.ico, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .5s, color .5s' };
       h += '<div style="' + sty(card) + '"><span style="' + sty(ico) + '">' + svg(iconPath(t.slug), 24) + '</span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:16px; color:#0c2545;">' + esc(labelOf(t.slug)) + '</div><div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(sub) + '</div>'
-        + (a !== 'ok' ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11.5px; font-weight:800; color:' + ag.ico + '; background:' + (a === 'over' ? 'rgba(192,53,43,.1)' : 'rgba(217,145,0,.13)') + '; padding:3px 9px 3px 7px; border-radius:7px;"><span style="width:7px; height:7px; border-radius:50%; background:' + ag.ico + ';' + (a === 'over' ? 'animation:hfPulse 1.4s ease-in-out infinite;' : '') + '"></span>' + esc(ag.badge) + '</div>' : '')
-        + '</div><button data-act="finish" data-arg="' + t.id + '" style="flex:none; border:0; cursor:pointer; border-radius:14px; padding:13px 18px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-weight:700; font-size:14px; box-shadow:0 12px 26px -14px rgba(179,38,30,.7); display:flex; align-items:center; gap:7px;">' + svgr(CHECK, 17, 2.4) + 'Finalizar</button></div>';
+        + (isBg
+            ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11.5px; font-weight:800; color:#1f5fd0; background:rgba(47,122,224,.1); padding:3px 9px; border-radius:7px;">⚙ background · na máquina</div>'
+            : (a !== 'ok' ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:7px; font-size:11.5px; font-weight:800; color:' + ag.ico + '; background:' + (a === 'over' ? 'rgba(192,53,43,.1)' : 'rgba(217,145,0,.13)') + '; padding:3px 9px 3px 7px; border-radius:7px;"><span style="width:7px; height:7px; border-radius:50%; background:' + ag.ico + ';' + (a === 'over' ? 'animation:hfPulse 1.4s ease-in-out infinite;' : '') + '"></span>' + esc(ag.badge) + '</div>' : ''))
+        + '</div><button data-act="reclassify" data-arg="' + t.id + '" title="Tipo errado? Trocar" style="flex:none; border:1px solid rgba(15,40,90,.14); cursor:pointer; border-radius:14px; padding:13px 14px; margin-right:8px; background:rgba(255,255,255,.7); color:#42566f; font-weight:800; font-size:15px;">⇄</button><button data-act="finish" data-arg="' + t.id + '" style="flex:none; border:0; cursor:pointer; border-radius:14px; padding:13px 18px; background:linear-gradient(135deg,#cf463c,#b3261e); color:#fff; font-weight:700; font-size:14px; box-shadow:0 12px 26px -14px rgba(179,38,30,.7); display:flex; align-items:center; gap:7px;">' + svgr(CHECK, 17, 2.4) + 'Finalizar</button></div>';
     });
     h += emsDetectCard(); // FASE FORM — sugestão passiva: EMS mostra o operador numa máquina
     h += '</div></div>';
     h += '<div><div style="display:flex; align-items:center; gap:10px; margin:0 4px 12px;"><span style="color:#0f4c92;">' + svgr(PEOPLE, 19, 1.9) + '</span><h2 style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:17px; color:#0c2545;">Equipe agora</h2></div><div style="display:flex; flex-direction:column; gap:11px;">';
-    var others = (S.team || []).filter(function (o) { return o.id !== p.id && o.current_event_id; });
-    if (!others.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#8195ab; font-weight:500; font-size:14px;">Ninguém com tarefa aberta agora.</div>';
+    // inclui quem só tem BACKGROUND ao vivo (antes ficava de fora — feed pegava só foreground)
+    var others = (S.team || []).filter(function (o) { return o.id !== p.id && (o.current_event_id || (Array.isArray(o.bg_tasks) && o.bg_tasks.length)); });
+    if (!others.length) h += '<div style="background:rgba(255,255,255,.5); border:1px dashed rgba(15,40,90,.18); border-radius:18px; padding:22px; text-align:center; color:#566681; font-weight:500; font-size:14px;">Ninguém com tarefa aberta agora.</div>';
     others.forEach(function (o) {
+      var hasFg = !!o.current_event_id;
+      var bg = Array.isArray(o.bg_tasks) ? o.bg_tasks : [];
       var inCw = Array.isArray(o.current_cowork) && o.current_cowork.indexOf(p.id) >= 0;
-      var a = ageState(o.current_started_at); var ag = AGE[a];
+      var a = hasFg ? ageState(o.current_started_at) : 'ok'; var ag = AGE[a];
+      // linha principal: foreground se houver; senão a 1ª background ("na máquina")
+      // nome do SUPLEMENTO seguido do batch (antes mostrava só o batch). prodBatch helper.
+      var prodBatch = function (prod, batch) { return (prod ? prod + (batch ? ' · ' + batch : '') : (batch || '')); };
+      var mainSub = hasFg
+        ? (labelOf(o.current_slug) + ((o.current_product || o.current_batch) ? ' · ' + prodBatch(o.current_product, o.current_batch) : '') + ' · há ' + fmtDur(o.current_started_at) + (Array.isArray(o.current_cowork) && o.current_cowork.length ? ' · em grupo' : ''))
+        : ('⚙ na máquina: ' + labelOf(bg[0].slug) + ((bg[0].product || bg[0].batch) ? ' · ' + prodBatch(bg[0].product, bg[0].batch) : '') + ' · há ' + fmtDur(bg[0].started_at));
+      // pills das background extras (se bg-only, a 1ª já vai na linha principal)
+      var bgPills = '';
+      for (var bi = (hasFg ? 0 : 1); bi < bg.length; bi++) {
+        bgPills += '<span style="display:inline-flex; align-items:center; gap:4px; margin:6px 6px 0 0; font-size:10.5px; font-weight:700; color:#1f5fd0; background:rgba(47,122,224,.1); padding:2px 8px; border-radius:7px;">⚙ ' + esc(labelOf(bg[bi].slug)) + ((bg[bi].product || bg[bi].batch) ? ' · ' + esc(prodBatch(bg[bi].product, bg[bi].batch)) : '') + '</span>';
+      }
       var card = { display: 'flex', alignItems: 'center', gap: '13px', background: 'rgba(255,255,255,.66)', backdropFilter: 'blur(16px)', border: a === 'ok' ? '1px solid rgba(255,255,255,.82)' : '1px solid ' + ag.border, borderLeft: a === 'ok' ? '1px solid rgba(255,255,255,.82)' : '4px solid ' + ag.border, borderRadius: '20px', padding: '14px 16px', boxShadow: a === 'ok' ? '0 16px 38px -26px rgba(15,40,90,.42)' : ag.glow, transition: 'box-shadow .5s, border-color .5s' };
-      h += '<div style="' + sty(card) + '"><span style="position:relative; flex:none; width:44px; height:44px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:13px; height:13px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(o.display_name) + '</div><div style="font-size:12.5px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(labelOf(o.current_slug) + (o.current_batch ? ' · ' + o.current_batch : '') + ' · há ' + fmtDur(o.current_started_at) + (Array.isArray(o.current_cowork) && o.current_cowork.length ? ' · em grupo' : '')) + '</div>'
-        + (a !== 'ok' ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:6px; font-size:11px; font-weight:800; color:' + ag.ico + '; background:' + (a === 'over' ? 'rgba(192,53,43,.1)' : 'rgba(217,145,0,.13)') + '; padding:2px 9px 2px 7px; border-radius:7px;"><span style="width:6px; height:6px; border-radius:50%; background:' + ag.ico + ';' + (a === 'over' ? 'animation:hfPulse 1.4s ease-in-out infinite;' : '') + '"></span>' + esc(a === 'over' ? 'Precisa de ajuda' : 'Demorando') + '</div>' : '')
+      h += '<div style="' + sty(card) + '"><span style="position:relative; flex:none; width:44px; height:44px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:13px; height:13px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(o.display_name) + '</div><div style="font-size:12.5px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(mainSub) + '</div>'
+        + (hasFg && a !== 'ok' ? '<div style="display:inline-flex; align-items:center; gap:6px; margin-top:6px; font-size:11px; font-weight:800; color:' + ag.ico + '; background:' + (a === 'over' ? 'rgba(192,53,43,.1)' : 'rgba(217,145,0,.13)') + '; padding:2px 9px 2px 7px; border-radius:7px;"><span style="width:6px; height:6px; border-radius:50%; background:' + ag.ico + ';' + (a === 'over' ? 'animation:hfPulse 1.4s ease-in-out infinite;' : '') + '"></span>' + esc(a === 'over' ? 'Precisa de ajuda' : 'Demorando') + '</div>' : '')
+        + bgPills
         + '</div>'
-        + (inCw
-          ? '<button style="flex:none; border:1px solid rgba(15,40,90,.14); cursor:default; border-radius:13px; padding:11px 16px; background:rgba(15,40,90,.05); color:#8195ab; font-weight:700; font-size:13px;">Já junto</button>'
-          : '<button data-act="join" data-arg="' + o.current_event_id + '" data-name="' + esc(o.display_name) + '" data-sub="' + esc(labelOf(o.current_slug) + (o.current_batch ? ' · ' + o.current_batch : '')) + '" style="flex:none; border:0; cursor:pointer; border-radius:13px; padding:11px 16px; background:rgba(47,122,224,.12); color:#1f5fd0; font-weight:700; font-size:13px; display:flex; align-items:center; gap:6px;">' + svgr(PEOPLE, 14, 2) + 'Entrar</button>')
+        + (hasFg
+          ? (inCw
+            ? '<button style="flex:none; border:1px solid rgba(15,40,90,.14); cursor:default; border-radius:13px; padding:11px 16px; background:rgba(15,40,90,.05); color:#566681; font-weight:700; font-size:13px;">Já junto</button>'
+            : '<button data-act="join" data-arg="' + o.current_event_id + '" data-name="' + esc(o.display_name) + '" data-sub="' + esc(labelOf(o.current_slug) + ((o.current_product || o.current_batch) ? ' · ' + prodBatch(o.current_product, o.current_batch) : '')) + '" style="flex:none; border:0; cursor:pointer; border-radius:13px; padding:11px 16px; background:rgba(47,122,224,.12); color:#1f5fd0; font-weight:700; font-size:13px; display:flex; align-items:center; gap:6px;">' + svgr(PEOPLE, 14, 2) + 'Entrar</button>')
+          : '')
         + '</div>';
     });
     h += '</div></div></div>';
@@ -512,8 +534,8 @@
   function crumbHTML(f) {
     var ac = accent();
     return flowCrumbs(f).map(function (c) {
-      var dot = { flex: 'none', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: c.done ? ac : (c.active ? 'color-mix(in srgb,' + ac + ' 18%, white)' : 'rgba(15,40,90,.08)'), color: c.done ? '#fff' : (c.active ? ac : '#8195ab'), border: (c.active && !c.done) ? '2px solid ' + ac : '0' };
-      var txt = { fontSize: '12.5px', fontWeight: c.active ? '700' : '600', color: c.active ? '#0c2545' : '#8195ab', whiteSpace: 'nowrap' };
+      var dot = { flex: 'none', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: c.done ? ac : (c.active ? 'color-mix(in srgb,' + ac + ' 18%, white)' : 'rgba(15,40,90,.08)'), color: c.done ? '#fff' : (c.active ? ac : '#566681'), border: (c.active && !c.done) ? '2px solid ' + ac : '0' };
+      var txt = { fontSize: '12.5px', fontWeight: c.active ? '700' : '600', color: c.active ? '#0c2545' : '#566681', whiteSpace: 'nowrap' };
       return '<div style="display:flex; align-items:center; gap:7px;"><span style="' + sty(dot) + '">' + (c.done ? svgr(CHECK, 12, 3.4) : '') + '</span><span style="' + sty(txt) + '">' + esc(c.label) + '</span></div>';
     }).join('');
   }
@@ -562,9 +584,9 @@
   // Slugs que usam a lista do EMS (vs catálogo direto): linha/revisão +
   // formulação (pesagem/mistura/encapsulação). Cada um filtra os sub-stages
   // certos no backend (/lots/available). Lista vazia → cai pro catálogo.
-  var LOT_LIST_SLUGS = { production_line: 1, review: 1, weighing: 1, mixing: 1, encapsulation: 1 };
+  var LOT_LIST_SLUGS = { production_line: 1, review: 1, weighing: 1, mixing: 1, encapsulation: 1, fnsku_labeling: 1 };
   function usesLotList(slug) { return !!LOT_LIST_SLUGS[slug]; }
-  var STAGE_PT = { encapsulated: 'Encapsulado', encapsulating: 'Encapsulando', ready_for_line: 'Pronto p/ linha', on_line: 'Na linha', yield_review: 'Conferência', to_count: 'A contar', to_separate: 'A separar', label_printing: 'Imprimindo label', pending: 'Na fila', weighing: 'Pesagem', weighed: 'Pesado', blending: 'Mistura', blended: 'Misturado' };
+  var STAGE_PT = { encapsulated: 'Encapsulado', encapsulating: 'Encapsulando', ready_for_line: 'Pronto p/ linha', on_line: 'Na linha', yield_review: 'Conferência', to_count: 'A contar', to_separate: 'A separar', label_printing: 'Imprimindo label', pending: 'Na fila', weighing: 'Pesagem', weighed: 'Pesado', blending: 'Mistura', blended: 'Misturado', produced: 'Produzido' };
   // FASE C2 — verbo PT do stage (detecção por stage sem máquina)
   var STAGE_VERB = { weighing: 'pesando', weighed: 'pesando', blending: 'misturando', blended: 'misturando', encapsulating: 'encapsulando', encapsulated: 'encapsulando', yield_review: 'revisando', to_count: 'contando', to_separate: 'separando', label_printing: 'imprimindo label' };
   function lotCard(l) {
@@ -583,7 +605,7 @@
     var filtered = Array.isArray(lots) ? lots.filter(function (l) { return !q || ((l.batch_number || '') + ' ' + (l.product_name || '')).toLowerCase().indexOf(q) >= 0; }) : [];
     var gridOpen = '<div class="hf-scroll" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:9px;">';
     var sectionHead = function (txt, color) { return '<div style="grid-column:1/-1; font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:' + color + '; margin:2px 2px 0;">' + txt + '</div>'; };
-    var empty = function (t) { return '<div style="color:#8195ab; font-size:14px; text-align:center; padding:18px;">' + t + '</div>'; };
+    var empty = function (t) { return '<div style="color:#566681; font-size:14px; text-align:center; padding:18px;">' + t + '</div>'; };
     var body = '';
     if (lots == null) body = empty('Carregando lotes do EMS…');
     else if (!lots.length) body = empty('Nenhum lote disponível no EMS agora. Use o catálogo completo abaixo. 👇');
@@ -595,11 +617,11 @@
       var others = filtered.filter(function (l) { return !l.is_related; }).slice(0, 30);
       body = '<div style="max-height:392px; overflow-y:auto;">';
       if (related.length) body += gridOpen + sectionHead('🎯 Prováveis pra esta tarefa', '#1f5fd0') + related.map(lotCard).join('') + '</div>';
-      if (others.length) body += gridOpen + sectionHead('📋 Outros em produção', '#8195ab') + others.map(lotCard).join('') + '</div>';
+      if (others.length) body += gridOpen + sectionHead('📋 Outros em produção', '#566681') + others.map(lotCard).join('') + '</div>';
       body += '</div>';
     }
     var h = '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:14px;">Qual lote?</div>';
-    h += '<div style="position:relative; margin-bottom:12px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#8195ab;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.lotQuery || '') + '" data-input="lotQuery" data-focus="lotQuery" placeholder="Buscar lote ou produto…" style="width:100%; min-height:56px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>';
+    h += '<div style="position:relative; margin-bottom:12px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#566681;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.lotQuery || '') + '" data-input="lotQuery" data-focus="lotQuery" placeholder="Buscar lote ou produto…" style="width:100%; min-height:56px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>';
     if (S.flow.emsStale) h += '<div style="font-size:12.5px; color:#8a5a00; background:rgba(217,145,0,.12); border-left:3px solid #d99100; padding:9px 12px; border-radius:10px; margin-bottom:10px;">EMS indisponível — lista pode estar desatualizada. Use o catálogo se não achar.</div>';
     h += body;
     h += '<button data-act="pickCatalog" style="margin-top:14px; width:100%; border:1px dashed rgba(15,40,90,.22); background:rgba(255,255,255,.5); color:#42566f; border-radius:14px; padding:13px; font-weight:600; font-size:14px; cursor:pointer;">Não achou na lista? Buscar no catálogo completo →</button>';
@@ -624,7 +646,7 @@
       rows += '<button data-act="pickSupp" data-arg="' + esc(p.canonical_name) + '" data-pid="' + esc(p.id != null ? p.id : '') + '" style="display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; padding:13px 15px; border-radius:14px; border:1px solid rgba(15,40,90,.1); background:rgba(255,255,255,.7); font-family:\'Manrope\',sans-serif;">' + thumb + '<span style="flex:1; min-width:0; font-weight:600; font-size:16px; color:#0c2545;">' + esc(p.canonical_name) + '</span></button>';
     });
     return '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:16px;">Qual suplemento?</div>'
-      + '<div style="position:relative; margin-bottom:14px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#8195ab;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.query || '') + '" data-input="query" data-focus="query" placeholder="Digite o nome do suplemento…" style="width:100%; min-height:58px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>'
+      + '<div style="position:relative; margin-bottom:14px;"><span style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:#566681;">' + svgr('<circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.5" y2="16.5"></line>', 20, 2) + '</span><input value="' + esc(S.flow.query || '') + '" data-input="query" data-focus="query" placeholder="Digite o nome do suplemento…" style="width:100%; min-height:58px; font-size:17px; padding:12px 16px 12px 46px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;"></div>'
       + '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:378px; overflow-y:auto;">' + rows + '</div>'
       + '<div style="display:flex; gap:11px; margin-top:18px;">' + backBtn() + '</div>';
   }
@@ -644,20 +666,20 @@
     var list = S.flow.recentBatches; // null=carregando, []=nenhum, [...]=lotes do produto
     var rec = '';
     if (list == null) {
-      rec = '<span style="font-size:13px; color:#8195ab;">Carregando lotes recentes…</span>';
+      rec = '<span style="font-size:13px; color:#566681;">Carregando lotes recentes…</span>';
     } else if (list.length === 0) {
-      rec = '<span style="font-size:13px; color:#8195ab;">Sem lotes recentes deste produto — digite o número acima.</span>';
+      rec = '<span style="font-size:13px; color:#566681;">Sem lotes recentes deste produto — digite o número acima.</span>';
     } else {
       list.slice(0, 8).forEach(function (r) {
         var bn = r.batch_number || r;
         var rel = relDate(r.last_seen);
         var tip = [r.last_operator ? 'Por ' + r.last_operator : '', r.status_in_ems ? 'EMS: ' + r.status_in_ems : ''].filter(Boolean).join(' · ');
-        rec += '<button data-act="pickBatch" data-arg="' + esc(bn) + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + ' style="display:flex; flex-direction:column; align-items:flex-start; gap:1px; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.7); color:#0c2545; border-radius:13px; padding:9px 15px; cursor:pointer; font-family:\'Sora\',sans-serif;"><span style="font-weight:700; font-size:15px;">' + esc(bn) + '</span>' + (rel ? '<span style="font-weight:600; font-size:11px; color:#8195ab;">' + esc(rel) + '</span>' : '') + '</button>';
+        rec += '<button data-act="pickBatch" data-arg="' + esc(bn) + '"' + (tip ? ' title="' + esc(tip) + '"' : '') + ' style="display:flex; flex-direction:column; align-items:flex-start; gap:1px; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.7); color:#0c2545; border-radius:13px; padding:9px 15px; cursor:pointer; font-family:\'Sora\',sans-serif;"><span style="font-weight:700; font-size:15px;">' + esc(bn) + '</span>' + (rel ? '<span style="font-weight:600; font-size:11px; color:#566681;">' + esc(rel) + '</span>' : '') + '</button>';
       });
     }
     return '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545; margin-bottom:6px;">Qual lote?</div><div style="font-size:14px; color:#5a6e87; margin-bottom:16px;">Digite os 4 números (ex: 0190) ou escolha um recente.</div>'
       + '<input value="' + esc(S.flow.batchInput || '') + '" data-input="batch" data-focus="batch" inputmode="numeric" placeholder="0190" style="width:100%; min-height:62px; font-size:24px; font-weight:700; letter-spacing:.08em; text-align:center; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:16px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:14px; font-family:\'Sora\',sans-serif;">'
-      + '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#8195ab; margin-bottom:10px;">Recentes' + (S.flow.supplement ? ' de ' + esc(S.flow.supplement) : '') + '</div><div style="display:flex; flex-wrap:wrap; gap:9px; align-items:center;">' + rec + '</div>'
+      + '<div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:#566681; margin-bottom:10px;">Recentes' + (S.flow.supplement ? ' de ' + esc(S.flow.supplement) : '') + '</div><div style="display:flex; flex-wrap:wrap; gap:9px; align-items:center;">' + rec + '</div>'
       + '<div style="display:flex; gap:11px; margin-top:22px;">' + backBtn() + '<button data-act="skipBatch" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:16px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">Sem lote</button><button data-act="batchOk" style="flex:1.4; border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #19c277), var(--accent)); color:#fff; border-radius:16px; padding:15px; font-weight:700; font-size:15px; cursor:pointer; box-shadow:0 12px 26px -14px color-mix(in srgb, var(--accent) 60%, transparent);">Confirmar lote</button></div>';
   }
   function chip(kind, txt, inner) { var c = kind === 'blue' ? '#1f5fd0' : '#0e7a4e'; var bg = kind === 'blue' ? 'rgba(47,122,224,.1)' : 'rgba(14,122,78,.1)'; return '<span style="display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:700; color:' + c + '; background:' + bg + '; padding:4px 10px; border-radius:8px;">' + svgr(inner, 13, 2) + esc(txt) + '</span>'; }
@@ -679,10 +701,32 @@
       var on = (f.cowork || []).indexOf(o.id) >= 0;
       var chipS = 'display:flex; align-items:center; gap:11px; width:100%; cursor:pointer; text-align:left; padding:11px 14px; border-radius:16px; transition:all .12s; font-family:\'Manrope\',sans-serif; border:' + (on ? '2px solid ' + ac : '1px solid rgba(15,40,90,.12)') + '; background:' + (on ? 'color-mix(in srgb, ' + ac + ' 9%, white)' : 'rgba(255,255,255,.6)') + ';';
       var boxS = 'flex:none; width:24px; height:24px; border-radius:8px; display:flex; align-items:center; justify-content:center; border:' + (on ? '0' : '2px solid rgba(15,40,90,.25)') + '; background:' + (on ? ac : 'transparent') + '; color:#fff;';
-      h += '<button data-act="toggleCowork" data-arg="' + o.id + '" style="' + chipS + '"><span style="' + boxS + '">' + (on ? svgr(CHECK, 15, 3.4) : '') + '</span><span style="position:relative; flex:none; width:34px; height:34px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:11px; height:11px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><span style="flex:1; min-width:0; text-align:left;"><span style="display:block; font-weight:700; font-size:14.5px; color:#0c2545;">' + esc(o.display_name) + '</span><span style="display:block; font-size:12px; color:#8195ab;">' + esc(o.current_slug ? labelOf(o.current_slug) : (o.online ? 'disponível' : 'offline')) + '</span></span></button>';
+      h += '<button data-act="toggleCowork" data-arg="' + o.id + '" style="' + chipS + '"><span style="' + boxS + '">' + (on ? svgr(CHECK, 15, 3.4) : '') + '</span><span style="position:relative; flex:none; width:34px; height:34px; border-radius:50%; background:linear-gradient(140deg,#5a6e87,#42566f); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px;">' + esc(D.initials(o.display_name)) + '<span style="position:absolute; right:-1px; bottom:-1px; width:11px; height:11px; border-radius:50%; border:2px solid #fff; background:' + (o.online ? '#21a85b' : '#b3bccb') + ';"></span></span><span style="flex:1; min-width:0; text-align:left;"><span style="display:block; font-weight:700; font-size:14.5px; color:#0c2545;">' + esc(o.display_name) + '</span><span style="display:block; font-size:12px; color:#566681;">' + esc(o.current_slug ? labelOf(o.current_slug) : (o.online ? 'disponível' : 'offline')) + '</span></span></button>';
     });
     h += '</div>';
-    if (ordersReq) { h += sectionLabel((f.slug === 'clinic_shipment' ? 'Quantos envios da clínica?' : 'Quantas ordens vai imprimir?'), '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2); h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" data-focus="orders" inputmode="numeric" placeholder="ex: 206" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">'; }
+    // clinic_shipment: campo de quantidade OPCIONAL no início (regra Bruno). Se não
+    // informar aqui, é pedido no fim. Demais (impressão de ordens) = obrigatório.
+    var isClinicStart = f.slug === 'clinic_shipment';
+    if (ordersReq || isClinicStart) {
+      var ordLabel = isClinicStart ? ('Quantas ordens da clínica?' + (ordersReq ? '' : ' (opcional)')) : 'Quantas ordens vai imprimir?';
+      h += sectionLabel(ordLabel, '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2);
+      h += '<input value="' + esc(f.ordersInput || '') + '" data-input="orders" data-focus="orders" inputmode="numeric" placeholder="' + (isClinicStart && !ordersReq ? 'opcional — pode informar no fim' : 'ex: 206') + '" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:18px;">';
+    }
+    // ── Ajuste de ordens do dia (só no "Outro (Embalagem)" / packaging_other) ──
+    // Corrige ordens entradas erradas: adicionar OU reajustar o total (reajustar
+    // avisa todo mundo no Slack). Regra Bruno.
+    if (f.slug === 'packaging_other') {
+      h += sectionLabel('Ajuste de ordens entradas? (opcional)', '<path d="M6 9V3.5h12V9M6 18.5H4.5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h15a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H18M6.5 14.5h11V21h-11z"></path>', 2);
+      var adjOn = !!f.adjOn;
+      h += '<button data-act="adjToggle" style="display:flex; align-items:center; gap:11px; width:100%; cursor:pointer; text-align:left; padding:12px 14px; margin-bottom:' + (adjOn ? '12px' : '18px') + '; border-radius:16px; border:' + (adjOn ? '2px solid ' + ac : '1px solid rgba(15,40,90,.12)') + '; background:' + (adjOn ? 'color-mix(in srgb, ' + ac + ' 9%, white)' : 'rgba(255,255,255,.6)') + ';"><span style="flex:none; width:24px; height:24px; border-radius:8px; display:flex; align-items:center; justify-content:center; border:' + (adjOn ? '0' : '2px solid rgba(15,40,90,.25)') + '; background:' + (adjOn ? ac : 'transparent') + '; color:#fff;">' + (adjOn ? svgr(CHECK, 15, 3.4) : '') + '</span><span style="flex:1; font-weight:700; font-size:14.5px; color:#0c2545;">Ajustar contagem de ordens do dia</span></button>';
+      if (adjOn) {
+        var mAdd = (f.adjMode || 'additional') === 'additional';
+        h += '<div style="display:flex; gap:11px; margin-bottom:12px;"><button data-act="adjModeAdd" style="' + segBtn(mAdd, ac) + '">Ordens adicionais</button><button data-act="adjModeReset" style="' + segBtn(!mAdd, ac) + '">Reajustar total</button></div>';
+        h += '<input value="' + esc(f.adjQty || '') + '" data-input="adjQty" inputmode="numeric" placeholder="' + (mAdd ? 'quantas ordens A MAIS' : 'novo TOTAL de ordens do dia') + '" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none; margin-bottom:8px;">';
+        if (!mAdd) h += '<div style="display:flex; align-items:center; gap:8px; margin-bottom:18px; background:rgba(192,53,43,.08); border-left:3px solid #c0352b; padding:10px 12px; border-radius:10px; font-size:12px; color:#8a2018; font-weight:600;">' + svgr(WARN, 16, 2) + 'Reajustar o total substitui a contagem do dia e avisa todo mundo no Slack.</div>';
+        else h += '<div style="margin-bottom:18px;"></div>';
+      }
+    }
     h += sectionLabel(noteReq ? 'Motivo (obrigatório)' : 'Notas (opcional)', EDITP, 2);
     h += '<textarea data-input="note" data-focus="note" placeholder="' + (noteReq ? 'Conte o que está acontecendo, ou use a voz…' : 'Escreva ou use o microfone…') + '" style="width:100%; min-height:84px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;">' + esc(f.note || '') + '</textarea>';
     h += '<div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('flow') + '</div>';
@@ -765,7 +809,7 @@
   //   confirm = válido mas incomum (pede "tem certeza?" antes de salvar);
   //   ok      = !block (o iso é utilizável, talvez após confirmar).
   function startStatus(f) {
-    if (!f.tpH) return { ok: false, block: false, confirm: false, color: '#8195ab', text: '', label: '' };
+    if (!f.tpH) return { ok: false, block: false, confirm: false, color: '#566681', text: '', label: '' };
     var iso = isoFromHMA(f.tpH, f.tpM, f.tpAP); var lbl = fmt12(iso); var mo = minOfDay(iso); var now = nowMinLocal();
     var base = { label: lbl, iso: iso };
     if (new Date(iso).getTime() > Date.now()) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Não pode ser no futuro', future: true });
@@ -777,7 +821,7 @@
     return Object.assign(base, { ok: true, block: false, confirm: false, color: '#0e7a4e', text: 'Início ' + lbl });
   }
   function endStatus(f) {
-    if (!f.endH) return { ok: false, block: false, confirm: false, color: '#8195ab', text: '', label: '' };
+    if (!f.endH) return { ok: false, block: false, confirm: false, color: '#566681', text: '', label: '' };
     var iso = isoFromHMA(f.endH, f.endM, f.endAP); var st = startStatus(f); var lbl = fmt12(iso); var mo = minOfDay(iso);
     var base = { label: lbl, iso: iso };
     if (new Date(iso).getTime() > Date.now()) return Object.assign(base, { ok: false, block: true, confirm: false, color: '#c0352b', text: 'Não pode ser no futuro', future: true });
@@ -807,6 +851,7 @@
   // ════════════════════════════════════════════════════════════
   function overlayKey() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'reclassify') return 'reclassify:' + (o.eventId || '');
     if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
     if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0) + ':' + (o.needsOrders ? 1 : 0); // exc/cowork/último/orders re-montam
     if (o.type === 'gap') return 'gap:' + (o.jtype || ''); // re-monta ao escolher o motivo (highlight)
@@ -816,6 +861,22 @@
   }
   function ghostBtn(act, label) { return '<button data-act="' + act + '" style="flex:1; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; border-radius:15px; padding:15px; font-weight:700; font-size:15px; cursor:pointer;">' + esc(label) + '</button>'; }
   function cardOpen(maxw, center, extra) { return '<div class="hf-scroll" style="width:' + maxw + 'px; max-width:94%; max-height:828px; overflow-y:auto; background:rgba(255,255,255,.86); backdrop-filter:blur(28px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:28px; box-shadow:0 50px 110px -40px rgba(12,37,69,.6); padding:clamp(22px,3vw,30px); animation:hfPop .3s ease both;' + (center ? 'text-align:center;' : '') + (extra || '') + '">'; }
+  // overlay RECLASSIFY — trocar o tipo de uma task ao vivo (escolheu errado). Regra Bruno.
+  function reclassifyInner(o) {
+    var h = cardOpen(520);
+    h += '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545; margin-bottom:6px;">Trocar tipo da tarefa</div>';
+    h += '<div style="font-size:13px; color:#5a6e87; margin-bottom:14px;">Escolheu o tipo errado? Pegue o certo abaixo — a tarefa continua aberta, só muda o tipo.</div>';
+    (DATA.groups || []).forEach(function (g) {
+      h += '<div style="font-size:11.5px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:#566681; margin:12px 0 7px;">' + esc(g.label) + '</div>';
+      h += '<div style="display:flex; flex-wrap:wrap; gap:8px;">';
+      (g.types || []).forEach(function (t) {
+        h += '<button data-act="doReclassify" data-arg="' + esc(t.slug) + '" style="display:flex; align-items:center; gap:8px; cursor:pointer; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.72); border-radius:13px; padding:9px 13px; font-weight:600; font-size:13.5px; color:#0c2545;"><span style="color:#0f4c92;">' + svg(iconPath(t.slug), 18, 1.7) + '</span>' + esc(t.label) + '</button>';
+      });
+      h += '</div>';
+    });
+    h += '<div style="display:flex; gap:11px; margin-top:22px;">' + ghostBtn('closeOverlay', 'Cancelar') + '</div></div>';
+    return h;
+  }
   // overlay FINISH cowork (membro NÃO-último): "terminei minha parte", sem contagem
   function finishCoworkInner(o) {
     var sub = (o.product ? esc(o.product) : esc(o.label || '')) + (o.batch ? ' · ' + esc(o.batch) : '');
@@ -835,17 +896,23 @@
     h += '</div>';
     return h;
   }
-  // overlay FINISH específico da production_line: bottles obrigatório OU exceção
+  // overlay FINISH da production_line E do FNSKU: contagem obrigatória OU exceção.
+  // FNSKU conta LABELS colados; produção conta bottles. Mesma tela, wording variável.
   function finishProdInner(o) {
     var sub = (o.product ? esc(o.product) : '') + (o.batch ? (o.product ? ' · ' : '') + esc(o.batch) : '');
+    var fn = !!o.needsFnsku;
+    var titleTxt = fn ? 'FNSKU / Código de Barras' : 'Linha de Produção';
+    var noun = fn ? 'FNSKU / labels' : 'bottles';
+    var askTxt = fn ? 'Quantos FNSKU / labels foram colados?' : 'Quantas bottles foram produzidas?';
+    var btnTxt = fn ? 'Finalizar FNSKU' : 'Finalizar Linha';
     var checkBox = '<span style="flex:none; width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center; border:2px solid ' + (o.exc ? '#b35c00' : 'rgba(15,40,90,.3)') + '; background:' + (o.exc ? '#b35c00' : 'transparent') + '; color:#fff;">' + (o.exc ? svgr(CHECK, 15, 3.4) : '') + '</span>';
     var goBg = o.exc ? 'linear-gradient(135deg,#d97712,#b35c00)' : 'linear-gradient(135deg,#cf463c,#b3261e)';
     var h = cardOpen(480);
-    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(ICONS.factory, 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: Linha de Produção</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
-    if (o.lastFinisher) h += '<div style="margin-bottom:14px; padding:12px 14px; border-radius:12px; background:rgba(217,145,0,.12); border-left:3px solid #d99100; font-size:13px; font-weight:700; color:#8a5a00;">Você é o último a finalizar — informe o TOTAL de bottles que o grupo produziu.</div>';
-    var estLine = o.estimatedBottles ? '<div style="font-size:12.5px; color:#1f5fd0; font-weight:700; margin-bottom:6px;">📦 Estimado (EMS): ' + o.estimatedBottles + ' frascos</div>' : '';
-    h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas bottles foram produzidas?</div>' + estLine + '<input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="' + (o.estimatedBottles ? 'ex: ' + o.estimatedBottles : 'ex: 754') + '" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
-    h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#8195ab;">(será notificado em Orders &amp; Inventory)</span></span></button>';
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(ICONS.factory, 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + titleTxt + '</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
+    if (o.lastFinisher) h += '<div style="margin-bottom:14px; padding:12px 14px; border-radius:12px; background:rgba(217,145,0,.12); border-left:3px solid #d99100; font-size:13px; font-weight:700; color:#8a5a00;">Você é o último a finalizar — informe o TOTAL de ' + noun + ' do grupo.</div>';
+    var estLine = o.estimatedBottles ? '<div style="font-size:12.5px; color:#1f5fd0; font-weight:700; margin-bottom:6px;">📦 Estimado: ' + o.estimatedBottles + (fn ? ' labels' : ' frascos') + '</div>' : '';
+    h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">' + askTxt + '</div>' + estLine + '<input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="' + (o.estimatedBottles ? 'ex: ' + o.estimatedBottles : 'ex: 754') + '" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
+    h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#566681;">(será notificado em Orders &amp; Inventory)</span></span></button>';
     if (o.exc) {
       h += '<div style="margin-top:14px; animation:hfRise .3s ease both;">'
         + '<div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#b35c00; margin-bottom:8px;">Explique por que você não tem a contagem *</div>'
@@ -856,7 +923,7 @@
     }
     h += '<div style="font-size:14px; font-weight:600; color:#42566f; margin:16px 0 8px;">Nota final adicional (opcional)</div>';
     h += '<textarea data-input="finNote" placeholder="Observações finais…" style="width:100%; min-height:64px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
-    h += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.6; border:0; background:' + goBg + '; color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + (o.exc ? svgr(WARN, 18, 2) + 'Finalizar com Exceção' : svgr(CHECK, 19, 2.6) + 'Finalizar Linha') + '</button></div>';
+    h += '<div style="display:flex; gap:11px; margin-top:20px;">' + ghostBtn('closeOverlay', 'Cancelar') + '<button data-act="doFinish" style="flex:1.6; border:0; background:' + goBg + '; color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px rgba(179,38,30,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + (o.exc ? svgr(WARN, 18, 2) + 'Finalizar com Exceção' : svgr(CHECK, 19, 2.6) + btnTxt) + '</button></div>';
     h += '</div>';
     return h;
   }
@@ -870,7 +937,7 @@
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(15,76,146,.1); color:#0f4c92; display:flex; align-items:center; justify-content:center;">' + svgr('<path d="M21 8l-9-5-9 5 9 5 9-5z"></path><path d="M3 8v8l9 5 9-5V8"></path>', 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px;">' + sub + '</div>' : '') + '</div></div>';
     h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">Quantas ordens foram empacotadas?</div><input value="' + esc(o.orders || '') + '" data-input="finOrders" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="ex: 48" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">';
     h += '<div style="font-size:13px; font-weight:600; color:#42566f; margin:14px 0 7px;">Marketplace principal (opcional)</div><select data-change="marketplace" ' + (o.exc ? 'disabled' : '') + ' style="width:100%; min-height:48px; font-size:15px; padding:10px 14px; border:1px solid rgba(15,40,90,.16); border-radius:12px; background:#fff; color:#0c2545;"><option value="">— escolher —</option>' + MARKETPLACES.map(function (m) { return '<option value="' + m + '"' + (o.marketplace === m ? ' selected' : '') + '>' + m + '</option>'; }).join('') + '</select></div>';
-    h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#8195ab;">(será notificado em Orders &amp; Inventory)</span></span></button>';
+    h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#566681;">(será notificado em Orders &amp; Inventory)</span></span></button>';
     if (o.exc) {
       h += '<div style="margin-top:14px; animation:hfRise .3s ease both;"><div style="font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#b35c00; margin-bottom:8px;">Explique por que não tem a contagem *</div><textarea data-input="finReason" data-focus="finReason" placeholder="Ex: sistema do marketplace fora do ar…" style="width:100%; min-height:80px; font-size:16px; padding:13px 15px; border:1px solid rgba(179,92,0,.3); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.reason || '') + '</textarea><div style="display:flex; justify-content:flex-end; margin-top:8px;">' + voiceBtn('finishReason') + '</div></div>';
     }
@@ -901,9 +968,10 @@
   }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'reclassify') return reclassifyInner(o);
     if (o.type === 'detectWhen') return detectWhenInner(o);
     if (o.type === 'finish' && o.cowork && !o.lastFinisher) return finishCoworkInner(o);
-    if (o.type === 'finish' && o.slug === 'production_line') return finishProdInner(o);
+    if (o.type === 'finish' && (o.slug === 'production_line' || o.needsFnsku)) return finishProdInner(o);
     if (o.type === 'finish' && o.needsOrders) return finishOrdersInner(o); // FASE 5 — P&P
     if (o.type === 'finish') {
       var inner = cardOpen(460) + '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
@@ -938,7 +1006,7 @@
     if (o.type === 'forgotten') {
       var p = o.prompt;
       var meta = [p.last_activity_at ? 'última atividade ' + p.last_activity_at : '', p.expected_end_time ? 'saída prevista ' + p.expected_end_time : ''].filter(Boolean).join(' · ');
-      return cardOpen(440, true) + '<span style="display:inline-flex; width:60px; height:60px; border-radius:50%; background:rgba(179,92,0,.12); color:#b35c00; align-items:center; justify-content:center; margin-bottom:16px;">' + svgr(CLOCK, 30, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:21px; color:#0c2545; margin-bottom:6px;">' + esc(p.person_name) + ' ainda está trabalhando?</div><div style="font-size:13px; color:#8195ab; margin-bottom:22px;">' + esc(meta) + '</div><div style="display:flex; flex-direction:column; gap:11px;"><button data-act="forgottenYes" style="border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:16px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 17, 2.6) + 'Sim, ainda está na linha</button><button data-act="forgottenNo" style="border:1px solid rgba(179,38,30,.25); background:rgba(255,255,255,.6); color:#b3261e; border-radius:15px; padding:16px; font-weight:700; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 16, 2.6) + 'Não, fazer checkout dela</button></div></div>';
+      return cardOpen(440, true) + '<span style="display:inline-flex; width:60px; height:60px; border-radius:50%; background:rgba(179,92,0,.12); color:#b35c00; align-items:center; justify-content:center; margin-bottom:16px;">' + svgr(CLOCK, 30, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:21px; color:#0c2545; margin-bottom:6px;">' + esc(p.person_name) + ' ainda está trabalhando?</div><div style="font-size:13px; color:#566681; margin-bottom:22px;">' + esc(meta) + '</div><div style="display:flex; flex-direction:column; gap:11px;"><button data-act="forgottenYes" style="border:0; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 86%, #19c277), var(--accent)); color:#fff; border-radius:15px; padding:16px; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; cursor:pointer; box-shadow:0 14px 30px -14px color-mix(in srgb, var(--accent) 60%, transparent); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr(CHECK, 17, 2.6) + 'Sim, ainda está na linha</button><button data-act="forgottenNo" style="border:1px solid rgba(179,38,30,.25); background:rgba(255,255,255,.6); color:#b3261e; border-radius:15px; padding:16px; font-weight:700; font-size:15px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>', 16, 2.6) + 'Não, fazer checkout dela</button></div></div>';
     }
     if (o.type === 'gap') return gapInner(o);
     if (o.type === 'eod') return eodInner(o);
@@ -971,10 +1039,10 @@
     var h = cardOpen(540);
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:6px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(15,76,146,.12); color:#0f4c92; display:flex; align-items:center; justify-content:center;">' + svgr('<path d="M3 3v18h18"></path><rect x="7" y="11" width="3" height="6"></rect><rect x="12" y="7" width="3" height="10"></rect><rect x="17" y="13" width="3" height="4"></rect>', 26, 1.9) + '</span><div><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">📊 Totais do dia</div><div style="font-size:13px; color:#5a6e87; margin-top:2px;">Confirme quantas bottles saíram de cada produto hoje.</div></div></div>';
     h += '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:10px; margin:14px 0; max-height:340px; overflow-y:auto;">';
-    if (!(o.products || []).length) h += '<div style="font-size:14px; color:#8195ab; text-align:center; padding:16px;">Nenhuma produção registrada hoje. Pode confirmar mesmo assim.</div>';
+    if (!(o.products || []).length) h += '<div style="font-size:14px; color:#566681; text-align:center; padding:16px;">Nenhuma produção registrada hoje. Pode confirmar mesmo assim.</div>';
     (o.products || []).forEach(function (p) {
       var v = (o.totals && o.totals[p.product_id]) || '';
-      h += '<div style="background:rgba(255,255,255,.7); border:1px solid rgba(15,40,90,.12); border-radius:14px; padding:12px 14px;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(p.product) + '</span><span style="font-size:12px; color:#8195ab;">já registrados: ' + (p.count_so_far || 0) + '</span></div><input value="' + esc(v) + '" data-input="eodBottles" data-arg="' + p.product_id + '" inputmode="numeric" placeholder="Total de bottles do dia" style="width:100%; min-height:50px; font-size:16px; padding:10px 14px; border:1px solid rgba(15,40,90,.16); border-radius:12px; background:#fff; color:#0c2545; outline:none;"></div>';
+      h += '<div style="background:rgba(255,255,255,.7); border:1px solid rgba(15,40,90,.12); border-radius:14px; padding:12px 14px;"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;"><span style="font-weight:700; font-size:15px; color:#0c2545;">' + esc(p.product) + '</span><span style="font-size:12px; color:#566681;">já registrados: ' + (p.count_so_far || 0) + '</span></div><input value="' + esc(v) + '" data-input="eodBottles" data-arg="' + p.product_id + '" inputmode="numeric" placeholder="Total de bottles do dia" style="width:100%; min-height:50px; font-size:16px; padding:10px 14px; border:1px solid rgba(15,40,90,.16); border-radius:12px; background:#fff; color:#0c2545; outline:none;"></div>';
     });
     h += '</div>';
     h += '<textarea data-input="eodNote" placeholder="Observação do dia (opcional)" style="width:100%; min-height:60px; font-size:16px; padding:12px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;">' + esc(o.note || '') + '</textarea>';
@@ -1011,11 +1079,11 @@
     var st = S.settings;
     var h = '<div data-act="toggleSettings" style="position:fixed; inset:0;"></div><div style="position:fixed; top:74px; right:clamp(14px,2.6vw,30px); width:min(92vw,320px); background:rgba(255,255,255,.9); backdrop-filter:blur(30px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:24px; box-shadow:0 40px 90px -34px rgba(12,37,69,.55); padding:20px;">';
     h += '<div style="display:flex; align-items:center; gap:9px; margin-bottom:16px;"><span style="color:#0f4c92;">' + svg(ICONS.gear, 18, 1.8) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:16px; color:#0c2545;">Ajustes do admin</div></div>';
-    h += '<div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid rgba(15,40,90,.08);"><div><div style="font-weight:700; font-size:14px; color:#0c2545;">Frases inspiradoras</div><div style="font-size:12px; color:#8195ab;">Mensagens flutuantes</div></div>' + toggle('toggleMantras', st.mantras) + '</div>';
+    h += '<div style="display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid rgba(15,40,90,.08);"><div><div style="font-weight:700; font-size:14px; color:#0c2545;">Frases inspiradoras</div><div style="font-size:12px; color:#566681;">Mensagens flutuantes</div></div>' + toggle('toggleMantras', st.mantras) + '</div>';
     h += '<div style="padding:12px 0 6px;"><div style="font-weight:700; font-size:13px; color:#42566f; margin-bottom:8px;">Idioma das frases</div><div style="display:flex; gap:6px;">' + seg('setLang', 'rotate', 'Girar', st.mantraLang === 'rotate') + seg('setLang', 'pt', 'PT', st.mantraLang === 'pt') + seg('setLang', 'es', 'ES', st.mantraLang === 'es') + seg('setLang', 'en', 'EN', st.mantraLang === 'en') + '</div></div>';
     h += '<div style="padding:12px 0 6px;"><div style="font-weight:700; font-size:13px; color:#42566f; margin-bottom:8px;">Fase do dia (cor do ambiente)</div><div style="display:flex; gap:6px;">' + seg('setPhase', 'auto', 'Auto', st.dayPhase === 'auto') + seg('setPhase', 'morning', 'Manhã', st.dayPhase === 'morning') + seg('setPhase', 'afternoon', 'Tarde', st.dayPhase === 'afternoon') + seg('setPhase', 'evening', 'Noite', st.dayPhase === 'evening') + '</div></div>';
     h += '<div style="padding:12px 0 4px;"><div style="font-weight:700; font-size:13px; color:#42566f; margin-bottom:8px;">Densidade do ambiente</div><div style="display:flex; gap:6px;">' + seg('setDens', 'low', 'Leve', st.density === 'low') + seg('setDens', 'medium', 'Médio', st.density === 'medium') + seg('setDens', 'high', 'Cheio', st.density === 'high') + '</div></div>';
-    h += '<div style="margin-top:8px; padding-top:14px; border-top:1px solid rgba(15,40,90,.1);"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><div><div style="display:flex; align-items:center; gap:7px; font-weight:700; font-size:14px; color:#0c2545;">Alerta de duração<span style="font-size:9.5px; font-weight:800; letter-spacing:.04em; color:#b35c00; background:rgba(217,145,0,.14); padding:2px 6px; border-radius:6px;">BETA</span></div><div style="font-size:12px; color:#8195ab; margin-top:2px;">A tarefa muda de cor se demorar demais</div></div>' + toggle('toggleAging', st.aging, '#d97712') + '</div>';
+    h += '<div style="margin-top:8px; padding-top:14px; border-top:1px solid rgba(15,40,90,.1);"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px;"><div><div style="display:flex; align-items:center; gap:7px; font-weight:700; font-size:14px; color:#0c2545;">Alerta de duração<span style="font-size:9.5px; font-weight:800; letter-spacing:.04em; color:#b35c00; background:rgba(217,145,0,.14); padding:2px 6px; border-radius:6px;">BETA</span></div><div style="font-size:12px; color:#566681; margin-top:2px;">A tarefa muda de cor se demorar demais</div></div>' + toggle('toggleAging', st.aging, '#d97712') + '</div>';
     if (st.aging) { h += '<div style="margin-top:13px; display:flex; flex-direction:column; gap:9px;">' + stepper('Avisar após', 'warn', st.warnMin) + stepper('Marcar atrasada após', 'over', st.overMin) + '</div>'; }
     h += '</div></div>';
     return h;
@@ -1097,7 +1165,7 @@
   // ════════════════════════════════════════════════════════════
   // HANDLERS (delegação)
   // ════════════════════════════════════════════════════════════
-  function flowDefaults(extra) { var n = new Date(); var ap = n.getHours() >= 12 ? 'PM' : 'AM'; var m = String(Math.floor(n.getMinutes() / 5) * 5).padStart(2, '0'); return Object.assign({ step: 'group', cowork: [], note: '', forgot: false, tpH: '', tpM: m, tpAP: ap, endH: '', endM: m, endAP: ap, finished: 'no', ordersInput: '', requires_product: false }, extra || {}); }
+  function flowDefaults(extra) { var n = new Date(); var ap = n.getHours() >= 12 ? 'PM' : 'AM'; var m = String(Math.floor(n.getMinutes() / 5) * 5).padStart(2, '0'); return Object.assign({ step: 'group', cowork: [], note: '', forgot: false, tpH: '', tpM: m, tpAP: ap, endH: '', endM: m, endAP: ap, finished: 'no', ordersInput: '', adjOn: false, adjMode: 'additional', adjQty: '', requires_product: false }, extra || {}); }
   function bump() { if (S.session && S.session.auto_logoff_seconds) S.logoffLeft = S.session.auto_logoff_seconds; }
   function flowNoteHighlight() { var ta = LYR.flow.el.querySelector('[data-focus="note"]'); if (ta) { ta.focus(); ta.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; ta.style.animation = 'hfShake .4s'; setTimeout(function () { ta.style.boxShadow = ''; ta.style.animation = ''; }, 1200); } }
   function flowOrdersHighlight() { var inp = LYR.flow.el.querySelector('[data-focus="orders"]'); if (inp) { inp.focus(); inp.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; inp.style.animation = 'hfShake .4s'; setTimeout(function () { inp.style.boxShadow = ''; inp.style.animation = ''; }, 1200); } }
@@ -1150,8 +1218,12 @@
     resumeWork: function (id) {
       if (S.resumeBusy) return;
       S.resumeBusy = true; render();
-      api('/api/v3/op/event/' + id + '/end', { method: 'POST', body: {} }).then(function () {
-        S.resumeBusy = false; S.pulse = 0.8; toast('De volta ao trabalho ✓'); loadData();
+      api('/api/v3/op/event/' + id + '/end', { method: 'POST', body: {} }).then(function (res) {
+        S.resumeBusy = false; S.pulse = 0.8; loadData();
+        // regra Bruno: ao voltar da pausa, pergunta CONTINUAR ou FINALIZAR cada tarefa
+        // que estava congelada (se finalizar e pedir quantidade, o finish já cobra).
+        var tasks = (res && res.resumed_tasks) || [];
+        if (tasks.length) resumePrompt(tasks, 0); else toast('De volta ao trabalho ✓');
       }).catch(function () { S.resumeBusy = false; toast('Não consegui retomar — tente Finalizar a pausa'); render(); });
     },
     // FASE FORM — tocar "Registrar" abre a pergunta "Quando começou?" (Parte 2):
@@ -1187,31 +1259,24 @@
     toggleAP: function () { var t = S.flow.tpAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, startWindow())) { S.flow.tpAP = t; render(); } },
     toggleEndAP: function () { var t = S.flow.endAP === 'AM' ? 'PM' : 'AM'; if (apAllowed(t, endWindow(S.flow))) { S.flow.endAP = t; render(); } },
     toggleCowork: function (id) { id = parseInt(id, 10); var i = S.flow.cowork.indexOf(id); if (i >= 0) S.flow.cowork.splice(i, 1); else S.flow.cowork.push(id); render(); },
+    adjToggle: function () { S.flow.adjOn = !S.flow.adjOn; render(); },
+    adjModeAdd: function () { S.flow.adjMode = 'additional'; render(); },
+    adjModeReset: function () { S.flow.adjMode = 'reset'; render(); },
+    reclassify: function (id) { S.overlay = { type: 'reclassify', eventId: id }; render(); },
+    doReclassify: function (slug) {
+      var o = S.overlay; if (!o || o.type !== 'reclassify') return;
+      api('/api/v3/op/event/' + o.eventId + '/reclassify', { method: 'POST', body: { activity_slug: slug } })
+        .then(function (r) { S.overlay = null; toast(r && r.unchanged ? 'Já era esse tipo' : 'Tipo trocado ✓'); loadData(); })
+        .catch(function (e) { toast(e.message); });
+    },
     confirmStart: function () { confirmStart(); },
     finishedNo: function () { S.flow.finished = 'no'; render(); },
     finishedYes: function () { S.flow.finished = 'yes'; if (!S.flow.endH) { S.flow.endH = String(new Date().getHours() % 12 || 12); S.flow.endAP = new Date().getHours() >= 12 ? 'PM' : 'AM'; } render(); },
     commitRetro: function () { commitRetro(); },
     finish: function (id) {
       var t = S.myTasks.find(function (x) { return String(x.id) === String(id); }) || {};
-      var isCw = !!t.cowork_group_id;
-      var tm = typeMeta(t.slug) || {};
-      S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, needsOrders: !!tm.requires_order_count && ['order_printing', 'order_printing_2'].indexOf(t.slug) < 0, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
-      render();
-      // DETECT UPFRONT: pergunta ao backend se ESTE operador é o último do grupo
-      // cowork e se precisa de contagem — pra abrir a tela CERTA de cara, sem
-      // depender do "bounce" via 400 (que falhava por shape da resposta).
-      api('/api/v3/op/event/' + id + '/finish-preview').then(function (pv) {
-        var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
-        o.cowork = !!pv.is_cowork;
-        o.lastFinisher = !!(pv.is_cowork && pv.is_last_finisher); // banner/contagem só p/ ÚLTIMO do cowork
-        o.requiresBottleCount = !!pv.requires_bottle_count;
-        o.estimatedBottles = pv.estimated_bottles != null ? pv.estimated_bottles : null; // ITEM 1
-        if (pv.cowork_remaining != null) o.coworkRemaining = pv.cowork_remaining;
-        o.previewing = false; render();
-      }).catch(function () {
-        var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
-        o.previewing = false; render(); // fallback: estado derivado da task (+ bounce 400 protege o último)
-      });
+      t.id = id;
+      openFinishTask(t);
     },
     doFinish: function () { doFinish(); },
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
@@ -1321,10 +1386,18 @@
     var f = S.flow; var m = typeMeta(f.slug);
     var body = { activity_slug: f.slug, batch_number: f.batch || null, cowork_with: f.cowork || [], note: (f.note || '').trim() || null,
       product_id: f.supplementId || null, product_name: f.supplement || null }; // p/ auto-criar lote desconhecido sem bloquear
-    if (m.orders_required) body.orders_printed = parseInt(f.ordersInput, 10);
+    if (m.orders_required || (f.slug === 'clinic_shipment' && parseInt(f.ordersInput, 10) > 0)) body.orders_printed = parseInt(f.ordersInput, 10);
+    // ajuste de ordens (packaging_other): aplicado APÓS criar o event (precisa do id).
+    var adj = (f.slug === 'packaging_other' && f.adjOn && parseInt(f.adjQty, 10) > 0)
+      ? { mode: (f.adjMode === 'reset' ? 'reset' : 'additional'), quantity: parseInt(f.adjQty, 10) } : null;
     var path = startedAt ? '/api/v3/op/event/retroactive' : '/api/v3/op/event/start';
     if (startedAt) { body.started_at = startedAt; body.ended_at = endedAt || null; }
     var onOk = function (res) {
+      if (adj && res && res.event && res.event.id) {
+        api('/api/v3/op/orders/adjust', { method: 'POST', body: { mode: adj.mode, quantity: adj.quantity, source_event_id: res.event.id } })
+          .then(function (r) { toast(adj.mode === 'reset' ? ('Total de ordens: ' + r.old_total + ' → ' + r.new_total) : ('+' + adj.quantity + ' ordens adicionadas')); })
+          .catch(function (e) { toast('Erro no ajuste de ordens: ' + (e.message || e)); });
+      }
       S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
       loadData();
@@ -1354,13 +1427,16 @@
       // FASE OVERLAP — já tem outra task de foreground aberta: fechar a anterior OU
       // confirmar 2 ao mesmo tempo (exatamente o pedido do Bruno).
       if (res && res.concurrent_open) {
-        var names = (res.open_tasks || []).map(function (t) { return t.activity || t.slug; }).join(', ');
-        showAlert({ title: 'Você já tem tarefa aberta', message: 'Já está aberta: ' + names + '. Quer FECHAR ela e começar esta nova?', okLabel: 'Fechar a outra e começar', cancel: 'Não, manter aberta' })
-          .then(function (closeIt) {
-            if (closeIt) { resend('close'); return; }
-            showAlert({ title: 'TEM CERTEZA?', message: 'Você vai ficar com 2 tarefas abertas AO MESMO TEMPO. Confirma que vai fazer as duas juntas?', okLabel: 'Sim, começar as 2', cancel: 'Cancelar' })
-              .then(function (both) { if (both) resend('both'); });
-          });
+        // Pergunta DIRETA (regra Bruno 06-24): "tá fazendo as 2 ao mesmo tempo?".
+        // SIM → mantém as 2 abertas (simultâneo → fica rosa no dashboard).
+        // NÃO → fecha a anterior e começa só a nova.
+        var jaAberta = (res.open_tasks || []).map(function (t) { return '• ' + (t.activity || labelOf(t.slug)); }).join('\n');
+        var nova = labelOf((body && body.activity_slug) || '');
+        showAlert({
+          title: 'VOCÊ ESTÁ FAZENDO AS 2 TAREFAS AO MESMO TEMPO?',
+          message: 'Já aberta:\n' + jaAberta + '\n\nNova:\n• ' + nova + '\n\nVocê vai fazer as DUAS ao mesmo tempo?',
+          okLabel: 'SIM — as 2 juntas', cancel: 'NÃO — fechar a outra',
+        }).then(function (both) { resend(both ? 'both' : 'close'); });
         return;
       }
       onOk(res);
@@ -1399,15 +1475,54 @@
       .then(function () { S.overlay = null; S.pulse = 1; toast('Totais do dia salvos · obrigado!'); render(); })
       .catch(function (e) { if ((e.body && e.body.error) === 'already_submitted') { S.overlay = null; toast('Totais já confirmados hoje'); render(); } else toast(e.message); });
   }
+  // Abre o fluxo de FINALIZAR a partir de um objeto-tarefa (usado pelo botão Finalizar
+  // E pela pergunta de volta-da-pausa). Resolve o lastFinisher/contagem via finish-preview.
+  function openFinishTask(t) {
+    var id = t.id;
+    var isCw = !!t.cowork_group_id;
+    var tm = typeMeta(t.slug) || {};
+    S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: t.label || labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, needsFnsku: t.slug === 'fnsku_labeling', needsOrders: !!tm.requires_order_count && ['order_printing', 'order_printing_2'].indexOf(t.slug) < 0, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
+    render();
+    api('/api/v3/op/event/' + id + '/finish-preview').then(function (pv) {
+      var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
+      o.cowork = !!pv.is_cowork;
+      o.lastFinisher = !!(pv.is_cowork && pv.is_last_finisher);
+      o.requiresBottleCount = !!pv.requires_bottle_count;
+      if (typeof pv.requires_fnsku_count === 'boolean') o.needsFnsku = pv.requires_fnsku_count;
+      if (typeof pv.needs_order_count === 'boolean') o.needsOrders = pv.needs_order_count;
+      o.estimatedBottles = pv.estimated_bottles != null ? pv.estimated_bottles : null;
+      if (pv.cowork_remaining != null) o.coworkRemaining = pv.cowork_remaining;
+      o.previewing = false; render();
+    }).catch(function () {
+      var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
+      o.previewing = false; render();
+    });
+  }
+  // Volta-da-pausa: pra cada tarefa descongelada, "Continuar" ou "Finalizar" (regra Bruno).
+  function resumePrompt(tasks, i) {
+    if (!tasks || i >= tasks.length) { toast('De volta ao trabalho ✓'); return; }
+    var t = tasks[i];
+    var sub = (t.product ? t.product + (t.batch_number ? ' · ' + t.batch_number : '') : (t.batch_number || ''));
+    showAlert({
+      title: 'Você voltou da pausa',
+      message: 'Você estava em: ' + (t.label || labelOf(t.slug)) + (sub ? ' (' + sub + ')' : '') + '.\n\nQuer CONTINUAR essa tarefa ou FINALIZAR?',
+      okLabel: 'Continuar trabalhando',
+      cancel: 'Finalizar' + (t.needs_count ? ' (informar quantidade)' : ''),
+    }).then(function (cont) {
+      if (cont) { resumePrompt(tasks, i + 1); return; } // continua → próxima tarefa congelada
+      openFinishTask({ id: t.id, slug: t.slug, label: t.label, product: t.product, batch_number: t.batch_number }); // finalizar (cobra qtd se precisar)
+    });
+  }
   function doFinish() {
     var o = S.overlay;
     // cowork: membro NÃO-último fecha SÓ a parte dele (sem contagem). Se o backend
     // disser que ele é o último de production_line, abre a tela de contagem.
     if (o.cowork && !o.lastFinisher) { postFinishCowork(o); return; }
-    if (o.slug === 'production_line') {
+    if (o.slug === 'production_line' || o.needsFnsku) {
+      var nounF = o.needsFnsku ? 'FNSKU / labels foram colados' : 'bottles foram produzidas';
       if (!o.exc) {
         if (!(parseInt(o.bottles, 10) >= 1)) {
-          showAlert({ title: 'Contagem obrigatória', message: 'Você precisa informar quantas bottles foram produzidas. Se não souber, marque a exceção e explique por quê.', okLabel: 'Entendi' }).then(function () { var i = LYR.overlay.el.querySelector('[data-input="finBottles"]'); if (i) i.focus(); });
+          showAlert({ title: 'Contagem obrigatória', message: 'Você precisa informar quantos ' + nounF + '. Se não souber, marque a exceção e explique por quê.', okLabel: 'Entendi' }).then(function () { var i = LYR.overlay.el.querySelector('[data-input="finBottles"]'); if (i) i.focus(); });
           return;
         }
       } else {
@@ -1415,7 +1530,7 @@
           showAlert({ title: 'Motivo obrigatório', message: 'Como você não tem a contagem, é obrigatório explicar o motivo (mín. 10 caracteres). Esta mensagem será enviada para Orders & Inventory.', okLabel: 'Entendi' }).then(function () { var t = LYR.overlay.el.querySelector('[data-input="finReason"]'); if (t) t.focus(); });
           return;
         }
-        showAlert({ title: 'Confirmar exceção', message: 'Você está fechando SEM contagem de bottles. Uma mensagem será enviada para Orders & Inventory com o seu motivo. Confirmar?', okLabel: 'Sim, finalizar com exceção', cancel: 'Voltar' }).then(function (ok) { if (ok) postFinish(o); });
+        showAlert({ title: 'Confirmar exceção', message: 'Você está fechando SEM contagem. Uma mensagem será enviada para Orders & Inventory com o seu motivo. Confirmar?', okLabel: 'Sim, finalizar com exceção', cancel: 'Voltar' }).then(function (ok) { if (ok) postFinish(o); });
         return;
       }
     }
@@ -1459,14 +1574,25 @@
   }
   function postFinish(o) {
     var body;
-    if (o.exc && (o.slug === 'production_line' || o.needsOrders)) {
+    if (o.exc && (o.slug === 'production_line' || o.needsFnsku || o.needsOrders)) {
       body = { exception_no_count: true, exception_reason: (o.reason || '').trim(), note: (o.note || '').trim() || null };
     } else if (o.needsOrders) {
       body = { orders_count: parseInt(o.orders, 10), marketplace: o.marketplace || null, note: (o.note || '').trim() || null };
+    } else if (o.needsFnsku) {
+      // FNSKU usa o mesmo campo (o.bottles) mas manda como fnsku_labels (kind='fnsku')
+      body = { fnsku_labels: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
     } else {
       body = { bottles: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
     }
+    if (o._dupAck) body.dup_count_ack = true; // operador confirmou que NÃO é dobra
     api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function (res) {
+      // PROTEÇÃO contagem dobrada: o lote já tem contagem hoje (de outro evento) →
+      // confirma antes de somar de novo. Cancelar = não conta (provável dobra).
+      if (res && res.dup_count_warning) {
+        var msg = 'Esse lote JÁ tem ' + res.existing_total + ' bottles contados hoje' + (res.existing_by ? ' por ' + res.existing_by : '') + '.\n\nVocê quer MESMO adicionar mais ' + res.attempted + '? (Se vocês contaram juntos, NÃO adicione — seria contagem dobrada.)';
+        if (window.confirm(msg)) { postFinish(Object.assign({}, o, { _dupAck: true })); }
+        return;
+      }
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
       // ITEM 1 — divergência vs estimado: alerta o operador (já avisou a produção no backend)
       var w = res && res.bottle_warning;
@@ -1514,6 +1640,7 @@
     else if (k === 'lotQuery') { S.flow.lotQuery = v; S._focus = 'lotQuery'; render(); }
     else if (k === 'batch') { S.flow.batchInput = v; }
     else if (k === 'orders') { S.flow.ordersInput = v; }
+    else if (k === 'adjQty') { S.flow.adjQty = v; }
     else if (k === 'note') { S.flow.note = v; }
     else if (k === 'ovNote') { S.overlay.note = v; }
     else if (k === 'finBottles') { S.overlay.bottles = v; }

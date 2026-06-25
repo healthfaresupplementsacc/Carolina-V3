@@ -149,7 +149,18 @@ describe('EmsActivitySync._autoCheckin (gate de início recente)', () => {
     const a = act();
     const n = await w._autoCheckin([a]);
     expect(n).toBe(1);
-    expect(db.events[0]).toMatchObject({ person: 7, source: 'ems_auto', started_at: a.stage_started_at });
+    expect(db.events[0]).toMatchObject({ person: 7, source: 'ems_auto' });
+    // started_at agora é um Date (não string crua) ≈ ao início do stage
+    expect(new Date(db.events[0].started_at).getTime()).toBe(new Date(a.stage_started_at).getTime());
+  });
+  test('início no FUTURO (EMS corrompido) → NÃO cria event futuro; clampa started_at pra ~agora', async () => {
+    const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });
+    const future = new Date(Date.now() + 4 * 3600000).toISOString(); // +4h (caso real batch 0234)
+    const n = await w._autoCheckin([act({ stage_started_at: future })]);
+    expect(n).toBe(1);
+    const startMs = new Date(db.events[0].started_at).getTime();
+    expect(startMs).toBeLessThanOrEqual(Date.now() + 2000);   // nunca no futuro
+    expect(startMs).toBeGreaterThan(Date.now() - 60000);      // ~agora (detecção), não +4h
   });
   test('início VELHO (fora da janela) → NÃO cria (não back-fill de assignment)', async () => {
     const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });

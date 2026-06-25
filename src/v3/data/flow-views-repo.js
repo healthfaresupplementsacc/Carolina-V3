@@ -179,9 +179,63 @@ class FlowViewsRepo {
          GROUP BY pc.product_batch_id`, [d]);
       for (const row of bc.rows) { bottlesByBatch.set(row.product_batch_id || 0, row.bottles); totalBottles += row.bottles; }
     } catch (e) { /* canônico falhou */ }
+    // LINHA (Bruno 06-22): "Produção hoje" mostra o TEMPO REAL da linha — só
+    // production_line (fora review/labeling/etc). 3 bases: pessoa-hora (SOMA dos
+    // tempos), span (relógio do 1º início ao último fim) e união (relógio sem dupla
+    // contagem quando 2+ produzem o mesmo lote junto). O ritmo certo é por relógio.
+    const line = { bottles: totalBottles, person_seconds: 0, span_seconds: 0, union_seconds: 0, event_count: 0 };
+    // TOTAL DO FLUXO (Bruno 06-22): mantém a métrica ANTIGA também — garrafas ÷ SOMA
+    // de TODO o tempo de produção (linha + revisão + labeling + …), em pessoa-hora —
+    // pra Bruno ver os 2 lado a lado, + o detalhe por fase (revisão, labeling…).
+    const flowBySlug = new Map();
+    let flowPersonSec = 0;
+    {
+      const ivs = [];
+      for (const e of evs) {
+        const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
+        if (secs == null) continue;
+        flowPersonSec += secs;
+        const slug = e.activity_slug || 'outro';
+        const cur = flowBySlug.get(slug) || { slug, name: e.activity_name || slug, seconds: 0 };
+        cur.seconds += secs; flowBySlug.set(slug, cur);
+        if (e.activity_slug === 'production_line') {
+          line.person_seconds += secs;
+          line.event_count += 1;
+          const s0 = new Date(e.started_at).getTime();
+          const s1 = e.ended_at ? new Date(e.ended_at).getTime() : now;
+          if (Number.isFinite(s0) && Number.isFinite(s1) && s1 > s0) ivs.push([s0, s1]);
+        }
+      }
+      if (ivs.length) {
+        const span = Math.max(...ivs.map((i) => i[1])) - Math.min(...ivs.map((i) => i[0]));
+        ivs.sort((a, b) => a[0] - b[0]);
+        let union = 0, cS = null, cE = null;
+        for (const [s, en] of ivs) {
+          if (cS === null) { cS = s; cE = en; }
+          else if (s <= cE) { cE = Math.max(cE, en); }
+          else { union += cE - cS; cS = s; cE = en; }
+        }
+        if (cS !== null) union += cE - cS;
+        line.span_seconds = Math.round(span / 1000);
+        line.union_seconds = Math.round(union / 1000);
+      }
+      line.person_seconds = Math.round(line.person_seconds);
+      line.bottles_per_min = line.union_seconds > 0 ? +(totalBottles / (line.union_seconds / 60)).toFixed(1) : null;
+      line.sec_per_bottle = (line.union_seconds > 0 && totalBottles > 0) ? +(line.union_seconds / totalBottles).toFixed(1) : null;
+      // pessoa-hora da linha tb vira ritmo (referência, sem relógio)
+      line.bottles_per_min_person = line.person_seconds > 0 ? +(totalBottles / (line.person_seconds / 60)).toFixed(1) : null;
+    }
+    const flowTotal = {
+      person_seconds: Math.round(flowPersonSec),
+      bottles_per_min: flowPersonSec > 0 ? +(totalBottles / (flowPersonSec / 60)).toFixed(1) : null,
+      sec_per_bottle: (flowPersonSec > 0 && totalBottles > 0) ? +(flowPersonSec / totalBottles).toFixed(1) : null,
+      by_phase: [...flowBySlug.values()]
+        .map((p) => ({ slug: p.slug, name: p.name, seconds: Math.round(p.seconds) }))
+        .sort((a, b) => b.seconds - a.seconds),
+    };
     return {
       date: d, flow: 'production', mode: 'ordered',
-      total_bottles: totalBottles,
+      total_bottles: totalBottles, line, flow_total: flowTotal,
       lotes: [...byBatch.values()].map((b) => ({
         batch_id: b.batch_id, batch_number: b.batch_number, product: b.product,
         total_seconds: Math.round(b.total_seconds),
@@ -262,7 +316,7 @@ class FlowViewsRepo {
          FROM v3.production_counts pc
          JOIN v3.events e ON e.id = pc.source_event_id
          JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.counts_as_pp = true
-         WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND e.deleted_at IS NULL AND pc.production_date = $1`,
+         WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL AND e.deleted_at IS NULL AND pc.production_date = $1`,
         [d])).rows[0].orders;
     } catch (e) { /* canônico falhou → usa fallback abaixo */ }
     const orders = pcOrders > 0 ? pcOrders : ordersTotal; // canônico, com fallback events.quantity
@@ -281,23 +335,141 @@ class FlowViewsRepo {
       seconds: Math.round(subSteps.get(activity) || 0),    // soma (pessoa-hora)
       wall_seconds: unionSeconds(ivs),                      // união (sem dupla contagem)
     }));
+    // INPUTS BRUTOS das ordens (auditoria): cada contagem kind='orders' VIVA, com
+    // a qtd que o operador digitou, em qual impressão (order_printing / _2) e quem.
+    // Deixa o painel do evento mostrar exatamente o que a Simone entrou na 1ª/2ª
+    // impressão — `orders` (acima) é a soma; aqui é o detalhe. Clínica fica fora.
+    let ordersInputs = [];
+    try {
+      ordersInputs = (await this.db.query(
+        `SELECT pc.bottles AS qty, at.slug, at.display_name AS activity_name, pc.adjustment_kind,
+                p.display_name AS person, pc.source_event_id AS event_id,
+                to_char(pc.reported_at AT TIME ZONE 'America/New_York', 'HH24:MI') AS at_ny
+         FROM v3.production_counts pc
+         JOIN v3.events e ON e.id = pc.source_event_id
+         JOIN v3.activity_types at ON at.id = e.activity_type_id AND at.counts_as_pp = true
+         LEFT JOIN v3.persons p ON p.id = pc.reported_by_person_id
+         WHERE pc.kind = 'orders' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+           AND e.deleted_at IS NULL AND pc.production_date = $1
+         ORDER BY pc.reported_at`, [d])).rows.map((r) => ({
+        qty: Number(r.qty), slug: r.slug, activity_name: r.activity_name, adjustment_kind: r.adjustment_kind || null,
+        person: r.person || null, event_id: r.event_id, at: r.at_ny || null,
+      }));
+    } catch (e) { /* opcional — não derruba o card */ }
+    // RESET de ordens: se um operador reajustou o TOTAL hoje, expõe antes→agora
+    // pro dashboard mostrar o valor antigo riscado + o novo em vermelho. Pega o
+    // reset VIVO mais recente; old_total = soma do que ele superseded.
+    let ordersReset = null;
+    try {
+      const rr = (await this.db.query(
+        `SELECT pc.bottles AS new_total, p.display_name AS by_name,
+                to_char(pc.reported_at AT TIME ZONE 'America/New_York', 'HH24:MI') AS at_ny,
+                (SELECT COALESCE(SUM(o.bottles),0)::int FROM v3.production_counts o WHERE o.superseded_by = pc.id) AS old_total
+         FROM v3.production_counts pc LEFT JOIN v3.persons p ON p.id = pc.reported_by_person_id
+         WHERE pc.adjustment_kind = 'reset' AND pc.kind = 'orders' AND pc.deleted_at IS NULL
+           AND pc.superseded_by IS NULL AND pc.production_date = $1
+         ORDER BY pc.reported_at DESC LIMIT 1`, [d])).rows[0];
+      if (rr) ordersReset = { old_total: Number(rr.old_total), new_total: Number(rr.new_total), by: rr.by_name || null, at: rr.at_ny || null };
+    } catch (e) { /* opcional */ }
+    // PESSOA-HORA (Bruno 06-22): tempo total de CADA pessoa no P&P + a SOMA, e a
+    // média por pacote dividindo a soma pelos envelopes ("quanto cada um levou,
+    // somado, ÷ nº de pacotes"). by_person ordenado do maior pro menor.
+    const personTotal = Math.round([...personSeconds.values()].reduce((s, v) => s + v, 0));
+    const byPerson = [...personSeconds.entries()]
+      .map(([person, s]) => ({ person, seconds: Math.round(s) }))
+      .sort((a, b) => b.seconds - a.seconds);
     return {
       date: d, flow: 'pnp', mode: 'block',
       total_seconds: spanSeconds,         // P&P do dia = SPAN corrido (Bruno)
       wall_seconds: wallSeconds,          // união de intervalos (referência)
       span_seconds: spanSeconds,
-      person_seconds_total: Math.round([...personSeconds.values()].reduce((s, v) => s + v, 0)),
-      person_seconds: [...personSeconds.entries()].map(([person, s]) => ({ person, seconds: Math.round(s) })),
+      person_seconds_total: personTotal,  // SOMA do tempo de todas as pessoas no P&P
+      person_seconds: byPerson,           // tempo de cada pessoa (Simone, Ana, …)
+      person_seconds_per_order: orders > 0 ? Math.round(personTotal / orders) : null, // média pessoa-hora ÷ pacote
       invalid_event_count: invalid,
       invalid_events: invalidEvents,
       event_count: evs.length,
       people: [...people],
       sub_steps: subStepsOut,
       orders,
+      orders_inputs: ordersInputs,        // detalhe por impressão (input bruto do operador)
+      orders_reset: ordersReset,          // { old_total, new_total, by, at } se reajustaram hoje
       seconds_per_order: orders > 0 ? Math.round(spanSeconds / orders) : null,
       quantities,
       packages: orders > 0 ? orders : null,
       seconds_per_package: orders > 0 ? Math.round(spanSeconds / orders) : null,
+    };
+  }
+
+  /** FNSKU — o bloco do dia (regra Bruno 06-23): labels colados + TEMPO por pessoa
+   *  (estilo P&P: cada um soma o SEU tempo no fnsku_labeling), soma, e a MÉDIA por
+   *  label. Mais o ritmo por relógio (labels/min) e o detalhe por lote. Cowork no
+   *  MESMO lote soma por pessoa (cada um cola labels diferentes → contagens somam).
+   *  Conta = production_counts kind='fnsku'. Tempo = eventos slug='fnsku_labeling'. */
+  async fnskuByDay(date) {
+    const d = resolveDate(date);
+    const evs = await this._dayEvents(d, 'production'); // fnsku_labeling tem flow=production
+    const now = this._now();
+    const bounds = nyDayBounds(d);
+    const personSeconds = new Map();
+    const byBatch = new Map();
+    const allIntervals = [];
+    let eventCount = 0;
+    for (const e of evs) {
+      if (e.activity_slug !== 'fnsku_labeling') continue;
+      const secs = clampedSeconds(e.started_at, e.ended_at, bounds.startMs, bounds.endMs, now);
+      if (secs == null) continue;
+      eventCount += 1;
+      if (e.person_name) personSeconds.set(e.person_name, (personSeconds.get(e.person_name) || 0) + secs);
+      const s0 = new Date(e.started_at).getTime();
+      const s1 = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const iv = (Number.isFinite(s0) && Number.isFinite(s1) && s1 > s0) ? [s0, s1] : null;
+      if (iv) allIntervals.push(iv);
+      const key = e.product_batch_id || 0;
+      if (!byBatch.has(key)) byBatch.set(key, { batch_id: e.product_batch_id || null, batch_number: e.batch_number || null, product: e.product || null, seconds: 0, people: new Set(), intervals: [] });
+      const b = byBatch.get(key);
+      b.seconds += secs;
+      if (e.person_name) b.people.add(e.person_name);
+      if (iv) b.intervals.push(iv);
+    }
+    // labels (kind='fnsku') do dia, total + por lote
+    let totalLabels = 0;
+    const labelsByBatch = new Map();
+    try {
+      const lc = await this.db.query(
+        `SELECT pc.product_batch_id, COALESCE(SUM(pc.bottles),0)::int AS labels
+         FROM v3.production_counts pc
+         WHERE pc.kind = 'fnsku' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL AND pc.production_date = $1
+         GROUP BY pc.product_batch_id`, [d]);
+      for (const r of lc.rows) { labelsByBatch.set(r.product_batch_id || 0, r.labels); totalLabels += r.labels; }
+    } catch (e) { /* canônico falhou */ }
+    const wallUnion = unionSeconds(allIntervals);
+    let spanStart = null, spanEnd = null;
+    for (const [s, en] of allIntervals) { if (spanStart == null || s < spanStart) spanStart = s; if (spanEnd == null || en > spanEnd) spanEnd = en; }
+    const span = (spanStart != null && spanEnd != null && spanEnd > spanStart) ? Math.round((spanEnd - spanStart) / 1000) : wallUnion;
+    const personTotal = Math.round([...personSeconds.values()].reduce((s, v) => s + v, 0));
+    return {
+      date: d, flow: 'fnsku',
+      total_labels: totalLabels,
+      person_seconds_total: personTotal,
+      person_seconds: [...personSeconds.entries()].map(([person, s]) => ({ person, seconds: Math.round(s) })).sort((a, b) => b.seconds - a.seconds),
+      person_seconds_per_label: totalLabels > 0 ? Math.round(personTotal / totalLabels) : null, // seg/label (pessoa-hora)
+      wall_seconds: wallUnion,
+      span_seconds: span,
+      labels_per_min: wallUnion > 0 ? +(totalLabels / (wallUnion / 60)).toFixed(1) : null,          // relógio (união)
+      labels_per_min_person: personTotal > 0 ? +(totalLabels / (personTotal / 60)).toFixed(1) : null, // pessoa-hora
+      sec_per_label: (wallUnion > 0 && totalLabels > 0) ? +(wallUnion / totalLabels).toFixed(1) : null,
+      event_count: eventCount,
+      people: [...personSeconds.keys()],
+      lotes: [...byBatch.values()].map((b) => {
+        const w = unionSeconds(b.intervals);
+        const labels = labelsByBatch.get(b.batch_id || 0) || 0;
+        return {
+          batch_id: b.batch_id, batch_number: b.batch_number, product: b.product,
+          seconds: Math.round(b.seconds), wall_seconds: w, labels, people: [...b.people],
+          labels_per_min: w > 0 ? +(labels / (w / 60)).toFixed(1) : null,
+        };
+      }).sort((a, b) => b.labels - a.labels),
     };
   }
 

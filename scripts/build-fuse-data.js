@@ -18,6 +18,8 @@ const path = require('path');
 const GROUPS = [
   { key: 'linha', icon: '🏭', label: 'Linha de Produção', items: [
     ['production_line', 'Linha de produção'], ['review', 'Revisão'],
+    ['labeling', 'Colocar labels'],
+    ['fnsku_labeling', 'Colocando FNSKU / Código de Barras'],
     ['counting', 'Contagem'], ['line_changeover', 'Troca de linha'],
     ['production_line_other', '✏️ Outro (Linha)'],
   ] },
@@ -27,23 +29,26 @@ const GROUPS = [
     ['material_handling', 'Material prep'],
     ['formulation_other', '✏️ Outro (Formulação)'],
   ] },
-  { key: 'limpeza', icon: '🧹', label: 'Limpeza / Suporte', items: [
+  { key: 'limpeza', icon: '🧹', label: 'Limpeza / Organização', items: [
     ['cleaning', 'Limpeza'], ['repair', 'Conserto de máquina'],
-    ['facility_maintenance', 'Manutenção'], ['organization', 'Organização'],
+    ['facility_maintenance', 'Manutenção'],
+    ['organization', 'Organização do Warehouse'],
+    ['stock_organization', 'Organização de Stock (Inventário)'],
     ['machine_downtime', 'Máquina parada'],
-    ['label_change', '🏷️ Troca de label'], ['label_repair', '🔧 Conserto de label'],
+    ['label_change', '🏷️ Troca/Ajuste de Label'],
     ['cleaning_other', '✏️ Outro (Limpeza/Suporte)'],
   ] },
-  { key: 'embalagem', icon: '📦', label: 'Embalagem', items: [
+  { key: 'embalagem', icon: '📦', label: 'Envio De Pacotes', items: [
     ['order_printing', 'Impressão de ordens'],
-    ['order_printing_2', '2ª impressão'], ['labeling', 'Colocar labels'],
-    ['packaging', 'Embalagem'],
+    ['order_printing_2', '2ª impressão'],
+    ['packaging', 'Empacotando Suplementos'],
     ['marketplace_prep', 'Trocar label'],
     ['clinic_shipment', 'Envio Clínica'],
     ['packaging_other', '✏️ Outro (Embalagem)'],
   ] },
-  { key: 'envio', icon: '🚚', label: 'Envio', items: [
+  { key: 'envio', icon: '🚚', label: 'Envio De Caixas', items: [
     ['box_closing', 'Fechando caixas'],
+    ['fnsku_labeling', 'Colocando FNSKU / Código de Barras'],
     ['shipping_walmart', 'Envio Walmart'], ['shipping_amazon', 'Envio Amazon'],
     ['dc_shipment', 'Envio Distribution Center'], ['clinic_shipment', 'Envio Clínica'],
     ['shipping_other', '✏️ Outro (Envio)'],

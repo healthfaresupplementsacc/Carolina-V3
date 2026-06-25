@@ -234,7 +234,12 @@ class EmsActivitySync {
       try {
         if (!a.tracker_person_id || !a.stage_started_at) continue; // só mapeado + início real
         const startMs = Date.parse(a.stage_started_at);
-        if (!Number.isFinite(startMs) || (Date.now() - startMs) > windowMs) continue; // só RECENTE
+        if (!Number.isFinite(startMs) || (Date.now() - startMs) > windowMs) continue; // muito antigo → sem back-fill
+        // GUARD (bug real 06-25): o EMS às vezes traz started_at CORROMPIDO — no FUTURO
+        // ou fora de ordem (ex. batch 0234 com formulation.started_at às 18:33 UTC, à
+        // frente de blending/encapsulating). Um check-in NÃO pode começar no futuro →
+        // usa AGORA (a detecção é agora). Sem isso vira event futuro + invertido (fim < início).
+        const safeStart = startMs > Date.now() ? new Date() : new Date(startMs);
         const slug = EMS_STAGE_TO_SLUG[a.stage]; if (!slug) continue;
         const cur = await this.db.query('SELECT auto_event_id FROM v3.ems_activity_cache WHERE ems_key = $1', [a.ems_key]);
         if (cur.rows[0] && cur.rows[0].auto_event_id) continue; // já criou pra essa atividade
@@ -254,10 +259,21 @@ class EmsActivitySync {
         }
         const act = await this.db.query('SELECT id, is_background FROM v3.activity_types WHERE slug = $1 AND active = true LIMIT 1', [slug]);
         if (!act.rows[0]) continue;
+        // MÁQUINA = UM trabalho (Bruno 06-24): se OUTRO operador já tem essa atividade
+        // de MÁQUINA (background, ex.: encapsulação/mistura) ABERTA, o auto-checkin NÃO
+        // cria uma 2ª — os operadores de máquina se REVEZAM (handoff), não duplicam.
+        // Era isso que punha encapsulação rodando pros 2 ao mesmo tempo.
+        if (act.rows[0].is_background) {
+          const dupSlug = await this.db.query(
+            `SELECT 1 FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+              WHERE at.slug = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL AND e.person_id <> $2 LIMIT 1`,
+            [slug, a.tracker_person_id]);
+          if (dupSlug.rowCount) continue;
+        }
         const ins = await this.db.query(
           `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, is_long_running)
            VALUES ($1, $2, $3, $4::timestamptz, $5, 'high', 'ems_auto', $6) RETURNING id`,
-          [a.tracker_person_id, act.rows[0].id, batchId, a.stage_started_at, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']', !!act.rows[0].is_background]);
+          [a.tracker_person_id, act.rows[0].id, batchId, safeStart, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']', !!act.rows[0].is_background]);
         const evId = ins.rows[0].id;
         await this.db.query('UPDATE v3.ems_activity_cache SET auto_event_id = $1 WHERE ems_key = $2', [evId, a.ems_key]);
         try { await this.db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'event.ems_auto_checkin', 'event', $1, $2::jsonb)", [evId, JSON.stringify({ ems_key: a.ems_key, slug, batch: a.batch_number, person_id: a.tracker_person_id, machine: a.machine })]); } catch (e) {}

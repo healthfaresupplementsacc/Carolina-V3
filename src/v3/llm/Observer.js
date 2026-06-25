@@ -62,6 +62,9 @@ class Observer {
     // worker (billing/rate-limit). Bypassa mode=shadow porque é admin,
     // não auto-resposta operacional.
     this.enableWorkerAlerts = deps.enableWorkerAlerts === true;
+    // REVIEW MODE (Bruno 06-22): posta um resumo no canal ADMIN quando interpreta
+    // algo do Slack (criou/atualizou), pra revisar ANTES de liberar no grupo normal.
+    this.reviewToAdmin = deps.reviewToAdmin === true;
     this.alertAdminChannelId = deps.alertAdminChannelId || 'C0B36DR5MP1';
     this.alertBrunoCampDmId = deps.alertBrunoCampDmId || 'D03UL80GDRB';
     this.alertCooldownMs = deps.alertCooldownMs || (60 * 60 * 1000);   // 1h
@@ -250,6 +253,19 @@ class Observer {
       await this.slack.addReaction(message.slack_ts, decision.react_emoji);
     }
     // SHADOW: zero reaction, zero post, zero DM.
+    // REVIEW MODE: resumo pro ADMIN do que interpretou (sem tocar no grupo normal).
+    if (this.reviewToAdmin && this.slack && this.slack.postAs && (created.length || updated.length || (decision.actions && decision.actions.length))) {
+      try {
+        await this.slack.postAs({
+          channel: this.alertAdminChannelId, sender: { name: 'Carolina (revisão)' }, thread_ts: null,
+          unfurl_links: false, unfurl_media: false,
+          text: `:eyes: *Revisão* — interpretei do Slack:\n_"${(message.raw_text || '').slice(0, 160)}"_\n→ ${decision.interpretation || '(sem interpretação)'}\n`
+            + (created.length ? `• criou ${created.length} event(s)\n` : '')
+            + (updated.length ? `• atualizou ${updated.length} event(s)\n` : '')
+            + `confiança: ${decision.confidence || '?'} · categoria: ${decision.categorization || '?'}`,
+        });
+      } catch (e) { console.error('[Observer] review post falhou:', e.message); }
+    }
 
     // 9 ── FINALIZA ────────────────────────────────────────────
     await this._finalize(message, decision, created, updated, { isOffHours, adminCtx, coalesced });
@@ -619,7 +635,10 @@ class Observer {
           text: (message.raw_text || '').slice(0, 100),
           error: errStr.slice(0, 200), attempts,
         })]);
-      if (this.slack && this.slack.postAs) {
+      // só posta o aviso no Slack se os worker-alerts estiverem ligados (respeita
+      // WORKER_ALERTS_DISABLED e o kill-switch Carolina). O REGISTRO (notification +
+      // audit) continua sempre — só o spam da Carolina some. (Bruno 06-22)
+      if (this.enableWorkerAlerts && this.slack && this.slack.postAs) {
         try {
           await this.slack.postAs({
             channel: this.alertAdminChannelId, sender: { name: 'Carolina' }, thread_ts: null,

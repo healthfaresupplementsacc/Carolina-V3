@@ -170,6 +170,11 @@ const ENDPOINTS = [
       const d = await r.flowViews.pnpByDay(req.query.date);
       return { data: d, meta: { date: d.date } };
     } },
+  { path: '/api/v3/data/fnsku',
+    handler: async (req, r) => {
+      const d = await r.flowViews.fnskuByDay(req.query.date);
+      return { data: d, meta: { date: d.date } };
+    } },
   { path: '/api/v3/data/support',
     handler: async (req, r) => {
       const d = await r.flowViews.supportByDay(req.query.date);
@@ -386,7 +391,7 @@ const ENDPOINTS = [
  */
 async function buildSnapshot(dateInput, repos) {
   const date = resolveDate(dateInput);
-  const [timeline, production, pp, support, goals, counts, deadlines, metrics, health, uncertain, autoClosed]
+  const [timeline, production, pp, support, goals, counts, deadlines, metrics, health, uncertain, autoClosed, fnsku]
     = await Promise.all([
       repos.timeline.eventsByDay(date),
       repos.flowViews.productionByDay(date),
@@ -404,6 +409,10 @@ async function buildSnapshot(dateInput, repos) {
       repos.health.autoClosedEvents
         ? repos.health.autoClosedEvents(date)
         : Promise.resolve({ events: [] }),
+      // FNSKU do dia (tolerante a mock parcial em testes) — Bruno 06-23
+      repos.flowViews.fnskuByDay
+        ? repos.flowViews.fnskuByDay(date)
+        : Promise.resolve({}),
     ]);
 
   const openEvents = [];
@@ -441,6 +450,14 @@ async function buildSnapshot(dateInput, repos) {
         total_seconds: pp.total_seconds,
         orders: pp.orders, seconds_per_order: pp.seconds_per_order,
         sub_steps: pp.sub_steps, quantities: pp.quantities, people: pp.people,
+      },
+      fnsku: {
+        total_labels: (fnsku && fnsku.total_labels) || 0,
+        person_seconds_total: (fnsku && fnsku.person_seconds_total) || 0,
+        person_seconds: (fnsku && fnsku.person_seconds) || [],
+        labels_per_min: (fnsku && fnsku.labels_per_min) != null ? fnsku.labels_per_min : null,
+        sec_per_label: (fnsku && fnsku.sec_per_label) != null ? fnsku.sec_per_label : null,
+        lotes: (fnsku && fnsku.lotes) || [], people: (fnsku && fnsku.people) || [],
       },
       support: support.occurrences,
       goals: goals.goals,

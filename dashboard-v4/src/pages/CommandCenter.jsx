@@ -22,10 +22,11 @@ const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só edi
 const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
 
 function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw,
-                          onMerge, onSplit, onCreateInGap, writes }) {
+                          onMerge, onSplit, onCreateInGap, writes,
+                          notifOpen, onNotifClose, onNotifInfo }) {
   const now = window.HFH.useNow(true);
   const HFD = hfdata || window.HFData;
-  const { operators = [], goals = [], alerts = [], pp = {}, _gaps = {} } = HFD;
+  const { operators = [], goals = [], alerts = [], pp = {}, fnsku = null, _gaps = {} } = HFD;
   const { fmtClock, fmtDur } = window.HFH;
 
   // ── State local ──────────────────────────────────────────
@@ -54,14 +55,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   };
   const closeDrill = () => setDrill(null);
 
-  // E6 Leva A #3 — toggle do card de notificações (bell icon).
-  const [notifsVisible, setNotifsVisible] = React.useState(() => {
-    try { return sessionStorage.getItem(NOTIFS_VISIBLE_KEY) !== '0'; }
-    catch { return true; }
-  });
-  React.useEffect(() => {
-    try { sessionStorage.setItem(NOTIFS_VISIBLE_KEY, notifsVisible ? '1' : '0'); } catch {}
-  }, [notifsVisible]);
+  // Notificações (Bruno 06-23): saíram do corpo da página. Quem controla a abertura
+  // é o SINO DO TOPO (prop `notifOpen` vinda do App). Aqui só guardamos o modal de
+  // EMERGÊNCIA (crítico novo → aviso com OK). A contagem é publicada via onNotifInfo.
+  const [emergency, setEmergency] = React.useState(null);
 
   // E7-refine2 #4: lift notif state pra cá (compartilha com Correio na timeline)
   const [openNotifId, setOpenNotifId] = React.useState(null);
@@ -84,9 +81,26 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     .filter((ev) => HFD.activities && HFD.activities[ev.activity] && HFD.activities[ev.activity].flow === 'production' && ev.qty)
     .reduce((s, ev) => s + (Number(ev.qty) || 0), 0);
   const liveProd = (prod.total_bottles != null && prod.total_bottles > 0) ? prod.total_bottles : legacyQty;
-  const prodSecs = (prod.lotes || []).reduce((s, l) => s + (Number(l.total_seconds) || 0), 0);
-  const prodPerMin = prodSecs > 0 ? +(liveProd / (prodSecs / 60)).toFixed(1) : null;
-  const prodPerSec = prodSecs > 0 ? +(liveProd / prodSecs).toFixed(2) : null;
+  // RITMO REAL DA LINHA (Bruno 06-22): antes dividia as garrafas pela SOMA de TODO
+  // o tempo de produção (linha + revisão + labeling + ...) em pessoa-hora → ritmo
+  // baixo e enganoso. Agora usa só production_line, por RELÓGIO (união de intervalos).
+  // Fallback pro modelo antigo se 'line' não vier.
+  const ln = prod.line || null;
+  const lineWall = ln ? (Number(ln.union_seconds) || Number(ln.span_seconds) || 0) : 0;
+  const prodSecsLegacy = (prod.lotes || []).reduce((s, l) => s + (Number(l.total_seconds) || 0), 0);
+  const prodPerMin = (ln && ln.bottles_per_min != null) ? ln.bottles_per_min
+    : (prodSecsLegacy > 0 ? +(liveProd / (prodSecsLegacy / 60)).toFixed(1) : null);
+  const secPerBottle = (ln && ln.sec_per_bottle != null) ? ln.sec_per_bottle
+    : (prodSecsLegacy > 0 && liveProd > 0 ? +(prodSecsLegacy / liveProd).toFixed(1) : null);
+  // MÉTRICA ANTIGA mantida (Bruno 06-22): garrafas ÷ SOMA de TODO o tempo de
+  // produção (linha + revisão + labeling + …), em pessoa-hora. Os 2 lado a lado.
+  const ft = prod.flow_total || null;
+  const flowSecs = ft ? (Number(ft.person_seconds) || 0) : prodSecsLegacy;
+  const flowPerMin = (ft && ft.bottles_per_min != null) ? ft.bottles_per_min
+    : (flowSecs > 0 ? +(liveProd / (flowSecs / 60)).toFixed(1) : null);
+  const reviewPhase = ft && ft.by_phase ? ft.by_phase.find((p) => p.slug === 'review') : null;
+  // SEGUNDOS → "Xh0Y" / "Zmin" (o fmtDur do HFH é em MINUTOS — não confundir).
+  const fmtDurSec = (s) => { s = Math.round(Number(s) || 0); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m}min`; };
   // FASE 3 — REVISÃO: média histórica (30d) de cápsulas/seg + frascos/min +
   // tempo médio de revisão por produto e geral (fonte canônica /review-rate).
   const review = HFD.review || { products: [], runs: [], n: 0, avg_capsules_per_sec: null, avg_bottles_per_min: null, avg_sec_per_bottle: null, range_days: 30 };
@@ -196,6 +210,18 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const warnCount = allNotifs.filter((a) => a.severity === 'warn').length;
   const badCount = allNotifs.filter((a) => a.severity === 'bad').length;
   const infoCount = allNotifs.filter((a) => a.severity === 'info').length;
+  // Publica a contagem pro SINO do topo (App → badge do topbar). setNotifInfo é setter
+  // estável; só dispara quando total/crítico muda → sem loop.
+  React.useEffect(() => { if (onNotifInfo) onNotifInfo({ total: allNotifs.length, bad: badCount }); }, [onNotifInfo, allNotifs.length, badCount]);
+  // EMERGÊNCIA: crítico NOVO (após o load) → modal de aviso. Baseline capturado pós-load
+  // evita disparar no 0→1 da CHEGADA dos dados (era o bug do auto-abrir). Bruno 06-23.
+  const notifBaseline = React.useRef(null);
+  React.useEffect(() => {
+    if (loading) return;
+    if (notifBaseline.current === null) { notifBaseline.current = badCount; return; }
+    if (badCount > notifBaseline.current) setEmergency({ items: allNotifs.filter((a) => a.severity === 'bad') });
+    notifBaseline.current = badCount;
+  }, [loading, badCount, allNotifs]);
 
   // ── Handlers — E5/E6 #7: drag com CONFIRMAÇÃO DUPLA ──────
   // Drag horizontal/resize NÃO bate mais no banco direto. Acumula em
@@ -302,9 +328,25 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                <GearButton onClick={onGearToggle('producao')} active={gearOpen === 'producao'}/>
              </div>}
              foot={<>
-               {prodPerMin != null && (
-                 <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, marginBottom: 4 }}>
-                   {prodPerMin}/min · {prodPerSec}/seg
+               {(prodPerMin != null || lineWall > 0 || flowPerMin != null) && (
+                 <div style={{ marginBottom: 4, lineHeight: 1.5 }}>
+                   {/* LINHA (só produção, por relógio) — a métrica principal */}
+                   {(lineWall > 0 || prodPerMin != null) && (
+                     <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700 }}>
+                       <span style={{ fontSize: 9.5, opacity: 0.7, fontWeight: 800, letterSpacing: 0.3 }}>LINHA </span>
+                       {lineWall > 0 && <span title="relógio em que a linha esteve produzindo (sem dupla contagem)">{fmtDurSec(lineWall)}</span>}
+                       {prodPerMin != null && <span> · {prodPerMin}/min</span>}
+                       {secPerBottle != null && <span> · {secPerBottle}s/un</span>}
+                     </div>
+                   )}
+                   {/* TOTAL (linha + revisão + labeling…, pessoa-hora) — a antiga */}
+                   {flowPerMin != null && (
+                     <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>
+                       <span style={{ fontSize: 9.5, opacity: 0.8, fontWeight: 800, letterSpacing: 0.3 }}>TOTAL </span>
+                       <span title="garrafas ÷ soma de TODO o tempo de produção (linha+revisão+labeling), pessoa-hora">{fmtDurSec(flowSecs)} · {flowPerMin}/min</span>
+                       {reviewPhase && Number(reviewPhase.seconds) > 0 && <span> · revisão {fmtDurSec(reviewPhase.seconds)}</span>}
+                     </div>
+                   )}
                  </div>
                )}
                {topLotes.length ? (
@@ -393,45 +435,6 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                    ))}
                  </>
                ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem metas registradas</div>}
-               <EditPopover open={gearOpen === 'metas'} anchor={gear?.anchor} onClose={closeGear}
-                            title="Editar metas do dia">
-                 <EditList items={goals.map((g) => ({
-                              id: g.id,
-                              label: `${g._product_name || '(?)'} · ${g.target} ${g.unit} (feito ${g.done})`,
-                            }))}
-                          emptyMsg="Sem metas registradas"
-                          onAdd={async () => {
-                            const product = window.prompt('Nome do produto (será resolvido pelo catálogo):');
-                            if (!product) return;
-                            const qty = Number(window.prompt('Meta (garrafas):', '500'));
-                            if (!Number.isFinite(qty) || qty <= 0) { ack('Quantidade inválida'); return; }
-                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
-                            const res = await writes.createGoal({ product_id: null, batch_number: null, expected_quantity: qty, unit: 'bottle' });
-                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error} — passa product_id direto via terminal se preciso`); return; }
-                            if (refresh) refresh();
-                            ack(`Meta criada ✓ — id ${res.data.id}`);
-                          }}
-                          onEdit={async (it) => {
-                            const cur = goals.find((g) => g.id === it.id);
-                            const v = window.prompt(`Nova meta pra ${cur?._product_name || '?'} (em garrafas):`, String(cur?.target || 500));
-                            if (v == null) return;
-                            const n = Number(v);
-                            if (!Number.isFinite(n) || n <= 0) { ack('Valor inválido'); return; }
-                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
-                            const res = await writes.patchGoal(it.id, { expected_quantity: n });
-                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
-                            if (refresh) refresh();
-                            ack(`Salvo ✓ — meta ${it.id} = ${n}`);
-                          }}
-                          onDelete={async (it) => {
-                            if (!window.confirm(`Apagar meta ${it.label}?`)) return;
-                            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
-                            const res = await writes.deleteGoal(it.id, 'apagado via /dashboard-v4');
-                            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
-                            if (refresh) refresh();
-                            ack(`Apagado ✓ — meta ${it.id}`);
-                          }}/>
-               </EditPopover>
              </>}/>
 
         {/* P&P — engrenagem (E6 #2: edita correio) */}
@@ -443,13 +446,44 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              </div>}
              foot={<>
                <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
-                 <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>ordens</div><b className="mono">{pp.orders || 0}</b></div>
+                 <div>
+                   <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ordens</div>
+                   {pp.orders_reset ? (
+                     // reajustado por operador: total antigo riscado + novo em vermelho
+                     <span title={`Reajustado por ${pp.orders_reset.by || 'operador'}${pp.orders_reset.at ? ' às ' + pp.orders_reset.at : ''}`}>
+                       <b className="mono" style={{ textDecoration: 'line-through', color: 'var(--text-3)', fontWeight: 500 }}>{pp.orders_reset.old_total}</b>
+                       <b className="mono" style={{ color: '#c0352b', marginLeft: 6 }}>{pp.orders}</b>
+                       <span style={{ fontSize: 9.5, color: '#c0352b', marginLeft: 4 }}>editado</span>
+                     </span>
+                   ) : <b className="mono">{pp.orders || 0}</b>}
+                 </div>
                  <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
                  {correioNotif && (
                    <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>corte</div>
                         <b className="mono" style={{ color: 'var(--hf-leaf-600)' }}>{fmtClock(correioNotif._minutes)}</b></div>
                  )}
                </div>
+               {/* TEMPO POR PESSOA (Bruno 06-22): cada pessoa no P&P + soma + média/pacote */}
+               {pp.person_seconds && pp.person_seconds.length > 0 && (
+                 <div style={{ marginTop: 8, borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 6 }}>
+                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-pnp)', textTransform: 'uppercase', marginBottom: 4 }}>
+                     Tempo por pessoa · pessoa-hora
+                   </div>
+                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
+                     {pp.person_seconds.map((p) => (
+                       <span key={p.person} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
+                         {p.person}: <b>{fmtDurSec(p.seconds)}</b>
+                       </span>
+                     ))}
+                   </div>
+                   <div style={{ fontSize: 11, color: 'var(--text-2, #4b5563)', fontWeight: 600 }}>
+                     Soma: <b className="mono">{fmtDurSec(pp.person_seconds_total)}</b>
+                     {pp.person_seconds_per_order != null && (
+                       <span title="soma do tempo de todas as pessoas ÷ nº de pacotes"> · média <b className="mono" style={{ color: 'var(--flow-pnp)' }}>{pp.person_seconds_per_order}s</b>/pacote{pp.orders ? ` (${pp.orders} pacotes)` : ''}</span>
+                     )}
+                   </div>
+                 </div>
+               )}
                <EditPopover open={gearOpen === 'pp'} anchor={gear?.anchor} onClose={closeGear}
                             title="Editar P&P · correio">
                  {correioNotif ? (
@@ -479,73 +513,108 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                </EditPopover>
              </>}/>
 
-        {/* ATENÇÃO — engrenagem + bell toggle (E6 #3) */}
-        <KPI label="Atenção" en="Attention"
-             value={allNotifs.length}
-             attn={badCount > 0}
-             headRight={<div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-               <button
-                 onClick={() => setNotifsVisible((v) => !v)}
-                 className="icon-btn"
-                 title={notifsVisible ? 'Esconder barra de notificações' : 'Mostrar barra de notificações'}
-                 style={{
-                   width: 22, height: 22, padding: 0,
-                   background: notifsVisible ? 'transparent' : 'var(--surface-2)',
-                   border: 'none', cursor: 'pointer',
-                   color: notifsVisible ? 'var(--hf-leaf-600)' : 'var(--text-3)',
-                 }}>
-                 <Icon name="bell" size={14}/>
-               </button>
-               <GearButton onClick={onGearToggle('attention')} active={gearOpen === 'attention'}/>
-             </div>}
-             foot={<>
-               <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
-                 {badCount} crítico · {warnCount} warning · {infoCount} info
-                 {!notifsVisible && <span style={{ marginLeft: 8, color: 'var(--text-3)', fontStyle: 'italic' }}>(barra oculta)</span>}
-               </div>
-               <EditPopover open={gearOpen === 'attention'} anchor={gear?.anchor} onClose={closeGear}
-                            title="Configurar atenção">
-                 <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-                   <p style={{ margin: '0 0 8px' }}>
-                     Bell toggle (cima): <b>{notifsVisible ? 'ON — barra visível' : 'OFF — barra oculta'}</b>
-                   </p>
-                   <p style={{ margin: '0 0 8px' }}>
-                     Thresholds (gap min, downtime, etc) ficam editáveis aqui no futuro — por ora hardcoded:
-                   </p>
-                   <ul style={{ fontSize: 11, color: 'var(--text-3)', margin: '0 0 0 16px', padding: 0 }}>
-                     <li>Gap notificável: ≥ 25 min</li>
-                     <li>Não-reportado: ≥ 60 min</li>
-                     <li>Downtime: qualquer repair</li>
-                   </ul>
+        {/* FNSKU — labels colados, tempo, labels/min + por pessoa (Bruno 06-23) */}
+        {fnsku && (Number(fnsku.total_labels) > 0 || (fnsku.person_seconds || []).length > 0) && (
+          <KPI label="FNSKU hoje" en="FNSKU labels"
+               value={(Number(fnsku.total_labels) || 0).toLocaleString()} suffix="labels"
+               headRight={<FlowDot flow="production"/>}
+               foot={<>
+                 <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, lineHeight: 1.5 }}>
+                   {Number(fnsku.wall_seconds) > 0 && <span title="tempo de relógio colando FNSKU (união)">⏱ {fmtDurSec(fnsku.wall_seconds)}</span>}
+                   {fnsku.labels_per_min != null && <span>{Number(fnsku.wall_seconds) > 0 ? ' · ' : ''}{fnsku.labels_per_min}/min</span>}
+                   {fnsku.sec_per_label != null && <span> · {fnsku.sec_per_label}s/label</span>}
                  </div>
-               </EditPopover>
-             </>}/>
+                 {(fnsku.person_seconds || []).length > 0 && (
+                   <div style={{ marginTop: 6, borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 6 }}>
+                     <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-prod)', textTransform: 'uppercase', marginBottom: 4 }}>
+                       Tempo por pessoa · pessoa-hora
+                     </div>
+                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
+                       {fnsku.person_seconds.map((p) => (
+                         <span key={p.person} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
+                           {p.person}: <b>{fmtDurSec(p.seconds)}</b>
+                         </span>
+                       ))}
+                     </div>
+                     <div style={{ fontSize: 11, color: 'var(--text-2, #4b5563)', fontWeight: 600 }}>
+                       Soma: <b className="mono">{fmtDurSec(fnsku.person_seconds_total)}</b>
+                       {fnsku.person_seconds_per_label != null && (
+                         <span title="soma do tempo de todos ÷ nº de labels"> · média <b className="mono" style={{ color: 'var(--flow-prod)' }}>{fnsku.person_seconds_per_label}s</b>/label</span>
+                       )}
+                     </div>
+                   </div>
+                 )}
+               </>}/>
+        )}
+
+        {/* ATENÇÃO saiu do corpo da página (Bruno 06-23) — virou o SINO do topo:
+            a contagem + a lista de notificações moram no dropdown do sino, e
+            emergência (crítico novo) abre um modal de aviso. Ver dropdown + modal
+            no fim do componente; publica a contagem pro sino via onNotifInfo. */}
       </div>
 
-      {/* ── Notificações (E6 #3: oculta quando bell toggle OFF) ───────────── */}
-      {notifsVisible && (
-        <NotificationsCard
-          notifs={allNotifs}
-          visibleThreshold={GAP_VISIBLE_MIN}
-          openNotifId={openNotifId}
-          onNotifClick={onNotifClick}
-          pendingDrafts={notifDrafts}
-          onDraftChange={onNotifDraftChange}
-          onDraftClear={onNotifDraftClear}
-          gearOpen={gearOpen === 'notifs'}
-          gearAnchor={gear?.anchor}
-          onGear={onGearToggle('notifs')}
-          onCloseGear={closeGear}
-          ack={ack}
-          operators={operators}
-          events={state.events}
-          GearButton={GearButton}
-          EditPopover={EditPopover}
-          EditList={EditList}
-          V4_ALLOW_WRITES={V4_ALLOW_WRITES}
-          onCreateInGap={onCreateInGap}
-          writes={writes}
-        />
+      {/* Editor de metas — modal (Bruno 06-23): tela cheia centralizada (não fica
+          mais atrás do card de P&P) + seletor de produto/lote estilo página dos op. */}
+      <GoalsEditorModal
+        open={gearOpen === 'metas'}
+        onClose={closeGear}
+        goals={goals}
+        products={(raw && raw.products && (raw.products.products || raw.products)) || []}
+        writes={writes}
+        refresh={refresh}
+        ack={ack}/>
+
+      {/* ── DROPDOWN do SINO do topo (Bruno 06-23) — controlado por `notifOpen` (App).
+          As notificações vivem AQUI, abaixo do sino, fora do corpo da página. ── */}
+      {notifOpen && (
+        <>
+          <div onClick={onNotifClose} style={{ position: 'fixed', inset: 0, zIndex: 240, background: 'transparent' }}/>
+          <div style={{ position: 'fixed', top: 58, right: 12, width: 'min(440px, 94vw)', maxHeight: '82vh', overflowY: 'auto', zIndex: 250 }}>
+            <NotificationsCard
+              notifs={allNotifs}
+              visibleThreshold={GAP_VISIBLE_MIN}
+              openNotifId={openNotifId}
+              onNotifClick={onNotifClick}
+              pendingDrafts={notifDrafts}
+              onDraftChange={onNotifDraftChange}
+              onDraftClear={onNotifDraftClear}
+              gearOpen={gearOpen === 'notifs'}
+              gearAnchor={gear?.anchor}
+              onGear={onGearToggle('notifs')}
+              onCloseGear={closeGear}
+              ack={ack}
+              operators={operators}
+              events={state.events}
+              GearButton={GearButton}
+              EditPopover={EditPopover}
+              EditList={EditList}
+              V4_ALLOW_WRITES={V4_ALLOW_WRITES}
+              onCreateInGap={onCreateInGap}
+              writes={writes}
+            />
+          </div>
+        </>
+      )}
+
+      {/* ── EMERGÊNCIA: crítico NOVO → modal de aviso (OK), no lugar do card fixo ── */}
+      {emergency && (
+        <div onClick={() => setEmergency(null)} style={{ position: 'fixed', inset: 0, zIndex: 320, background: 'rgba(120,10,10,0.35)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(440px, 94vw)', borderTop: '4px solid var(--bad)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ flex: 'none', width: 38, height: 38, borderRadius: 11, background: 'rgba(220,38,38,0.14)', color: 'var(--bad)', display: 'grid', placeItems: 'center' }}><Icon name="bell" size={20}/></span>
+              <b style={{ fontSize: 16 }}>Atenção — emergência</b>
+            </div>
+            <div style={{ padding: '0 18px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(emergency.items || []).slice(0, 6).map((a, i) => (
+                <div key={i} style={{ fontSize: 13, color: 'var(--text-2)' }}>• {a.title || a.label || a.msg || 'Crítico'}{a.detail ? ` — ${a.detail}` : ''}</div>
+              ))}
+              {(emergency.items || []).length === 0 && <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Há uma notificação crítica nova. Veja no sino.</div>}
+            </div>
+            <div style={{ padding: 14, display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn primary" onClick={() => setEmergency(null)}>OK</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Filters ─────────────────────────────────────────── */}
@@ -982,10 +1051,53 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         }>
         {drill?.which === 'producao' && (
           <div>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
-              <DrillStat label="Total hoje" value={liveProd.toLocaleString()} unit="garrafas"/>
-              <DrillStat label="Por minuto" value={prodPerMin != null ? prodPerMin : '—'} unit="/min" color="var(--flow-prod)"/>
-              <DrillStat label="Por segundo" value={prodPerSec != null ? prodPerSec : '—'} unit="/seg" color="var(--flow-prod)"/>
+            {/* Quantidade — topo, destaque */}
+            <div style={{ marginBottom: 12 }}>
+              <DrillStat label="Quantidade total" value={liveProd.toLocaleString()} unit="garrafas"/>
+            </div>
+
+            {/* BLOCO 1 — só a LINHA, por relógio (métrica principal) */}
+            <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 8, marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, color: 'var(--flow-prod)', textTransform: 'uppercase', marginBottom: 6 }}>
+                Linha de produção <span style={{ fontWeight: 600, opacity: 0.7, textTransform: 'none' }}>· só a linha, por relógio</span>
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                <DrillStat label="Tempo de linha (relógio)" value={lineWall > 0 ? fmtDurSec(lineWall) : '—'} unit="produzindo" color="var(--flow-prod)"/>
+                <DrillStat label="Garrafas / min" value={prodPerMin != null ? prodPerMin : '—'} unit="/min" color="var(--flow-prod)"/>
+                <DrillStat label="Tempo / garrafa" value={secPerBottle != null ? secPerBottle : '—'} unit="seg" color="var(--flow-prod)"/>
+                {ln && Number(ln.person_seconds) > 0 && (
+                  <DrillStat label="Trabalho (pessoa-hora)" value={fmtDurSec(ln.person_seconds)} unit={`${ln.event_count || 0} eventos`}/>
+                )}
+                {ln && Number(ln.span_seconds) > 0 && (
+                  <DrillStat label="Janela (início→fim)" value={fmtDurSec(ln.span_seconds)} unit="1º ao último"/>
+                )}
+              </div>
+            </div>
+
+            {/* BLOCO 2 — PRODUÇÃO TOTAL (linha+revisão+labeling…), pessoa-hora (a antiga) */}
+            {ft && Number(ft.person_seconds) > 0 && (
+              <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, color: 'var(--text-2, #4b5563)', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Produção total <span style={{ fontWeight: 600, opacity: 0.7, textTransform: 'none' }}>· linha + revisão + labeling…, pessoa-hora</span>
+                </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <DrillStat label="Tempo total (pessoa-hora)" value={fmtDurSec(ft.person_seconds)} unit="todo o fluxo"/>
+                  <DrillStat label="Garrafas / min" value={flowPerMin != null ? flowPerMin : '—'} unit="/min"/>
+                  <DrillStat label="Tempo / garrafa" value={ft.sec_per_bottle != null ? ft.sec_per_bottle : '—'} unit="seg"/>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {(ft.by_phase || []).filter((p) => p.seconds > 0).map((p) => (
+                    <span key={p.slug} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
+                      {p.name}: <b>{fmtDurSec(p.seconds)}</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 10, lineHeight: 1.5 }}>
+              <b>Linha (relógio)</b> = tempo real em que a linha esteve produzindo (sem contar 2× quando juntos) — é o ritmo de verdade.
+              <b> Produção total (pessoa-hora)</b> = soma do tempo de TODOS (linha + revisão + labeling…); maior porque empilha as pessoas e inclui as outras fases.
             </div>
             {(prod.lotes || []).filter((l) => (l.bottles || 0) > 0).length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>
@@ -1182,7 +1294,7 @@ function ScrollStrip({ title, en, children }) {
 
 const Row = ({ label, value }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px dashed var(--border)', fontSize: 13 }}>
-    <span style={{ color: 'var(--text-3)' }}>{label}</span>
+    <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{label}</span>
     <b className="mono tabnum">{value}</b>
   </div>
 );
@@ -1256,6 +1368,131 @@ function EditList({ items, emptyMsg, onAdd, onEdit, onDelete }) {
 }
 
 // (E7-refine2) CorreioBlock removido — agora é notif attached na timeline.
+
+// EDITOR DE METAS (Bruno 06-23) — modal centralizado (acima de tudo, sem ficar
+// atrás dos cards) com seletor de PRODUTO + LOTE no estilo da página dos operadores:
+// busca o produto na lista; escolhe um lote já existente (chips) OU digita o lote,
+// OU deixa sem lote. Resolve product_id de verdade (a meta deixa de aparecer "(?)").
+function GoalsEditorModal({ open, onClose, goals, products, writes, refresh, ack }) {
+  const [batches, setBatches] = React.useState([]);
+  const [q, setQ] = React.useState('');
+  const [sel, setSel] = React.useState(null);   // { product_id, product_name }
+  const [lotText, setLotText] = React.useState('');
+  const [qty, setQty] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    setQ(''); setSel(null); setLotText(''); setQty('');
+    let alive = true;
+    apiGet('/batches').then((j) => {
+      if (!alive) return;
+      const arr = (j && j.data && j.data.active) || [];
+      setBatches(arr.map((b) => ({ batch_number: b.batch_number, product_id: b.product && b.product.id, product_name: b.product && b.product.canonical_name })));
+    }).catch(() => { if (alive) setBatches([]); });
+    return () => { alive = false; };
+  }, [open]);
+  if (!open) return null;
+  const INPUT = { width: '100%', padding: '11px 13px', fontSize: 15, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)', color: 'var(--text)', outline: 'none' };
+  const ROW = { display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', fontSize: 13.5, border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' };
+  const ql = q.trim().toLowerCase();
+  const prodList = (products || []).filter((p) => p && p.id != null && (!ql || String(p.canonical_name || '').toLowerCase().includes(ql))).slice(0, 50);
+  const lotsForSel = sel ? batches.filter((b) => b.product_id === sel.product_id) : [];
+  const errMsg = (e) => (e && (e.message || (e.body && e.body.error))) || e || 'erro';
+  const add = async () => {
+    if (!sel) { ack('Escolhe um produto primeiro'); return; }
+    const n = parseInt(qty, 10);
+    if (!Number.isFinite(n) || n <= 0) { ack('Informe a quantidade de bottles'); return; }
+    const batch = lotText.trim() || null;
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+    setBusy(true);
+    const res = await writes.createGoal({ product_id: sel.product_id, batch_number: batch, expected_quantity: n, unit: 'bottle' });
+    setBusy(false);
+    if (!res.ok) { ack(`Erro: ${errMsg(res.error)}`); return; }
+    setSel(null); setLotText(''); setQty(''); setQ('');
+    if (refresh) refresh();
+    ack(`Meta criada ✓ — ${sel.product_name}${batch ? ' · ' + batch : ' (sem lote)'} = ${n}`);
+  };
+  const editQty = async (g) => {
+    const v = window.prompt(`Nova meta (bottles) pra ${g._product_name || g.product || '?'}:`, String(g.target || 0));
+    if (v == null) return;
+    const nn = Number(v);
+    if (!Number.isFinite(nn) || nn <= 0) { ack('Valor inválido'); return; }
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+    const res = await writes.patchGoal(g.id, { expected_quantity: nn });
+    if (!res.ok) { ack(`Erro: ${errMsg(res.error)}`); return; }
+    if (refresh) refresh(); ack('Salvo ✓');
+  };
+  const del = async (g) => {
+    if (!window.confirm(`Apagar meta ${g._product_name || g.product || ''} (${g.target})?`)) return;
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+    const res = await writes.deleteGoal(g.id, 'apagado via /dashboard-v4');
+    if (!res.ok) { ack(`Erro: ${errMsg(res.error)}`); return; }
+    if (refresh) refresh(); ack('Apagado ✓');
+  };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(8,15,38,0.5)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 12px', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(520px, 96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+          <Icon name="target" size={16}/>
+          <b style={{ flex: 1, fontSize: 14 }}>Editar metas do dia</b>
+          <button className="icon-btn" onClick={onClose} style={{ padding: 4 }}><Icon name="x" size={13}/></button>
+        </div>
+        <div style={{ padding: 16, overflowY: 'auto' }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>Adicionar meta</div>
+          {!sel ? (
+            <>
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto…" style={INPUT}/>
+              <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8, border: '1px solid var(--border)', borderRadius: 10 }}>
+                {prodList.length === 0
+                  ? <div style={{ padding: 12, fontSize: 12.5, color: 'var(--text-3)' }}>{q ? 'Nenhum produto com esse nome.' : 'Carregando catálogo…'}</div>
+                  : prodList.map((p) => (
+                    <button key={p.id} onClick={() => { setSel({ product_id: p.id, product_name: p.canonical_name }); setQ(''); }} style={ROW}>
+                      {p.canonical_name}
+                    </button>
+                  ))}
+              </div>
+            </>
+          ) : (
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <b style={{ flex: 1, fontSize: 14 }}>{sel.product_name}</b>
+                <button className="btn sm ghost" onClick={() => { setSel(null); setLotText(''); }}>trocar</button>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6 }}>Lote (opcional — vazio = sem lote):</div>
+              {lotsForSel.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {lotsForSel.map((b) => (
+                    <button key={b.batch_number} onClick={() => setLotText(b.batch_number)} className="pill" style={{ cursor: 'pointer', border: lotText === b.batch_number ? '1px solid var(--flow-prod)' : '1px solid var(--border)' }}>{b.batch_number}</button>
+                  ))}
+                  <button onClick={() => setLotText('')} className="pill" style={{ cursor: 'pointer', border: !lotText ? '1px solid var(--flow-prod)' : '1px solid var(--border)' }}>sem lote</button>
+                </div>
+              )}
+              <input value={lotText} onChange={(e) => setLotText(e.target.value)} placeholder="ou digite o lote (ex: BR-2026-0231)" style={INPUT}/>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="numeric" placeholder="bottles (ex: 500)" style={{ ...INPUT, flex: 1 }}/>
+                <button className="btn primary" disabled={busy} onClick={add}>{busy ? '…' : 'Adicionar'}</button>
+              </div>
+            </div>
+          )}
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-3)', margin: '18px 0 8px' }}>Metas de hoje</div>
+          {(goals || []).length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>Sem metas registradas.</div>
+            : (goals || []).map((g) => (
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px dashed var(--border)' }}>
+                <span style={{ flex: 1, fontSize: 13 }}>
+                  {g._product_name || g.product || '(?)'}{g.batch ? ' · ' + g.batch : ''}
+                  <span style={{ color: 'var(--text-3)' }}> — {g.target} bottles (feito {g.done})</span>
+                </span>
+                <button className="icon-btn" onClick={() => editQty(g)} title="Editar quantidade" style={{ padding: 4 }}><Icon name="edit" size={12}/></button>
+                <button className="icon-btn" onClick={() => del(g)} title="Apagar" style={{ padding: 4 }}><Icon name="trash" size={12}/></button>
+              </div>
+            ))}
+          {!V4_ALLOW_WRITES && <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>V4_ALLOW_WRITES=0 — preview, não grava.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 window.CommandCenter = CommandCenter;
 

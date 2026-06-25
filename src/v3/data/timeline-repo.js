@@ -37,6 +37,11 @@ function shapeEvent(e) {
     source_message_ts: e.source_message_ts || null,
     quantity: e.quantity != null ? e.quantity : null,
     quantity_unit: e.quantity_unit || null,
+    // Bloco bottles (Bruno 06-22): contagens de garrafas DESTE evento (quem/quando/
+    // quanto) + estimativa do EMS (target do lote). Some o "não sei de onde veio".
+    estimated_bottles: e.estimated_bottles != null ? Number(e.estimated_bottles) : null,
+    bottle_counts: Array.isArray(e.bottle_counts) ? e.bottle_counts : [],
+    fnsku_counts: Array.isArray(e.fnsku_counts) ? e.fnsku_counts : [], // FNSKU labels deste evento — Bruno 06-23
   };
 }
 
@@ -44,6 +49,25 @@ const EVENT_COLUMNS = `e.id, e.person_id, e.activity_type_id, e.product_batch_id
             e.started_at, e.ended_at, e.confidence, e.cowork_with,
             e.phase_label, e.description, e.source_message_ts, e.flow_override,
             e.quantity, e.quantity_unit,
+            pb.target_bottles AS estimated_bottles,
+            (SELECT json_agg(json_build_object(
+                       'qty', pc.bottles,
+                       'person', pcp.display_name,
+                       'at', to_char(pc.reported_at AT TIME ZONE 'America/New_York', 'HH24:MI'))
+                     ORDER BY pc.reported_at)
+             FROM v3.production_counts pc
+             LEFT JOIN v3.persons pcp ON pcp.id = pc.reported_by_person_id
+             WHERE pc.source_event_id = e.id AND pc.kind = 'bottles'
+               AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL) AS bottle_counts,
+            (SELECT json_agg(json_build_object(
+                       'qty', pc.bottles,
+                       'person', pcp.display_name,
+                       'at', to_char(pc.reported_at AT TIME ZONE 'America/New_York', 'HH24:MI'))
+                     ORDER BY pc.reported_at)
+             FROM v3.production_counts pc
+             LEFT JOIN v3.persons pcp ON pcp.id = pc.reported_by_person_id
+             WHERE pc.source_event_id = e.id AND pc.kind = 'fnsku'
+               AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL) AS fnsku_counts,
             p.display_name AS person_name, p.role AS person_role,
             at.slug AS activity_slug, at.display_name AS activity_name,
             at.category AS activity_category, at.flow AS activity_flow,
@@ -131,6 +155,7 @@ class TimelineRepo {
        FROM v3.events e
        LEFT JOIN v3.persons p ON p.id = e.person_id
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
        WHERE e.deleted_at IS NULL
          AND (e.started_at AT TIME ZONE 'America/New_York')::date = $1
        ORDER BY p.display_name, e.started_at`, [d]);
@@ -189,6 +214,7 @@ class TimelineRepo {
        FROM v3.events e
        LEFT JOIN v3.persons p ON p.id = e.person_id
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+       LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
        WHERE e.deleted_at IS NULL AND e.person_id = $1
          AND (e.started_at AT TIME ZONE 'America/New_York')::date = $2
        ORDER BY e.started_at`, [personId, d]);

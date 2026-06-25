@@ -147,6 +147,29 @@ function AuthedApp({ onLogout }) {
   const [navOpen, setNavOpen] = React.useState(false);
   React.useEffect(() => { setNavOpen(false); }, [route]);
 
+  // Sino de notificações do TOPBAR (Bruno 06-23): a contagem vem da página (Hoje)
+  // via onNotifInfo; clicar no sino abre/fecha o dropdown (renderizado na página).
+  const [notifOpen, setNotifOpen] = React.useState(false);
+  const [notifInfo, setNotifInfo] = React.useState({ total: 0, bad: 0 });
+  React.useEffect(() => { setNotifOpen(false); }, [route]); // trocar de página fecha o dropdown
+
+  // DESKTOP (Bruno 06-23): o MESMO hambúrguer esconde/mostra a barra lateral pra
+  // dar mais espaço pra página. Lembra a preferência (localStorage). No mobile o
+  // hambúrguer continua abrindo/fechando o drawer (não usa side-hidden).
+  const [sideHidden, setSideHidden] = React.useState(() => { try { return localStorage.getItem('hf_side_hidden') === '1'; } catch (e) { return false; } });
+  const [isNarrow, setIsNarrow] = React.useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 880px)').matches : false));
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(max-width: 880px)');
+    const on = () => setIsNarrow(mq.matches);
+    if (mq.addEventListener) mq.addEventListener('change', on); else mq.addListener(on);
+    return () => { if (mq.removeEventListener) mq.removeEventListener('change', on); else mq.removeListener(on); };
+  }, []);
+  const onBurger = React.useCallback(() => {
+    if (isNarrow) { setNavOpen((v) => !v); return; }
+    setSideHidden((v) => { const n = !v; try { localStorage.setItem('hf_side_hidden', n ? '1' : '0'); } catch (e) { /* ignore */ } return n; });
+  }, [isNarrow]);
+
   // Date global (YYYY-MM-DD NY) — compartilhado por todas as páginas.
   const [date, setDate] = React.useState(() => nyToday());
 
@@ -381,6 +404,7 @@ function AuthedApp({ onLogout }) {
     // E5 — writes reais (todos auditados via PIN, reversíveis)
     onMerge, onSplit, onCreateInGap,
     writes,                   // exposição direta pra pages com edição (Goals, Config, Counts)
+    notifOpen, onNotifClose: () => setNotifOpen(false), onNotifInfo: setNotifInfo, // sino do topo
   };
   switch (route) {
     case "hoje":          pageNode = <CommandCenter {...pageProps}/>; break;
@@ -402,7 +426,7 @@ function AuthedApp({ onLogout }) {
   }
 
   return (
-    <div className={`app`}>
+    <div className={`app ${sideHidden ? 'side-hidden' : ''}`}>
       <Sidebar route={route} onRoute={(id) => { location.hash = "#" + id; }} opLink={<OperatorLinkBar/>}
                open={navOpen} onClose={() => setNavOpen(false)}/>
       {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true"/>}
@@ -410,11 +434,14 @@ function AuthedApp({ onLogout }) {
         pageId={route} date={date} onDate={setDate}
         theme={tweaks.theme} onTheme={toggleTheme}
         onNewEvent={newEvent}
-        onMenu={() => setNavOpen((v) => !v)}
+        onMenu={onBurger}
         workerNode={<WorkerPill/>}
         readOnly={!V4_ALLOW_WRITES}
         onLogout={onLogout}
         ack={ack}
+        onBell={() => setNotifOpen((v) => !v)}
+        notifTotal={notifInfo.total}
+        notifBad={notifInfo.bad}
       />
       <main className="main">
         <div className="main-inner">{pageNode}</div>

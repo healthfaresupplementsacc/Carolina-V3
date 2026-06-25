@@ -121,6 +121,7 @@
   font-size: 12px;
   cursor: grab;
   user-select: none;
+  touch-action: none;   /* Bruno 06-23: touch arrasta o bloco (não rola a página) */
   overflow: hidden;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -190,10 +191,24 @@
 .tl-handle {
   position: absolute; top: 0; bottom: 0; width: 8px;
   cursor: ew-resize;
+  touch-action: none;   /* Bruno 06-23: touch arrasta a borda (estende início/fim) */
   z-index: 4;
 }
 .tl-handle.left { left: -2px; }
 .tl-handle.right { right: -2px; }
+/* Touch: bordas maiores pra dar pra pegar com o dedo (resize do início/fim) e a
+   alça SEMPRE visível (não tem hover no touch). */
+@media (pointer: coarse) {
+  .tl-handle { width: 18px; }
+  .tl-handle.left { left: -6px; }
+  .tl-handle.right { right: -6px; }
+  .tl-handle::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 3px; height: 22px; border-radius: 2px;
+    background: rgba(255,255,255,0.75);
+  }
+}
 .tl-block:hover .tl-handle::before {
   content: ""; position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%);

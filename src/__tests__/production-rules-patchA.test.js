@@ -21,8 +21,8 @@ describe('Patch A — build-fuse-data (fonte)', () => {
     ['labeling', 'packaging', 'marketplace_prep'].forEach((s) => expect(m[1]).toContain("'" + s + "'"));
     expect(BUILD).toContain('NO_PRODUCT_OVERRIDE.has(slug) ? false');
   });
-  test('#3/#6 grupo embalagem vira "Embalagem" (sem "/ Ordens")', () => {
-    expect(BUILD).toContain("label: 'Embalagem',");
+  test('#3/#6 grupo embalagem renomeado p/ "Envio De Pacotes" (Bruno 06-22; era "Embalagem")', () => {
+    expect(BUILD).toContain("label: 'Envio De Pacotes',");
     expect(BUILD).not.toContain('Embalagem / Ordens');
   });
   test('#4 Envio tem Walmart + Amazon e NÃO lista o slug genérico shipping', () => {
@@ -65,14 +65,10 @@ describe('Patch A — fuse-data.js (gerado)', () => {
 });
 
 describe('Fase 3 (parcial) — label_repair + conserto de máquina', () => {
-  test('3.2 label_repair: produto + lote + nota (override YES_PRODUCT + NOTE_REQUIRED)', () => {
-    const yes = BUILD.match(/const YES_PRODUCT_OVERRIDE = new Set\(\[([\s\S]*?)\]\)/);
-    expect(yes && yes[1]).toContain("'label_repair'");
-    expect(BUILD).toContain('YES_PRODUCT_OVERRIDE.has(slug) ? true');
-    // gerado: label_repair com produto + nota
-    const i = FUSE.indexOf('"slug": "label_repair"');
-    expect(FUSE.slice(i, i + 200)).toContain('"requires_product": true');
-    expect(FUSE.slice(i, i + 200)).toContain('"note_required": true');
+  test('3.2 label_repair REMOVIDO do menu (Bruno 06-22) — não aparece no fuse-data gerado', () => {
+    // "Conserto de label" saiu do menu; o slug segue existindo no DB p/ histórico,
+    // mas não é mais oferecido na Operator Page.
+    expect(FUSE.indexOf('"slug": "label_repair"')).toBe(-1);
   });
   test('3.3 conserto de máquina (repair): nota obrigatória em build + op.js + gerado', () => {
     const m = BUILD.match(/const NOTE_REQUIRED = new Set\(\[([\s\S]*?)\]\)/);

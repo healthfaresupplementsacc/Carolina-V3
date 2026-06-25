@@ -50,6 +50,10 @@ describe('P&P — ordens contam do 1º-abre', () => {
       }
       if (/UPDATE v3\.events SET ended_at = NOW\(\), closed_reason = '(lunch_started|closed_for_new_task)'/.test(s)) { const ids = params[0] || []; mem.events.forEach((e) => { if (ids.includes(e.id)) e.ended_at = new Date(); }); return resp([]); }
       if (/FROM v3\.product_batches pb LEFT JOIN v3\.products pr/.test(s)) return resp([]);
+      // needClinic / needs_order_count: já existe contagem kind='clinic' desse event?
+      if (/SELECT 1 FROM v3\.production_counts WHERE source_event_id = \$1 AND kind = 'clinic'/.test(s)) {
+        return resp(mem.counts.some((c) => c.source_event_id === params[0] && c.kind === 'clinic') ? [{ x: 1 }] : []);
+      }
       // production_counts. START (insertOrdersCount): kind hardcoded 'orders'.
       // FINISH: kind = params[5] (clinic vira 'clinic'). Detecta pelo "'high', $6".
       if (/INSERT INTO v3\.production_counts/.test(s)) {
@@ -119,23 +123,35 @@ describe('P&P — ordens contam do 1º-abre', () => {
     expect(r.body.ok).toBe(true);
     expect(mem.counts).toHaveLength(1); // só a do START; o fim não escreve nada
   });
-  test('Envio Clínica = igual impressão: quantidade OBRIGATÓRIA no START, métrica kind=clinic', async () => {
+  test('Envio Clínica: quantidade OPCIONAL no START; se informada, grava kind=clinic (regra Bruno 06-22)', async () => {
     const tok = await login();
-    // sem quantidade no começo → 400 (obrigatório, igual impressão de ordens)
-    const bad = await start(tok, { activity_slug: 'clinic_shipment' });
-    expect(bad.status).toBe(400);
-    expect(bad.body.error).toBe('orders_printed_required');
-    // com quantidade no começo → grava kind='clinic' NO START (não no fim)
+    // sem quantidade no começo → OK (opcional, NÃO 400); nada gravado ainda
+    const optStart = await start(tok, { activity_slug: 'clinic_shipment' });
+    expect(optStart.body.ok).toBe(true);
+    expect(mem.counts).toHaveLength(0);
+    // com quantidade no começo → grava kind='clinic' NO START
     const a = await start(tok, { activity_slug: 'clinic_shipment', orders_printed: 5 });
     expect(a.body.ok).toBe(true);
     expect(mem.counts).toHaveLength(1);
     expect(mem.counts[0]).toMatchObject({ orders: 5, kind: 'clinic' });
   });
-  test('Envio Clínica: FIM não pede nem conta de novo (já contou no START)', async () => {
+  test('Envio Clínica: deu no START → FIM não pede nem conta de novo', async () => {
     const tok = await login();
     const a = await start(tok, { activity_slug: 'clinic_shipment', orders_printed: 5 });
     const r = await end(tok, a.body.event.id, {}); // sem qty no fim
     expect(r.status).toBe(200);
-    expect(mem.counts).toHaveLength(1); // só a do START
+    expect(mem.counts).toHaveLength(1); // só a do START (não duplica)
+  });
+  test('Envio Clínica: NÃO deu no START → FIM exige a quantidade (needClinic), grava kind=clinic', async () => {
+    const tok = await login();
+    const a = await start(tok, { activity_slug: 'clinic_shipment' }); // sem qty no início
+    expect(mem.counts).toHaveLength(0);
+    const bad = await end(tok, a.body.event.id, {}); // fim sem qty → exige
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe('orders_required');
+    const ok = await end(tok, a.body.event.id, { orders_count: 5 });
+    expect(ok.status).toBe(200);
+    expect(mem.counts).toHaveLength(1);
+    expect(mem.counts[0]).toMatchObject({ orders: 5, kind: 'clinic' });
   });
 });

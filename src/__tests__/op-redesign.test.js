@@ -17,6 +17,7 @@ const REAL = [
   '/api/v3/op/missing-bottle-counts', '/api/v3/op/clock-out', '/api/v3/op/forgotten-checkout/resolve',
   '/api/v3/op/products/images', '/api/v3/op/batches/recent', // Bug 2/3 (EMS enrichment)
   '/api/v3/op/end-of-day/check', '/api/v3/op/end-of-day/submit', '/api/v3/op/gap/justify', // Passada 2
+  '/api/v3/op/orders/adjust', // ajuste de ordens (Embalagem/Outro)
   '/api/v3/op/lots/available', // FASE 4 (lista lote+produto)
   '/api/v3/op/ems/my-activity', '/api/v3/op/ems/register-detected', // FASE FORM (detecção passiva)
   '/api/v3/architect/person/',
@@ -114,8 +115,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v32 network-first', () => {
-    expect(SW).toContain("'hf-op-v32'");
+  test('sw é hf-op-v36 network-first', () => {
+    expect(SW).toContain("'hf-op-v36'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });
@@ -260,7 +261,7 @@ describe('op — patch UX (3 bugs)', () => {
 describe('op — production_line finish (bottles obrigatório + exceção)', () => {
   test('overlay específico da production_line com checkbox de exceção + voz + aviso', () => {
     expect(APP).toContain('function finishProdInner');
-    expect(APP).toContain("o.type === 'finish' && o.slug === 'production_line'"); // roteia overlay novo
+    expect(APP).toContain("o.slug === 'production_line' || o.needsFnsku"); // roteia overlay novo (linha + FNSKU)
     expect(APP).toContain('Quantas bottles foram produzidas?');
     expect(APP).toContain("data-act=\"toggleExc\"");                 // checkbox exceção
     expect(APP).toContain('Exceção: não tenho o número');

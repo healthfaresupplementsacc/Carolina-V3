@@ -25,7 +25,7 @@ describe('production_line exception — migração + backend + admin', () => {
     expect(op).toContain("name: 'HealthFare Tracker (Sistema)'"); // voz do sistema
     expect(op).toContain(':package:');
     expect(op).toContain('exception_no_count = $3, exception_reason = $4'); // persiste flags
-    expect(op).toContain("error: 'bottles_required'");
+    expect(op).toContain("'bottles_required'"); // agora num ternário (FNSKU usa 'fnsku_required')
     expect(op).toContain("error: 'exception_reason_required'");
     expect(op).toContain("'event.end_with_exception'");
     expect(op).toContain('bottles_count'); // alias aceito

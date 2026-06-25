@@ -239,6 +239,124 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
                 <span style={{ fontSize: 11, color: "var(--text-3)", marginLeft: 8 }}>esperado {fmtDur(act.expected)}</span>
               )}
             </Field>
+            {/* BOTTLES (Bruno 06-22): estimado do EMS + quanto foi produzido NESTE
+                evento (quem/quando/quanto). Surface o controle — dá pra ver, p.ex.,
+                2 pessoas contando o mesmo lote (cowork) = contagem dobrada. */}
+            {(event._estimated_bottles != null || (event._bottle_counts && event._bottle_counts.length > 0)) && (() => {
+              const counts = event._bottle_counts || [];
+              const total = counts.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+              return (
+                <Field label="Bottles" en="Bottles">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {event._estimated_bottles != null && (
+                      <div style={{ fontSize: 12, color: "var(--text-3)" }}>Estimado total (EMS): <b className="mono" style={{ color: "var(--text-2)" }}>{event._estimated_bottles}</b></div>
+                    )}
+                    {counts.length > 0 ? (
+                      <div>
+                        <div><b className="mono">{total}</b> <span style={{ color: "var(--text-3)" }}>produzidos neste evento</span></div>
+                        <div style={{ paddingLeft: 2, borderLeft: "2px solid var(--border)", marginTop: 2 }}>
+                          {counts.map((c, i) => (
+                            <div key={i} style={{ fontSize: 11.5 }}>
+                              <b className="mono">{c.qty}</b> <span style={{ color: "var(--text-3)" }}>· {c.person || "?"}{c.at ? " · " + c.at : ""}</span>
+                            </div>
+                          ))}
+                          {counts.length > 1 && (
+                            <div style={{ fontSize: 10, color: "#c0352b", marginTop: 2 }}>⚠ {counts.length} contagens neste evento — confira se não é a mesma contada 2×</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>nenhuma contagem de bottles registrada ainda neste evento</span>
+                    )}
+                  </div>
+                </Field>
+              );
+            })()}
+            {/* FNSKU (Bruno 06-23): este evento = labels colados + tempo + labels/min
+                (cada evento é uma pessoa). + rollup do LOTE (cowork): total de labels,
+                tempo de relógio, labels/min e quem participou. Dados de /fnsku. */}
+            {(event.activity === 'fnsku_labeling' || (event._fnsku_counts && event._fnsku_counts.length > 0)) && (() => {
+              const counts = event._fnsku_counts || [];
+              const evLabels = counts.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+              const endM = event.ended_min != null ? event.ended_min : (window.HFH && window.HFH.liveNowMin ? window.HFH.liveNowMin() : null);
+              const durMin = (event.started_min != null && endM != null && endM > event.started_min) ? Math.round(endM - event.started_min) : null;
+              const evRate = (durMin && evLabels > 0) ? +(evLabels / durMin).toFixed(1) : null;
+              const fday = (window.HFData && window.HFData.fnsku) || null;
+              const lote = fday && (fday.lotes || []).find((l) => ('b' + l.batch_id) === event.product);
+              const fmtm = (s) => { s = Math.round(Number(s) || 0); const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${m}min`; };
+              return (
+                <Field label="FNSKU / Código de barras" en="FNSKU labels">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div>
+                      <b className="mono">{evLabels}</b> <span style={{ color: "var(--text-3)" }}>labels neste evento</span>
+                      {durMin != null && <span style={{ color: "var(--text-3)" }}> · {durMin}min{evRate != null ? ` · ${evRate}/min` : ''}</span>}
+                    </div>
+                    {counts.length > 0 && (
+                      <div style={{ paddingLeft: 2, borderLeft: "2px solid var(--border)" }}>
+                        {counts.map((c, i) => (
+                          <div key={i} style={{ fontSize: 11.5 }}>
+                            <b className="mono">{c.qty}</b> <span style={{ color: "var(--text-3)" }}>· {c.person || "?"}{c.at ? " · " + c.at : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {lote && (
+                      <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--border)" }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.3, color: "var(--flow-prod)", textTransform: "uppercase", marginBottom: 2 }}>
+                          Lote {lote.batch_number || ''} · total FNSKU
+                        </div>
+                        <div><b className="mono">{lote.labels}</b> <span style={{ color: "var(--text-3)" }}>labels · {fmtm(lote.wall_seconds)} (relógio){lote.labels_per_min != null ? ` · ${lote.labels_per_min}/min` : ''}</span></div>
+                        {(lote.people || []).length > 0 && <div style={{ fontSize: 11.5, color: "var(--text-3)" }}>{lote.people.join(' · ')}</div>}
+                      </div>
+                    )}
+                  </div>
+                </Field>
+              );
+            })()}
+            {/* P&P é uma cadeia: a contagem do dia é dada UMA vez na abertura
+                (impressão de ordens) e vale pra toda a cadeia. Mostra aqui em
+                qualquer tarefa P&P pra não parecer que "sumiu" no empacotamento. */}
+            {flow === 'pnp' && (() => {
+              const pp = window.HFData.pp || {};
+              const inputs = pp.orders_inputs || [];
+              const reset = pp.orders_reset || null;
+              return (
+                <Field label="Ordens do dia" en="P&P orders">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {reset ? (
+                      // total reajustado por operador: antigo riscado + novo em vermelho
+                      <div title={`Reajustado por ${reset.by || 'operador'}${reset.at ? ' às ' + reset.at : ''}`}>
+                        <b className="mono" style={{ textDecoration: "line-through", color: "var(--text-3)", fontWeight: 500 }}>{reset.old_total}</b>
+                        <b className="mono" style={{ color: "#c0352b", marginLeft: 6 }}>{pp.orders || 0}</b>
+                        <span style={{ color: "#c0352b", fontSize: 10.5, marginLeft: 6 }}>ordens · editado{reset.by ? ' por ' + reset.by : ''}</span>
+                      </div>
+                    ) : (
+                      <div><b className="mono">{pp.orders || 0}</b> <span style={{ color: "var(--text-3)" }}>ordens · total do dia</span></div>
+                    )}
+                    {inputs.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 2, borderLeft: "2px solid var(--border)" }}>
+                        <div style={{ fontSize: 10, letterSpacing: 0.05, textTransform: "uppercase", color: "var(--text-3)", fontWeight: 700, marginBottom: 1 }}>
+                          Input real (só impressão conta)
+                        </div>
+                        {inputs.map((it, i) => (
+                          <div key={i} style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline" }}>
+                            <b className="mono" style={{ minWidth: 44, textAlign: "right", color: it.adjustment_kind ? "#c0352b" : undefined }}>{it.qty}</b>
+                            <span>{it.adjustment_kind === 'reset' ? 'Reajuste total' : it.adjustment_kind === 'additional' ? 'Ordens adicionais' : (it.activity_name || it.slug)}</span>
+                            {(it.person || it.at) && (
+                              <span style={{ color: "var(--text-3)", fontSize: 10.5 }}>
+                                {it.person || ""}{it.at ? ` · ${it.at}` : ""}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>contagem da abertura, vale p/ toda a cadeia P&amp;P</span>
+                    )}
+                  </div>
+                </Field>
+              );
+            })()}
             {/* FASE 3b — Revisão: taxa por TASK (cáps/seg + cáps/min + total cápsulas
                 pelo lote que a pessoa está revisando). Casa com a run do dia (review.runs). */}
             {event.activity === 'review' && (() => {
@@ -321,9 +439,26 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
                        onChange={e => setForm({ ...form, started_min: inputToMin(e.target.value) })}/>
               </FieldEdit>
               <FieldEdit label="Fim" en="End">
-                <input type="time" className="input" value={minToInput(form.ended_min)}
-                       placeholder="(live)"
-                       onChange={e => setForm({ ...form, ended_min: e.target.value === "" ? null : inputToMin(e.target.value) })}/>
+                {(form.ended_min === "" || form.ended_min == null) ? (
+                  // Sem fim = tarefa em andamento. Botão deixa explícito + permite
+                  // definir um fim quando precisar (input de hora some até então).
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 38 }}>
+                    <span className="pill live"><span className="dot"/>em andamento</span>
+                    <button type="button" className="btn ghost sm" title="Definir um horário de fim"
+                            onClick={() => setForm({ ...form, ended_min: typeof now === "number" ? Math.round(now) : event.started_min })}>
+                      definir fim…
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="time" className="input" value={minToInput(form.ended_min)}
+                           onChange={e => setForm({ ...form, ended_min: e.target.value === "" ? null : inputToMin(e.target.value) })}/>
+                    <button type="button" className="btn ghost sm" title="Remover o fim — volta a 'em andamento' (ao vivo)"
+                            onClick={() => setForm({ ...form, ended_min: null })}>
+                      ✕ em andamento
+                    </button>
+                  </div>
+                )}
               </FieldEdit>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

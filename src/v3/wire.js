@@ -117,10 +117,21 @@ function mount(app) {
   app.use('/', architectApi.createArchitectRouter({ db: _pool }));
   // Deploy 2 — Operator Page: API de writes estruturados (sem LLM) + UI
   // estática em /op. config.js dinâmico vem ANTES do static (precedência).
+  // ③ Gemini lê motivos/notas (contido, gated por NOTE_LLM_ENABLED). Caminho
+  // separado do Observer shadow; só age quando relevante (admin / qtd não registrada).
+  let _noteAnalyzer = null;
+  try {
+    const { NoteAnalyzer } = require('./llm/note-analyzer');
+    const GeminiProvider = require('./llm/providers/GeminiProvider');
+    _noteAnalyzer = new NoteAnalyzer({ db: _pool, slack: { postAs: slackSender.postAs }, provider: new GeminiProvider({}), adminChannelId });
+    console.log('[V3] note-analyzer ' + (_noteAnalyzer.enabled ? 'ON' : 'OFF (NOTE_LLM_ENABLED!=true)'));
+  } catch (e) { console.error('[V3] note-analyzer não iniciou:', e.message); }
+
   app.use('/', opApi.createOpRouter({
     db: _pool,
     slack: { postAs: slackSender.postAs },
     adminChannelId: adminChannelId,
+    noteAnalyzer: _noteAnalyzer,
     bruteForce,
   }));
   {
@@ -197,6 +208,9 @@ async function startWorker() {
     // billing/rate-limit. Default ON em prod. Pode desligar via env
     // WORKER_ALERTS_DISABLED=1. Silenciado também pelo kill-switch Carolina.
     enableWorkerAlerts: process.env.WORKER_ALERTS_DISABLED !== '1' && !carolinaSilent,
+    // REVIEW MODE (Bruno 06-22): manda o que interpreta do Slack pro canal admin
+    // pra revisar antes de liberar no grupo normal. Liga via OBSERVER_ADMIN_REVIEW=true.
+    reviewToAdmin: process.env.OBSERVER_ADMIN_REVIEW === 'true',
     slack: { postAs: slackSender.postAs, addReaction: slackSender.addReaction },
   }, _svc));
   _observer.start(5000);
@@ -213,17 +227,17 @@ async function startWorker() {
     auditSilentBlocked('proactive-alerts'); // queria rodar mas o kill-switch barrou
   }
 
-  // Fase 4 — Carolina manda DM no dia seguinte pra quem esqueceu checkout.
-  // Off por padrão E só se NÃO-silent.
-  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true' && !carolinaSilent) {
+  // Carolina cobra no PRÓXIMO DIA ÚTIL quem esqueceu o checkout (regra Bruno 06-24:
+  // chamar a atenção sempre que esquecerem). É um lembrete operacional DELIBERADO —
+  // EXENTO do silent mode (ao contrário da conversa autônoma da Carolina). Off por
+  // padrão (WORKER_FORGOTTEN_DM_ENABLED) até o Bruno habilitar.
+  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true') {
     const { CarolinaForgottenDM } = require('../workers/carolina-forgotten-dm');
     new CarolinaForgottenDM({
       db: _pool, slack: { postAs: slackSender.postAs },
       ordersChannel: process.env.V3_ORDERS_CHANNEL,
       adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
     }).start(10 * 60 * 1000);
-  } else if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true' && carolinaSilent) {
-    auditSilentBlocked('carolina-forgotten-dm');
   }
 
   // FASE 1.5 — action_log APPEND-ONLY: retém 5 dias, limpa 1×/dia (só > 5 dias).
