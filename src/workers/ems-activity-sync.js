@@ -37,6 +37,12 @@ function timelineAt(timeline, stage, which) {
   const k = STAGE_TO_TIMELINE[stage]; const t = k && timeline[k];
   return (t && t[which]) || null;
 }
+// nome normalizado p/ dedup (ignora dose/unidade) — "Vitamin B2 400mg" → "vitaminb2".
+function normProductName(sx) {
+  return String(sx || '').toLowerCase()
+    .replace(/\b\d+(\.\d+)?\s*(mg|mcg|g|iu|ml|ct|count|caps?|capsules?|softgels?|tablets?|servings?)\b/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
 
 // EMS: pending_queue é array; formulation/production_line são objetos-de-arrays
 // por sub-stage. Normaliza ambos numa lista; herda a chave do sub-stage como
@@ -311,23 +317,31 @@ class EmsActivitySync {
     } finally { this._ticking = false; }
   }
 
-  /** Importa produtos novos do catálogo do EMS pro v3.products (por nome). Idempotente. */
+  /** Importa produtos NOVOS do catálogo do EMS pro v3.products. Dedup por nome
+   *  NORMALIZADO (ignora dose) — "Vitamin B2 400mg" não duplica "Vitamin B2";
+   *  só entra o que é realmente novo (ex.: Urolithin A). Idempotente. */
   async _syncProductCatalog() {
     if (!this.ems || typeof this.ems.products !== 'function') return 0;
     let list = null;
     try { const r = await this.ems.products(); list = Array.isArray(r) ? r : (r && (r.products || r.data)) || null; }
     catch (e) { return 0; }
     if (!Array.isArray(list) || !list.length) return 0;
+    let existing;
+    try {
+      const rows = (await this.db.query('SELECT canonical_name, aliases FROM v3.products')).rows;
+      existing = new Set(rows.flatMap((p) => [p.canonical_name].concat(p.aliases || []).map(normProductName)).filter(Boolean));
+    } catch (e) { return 0; }
     let added = 0;
     for (const p of list) {
       const name = p && (p.name || (p.formula && p.formula.name));
       if (!name || typeof name !== 'string' || !name.trim()) continue;
+      const nn = normProductName(name);
+      if (!nn || existing.has(nn)) continue; // já existe (mesmo com outra dose) → não duplica
+      const aliases = [p.internal_sku, p.amazon_sku, p.walmart_sku].filter(Boolean);
       try {
-        const exists = await this.db.query('SELECT 1 FROM v3.products WHERE canonical_name ILIKE $1 LIMIT 1', [name.trim()]);
-        if (exists.rowCount) continue;
-        const aliases = [p.internal_sku, p.amazon_sku, p.walmart_sku].filter(Boolean);
         try { await this.db.query('INSERT INTO v3.products (canonical_name, aliases, active) VALUES ($1, $2, true)', [name.trim(), aliases]); }
         catch (e) { await this.db.query('INSERT INTO v3.products (canonical_name, active) VALUES ($1, true)', [name.trim()]); }
+        existing.add(nn); // evita 2 variantes do mesmo produto novo na mesma passada
         added++;
       } catch (e) { /* pula esse produto */ }
     }
@@ -361,4 +375,4 @@ class EmsActivitySync {
     return n;
   }
 }
-module.exports = { EmsActivitySync, STAGE_TO_PROCESS, flattenStage };
+module.exports = { EmsActivitySync, STAGE_TO_PROCESS, flattenStage, normProductName };

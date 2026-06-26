@@ -189,20 +189,22 @@ describe('EmsActivitySync._syncProductCatalog (Bruno 06-26: produtos novos do EM
     const inserted = [];
     const db = { query: jest.fn(async (sql, params = []) => {
       const s = String(sql).replace(/\s+/g, ' ').trim();
-      if (/SELECT 1 FROM v3\.products WHERE canonical_name ILIKE/.test(s)) {
-        // "Melatonin" já existe; "Urolithin A" não
-        return { rows: /Melatonin/i.test(params[0]) ? [{ '1': 1 }] : [], rowCount: /Melatonin/i.test(params[0]) ? 1 : 0 };
+      if (/SELECT canonical_name, aliases FROM v3\.products/.test(s)) {
+        return { rows: [{ canonical_name: 'Melatonin', aliases: [] }], rowCount: 1 };
       }
       if (/INSERT INTO v3\.products/.test(s)) { inserted.push(params[0]); return { rows: [], rowCount: 1 }; }
       return { rows: [], rowCount: 0 };
     }) };
     const ems = { products: async () => [
-      { name: 'Melatonin', internal_sku: 'HF-MEL' },
+      { name: 'Melatonin 10mg', internal_sku: 'HF-MEL' },   // variante de dose → NÃO duplica
       { name: 'Urolithin A', internal_sku: 'HF-UROL-1000', amazon_sku: 'X', walmart_sku: 'Y' },
+      { name: 'Yohimbine 5mg' }, { name: 'Yohimbine 10mg' }, // 2 variantes → entra 1 só
     ] };
     const w = new EmsActivitySync({ db, ems });
     const added = await w._syncProductCatalog();
-    expect(added).toBe(1);                 // só Urolithin A
-    expect(inserted).toEqual(['Urolithin A']);
+    expect(added).toBe(2);                 // Urolithin A + 1 Yohimbine (não a 2ª variante, não Melatonin)
+    expect(inserted).toContain('Urolithin A');
+    expect(inserted.filter((x) => /Yohimbine/.test(x))).toHaveLength(1);
+    expect(inserted.some((x) => /Melatonin/.test(x))).toBe(false);
   });
 });
