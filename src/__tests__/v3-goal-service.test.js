@@ -7,6 +7,7 @@ function makeFakeDb() {
   let nextId = 1;
   const goals = [];
   const audit = [];
+  const notifs = [];
 
   function run(sql, params = []) {
     const s = String(sql).replace(/\s+/g, ' ').trim();
@@ -49,11 +50,15 @@ function makeFakeDb() {
       audit.push({ actor_type: params[0], action: params[2], target_id: params[3] });
       return { rows: [] };
     }
+    if (/^INSERT INTO v3\.notifications/.test(s)) {
+      notifs.push({ type: (s.match(/VALUES \('([\w]+)'/) || [])[1] || null, payload: params[0] });
+      return { rows: [] };
+    }
     return { rows: [] };
   }
 
   const db = {
-    goals, audit,
+    goals, audit, notifs,
     query: jest.fn((sql, p) => Promise.resolve(run(sql, p))),
   };
   db.connect = () => Promise.resolve({ query: db.query, release: () => {} });
@@ -84,6 +89,19 @@ describe('V3 Bloco 2 — GoalService.record', () => {
     expect(g.batch_number).toBe('0135');
     expect(g.expected_quantity).toBe(750);
     expect(actions(db)).toContain('goal.created');
+    expect(db.notifs).toHaveLength(0); // tem produto → sem aviso
+  });
+
+  test('AVISO (Bruno 06-26): meta SEM produto → notificação goal_no_product', async () => {
+    const db = makeFakeDb();
+    await svc(db).record({
+      product_id: null, batch_number: '0231', expected_quantity: 749,
+      production_date: '2026-06-26', source: 'channel', source_message_ts: 'm9', actor_type: 'llm_observer',
+    });
+    expect(db.notifs).toHaveLength(1);
+    expect(db.notifs[0].type).toBe('goal_no_product');
+    const p = JSON.parse(db.notifs[0].payload);
+    expect(p).toMatchObject({ batch_number: '0231', expected_quantity: 749 });
   });
 
   test('idempotente — mesma mensagem+lote → UPDATE, não duplica', async () => {

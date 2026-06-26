@@ -68,6 +68,21 @@ class GoalService {
     return r.rows[0] || null;
   }
 
+  /** Notifica o admin quando uma meta nasce SEM produto identificado (vira "(?)"). */
+  async _notifyNoProduct(c, goal, batchNorm, p) {
+    try {
+      await c.query(
+        `INSERT INTO v3.notifications (type, payload, status)
+         VALUES ('goal_no_product', $1::jsonb, 'pending')`,
+        [JSON.stringify({
+          goal_id: goal.id, batch_number: batchNorm || null,
+          expected_quantity: p.expected_quantity, source: p.source || null,
+          source_message_ts: p.source_message_ts || null,
+          text: 'Meta criada sem produto identificado' + (batchNorm ? ' (lote ' + batchNorm + ')' : '') + ' — confirme qual suplemento.',
+        })]);
+    } catch (e) { /* notif é best-effort */ }
+  }
+
   /** Meta já gravada da mesma mensagem + lote (idempotência). */
   async _findBySource(c, sourceTs, batchNumber) {
     if (!sourceTs) return null;
@@ -139,6 +154,10 @@ class GoalService {
         actorType, actorPersonId: p.created_by_person_id, action: 'goal.created',
         targetId: g.id, before: null, after: g,
       });
+      // AVISO (Bruno 06-26): meta criada SEM produto identificado vira "(?)" no
+      // dashboard sem ninguém saber. Cria notificação no inbox admin (#admin-orin)
+      // pra cobrar a identificação na hora. Best-effort — nunca quebra a meta.
+      if (!p.product_id) await this._notifyNoProduct(c, g, batchNorm, p);
       return g;
     });
   }
