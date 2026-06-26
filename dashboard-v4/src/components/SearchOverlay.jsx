@@ -60,6 +60,7 @@ export function SearchOverlay({ open, onClose }) {
   const openBatch = (id, title) => load('batch', '/history/batch/' + id, title);
   const openPerson = (id, title) => load('person', '/person/' + id + '/history', title);
   const openProduct = (id, title) => load('product', '/product/' + id + '/history', title);
+  const openFamily = (ids, title) => load('family', '/history/product-family?ids=' + ids.join(','), title);
 
   return (
     <div className="search-overlay" onMouseDown={(e) => { if (e.target.classList.contains('search-overlay')) onClose(); }}>
@@ -119,8 +120,28 @@ function Results({ res, loading, q, openBatch, openPerson, openProduct }) {
       </Group>
       <Group title="Produtos">
         {(res.products || []).map((p) => (
-          <Row key={'p' + p.id} icon="factory" main={p.name} sub="ver todos os lotes/contagens"
-               onClick={() => openProduct(p.id, p.name)}/>
+          <div key={'p' + p.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 6 }}>
+            <Row icon="factory" main={p.name + (p.variant_label ? ' · ' + p.variant_label : '')} sub="ver lotes/contagens"
+                 onClick={() => openProduct(p.id, p.name)}/>
+            {(p.variants || []).map((v) => (
+              <div key={v.id} style={{ paddingLeft: 16 }}>
+                <Row icon="factory" main={'↳ ' + v.name} sub={(v.variant_label || 'variante') + ' · feito também'}
+                     onClick={() => openProduct(v.id, v.name)}/>
+              </div>
+            ))}
+            {p.parent && (
+              <div style={{ paddingLeft: 16 }}>
+                <Row icon="factory" main={'↳ ' + p.parent.name} sub="produto-pai"
+                     onClick={() => openProduct(p.parent.id, p.parent.name)}/>
+              </div>
+            )}
+            {p.has_family && (
+              <button className="search-row" style={{ justifyContent: 'center', color: 'var(--hf-leaf-700)', fontWeight: 700, fontSize: 12, background: 'color-mix(in srgb, var(--hf-leaf-500) 8%, var(--surface-2))' }}
+                      onClick={() => openFamily(p.family_ids, p.name + ' + variantes')}>
+                <Icon name="merge" size={14}/>&nbsp;Calcular os {p.family_ids.length} juntos (foram feitos em datas/lotes próximos)
+              </button>
+            )}
+          </div>
         ))}
       </Group>
       <Group title="Pessoas">
@@ -148,7 +169,35 @@ function Detail({ detail, openBatch }) {
   if (detail.type === 'batch') return <BatchHistory d={detail.data}/>;
   if (detail.type === 'person') return <PersonHistory d={detail.data} title={detail.title}/>;
   if (detail.type === 'product') return <ProductHistory d={detail.data} openBatch={openBatch}/>;
+  if (detail.type === 'family') return <FamilyHistory d={detail.data} title={detail.title} openBatch={openBatch}/>;
   return null;
+}
+
+function FamilyHistory({ d, title, openBatch }) {
+  const counts = d.counts || {};
+  return (
+    <div>
+      <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>{title}</div>
+      <div style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 10 }}>
+        Combinado: {(d.products || []).map((p) => p.name + (p.variant_label ? ' (' + p.variant_label + ')' : '')).join(' + ')}
+      </div>
+      <div className="card" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+        <Stat label="Tempo total" value={fmtSec(d.span_seconds)} sub="1ª → última tarefa"/>
+        <Stat label="Trabalho efetivo" value={fmtSec(d.total_work_seconds)} sub="todas as variantes"/>
+        <Stat label="Tarefas" value={d.event_count}/>
+        <Stat label="Pessoas" value={d.people_count}/>
+        {counts.bottles != null && <Stat label="Garrafas" value={counts.bottles}/>}
+        {counts.orders != null && <Stat label="Ordens" value={counts.orders}/>}
+        {counts.clinic != null && <Stat label="Clínica" value={counts.clinic}/>}
+      </div>
+      <Group title="Lotes da família (clique pra ver o processo)">
+        {(d.batches || []).map((b) => (
+          <Row key={b.id} icon="product" main={(b.batch_number || ('lote ' + b.id)) + (b.variant_label ? ' · ' + b.variant_label : '')}
+               sub={`${b.product || ''} · ${b.status || ''}`} onClick={() => openBatch(b.id, b.batch_number)}/>
+        ))}
+      </Group>
+    </div>
+  );
 }
 
 function Stat({ label, value, sub }) {

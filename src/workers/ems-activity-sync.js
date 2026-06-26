@@ -345,6 +345,16 @@ class EmsActivitySync {
         added++;
       } catch (e) { /* pula esse produto */ }
     }
+    // liga variantes "X - Cn" ao produto-pai "X" (idempotente; pega as novas)
+    try {
+      await this.db.query(
+        `UPDATE v3.products c SET parent_product_id = par.id,
+                variant_label = substring(c.canonical_name from ' - (C[0-9]+)$')
+           FROM v3.products par
+          WHERE c.canonical_name ~ ' - C[0-9]+$'
+            AND par.canonical_name = regexp_replace(c.canonical_name, ' - C[0-9]+$', '')
+            AND par.id <> c.id AND c.parent_product_id IS NULL`);
+    } catch (e) { /* coluna pode não existir em DB muito antigo */ }
     if (added) console.log('[ems-sync] catálogo: +' + added + ' produto(s) novo(s) do EMS');
     return added;
   }

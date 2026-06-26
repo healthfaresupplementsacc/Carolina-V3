@@ -82,7 +82,7 @@ class HistoryRepo {
     const like = '%' + term + '%';
     const tryQ = async (sql, params) => { try { return (await this.db.query(sql, params)).rows; } catch (e) { return []; } };
     const [products, batches, persons, tasks] = await Promise.all([
-      tryQ(`SELECT id, canonical_name FROM v3.products
+      tryQ(`SELECT id, canonical_name, parent_product_id, variant_label FROM v3.products
             WHERE COALESCE(active, true) = true AND (canonical_name ILIKE $1 OR aliases::text ILIKE $1)
             ORDER BY canonical_name LIMIT 12`, [like]),
       tryQ(`SELECT pb.id, pb.batch_number, pb.status, pr.id AS product_id, pr.canonical_name AS product
@@ -96,11 +96,69 @@ class HistoryRepo {
             WHERE active = true AND (display_name ILIKE $1 OR slug ILIKE $1)
             ORDER BY display_name LIMIT 14`, [like]),
     ]);
-    out.products = products.map((p) => ({ id: p.id, name: p.canonical_name }));
+    // Enriquece cada produto com VARIANTES (C2…) e o PAI — buscar o C1 mostra o C2,
+    // e o front oferece "calcular juntos" (family_ids = a família toda).
+    out.products = await Promise.all(products.map(async (p) => {
+      const variants = await tryQ('SELECT id, canonical_name, variant_label FROM v3.products WHERE parent_product_id = $1 AND COALESCE(active,true)=true ORDER BY variant_label', [p.id]);
+      let parent = null;
+      if (p.parent_product_id) {
+        const pr = await tryQ('SELECT id, canonical_name FROM v3.products WHERE id = $1', [p.parent_product_id]);
+        if (pr[0]) parent = { id: pr[0].id, name: pr[0].canonical_name };
+      }
+      const familyIds = [...new Set([p.id, ...variants.map((v) => v.id), ...(parent ? [parent.id] : [])])];
+      return {
+        id: p.id, name: p.canonical_name, variant_label: p.variant_label || null,
+        parent, variants: variants.map((v) => ({ id: v.id, name: v.canonical_name, variant_label: v.variant_label })),
+        family_ids: familyIds, has_family: familyIds.length > 1,
+      };
+    }));
     out.batches = batches.map((b) => ({ id: b.id, batch_number: b.batch_number, product: b.product || null, product_id: b.product_id || null, status: b.status }));
     out.persons = persons.map((p) => ({ id: p.id, name: p.display_name, role: p.role }));
     out.tasks = tasks.map((t) => ({ slug: t.slug, name: t.display_name, flow: t.flow }));
     return out;
+  }
+
+  /** Histórico COMBINADO de uma família de produtos (pai + variantes C2…). Soma
+   *  contagens, lista os lotes e o tempo total — "calcular os 2 juntos" (Bruno). */
+  async familyHistory(ids) {
+    const list = (Array.isArray(ids) ? ids : String(ids || '').split(',')).map((x) => parseInt(x, 10)).filter(Number.isFinite);
+    if (!list.length) return null;
+    const WORK = `GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(e.ended_at, NOW()) - e.started_at)) - COALESCE(e.total_paused_seconds, 0))`;
+    const [prods, countsR, batchesR, agg] = await Promise.all([
+      this.db.query('SELECT id, canonical_name, variant_label FROM v3.products WHERE id = ANY($1)', [list]),
+      this.db.query(
+        `SELECT pc.kind, SUM(pc.bottles)::int AS total
+         FROM v3.production_counts pc JOIN v3.product_batches pb ON pb.id = pc.product_batch_id
+         WHERE pb.product_id = ANY($1) AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+         GROUP BY pc.kind`, [list]),
+      this.db.query(
+        `SELECT pb.id, pb.batch_number, pb.status, pb.product_id, pr.canonical_name AS product, pr.variant_label
+         FROM v3.product_batches pb JOIN v3.products pr ON pr.id = pb.product_id
+         WHERE pb.product_id = ANY($1) AND pb.deleted_at IS NULL
+         ORDER BY pb.started_at DESC NULLS LAST`, [list]),
+      this.db.query(
+        `SELECT MIN(e.started_at) AS span_start, MAX(COALESCE(e.ended_at, NOW())) AS span_end,
+                COALESCE(SUM(${WORK}), 0)::int AS work_sec, COUNT(*)::int AS n,
+                COUNT(DISTINCT e.person_id)::int AS people
+         FROM v3.events e
+         WHERE e.deleted_at IS NULL AND e.product_batch_id IN (SELECT id FROM v3.product_batches WHERE product_id = ANY($1))`, [list]),
+    ]);
+    const a = agg.rows[0] || {};
+    const counts = {};
+    for (const c of (countsR.rows || [])) counts[c.kind] = c.total;
+    const sStart = a.span_start ? new Date(a.span_start).getTime() : null;
+    const sEnd = a.span_end ? new Date(a.span_end).getTime() : null;
+    return {
+      products: prods.rows.map((p) => ({ id: p.id, name: p.canonical_name, variant_label: p.variant_label || null })),
+      counts,
+      total_work_seconds: Number(a.work_sec) || 0,
+      span_seconds: (sStart != null && sEnd != null && sEnd > sStart) ? Math.round((sEnd - sStart) / 1000) : 0,
+      span_start: a.span_start ? toNyIso(a.span_start) : null,
+      span_end: a.span_end ? toNyIso(a.span_end) : null,
+      event_count: Number(a.n) || 0,
+      people_count: Number(a.people) || 0,
+      batches: (batchesR.rows || []).map((b) => ({ id: b.id, batch_number: b.batch_number, status: b.status, product: b.product, variant_label: b.variant_label })),
+    };
   }
 
   /** HISTÓRICO COMPLETO de um lote: cada tarefa (fase) do início ao envio —

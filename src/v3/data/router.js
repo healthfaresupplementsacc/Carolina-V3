@@ -149,6 +149,8 @@ const ENDPOINTS = [
     handler: async (req, r) => ({ data: await r.history.search(req.query.q) }) },
   { path: '/api/v3/data/history/batch/:id',
     handler: async (req, r) => ({ data: await r.history.batchHistory(intParam(req.params.id)) }) },
+  { path: '/api/v3/data/history/product-family',
+    handler: async (req, r) => ({ data: await r.history.familyHistory(req.query.ids) }) },
   { path: '/api/v3/data/person/:id/history',
     handler: async (req, r) => ({
       data: await r.history.personHistory(intParam(req.params.id),
