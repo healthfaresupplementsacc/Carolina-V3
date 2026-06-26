@@ -14,7 +14,9 @@ class AbsenceAlert {
     this.db = deps.db;
     this.slack = deps.slack;
     this.channelId = deps.channelId;
-    this.enabled = deps.enabled !== undefined ? deps.enabled : (process.env.ABSENCE_ALERT_ENABLED === 'true');
+    // ON por padrão (Bruno: regra combinada — >15min sem função → avisa no grupo).
+    // Desliga só com ABSENCE_ALERT_ENABLED=false.
+    this.enabled = deps.enabled !== undefined ? deps.enabled : (process.env.ABSENCE_ALERT_ENABLED !== 'false');
     this.thresholdMin = deps.thresholdMin || parseInt(process.env.ABSENCE_THRESHOLD_MIN, 10) || 15;
     this.repeatMin = deps.repeatMin || parseInt(process.env.ABSENCE_REPEAT_MIN, 10) || 30;
     this._t = null; this._ticking = false;
