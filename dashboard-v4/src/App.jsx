@@ -27,6 +27,7 @@ import { PinGate } from './components/PinGate.jsx';
 
 // componentes
 import { Sidebar, TopBar } from './components/Shell.jsx';
+import { SearchOverlay } from './components/SearchOverlay.jsx';
 import { SidePanel } from './components/SidePanel.jsx';
 
 // páginas
@@ -145,6 +146,7 @@ function AuthedApp({ onLogout }) {
   // Mobile: sidebar vira drawer deslizante (hambúrguer no topbar). Fecha ao
   // trocar de página. Em desktop o estado é ignorado (sidebar sempre visível).
   const [navOpen, setNavOpen] = React.useState(false);
+  const [searchOpen, setSearchOpen] = React.useState(false);
   React.useEffect(() => { setNavOpen(false); }, [route]);
 
   // Sino de notificações do TOPBAR (Bruno 06-23): a contagem vem da página (Hoje)
@@ -435,6 +437,7 @@ function AuthedApp({ onLogout }) {
         theme={tweaks.theme} onTheme={toggleTheme}
         onNewEvent={newEvent}
         onMenu={onBurger}
+        onSearch={() => setSearchOpen(true)}
         workerNode={<WorkerPill/>}
         readOnly={!V4_ALLOW_WRITES}
         onLogout={onLogout}
@@ -443,6 +446,7 @@ function AuthedApp({ onLogout }) {
         notifTotal={notifInfo.total}
         notifBad={notifInfo.bad}
       />
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)}/>
       <main className="main">
         <div className="main-inner">{pageNode}</div>
       </main>

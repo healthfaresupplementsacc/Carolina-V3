@@ -73,6 +73,111 @@ class HistoryRepo {
     };
   }
 
+  /** Busca universal: produto, lote, pessoa, tarefa. Cada query é tolerante a
+   *  falha (colunas que variam por schema) → nunca derruba a busca inteira. */
+  async search(q) {
+    const term = String(q || '').trim();
+    const out = { query: term, products: [], batches: [], persons: [], tasks: [] };
+    if (term.length < 1) return out;
+    const like = '%' + term + '%';
+    const tryQ = async (sql, params) => { try { return (await this.db.query(sql, params)).rows; } catch (e) { return []; } };
+    const [products, batches, persons, tasks] = await Promise.all([
+      tryQ(`SELECT id, canonical_name FROM v3.products
+            WHERE COALESCE(active, true) = true AND (canonical_name ILIKE $1 OR aliases::text ILIKE $1)
+            ORDER BY canonical_name LIMIT 12`, [like]),
+      tryQ(`SELECT pb.id, pb.batch_number, pb.status, pr.id AS product_id, pr.canonical_name AS product
+            FROM v3.product_batches pb LEFT JOIN v3.products pr ON pr.id = pb.product_id
+            WHERE pb.deleted_at IS NULL AND (pb.batch_number ILIKE $1 OR pr.canonical_name ILIKE $1)
+            ORDER BY pb.started_at DESC NULLS LAST LIMIT 14`, [like]),
+      tryQ(`SELECT id, display_name, role FROM v3.persons
+            WHERE display_name ILIKE $1 AND COALESCE(deleted_at, NULL) IS NULL
+            ORDER BY display_name LIMIT 12`, [like]),
+      tryQ(`SELECT slug, display_name, flow FROM v3.activity_types
+            WHERE active = true AND (display_name ILIKE $1 OR slug ILIKE $1)
+            ORDER BY display_name LIMIT 14`, [like]),
+    ]);
+    out.products = products.map((p) => ({ id: p.id, name: p.canonical_name }));
+    out.batches = batches.map((b) => ({ id: b.id, batch_number: b.batch_number, product: b.product || null, product_id: b.product_id || null, status: b.status }));
+    out.persons = persons.map((p) => ({ id: p.id, name: p.display_name, role: p.role }));
+    out.tasks = tasks.map((t) => ({ slug: t.slug, name: t.display_name, flow: t.flow }));
+    return out;
+  }
+
+  /** HISTÓRICO COMPLETO de um lote: cada tarefa (fase) do início ao envio —
+   *  quem fez, quando, quanto tempo (descontando pausa), o que foi feito
+   *  (anotações), + contagens (garrafas/ordens/clínica) + tempo total. */
+  async batchHistory(batchId) {
+    const id = parseInt(batchId, 10);
+    if (!Number.isFinite(id)) return null;
+    const WORK = `GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(e.ended_at, NOW()) - e.started_at)) - COALESCE(e.total_paused_seconds, 0))::int`;
+    const [batchR, evR, countsR] = await Promise.all([
+      this.db.query(
+        `SELECT pb.id, pb.batch_number, pb.status, pb.started_at, pb.finished_at, pb.origin,
+                pr.id AS product_id, pr.canonical_name AS product, pb.target_bottles, pb.units_per_bottle
+         FROM v3.product_batches pb LEFT JOIN v3.products pr ON pr.id = pb.product_id WHERE pb.id = $1`, [id]),
+      this.db.query(
+        `SELECT e.id, e.started_at, e.ended_at, e.description, e.orders_printed,
+                e.exception_no_count, e.exception_reason, e.confidence, e.source,
+                e.cowork_with, e.is_long_running, ${WORK} AS work_sec,
+                at.slug, at.display_name AS activity, COALESCE(e.flow_override, at.flow) AS flow, at.phase_order,
+                p.id AS person_id, p.display_name AS person
+         FROM v3.events e
+         LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
+         LEFT JOIN v3.persons p ON p.id = e.person_id
+         WHERE e.product_batch_id = $1 AND e.deleted_at IS NULL
+         ORDER BY e.started_at`, [id]),
+      this.db.query(
+        `SELECT kind, SUM(bottles)::int AS total, MAX(reported_at) AS last_at
+         FROM v3.production_counts WHERE product_batch_id = $1 AND deleted_at IS NULL AND superseded_by IS NULL
+         GROUP BY kind`, [id]),
+    ]);
+    if (!batchR.rows[0]) return null;
+    const b = batchR.rows[0];
+    const events = (evR.rows || []).map((e) => ({
+      event_id: e.id, slug: e.slug, activity: e.activity || '(?)', flow: e.flow || null, phase_order: e.phase_order,
+      person_id: e.person_id, person: e.person || null, cowork_with: e.cowork_with || [],
+      started_at: toNyIso(e.started_at), ended_at: toNyIso(e.ended_at),
+      work_seconds: e.work_sec, open: e.ended_at == null, is_background: !!e.is_long_running,
+      description: e.description || null, orders_printed: e.orders_printed != null ? e.orders_printed : null,
+      exception: !!e.exception_no_count, exception_reason: e.exception_reason || null,
+      confidence: e.confidence || null, source: e.source || null,
+    }));
+    // span (1º início → último fim/agora) e tempo de trabalho efetivo
+    let spanStart = null, spanEnd = null, totalWork = 0;
+    const people = new Set();
+    const byStage = new Map();
+    for (const e of evR.rows) {
+      const s = e.started_at ? new Date(e.started_at).getTime() : null;
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
+      if (s != null && (spanStart == null || s < spanStart)) spanStart = s;
+      if (en != null && (spanEnd == null || en > spanEnd)) spanEnd = en;
+      totalWork += Number(e.work_sec) || 0;
+      if (e.person) people.add(e.person);
+      const st = e.activity || '(?)';
+      if (!byStage.has(st)) byStage.set(st, { activity: st, flow: e.flow || null, phase_order: e.phase_order, seconds: 0, events: 0, people: new Set() });
+      const g = byStage.get(st); g.seconds += Number(e.work_sec) || 0; g.events += 1; if (e.person) g.people.add(e.person);
+    }
+    const counts = {};
+    for (const c of (countsR.rows || [])) counts[c.kind] = { total: c.total, last_at: toNyIso(c.last_at) };
+    return {
+      batch: { id: b.id, batch_number: b.batch_number, status: b.status, origin: b.origin,
+        product: b.product || null, product_id: b.product_id || null,
+        target_bottles: b.target_bottles != null ? b.target_bottles : null,
+        units_per_bottle: b.units_per_bottle != null ? b.units_per_bottle : null,
+        started_at: toNyIso(b.started_at), finished_at: toNyIso(b.finished_at) },
+      span_seconds: (spanStart != null && spanEnd != null && spanEnd > spanStart) ? Math.round((spanEnd - spanStart) / 1000) : 0,
+      span_start: spanStart != null ? toNyIso(new Date(spanStart)) : null,
+      span_end: spanEnd != null ? toNyIso(new Date(spanEnd)) : null,
+      total_work_seconds: Math.round(totalWork),
+      people: [...people],
+      event_count: events.length,
+      counts,
+      by_stage: [...byStage.values()].map((g) => ({ activity: g.activity, flow: g.flow, phase_order: g.phase_order, seconds: Math.round(g.seconds), events: g.events, people: [...g.people] }))
+        .sort((a, b2) => (a.phase_order || 99) - (b2.phase_order || 99) || b2.seconds - a.seconds),
+      events,
+    };
+  }
+
   /** Contagens e lotes de um produto no intervalo (por production_date NY). */
   async productHistory(productId, opts = {}) {
     const { from, to } = resolveRange(opts);

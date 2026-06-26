@@ -630,3 +630,17 @@ textarea.input { resize: vertical; min-height: 70px; font-family: inherit; }
 /* Mobile: a grade do "Resumo do dia" (320px + 1fr) empilha no celular. */
 .day-summary-grid { display: grid; grid-template-columns: 320px 1fr; gap: 12px; }
 @media (max-width: 880px) { .day-summary-grid { grid-template-columns: 1fr !important; } }
+
+/* Busca universal (Bruno 06-26) — overlay produto/lote/pessoa/tarefa + histórico */
+.search-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(8,16,36,0.42);
+  display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 16px; }
+.search-modal { width: 100%; max-width: 660px; max-height: 82vh; display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-lg); overflow: hidden; }
+.search-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+.search-input { flex: 1; border: none; outline: none; background: none; font-size: 16px; color: var(--text); }
+.search-body { overflow-y: auto; padding: 14px; -webkit-overflow-scrolling: touch; }
+.search-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid transparent; background: var(--surface-2); cursor: pointer; color: inherit; }
+.search-row:hover { border-color: var(--border); background: var(--surface); }
+.search-empty { color: var(--text-3); font-size: 13px; padding: 22px 6px; text-align: center; line-height: 1.5; }
+@media (max-width: 880px) { .search-overlay { padding: 4vh 8px 8px; } .search-modal { max-height: 92vh; } }

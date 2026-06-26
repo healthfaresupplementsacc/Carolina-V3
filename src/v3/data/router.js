@@ -144,6 +144,11 @@ const ENDPOINTS = [
     handler: async (req, r) => ({ data: await r.catalog.products() }) },
   { path: '/api/v3/data/catalog/activity-types',
     handler: async (req, r) => ({ data: await r.catalog.activityTypes() }) },
+  // Busca universal (produto/lote/pessoa/tarefa) + histórico completo de lote.
+  { path: '/api/v3/data/search',
+    handler: async (req, r) => ({ data: await r.history.search(req.query.q) }) },
+  { path: '/api/v3/data/history/batch/:id',
+    handler: async (req, r) => ({ data: await r.history.batchHistory(intParam(req.params.id)) }) },
   { path: '/api/v3/data/person/:id/history',
     handler: async (req, r) => ({
       data: await r.history.personHistory(intParam(req.params.id),

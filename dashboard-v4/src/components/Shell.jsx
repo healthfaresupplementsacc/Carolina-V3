@@ -95,7 +95,7 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
 // (E7-refine2) BrandH SVG removido — agora usa healthfare-logo.png direto.
 
 const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
-                  workerNode, readOnly, onLogout, ack, onMenu,
+                  workerNode, readOnly, onLogout, ack, onMenu, onSearch,
                   onBell, notifTotal = 0, notifBad = 0 }) => {
   const page = findPage(pageId);
   return (
@@ -129,7 +129,7 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
           ficam acessíveis pelo drawer ou não-essenciais na tela pequena). */}
       <span className="hide-mobile" style={{ display: "contents" }}>{workerNode}</span>
       <span className="hide-mobile"><FalarCarolinaButton ack={ack}/></span>
-      <button className="icon-btn hide-mobile" title="Buscar" aria-label="Search"><Icon name="search" size={17}/></button>
+      <button className="icon-btn" title="Buscar (produto, lote, pessoa, tarefa)" aria-label="Search" onClick={onSearch}><Icon name="search" size={17}/></button>
       <button className="icon-btn" title="Notificações" aria-label="Notifications" onClick={onBell} style={{ position: "relative" }}>
         <Icon name="bell" size={17}/>
         {notifTotal > 0 && (
