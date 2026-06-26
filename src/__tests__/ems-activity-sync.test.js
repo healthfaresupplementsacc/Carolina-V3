@@ -183,3 +183,26 @@ describe('EmsActivitySync._autoCheckin (gate de início recente)', () => {
     expect(await w._autoCheckin([act()])).toBe(0);
   });
 });
+
+describe('EmsActivitySync._syncProductCatalog (Bruno 06-26: produtos novos do EMS entram sozinhos)', () => {
+  test('importa só os produtos do EMS que NÃO existem no v3.products', async () => {
+    const inserted = [];
+    const db = { query: jest.fn(async (sql, params = []) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim();
+      if (/SELECT 1 FROM v3\.products WHERE canonical_name ILIKE/.test(s)) {
+        // "Melatonin" já existe; "Urolithin A" não
+        return { rows: /Melatonin/i.test(params[0]) ? [{ '1': 1 }] : [], rowCount: /Melatonin/i.test(params[0]) ? 1 : 0 };
+      }
+      if (/INSERT INTO v3\.products/.test(s)) { inserted.push(params[0]); return { rows: [], rowCount: 1 }; }
+      return { rows: [], rowCount: 0 };
+    }) };
+    const ems = { products: async () => [
+      { name: 'Melatonin', internal_sku: 'HF-MEL' },
+      { name: 'Urolithin A', internal_sku: 'HF-UROL-1000', amazon_sku: 'X', walmart_sku: 'Y' },
+    ] };
+    const w = new EmsActivitySync({ db, ems });
+    const added = await w._syncProductCatalog();
+    expect(added).toBe(1);                 // só Urolithin A
+    expect(inserted).toEqual(['Urolithin A']);
+  });
+});

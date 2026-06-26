@@ -67,6 +67,9 @@ class EmsActivitySync {
     // back-fill de assignment velho. Kill-switch: EMS_AUTO_CHECKIN_ENABLED.
     this.autoCheckin = deps.autoCheckin !== undefined ? deps.autoCheckin : (process.env.EMS_AUTO_CHECKIN_ENABLED === 'true');
     this.checkinWindowMin = deps.checkinWindowMin || parseInt(process.env.EMS_AUTO_CHECKIN_WINDOW_MIN, 10) || 20;
+    // sync do catálogo de produtos do EMS (ON por padrão; desliga com EMS_CATALOG_SYNC_ENABLED=false)
+    this.catalogSync = deps.catalogSync !== undefined ? deps.catalogSync : (process.env.EMS_CATALOG_SYNC_ENABLED !== 'false');
+    this._lastCatalogSync = 0;
   }
   start(intervalMs = 45000) {
     this._timer = setInterval(() => this.tick().catch((e) => console.error('[ems-sync] tick erro:', e.message)), intervalMs);
@@ -297,8 +300,39 @@ class EmsActivitySync {
       const acts = this.extract(line, pipeline);
       const n = await this._sync(acts);
       const cleaned = await this._syncCleaning(line); // ITEM 3 — limpeza das máquinas
+      // CATÁLOGO (Bruno 06-26): o EMS tinha Urolithin A (e outros) que NUNCA
+      // entravam no catálogo local → metas/tarefas viravam "(?)". Agora importamos
+      // os produtos do EMS automaticamente (throttle ~30min, fire-and-forget).
+      if (this.catalogSync && (Date.now() - (this._lastCatalogSync || 0) > 30 * 60000)) {
+        this._lastCatalogSync = Date.now();
+        this._syncProductCatalog().catch((e) => console.error('[ems-sync] catálogo:', e.message));
+      }
       return { synced: n, cleaning: cleaned };
     } finally { this._ticking = false; }
+  }
+
+  /** Importa produtos novos do catálogo do EMS pro v3.products (por nome). Idempotente. */
+  async _syncProductCatalog() {
+    if (!this.ems || typeof this.ems.products !== 'function') return 0;
+    let list = null;
+    try { const r = await this.ems.products(); list = Array.isArray(r) ? r : (r && (r.products || r.data)) || null; }
+    catch (e) { return 0; }
+    if (!Array.isArray(list) || !list.length) return 0;
+    let added = 0;
+    for (const p of list) {
+      const name = p && (p.name || (p.formula && p.formula.name));
+      if (!name || typeof name !== 'string' || !name.trim()) continue;
+      try {
+        const exists = await this.db.query('SELECT 1 FROM v3.products WHERE canonical_name ILIKE $1 LIMIT 1', [name.trim()]);
+        if (exists.rowCount) continue;
+        const aliases = [p.internal_sku, p.amazon_sku, p.walmart_sku].filter(Boolean);
+        try { await this.db.query('INSERT INTO v3.products (canonical_name, aliases, active) VALUES ($1, $2, true)', [name.trim(), aliases]); }
+        catch (e) { await this.db.query('INSERT INTO v3.products (canonical_name, active) VALUES ($1, true)', [name.trim()]); }
+        added++;
+      } catch (e) { /* pula esse produto */ }
+    }
+    if (added) console.log('[ems-sync] catálogo: +' + added + ' produto(s) novo(s) do EMS');
+    return added;
   }
 
   // ITEM 3 — espelha /line.last_cleaning em v3.ems_cleaning_log (idempotente por
