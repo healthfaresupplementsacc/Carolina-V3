@@ -23,6 +23,11 @@ const EMS_STAGE_TO_SLUG = {
   yield_review: 'production_line', to_count: 'production_line', label_printing: 'production_line',
   finalized: 'production_line', on_line: 'production_line', ready_for_line: 'production_line', to_separate: 'review',
 };
+// AUTO CHECK-IN só pra estágios de MÁQUINA (formulação): o EMS mostra a pessoa
+// genuinamente na máquina. Linha de Produção e Revisão são MANUAIS (a pessoa
+// se registra ela mesma; a linha ainda conta garrafas) → NUNCA auto check-in.
+// (Bruno 06-26: "não tem nada pra check-in automático na linha".)
+const AUTO_CHECKIN_SLUGS = new Set(['weighing', 'mixing', 'encapsulation']);
 // slugs que o check-out automático pode FECHAR sozinho (sem contagem obrigatória).
 // NUNCA fecha production_line/P&P automaticamente (perderia bottles/ordens).
 const SAFE_AUTOCLOSE = new Set(['encapsulation', 'mixing', 'weighing', 'review', 'separating', 'material_handling']);
@@ -249,7 +254,8 @@ class EmsActivitySync {
         // frente de blending/encapsulating). Um check-in NÃO pode começar no futuro →
         // usa AGORA (a detecção é agora). Sem isso vira event futuro + invertido (fim < início).
         const safeStart = startMs > Date.now() ? new Date() : new Date(startMs);
-        const slug = EMS_STAGE_TO_SLUG[a.stage]; if (!slug) continue;
+        const slug = EMS_STAGE_TO_SLUG[a.stage];
+        if (!slug || !AUTO_CHECKIN_SLUGS.has(slug)) continue; // só máquina; linha/revisão são manuais
         const cur = await this.db.query('SELECT auto_event_id FROM v3.ems_activity_cache WHERE ems_key = $1', [a.ems_key]);
         if (cur.rows[0] && cur.rows[0].auto_event_id) continue; // já criou pra essa atividade
         let batchId = null;

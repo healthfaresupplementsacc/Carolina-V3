@@ -162,6 +162,11 @@ describe('EmsActivitySync._autoCheckin (gate de início recente)', () => {
     expect(startMs).toBeLessThanOrEqual(Date.now() + 2000);   // nunca no futuro
     expect(startMs).toBeGreaterThan(Date.now() - 60000);      // ~agora (detecção), não +4h
   });
+  test('estágio da LINHA (yield_review→production_line) → NÃO faz auto check-in (Bruno: linha é manual)', async () => {
+    const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });
+    expect(await w._autoCheckin([act({ stage: 'yield_review' })])).toBe(0);
+    expect(await w._autoCheckin([act({ stage: 'to_count' })])).toBe(0);
+  });
   test('início VELHO (fora da janela) → NÃO cria (não back-fill de assignment)', async () => {
     const db = makeDb(); const w = new EmsActivitySync({ db, autoCheckin: true });
     expect(await w._autoCheckin([act({ stage_started_at: old() })])).toBe(0);
