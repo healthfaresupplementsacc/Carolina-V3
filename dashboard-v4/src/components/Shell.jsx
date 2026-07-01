@@ -20,6 +20,7 @@ const NAV = [
   ]},
   { section: "Display", en: "Floor Display", items: [
     { id: "floor",     pt: "Painel da Fábrica", en: "Floor Display", icon: "tv" },
+    { id: "cameras",   pt: "Câmeras",           en: "Cameras",       icon: "live" },
   ]},
   { section: "Outros", en: "Other", items: [
     { id: "pp",           pt: "P&P",            en: "Pick & Pack",     icon: "pp" },

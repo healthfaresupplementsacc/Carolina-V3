@@ -9,6 +9,7 @@ import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
+import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
@@ -20,6 +21,17 @@ const NOTIFS_VISIBLE_KEY = 'hf-notifs-visible';
 
 const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só editáveis via expand
 const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
+
+// Widgets da página Hoje (Bruno 07-01): liga/desliga + reordena; persiste.
+// Ordem default põe Câmeras ANTES de Filtros (pedido explícito).
+const WIDGET_DEFS = [
+  { id: 'kpis',     label: 'Cards (KPIs)' },
+  { id: 'cameras',  label: 'Câmeras' },
+  { id: 'filtros',  label: 'Filtros' },
+  { id: 'timeline', label: 'Linha do Tempo' },
+  { id: 'resumo',   label: 'Resumo do dia' },
+];
+const WIDGETS_KEY = 'hf-widgets-v1';
 
 function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw,
                           onMerge, onSplit, onCreateInGap, writes,
@@ -54,6 +66,41 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     setDrill({ which, anchor: { x: e.clientX, y: e.clientY } });
   };
   const closeDrill = () => setDrill(null);
+
+  // ── Widgets (Bruno 07-01): on/off + ordem, persistidos ───
+  const [widgets, setWidgets] = React.useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(WIDGETS_KEY) || 'null');
+      if (s && Array.isArray(s.order)) {
+        const known = WIDGET_DEFS.map((d) => d.id);
+        const order = s.order.filter((id) => known.includes(id)).concat(known.filter((id) => !s.order.includes(id)));
+        return { order, off: Array.isArray(s.off) ? s.off : [] };
+      }
+    } catch { /* localStorage off */ }
+    return { order: WIDGET_DEFS.map((d) => d.id), off: [] };
+  });
+  const [widgetsOpen, setWidgetsOpen] = React.useState(false);
+  const saveWidgets = (w) => { setWidgets(w); try { localStorage.setItem(WIDGETS_KEY, JSON.stringify(w)); } catch {} };
+  const wOn = (id) => !widgets.off.includes(id);
+  const wOrder = (id) => widgets.order.indexOf(id) + 1;
+  const wToggle = (id) => saveWidgets({ ...widgets, off: wOn(id) ? [...widgets.off, id] : widgets.off.filter((x) => x !== id) });
+  const wMove = (id, dir) => {
+    const o = [...widgets.order]; const i = o.indexOf(id); const j = i + dir;
+    if (i < 0 || j < 0 || j >= o.length) return;
+    [o[i], o[j]] = [o[j], o[i]];
+    saveWidgets({ ...widgets, order: o });
+  };
+
+  // Stats do filtro no TOPO da seção (sempre visível — Bruno 07-01):
+  // eventos + tempo do recorte atual (tudo, quando nenhum chip ativo).
+  const filterStats = React.useMemo(() => {
+    let list = state.events;
+    if (filterFlows.size > 0) list = list.filter((e) => { const a = HFD.activities && HFD.activities[e.activity]; return a && filterFlows.has(a.flow); });
+    if (filterOps.size > 0) list = list.filter((e) => filterOps.has(e.op));
+    let total = 0;
+    for (const e of list) { const end = e.ended_min == null ? now : e.ended_min; total += Math.max(0, end - e.started_min); }
+    return { n: list.length, min: Math.round(total), active: filterFlows.size > 0 || filterOps.size > 0 };
+  }, [state.events, filterFlows, filterOps, now, HFD.activities]);
 
   // Notificações (Bruno 06-23): saíram do corpo da página. Quem controla a abertura
   // é o SINO DO TOPO (prop `notifOpen` vinda do App). Aqui só guardamos o modal de
@@ -308,7 +355,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   }
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       {error && state.events.length > 0 && (
         <div className="alert-row warn" style={{ marginBottom: 10 }}>
           <div className="ico"><Icon name="bell" size={14}/></div>
@@ -316,7 +363,38 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         </div>
       )}
 
+      {/* ── Widgets: escolher/ordenar os blocos da página (Bruno 07-01) ── */}
+      <div style={{ order: 0, display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+        <button className="btn sm ghost" onClick={() => setWidgetsOpen((v) => !v)}
+                title="Ligar/desligar e reordenar os blocos da página">⚙ Widgets</button>
+      </div>
+      {widgetsOpen && (
+        <>
+          <div onClick={() => setWidgetsOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 260 }}/>
+          <div className="card" style={{ position: 'fixed', top: 96, right: 18, zIndex: 270, width: 262, padding: 12, boxShadow: 'var(--shadow-lg)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 8 }}>
+              Widgets da página
+            </div>
+            {widgets.order.map((id, i) => {
+              const def = WIDGET_DEFS.find((d) => d.id === id); if (!def) return null;
+              return (
+                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
+                  <input type="checkbox" checked={wOn(id)} onChange={() => wToggle(id)} style={{ accentColor: 'var(--hf-leaf-500)' }}/>
+                  <span style={{ flex: 1, fontSize: 13 }}>{def.label}</span>
+                  <button className="icon-btn" onClick={() => wMove(id, -1)} disabled={i === 0}
+                          style={{ padding: 2, width: 22, opacity: i === 0 ? 0.3 : 1 }} title="Subir">↑</button>
+                  <button className="icon-btn" onClick={() => wMove(id, +1)} disabled={i === widgets.order.length - 1}
+                          style={{ padding: 2, width: 22, opacity: i === widgets.order.length - 1 ? 0.3 : 1 }} title="Descer">↓</button>
+                </div>
+              );
+            })}
+            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>salvo neste navegador</div>
+          </div>
+        </>
+      )}
+
       {/* ── KPI strip ──────────────────────────────────────── */}
+      {wOn('kpis') && (<section style={{ order: wOrder('kpis') }}>
       <div className="kpi-grid">
 
         {/* PRODUÇÃO HOJE — engrenagem + valor clicável (drill bottle/seg) */}
@@ -552,6 +630,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             emergência (crítico novo) abre um modal de aviso. Ver dropdown + modal
             no fim do componente; publica a contagem pro sino via onNotifInfo. */}
       </div>
+      </section>)}
 
       {/* Editor de metas — modal (Bruno 06-23): tela cheia centralizada (não fica
           mais atrás do card de P&P) + seletor de produto/lote estilo página dos op. */}
@@ -617,10 +696,27 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         </div>
       )}
 
+      {/* ── Câmeras (widget, default antes de Filtros — Bruno 07-01) ── */}
+      {wOn('cameras') && (<section style={{ order: wOrder('cameras') }}>
+        <div className="section-title">
+          <Leaf size={14} color="var(--hf-leaf-500)"/>
+          <h2>Câmeras</h2><span className="en">· Live cameras</span>
+          <div className="rule"/>
+        </div>
+        <CameraGrid compact/>
+      </section>)}
+
       {/* ── Filters ─────────────────────────────────────────── */}
+      {wOn('filtros') && (<section style={{ order: wOrder('filtros') }}>
       <div className="section-title">
         <Leaf size={14} color="var(--hf-leaf-500)"/>
         <h2>Filtros</h2><span className="en">· Filter view</span>
+        <span title="Stats do recorte atual (tudo, se nenhum filtro ativo)"
+              style={{ fontSize: 11.5, fontWeight: 700, marginLeft: 10, padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap',
+                       color: filterStats.active ? 'var(--hf-navy-600)' : 'var(--text-3)',
+                       background: filterStats.active ? 'rgba(40,85,173,0.10)' : 'var(--surface-2)' }}>
+          {filterStats.active ? 'filtro ativo' : 'tudo'} · {filterStats.n} evento{filterStats.n === 1 ? '' : 's'} · {fmtDur(filterStats.min)}
+        </span>
         <div className="rule"/>
       </div>
       <div className="filters">
@@ -716,7 +812,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         );
       })()}
 
+      </section>)}
+
       {/* ── Timeline ────────────────────────────────────────── */}
+      {wOn('timeline') && (<section style={{ order: wOrder('timeline') }}>
       <div style={{ marginTop: 12 }}>
         {operators.length === 0 ? (
           <div className="card" style={{ padding: 30, color: 'var(--text-3)', textAlign: 'center' }}>
@@ -749,10 +848,12 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           />
         )}
       </div>
+      </section>)}
 
       {/* ── Resumo do dia ─ Bloco 28/mai noite (Leva A): refatorado pra
            conceitos do negócio. Tudo derivado via util/day-stats.cjs com
            UNIÃO de intervalos (wall-clock), sem dupla-contagem. ──────── */}
+      {wOn('resumo') && (<section style={{ order: wOrder('resumo') }}>
       <div className="section-title" style={{ marginTop: 24 }}>
         <Leaf size={14} color="var(--hf-leaf-500)"/>
         <h2>Resumo do dia</h2><span className="en">· Day summary</span>
@@ -976,6 +1077,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         </div>
         );
       })()}
+      </section>)}
 
       {/* E6 #6 — FloatingPopover pra preencher gap */}
       <FloatingPopover

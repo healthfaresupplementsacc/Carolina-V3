@@ -34,6 +34,7 @@ import { SidePanel } from './components/SidePanel.jsx';
 import { CommandCenter } from './pages/CommandCenter.jsx';
 import { FloorDisplay } from './pages/FloorDisplay.jsx';
 import { AdminPanel } from './pages/AdminPanel.jsx';
+import { CamerasPage } from './pages/CamerasPage.jsx';
 import {
   ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage,
   ProductPage, FalarPage, PlanPage, ConfigPage,
@@ -416,6 +417,7 @@ function AuthedApp({ onLogout }) {
     case "metas":         pageNode = <GoalsPage {...pageProps}/>; break;
     case "pessoas":       pageNode = <PeoplePage {...pageProps}/>; break;
     case "floor":         pageNode = <FloorDisplay {...pageProps}/>; break;
+    case "cameras":       pageNode = <CamerasPage/>; break;
     case "pp":            pageNode = <PickPackPage {...pageProps}/>; break;
     case "suporte":       pageNode = <SupportPage {...pageProps}/>; break;
     case "produto":       pageNode = <ProductPage {...pageProps}/>; break;
