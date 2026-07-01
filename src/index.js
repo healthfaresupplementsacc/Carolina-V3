@@ -43,6 +43,10 @@ app.use('/api', workflowRouter); // Entrega 3 — workflow_templates et al
 // V3 (shadow) — rotas ADITIVAS, montadas antes do dashboardRouter.
 require('./v3/wire').mount(app);
 
+// Câmeras (view-only, PIN-gated, proxy p/ o PC das câmeras) — ADITIVA; se as
+// envs CAM_* faltarem ou o PC das câmeras migrar/estiver off, responde 503 e o V4 segue intacto.
+app.use('/', require('./routes/cameras'));
+
 app.use('/', dashboardRouter);
 
 // ===== STARTUP =====
