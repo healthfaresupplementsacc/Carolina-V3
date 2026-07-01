@@ -3,48 +3,103 @@
  * Câmeras (view-only) — Warehouse Floor + Packaging Line.
  *
  * Proxy PIN-gated para o gateway de câmeras (PC das câmeras, via Tailscale
- * Funnel). O browser do funcionário NUNCA vê a URL do gateway nem o token —
- * ambos ficam só em env vars do Railway. Sem o PIN, as imagens não carregam.
+ * Funnel). O browser do funcionário NUNCA vê a URL do gateway nem o CAM_TOKEN —
+ * ambos ficam só em env vars do Railway.
  *
- *   GET /cameras                  -> página standalone (pede o PIN 1x, mostra as 2 câmeras)
- *   GET /api/cam/:name?k=<PIN>    -> MJPEG proxied (name: warehouse | packaging)
+ * Auth (revisado pós-review adversarial — o PIN NUNCA vai em URL/log):
+ *   POST /api/cam/session {pin}     -> {token} de sessão (HMAC, expira em 12h)
+ *   GET  /api/cam/:name?t=<token>   -> MJPEG proxied (name: warehouse | packaging)
+ *   GET  /cameras                   -> página standalone (pede o PIN 1x, guarda só o TOKEN)
+ *
+ * Proteções: rate-limit 60/min por IP real (exige trust proxy — setado no
+ * index.js) + brute-force guard (10 PINs errados/h -> ban 24h persistido em
+ * v3.blocked_ips + alerta no canal admin) + comparações timing-safe.
  *
  * Env (Railway):
  *   CAM_TUNNEL_URL  ex.: https://<maquina>.ts.net/embed   (muda quando o PC das câmeras migrar — só troca a env)
- *   CAM_TOKEN       segredo compartilhado com o gateway (fica no servidor)
+ *   CAM_TOKEN       segredo compartilhado com o gateway (fica no servidor; também assina os tokens de sessão)
  *   CAM_VIEW_PIN    PIN que o funcionário digita 1x na página
  *
  * PORTABILIDADE: se as envs faltarem ou o PC das câmeras estiver offline
- * (ex.: durante a migração pra outra máquina), a rota responde 503 e o resto
- * do V4 segue 100% intacto — nada aqui é dependência do dashboard.
+ * (ex.: durante a migração pra outra máquina), responde 503 e o resto do V4
+ * segue 100% intacto — nada aqui é dependência do dashboard.
  */
 
 const express = require('express');
 const crypto = require('crypto');
 const { Readable } = require('stream');
-const { makeRateLimit } = require('../middleware/security');
+const { makeRateLimit, makeBruteForceGuard } = require('../middleware/security');
 
 const router = express.Router();
 
 const CAMS = new Set(['warehouse', 'packaging']);
-const LABELS = { warehouse: 'Warehouse Floor', packaging: 'Packaging Line' };
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h ≈ um turno; expira -> pede o PIN de novo
 
-// 60 req/min por IP — segura brute-force de PIN sem atrapalhar o uso normal
-// (o stream MJPEG é 1 request longa, não N requests).
-router.use('/api/cam', makeRateLimit({ limit: 60, windowMs: 60 * 1000 }));
+// ── proteções ───────────────────────────────────────────────
+// db lazy (pool do wire) pra persistir bans; slack pro alerta de brute-force.
+// Tudo best-effort: se indisponível, o guard segue em memória (nunca derruba).
+const lazyDb = {
+  query: (...a) => {
+    try {
+      const wire = require('../v3/wire');
+      const pool = wire.getPool && wire.getPool();
+      return pool ? pool.query(...a) : Promise.resolve({ rows: [] });
+    } catch (_) { return Promise.resolve({ rows: [] }); }
+  },
+};
+let slack = null;
+try { const s = require('../v3/slack/sender'); slack = { postAs: s.postAs }; } catch (_) { /* sem slack em teste */ }
 
-function pinOk(k) {
-  const pin = process.env.CAM_VIEW_PIN || '';
-  if (!pin || !k) return false;
-  const a = crypto.createHash('sha256').update(String(k)).digest();
-  const b = crypto.createHash('sha256').update(pin).digest();
-  return crypto.timingSafeEqual(a, b);
+const guard = makeBruteForceGuard({ db: lazyDb, slack, threshold: 10, windowMs: 60 * 60 * 1000, banMs: 24 * 60 * 60 * 1000 });
+let hydrated = false;
+async function ensureHydrated() { if (!hydrated) { hydrated = true; try { await guard.hydrate(); } catch (_) {} } }
+
+// 60 req/min por IP real (trust proxy no index.js) + gate de IP banido.
+router.use('/api/cam', makeRateLimit({ limit: 60, windowMs: 60 * 1000 }), (req, res, next) => guard.gate(req, res, next));
+
+// ── crypto helpers ──────────────────────────────────────────
+function timingEq(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+// token = "<expMs>.<hmac(cam:expMs, CAM_TOKEN)>" — stateless, sobrevive a restart.
+function signToken(expMs) {
+  const mac = crypto.createHmac('sha256', String(process.env.CAM_TOKEN || '')).update('cam:' + expMs).digest('hex');
+  return expMs + '.' + mac;
+}
+function tokenOk(t) {
+  if (!t || !process.env.CAM_TOKEN) return false;
+  const i = String(t).indexOf('.');
+  if (i <= 0) return false;
+  const expMs = Number(String(t).slice(0, i));
+  if (!Number.isFinite(expMs) || Date.now() > expMs) return false;
+  return timingEq(t, signToken(expMs));
 }
 
+// ── sessão: troca o PIN (no BODY, nunca em URL) por um token ───────────────
+router.post('/api/cam/session', express.json(), async (req, res) => {
+  await ensureHydrated();
+  const pin = process.env.CAM_VIEW_PIN;
+  if (!pin || !process.env.CAM_TUNNEL_URL || !process.env.CAM_TOKEN) {
+    return res.status(503).json({ error: 'cameras_offline' }); // feature não configurada — V4 segue intacto
+  }
+  const attempt = req.body && req.body.pin;
+  const ip = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+  if (!attempt || !timingEq(attempt, pin)) {
+    guard.recordFailure(ip); // 10 erros/h -> ban 24h + alerta admin (igual /op e /admin)
+    return res.status(403).json({ error: 'bad_pin' });
+  }
+  guard.recordSuccess(ip);
+  const exp = Date.now() + SESSION_TTL_MS;
+  res.json({ token: signToken(exp), expires_at: exp });
+});
+
+// ── stream proxied (token na query — de curta duração, não é o PIN) ────────
 router.get('/api/cam/:name', async (req, res) => {
   const { name } = req.params;
   if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
-  if (!pinOk(req.query.k)) return res.status(403).json({ error: 'bad_pin' });
+  if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
 
   const base = process.env.CAM_TUNNEL_URL;
   const token = process.env.CAM_TOKEN;
@@ -105,29 +160,38 @@ router.get('/cameras', (_req, res) => {
 </div>
 <script>
 (function(){
-  var K='hf_cam_pin', ov=document.getElementById('pin-overlay'),
+  var K='hf_cam_tok', ov=document.getElementById('pin-overlay'),
       inp=document.getElementById('pin'), err=document.getElementById('pin-err');
-  function load(pin){
+  function tokenFresh(t){ // expiração é o prefixo do token — validável no client
+    if(!t) return false; var exp=parseInt(String(t).split('.')[0],10);
+    return isFinite(exp) && Date.now() < exp - 60000;
+  }
+  function load(tok){
     document.querySelectorAll('img[data-cam]').forEach(function(im){
-      im.src='/api/cam/'+im.dataset.cam+'?k='+encodeURIComponent(pin)+'&t='+Date.now();
-      im.onerror=function(){ im.style.display='none'; im.nextElementSibling.style.display='block';
-        try{localStorage.removeItem(K);}catch(e){} };
+      im.src='/api/cam/'+im.dataset.cam+'?t='+encodeURIComponent(tok)+'&r='+Date.now();
+      // stream caiu (PC das câmeras off / blip do funnel): mostra offline mas NÃO
+      // apaga o token — sessão continua válida; recarregar a página tenta de novo.
+      im.onerror=function(){ im.style.display='none'; im.nextElementSibling.style.display='block'; };
       im.onload=function(){ im.style.display='block'; im.nextElementSibling.style.display='none'; };
     });
   }
-  function tryPin(pin, remember){
-    fetch('/api/cam/warehouse?k='+encodeURIComponent(pin), {method:'GET', headers:{Range:'bytes=0-0'}})
+  function tryPin(pin){
+    fetch('/api/cam/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pin})})
       .then(function(r){
+        if(r.status===200){ return r.json().then(function(j){
+          try{ localStorage.setItem(K, j.token); }catch(e){}
+          ov.style.display='none'; load(j.token);
+        }); }
         if(r.status===403){ err.textContent='PIN incorreto'; return; }
-        try{ r.body && r.body.cancel && r.body.cancel(); }catch(e){}
-        if(remember){ try{ localStorage.setItem(K, pin); }catch(e){} }
-        ov.style.display='none'; load(pin);
+        if(r.status===429){ err.textContent='Muitas tentativas — aguarde um pouco'; return; }
+        err.textContent='Câmeras offline no momento — tente mais tarde';
       }).catch(function(){ err.textContent='Sem conexão com o servidor'; });
   }
-  document.getElementById('go').onclick=function(){ var p=inp.value.trim(); if(p) tryPin(p, true); };
+  document.getElementById('go').onclick=function(){ var p=inp.value.trim(); if(p) tryPin(p); };
   inp.addEventListener('keydown', function(e){ if(e.key==='Enter') document.getElementById('go').click(); });
   var saved=null; try{ saved=localStorage.getItem(K); }catch(e){}
-  if(saved) tryPin(saved, false);
+  if(tokenFresh(saved)){ ov.style.display='none'; load(saved); }
+  else { try{ localStorage.removeItem(K); }catch(e){} }
 })();
 </script></body></html>`);
 });

@@ -16,6 +16,13 @@ const { startPolling, startEodJob, startGreetingJob, startDetectJob, startActivi
 
 const app = express();
 
+// Atrás do proxy da Railway (exatamente 1 hop): sem isto, req.ip é o IP interno
+// do proxy pra TODO cliente — rate-limits "por IP" e bans de brute-force viravam
+// UM balde global compartilhado (achado do review das câmeras). Com 1 hop
+// confiado, req.ip = IP real do cliente (último hop do X-Forwarded-For) e os
+// guards de /op, /admin e /api/cam passam a valer por atacante, não por todos.
+app.set('trust proxy', 1);
+
 // ===== MIDDLEWARE =====
 app.use(cors());
 
