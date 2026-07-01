@@ -114,43 +114,88 @@ router.get('/api/cam/health', async (req, res) => {
   }
 });
 
-// ── stream proxied (token na query — de curta duração, não é o PIN) ────────
-router.get('/api/cam/:name', async (req, res) => {
-  const { name } = req.params;
-  if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
-  if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+// ── stream proxied + MULTIPLEX (sugestão do gateway 07-01): 1 fetch upstream
+// por câmera COMPARTILHADO entre N navegadores. Antes cada viewer abria um
+// stream próprio → multiplicava o upload do PC das câmeras (que é o gargalo:
+// ~22-28 Mbps no escritório). Agora o custo é fixo (1 stream/câmera) não
+// importa quantos assistem. Viewer que entra no meio: o decoder MJPEG do
+// browser ressincroniza no próximo boundary (comportamento padrão de proxies
+// MJPEG). Viewer lento (>4MB de buffer) é derrubado pra não vazar memória. ──
+const brokers = new Map(); // name -> Promise<broker|null>; broker = {clients:Set, ctrl, node, contentType, alive}
 
+async function openBroker(name) {
   const base = process.env.CAM_TUNNEL_URL;
   const token = process.env.CAM_TOKEN;
-  if (!base || !token) return res.status(503).json({ error: 'cameras_offline' }); // migração/PC desligado — V4 segue intacto
-
-  const ctrl = new AbortController();
-  req.on('close', () => ctrl.abort());          // funcionário fechou a página -> derruba o stream upstream
-
-  // fail-fast: se o funnel/PC das câmeras estiver pendurado (visto na prática:
-  // requests presos sem resposta), corta em 8s e devolve 503 — a página re-tenta
-  // sozinha. Depois dos headers o stream corre sem timeout (MJPEG é longo).
-  const connectTimer = setTimeout(() => ctrl.abort(), 8000);
+  if (!base || !token) return null;
+  const b = { clients: new Set(), ctrl: new AbortController(), node: null, contentType: null, alive: false, lingerTimer: null };
+  // fail-fast: funnel pendurado → corta em 8s (a página re-tenta sozinha).
+  const connectTimer = setTimeout(() => b.ctrl.abort(), 8000);
   let up;
   try {
     up = await fetch(`${base.replace(/\/$/, '')}/stream/${name}`, {
       headers: { 'X-Cam-Token': token },
-      signal: ctrl.signal,
+      signal: b.ctrl.signal,
     });
-  } catch {
-    clearTimeout(connectTimer);
-    return res.status(503).json({ error: 'cameras_offline' });
-  }
+  } catch { clearTimeout(connectTimer); return null; }
   clearTimeout(connectTimer);
-  if (!up.ok || !up.body) return res.status(503).json({ error: 'cameras_offline' });
+  if (!up.ok || !up.body) return null;
+  b.contentType = up.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=frame';
+  b.alive = true;
+  b.node = Readable.fromWeb(up.body);
+  const teardown = () => {
+    b.alive = false;
+    brokers.delete(name);
+    for (const c of b.clients) { try { c.end(); } catch (_) {} }
+    b.clients.clear();
+  };
+  b.node.on('data', (chunk) => {
+    for (const c of b.clients) {
+      try {
+        if (c.writableLength > 4 * 1024 * 1024) { c.destroy(); b.clients.delete(c); continue; }
+        c.write(chunk);
+      } catch (_) { b.clients.delete(c); }
+    }
+  });
+  b.node.on('error', teardown);
+  b.node.on('end', teardown);
+  return b;
+}
+
+function getBroker(name) {
+  const cur = brokers.get(name);
+  if (cur) return cur;                       // Promise (corrida de 2 primeiros-viewers → 1 upstream)
+  const p = openBroker(name).then((b) => {
+    if (!b) brokers.delete(name);
+    return b;
+  }).catch(() => { brokers.delete(name); return null; });
+  brokers.set(name, p);
+  return p;
+}
+
+router.get('/api/cam/:name', async (req, res) => {
+  const { name } = req.params;
+  if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
+  if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+  if (!process.env.CAM_TUNNEL_URL || !process.env.CAM_TOKEN) {
+    return res.status(503).json({ error: 'cameras_offline' }); // migração/PC desligado — V4 segue intacto
+  }
+  const b = await getBroker(name);
+  if (!b || !b.alive) return res.status(503).json({ error: 'cameras_offline' });
 
   res.status(200);
-  res.set('Content-Type', up.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=frame');
+  res.set('Content-Type', b.contentType);
   res.set('Cache-Control', 'no-store');
-  const body = Readable.fromWeb(up.body);
-  body.on('error', () => { try { res.end(); } catch (_) {} });
-  res.on('close', () => { try { ctrl.abort(); body.destroy(); } catch (_) {} });
-  body.pipe(res);
+  b.clients.add(res);
+  if (b.lingerTimer) { clearTimeout(b.lingerTimer); b.lingerTimer = null; }
+  req.on('close', () => {
+    b.clients.delete(res);
+    // último viewer saiu → segura 5s (reload rápido reusa) e derruba o upstream
+    if (b.clients.size === 0 && b.alive) {
+      b.lingerTimer = setTimeout(() => {
+        if (b.clients.size === 0) { try { b.ctrl.abort(); b.node && b.node.destroy(); } catch (_) {} brokers.delete(name); }
+      }, 5000);
+    }
+  });
 });
 
 

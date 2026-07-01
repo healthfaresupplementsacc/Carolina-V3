@@ -67,6 +67,42 @@ describe('câmeras — /api/cam', () => {
     process.env.CAM_VIEW_PIN = old;
   });
 
+  test('MULTIPLEX: 2 viewers simultâneos → 1 conexão upstream só (economiza o upload do PC das câmeras)', async () => {
+    const http = require('http');
+    let upstreamHits = 0;
+    const mock = await new Promise((resolve) => {
+      const s = http.createServer((req2, res2) => {
+        upstreamHits++;
+        res2.writeHead(200, { 'Content-Type': 'multipart/x-mixed-replace; boundary=frame' });
+        const t = setInterval(() => { try { res2.write('--frame\r\nContent-Type: image/jpeg\r\n\r\nFAKEJPEG\r\n'); } catch (_) {} }, 40);
+        req2.on('close', () => clearInterval(t));
+      });
+      s.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const oldUrl = process.env.CAM_TUNNEL_URL;
+    process.env.CAM_TUNNEL_URL = `http://127.0.0.1:${mock.address().port}`;
+    try {
+      const tok = (await (await session('510510')).json()).token;
+      const a1 = new AbortController(); const a2 = new AbortController();
+      const [r1, r2] = await Promise.all([
+        fetch(base + '/api/cam/packaging?t=' + encodeURIComponent(tok), { signal: a1.signal }),
+        fetch(base + '/api/cam/packaging?t=' + encodeURIComponent(tok), { signal: a2.signal }),
+      ]);
+      expect(r1.status).toBe(200);
+      expect(r2.status).toBe(200);
+      // os DOIS recebem dados do MESMO upstream
+      const read1 = (await r1.body.getReader().read()).value;
+      const read2 = (await r2.body.getReader().read()).value;
+      expect(read1 && read1.length).toBeGreaterThan(0);
+      expect(read2 && read2.length).toBeGreaterThan(0);
+      expect(upstreamHits).toBe(1); // ← o multiplex: 2 viewers, 1 stream do gateway
+      a1.abort(); a2.abort();
+    } finally {
+      process.env.CAM_TUNNEL_URL = oldUrl;
+      await new Promise((r) => mock.close(r));
+    }
+  });
+
   // ÚLTIMO teste do arquivo: bane o IP (estado do guard é module-level).
   test('brute force: 10 PINs errados → ban (429 no gate)', async () => {
     for (let i = 0; i < 10; i++) await session('wrong-' + i);
