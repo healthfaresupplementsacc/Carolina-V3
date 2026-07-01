@@ -195,7 +195,10 @@ router.get('/cameras', (_req, res) => {
   #pin-err{color:#f85149;font-size:13px;min-height:16px;}
 </style></head><body>
 <header>🎥 Câmeras — Produção <span id="gw" title="gateway"></span><span class="sub">(ao vivo, somente visualização)</span>
-  <span class="sizer">tamanho <input id="sz" type="range" min="340" max="1400" step="20"></span>
+  <span class="sizer">
+    <button id="pipall" style="border:1px solid #30363d;background:#0d1117;color:#c9d1d9;border-radius:8px;padding:4px 10px;font-size:12.5px;cursor:pointer;" title="Uma janela PIP flutuante com TODAS as câmeras lado a lado (o navegador só permite 1 janela PIP por vez)">⧉ PIP tudo</button>
+    tamanho <input id="sz" type="range" min="340" max="1400" step="20">
+  </span>
 </header>
 <div id="pin-overlay"><div class="box"><strong>PIN das câmeras</strong>
   <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••••" autofocus>
@@ -292,6 +295,52 @@ router.get('/cameras', (_req, res) => {
       });
     }).catch(function(e){ clearInterval(c.pump); c.pump=null; alert('PIP falhou: '+e.message); });
   }
+
+  // ── MULTI-PIP: TODAS as câmeras numa janela PIP só (Bruno 07-01).
+  // O navegador só permite UMA janela PIP por vez (abrir outra fecha a anterior)
+  // — então compomos os streams lado a lado num canvas e mandamos o conjunto.
+  var LBL={warehouse:'Warehouse Floor',packaging:'Packaging Line'};
+  var all={canvas:null,video:null,pump:null,inPip:false};
+  function togglePipAll(){
+    if(!document.pictureInPictureEnabled){ alert('Este navegador não suporta Picture-in-Picture. Use Chrome/Edge.'); return; }
+    if(all.inPip&&all.video){ document.exitPictureInPicture().catch(function(){}); return; }
+    if(!all.canvas){
+      all.canvas=document.createElement('canvas');
+      all.video=document.createElement('video');
+      all.video.muted=true; all.video.playsInline=true; all.video.style.display='none';
+      document.body.appendChild(all.video);
+    }
+    var ids=Object.keys(cams), cw=1280, ch=720;
+    all.canvas.width=cw*ids.length; all.canvas.height=ch;
+    var ctx=all.canvas.getContext('2d');
+    clearInterval(all.pump);
+    all.pump=setInterval(function(){
+      ids.forEach(function(id,ix){
+        var im=cams[id].img;
+        try{
+          ctx.fillStyle='#000'; ctx.fillRect(ix*cw,0,cw,ch);
+          if(im.complete&&im.naturalWidth){
+            var s=Math.min(cw/im.naturalWidth,ch/im.naturalHeight), w=im.naturalWidth*s, h=im.naturalHeight*s;
+            ctx.drawImage(im, ix*cw+(cw-w)/2, (ch-h)/2, w, h);
+          } else {
+            ctx.fillStyle='#8b949e'; ctx.font='26px system-ui'; ctx.fillText('câmera offline — reconectando…', ix*cw+40, ch/2);
+          }
+          ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(ix*cw,0,250,34);
+          ctx.fillStyle='#fff'; ctx.font='bold 19px system-ui'; ctx.fillText(LBL[id]||id, ix*cw+12, 24);
+          if(ix>0){ ctx.fillStyle='#0d1117'; ctx.fillRect(ix*cw-2,0,4,ch); } // divisor
+        }catch(e){}
+      });
+    },66); // ~15fps
+    if(!all.video.srcObject) all.video.srcObject=all.canvas.captureStream(15);
+    all.video.play().then(function(){ return all.video.requestPictureInPicture(); }).then(function(){
+      all.inPip=true;
+      all.video.addEventListener('leavepictureinpicture', function onleave(){
+        all.inPip=false; clearInterval(all.pump); all.pump=null;
+        all.video.removeEventListener('leavepictureinpicture', onleave);
+      });
+    }).catch(function(e){ clearInterval(all.pump); all.pump=null; alert('PIP falhou: '+e.message); });
+  }
+  document.getElementById('pipall').onclick=togglePipAll;
 
   document.querySelectorAll('.card').forEach(function(card){
     card.querySelector('[data-act=fs]').onclick=function(){ goFs(card.dataset.cam); };

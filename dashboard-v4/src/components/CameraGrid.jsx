@@ -55,6 +55,7 @@ function CameraGrid({ compact = false }) {
     if (!token) return undefined;
     CAMS.forEach((c) => startStream(c.id));
     const cur = ref.current;
+    const all = allRef.current;
     return () => {
       Object.values(cur).forEach((c) => {
         if (!c) return;
@@ -62,6 +63,8 @@ function CameraGrid({ compact = false }) {
         if (c.img) { c.img.onerror = null; c.img.onload = null; c.img.src = ''; } // fecha o stream
         if (c.video && document.pictureInPictureElement === c.video) document.exitPictureInPicture().catch(() => {});
       });
+      clearInterval(all.pump);
+      if (all.video && document.pictureInPictureElement === all.video) document.exitPictureInPicture().catch(() => {});
     };
   }, [token, startStream]);
 
@@ -127,6 +130,51 @@ function CameraGrid({ compact = false }) {
     } catch (e2) { clearInterval(c.pump); c.pump = null; alert('PIP falhou: ' + e2.message); }
   };
 
+  // MULTI-PIP (Bruno 07-01): o navegador só permite UMA janela PIP por vez —
+  // então compomos TODAS as câmeras lado a lado num canvas e mandamos o conjunto.
+  const allRef = React.useRef({});
+  const togglePipAll = async () => {
+    const all = allRef.current;
+    if (!document.pictureInPictureEnabled) { alert('Este navegador não suporta Picture-in-Picture. Use Chrome/Edge.'); return; }
+    if (all.inPip && all.video) { document.exitPictureInPicture().catch(() => {}); return; }
+    if (!all.canvas) {
+      all.canvas = document.createElement('canvas');
+      all.video = document.createElement('video');
+      all.video.muted = true; all.video.playsInline = true; all.video.style.display = 'none';
+      document.body.appendChild(all.video);
+    }
+    const cw = 1280, ch = 720;
+    all.canvas.width = cw * CAMS.length; all.canvas.height = ch;
+    const ctx = all.canvas.getContext('2d');
+    clearInterval(all.pump);
+    all.pump = setInterval(() => {
+      CAMS.forEach((cam, ix) => {
+        const im = ref.current[cam.id] && ref.current[cam.id].img;
+        try {
+          ctx.fillStyle = '#000'; ctx.fillRect(ix * cw, 0, cw, ch);
+          if (im && im.complete && im.naturalWidth) {
+            const s = Math.min(cw / im.naturalWidth, ch / im.naturalHeight);
+            const w = im.naturalWidth * s, h = im.naturalHeight * s;
+            ctx.drawImage(im, ix * cw + (cw - w) / 2, (ch - h) / 2, w, h);
+          } else {
+            ctx.fillStyle = '#8b949e'; ctx.font = '26px system-ui'; ctx.fillText('câmera offline — reconectando…', ix * cw + 40, ch / 2);
+          }
+          ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(ix * cw, 0, 250, 34);
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 19px system-ui'; ctx.fillText(cam.label.replace(/^\S+\s/, ''), ix * cw + 12, 24);
+          if (ix > 0) { ctx.fillStyle = '#0d1117'; ctx.fillRect(ix * cw - 2, 0, 4, ch); }
+        } catch {}
+      });
+    }, 66);
+    if (!all.video.srcObject) all.video.srcObject = all.canvas.captureStream(15);
+    try {
+      await all.video.play();
+      await all.video.requestPictureInPicture();
+      all.inPip = true;
+      const onleave = () => { all.inPip = false; clearInterval(all.pump); all.pump = null; all.video.removeEventListener('leavepictureinpicture', onleave); };
+      all.video.addEventListener('leavepictureinpicture', onleave);
+    } catch (e2) { clearInterval(all.pump); all.pump = null; alert('PIP falhou: ' + e2.message); }
+  };
+
   const onSize = (v) => { setSize(v); try { localStorage.setItem(SIZE_KEY, String(v)); } catch {} };
 
   if (!token) {
@@ -160,6 +208,8 @@ function CameraGrid({ compact = false }) {
                        background: gwUp == null ? 'var(--text-3)' : gwUp ? 'var(--hf-leaf-500)' : 'var(--bad)' }}/>
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>ao vivo · somente visualização</span>
         <span style={{ flex: 1 }}/>
+        <button className="btn sm ghost" onClick={togglePipAll}
+                title="Uma janela PIP flutuante com TODAS as câmeras lado a lado (o navegador só permite 1 janela PIP por vez)">⧉ PIP tudo</button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-3)' }}>
           tamanho <input type="range" min={300} max={1200} step={20} value={size} onChange={(e) => onSize(+e.target.value)} style={{ width: 120, accentColor: 'var(--hf-navy-500)' }}/>
         </label>
