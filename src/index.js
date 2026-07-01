@@ -49,6 +49,10 @@ require('./v3/wire').mount(app);
 // seguem funcionando. (Decisão do Bruno: raiz → v4.)
 app.get('/', (req, res) => res.redirect(302, '/dashboard-v4/'));
 
+// Câmeras (view-only, PIN-gated, proxy p/ o PC das câmeras) — ADITIVA; se as
+// envs CAM_* faltarem ou o PC das câmeras migrar/estiver off, responde 503 e o V4 segue intacto.
+app.use('/', require('./routes/cameras'));
+
 app.use('/', dashboardRouter);
 
 // ===== STARTUP =====
