@@ -151,6 +151,10 @@ async function start() {
 
       // 5a3. PARTE 4 — activity-freshness auto-check cron (hourly).
       startActivityCheckJob();
+
+      // 5a4. Câmeras — monitor de uptime (Railway sempre-ligado): avisa no Slack se o
+      //      PC/relay das câmeras cair. ADITIVO; no-op se CAM_TUNNEL_URL não estiver setado.
+      try { require('./camera-monitor').startCameraMonitor(); } catch (e) { console.error('[CameraMonitor] falhou ao iniciar:', e.message); }
     }
 
     // 5b. Warm the app_name + persona caches (App Home header + Carolina
