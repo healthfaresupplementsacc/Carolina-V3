@@ -148,17 +148,25 @@ describe('getProductionProvider (flag LLM_PROVIDER)', () => {
   const OLD = process.env.LLM_PROVIDER;
   afterAll(() => { if (OLD === undefined) delete process.env.LLM_PROVIDER; else process.env.LLM_PROVIDER = OLD; });
 
-  // ANTHROPIC OUT (FASE 0): produção é 100% Gemini, fallback DETERMINÍSTICO. Nunca Anthropic.
-  test('default (sem env) → fallback(gemini->deterministic)', () => {
+  // CORRENTE GRÁTIS (Bruno 07-03): produção = chain com rotação por cota
+  // (Flash → Flash-Lite → [chave2] → [OpenRouter]). Determinístico saiu (era
+  // stub que só fabricava dead-letter). Anthropic = rollback EXPLÍCITO (setar
+  // a env é o "OK do Bruno").
+  test('default (sem env) → chain Flash→Flash-Lite', () => {
     delete process.env.LLM_PROVIDER;
-    expect(getProductionProvider().name).toBe('fallback(gemini->deterministic)');
+    delete process.env.GEMINI_API_KEY_2;
+    delete process.env.OPENROUTER_API_KEY;
+    expect(getProductionProvider().name).toBe('chain(gemini→gemini)');
   });
-  test('LLM_PROVIDER=anthropic é IGNORADO → ainda Gemini (Anthropic out)', () => {
+  test('LLM_PROVIDER=anthropic → rollback explícito pro Anthropic', () => {
     process.env.LLM_PROVIDER = 'anthropic';
-    expect(getProductionProvider().name).toBe('fallback(gemini->deterministic)');
+    expect(getProductionProvider().name).toBe('anthropic');
   });
-  test('LLM_PROVIDER=gemini → fallback(gemini->deterministic)', () => {
+  test('LLM_PROVIDER=gemini → chain; com OPENROUTER_API_KEY ganha degrau openrouter', () => {
     process.env.LLM_PROVIDER = 'gemini';
-    expect(getProductionProvider().name).toBe('fallback(gemini->deterministic)');
+    process.env.OPENROUTER_API_KEY = 'sk-or-teste';
+    try {
+      expect(getProductionProvider().name).toBe('chain(gemini→gemini→openrouter(meta-llama/llama-3.3-70b-instruct:free))');
+    } finally { delete process.env.OPENROUTER_API_KEY; }
   });
 });

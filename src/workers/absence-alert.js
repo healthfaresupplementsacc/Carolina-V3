@@ -43,7 +43,7 @@ class AbsenceAlert {
         COALESCE((SELECT MAX(e.ended_at) FROM v3.events e WHERE e.person_id=p.id AND e.deleted_at IS NULL AND e.ended_at IS NOT NULL AND (e.ended_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date),'epoch'::timestamptz),
         COALESCE((SELECT MIN(s.created_at) FROM v3.operator_sessions s WHERE s.person_id=p.id AND (s.created_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date),'epoch'::timestamptz))`;
     const r = await this.db.query(
-      `SELECT p.id, p.display_name,
+      `SELECT p.id, p.display_name, p.slack_user_id,
               ROUND(EXTRACT(EPOCH FROM (NOW() - ${refExpr})) / 60)::int AS idle_min,
               ${refExpr} AS ref
        FROM v3.persons p
@@ -85,22 +85,37 @@ class AbsenceAlert {
       let sent = 0;
       for (const a of absent) {
         if (await this._alertedRecently(a.id)) continue;
+        let dmSent = false;
         if (this.slack && this.slack.postAs && this.channelId) {
           try {
+            // CANAL SEMPRE (regra Bruno 07-03: managers têm que ver no
+            // #orders-and-inventory) — menciona a pessoa quando tem Slack.
+            const who = a.slack_user_id ? `<@${a.slack_user_id}>` : `*${a.display_name}*`;
             await this.slack.postAs({
               channel: this.channelId,
               sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' },
               thread_ts: null, unfurl_links: false, unfurl_media: false,
-              text: `:hourglass_flowing_sand: *${a.display_name}* está sem função registrada há *${a.idle_min} min*.\n`
+              text: `:hourglass_flowing_sand: ${who} está sem função registrada há *${a.idle_min} min*.\n`
                 + `Se estiver trabalhando, registre a tarefa no aplicativo da linha de produção (ou avise o que está fazendo).`,
             });
           } catch (e) { console.error('[absence] post falhou:', e.message); continue; }
+          // DM EM ADIÇÃO (nunca no lugar do canal; falha de DM não bloqueia nada)
+          if (a.slack_user_id && this.slack.postDm) {
+            try {
+              await this.slack.postDm({
+                userId: a.slack_user_id,
+                sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' },
+                text: `Você está sem função registrada há *${a.idle_min} min*. Se estiver trabalhando, registre a tarefa no aplicativo da linha de produção. (Este aviso também saiu no canal.)`,
+              });
+              dmSent = true;
+            } catch (e) { console.error('[absence] DM falhou (canal já saiu):', e.message); }
+          }
         }
         try {
           await this.db.query(
             `INSERT INTO v3.operator_action_log (person_id, person_name, action_type, source, payload)
              VALUES ($1, $2, 'absence_alert', 'system', $3::jsonb)`,
-            [a.id, a.display_name, JSON.stringify({ idle_min: a.idle_min })]);
+            [a.id, a.display_name, JSON.stringify({ idle_min: a.idle_min, dm_sent: dmSent })]);
         } catch (e) { /* log opcional */ }
         sent++;
       }

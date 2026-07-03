@@ -131,15 +131,33 @@ function getProvider(name, opts = {}) {
  *   `mock`/`deterministic` ainda selecionáveis via LLM_PROVIDER pra testes.
  */
 function getProductionProvider(opts = {}) {
-  const FallbackProvider = require('./providers/FallbackProvider');
   const choice = String(process.env.LLM_PROVIDER || 'gemini').toLowerCase();
   if (choice === 'mock') return getProvider('mock', opts);
   if (choice === 'deterministic') return getProvider('deterministic', opts);
-  // anthropic/gemini/qualquer outro → Gemini primário + fallback determinístico
-  return new FallbackProvider({
-    primary: getProvider('gemini', opts),
-    fallback: getProvider('deterministic', opts),
-  });
+  if (choice === 'anthropic') return getProvider('anthropic', opts); // rollback explícito (1 env)
+  // ── CORRENTE GRÁTIS com rotação por cota (Bruno 07-03) ──
+  // Degraus: Gemini Flash → Gemini Flash-Lite (mesma chave, cota separada por
+  // modelo) → [Gemini chave 2 se GEMINI_API_KEY_2] → [OpenRouter :free se
+  // OPENROUTER_API_KEY]. Erro de cota → o degrau dorme até o reset (Gemini 3:05
+  // AM ET; OpenRouter 00:05 UTC) e a corrente segue. TODOS sem cota →
+  // 'llm_quota_exhausted_all' → o Observer SEGURA a mensagem (sem dead-letter);
+  // ela processa sozinha depois do reset. O determinístico saiu (era stub que
+  // só fabricava dead-letter).
+  const { QuotaChainProvider, nextGeminiResetMs, nextUtcMidnightMs } = require('./providers/QuotaChainProvider');
+  const GeminiProvider = require('./providers/GeminiProvider');
+  const links = [
+    { provider: new GeminiProvider({ ...opts }), resetAt: nextGeminiResetMs },
+    { provider: new GeminiProvider({ ...opts, model: process.env.GEMINI_MODEL_2 || 'gemini-2.5-flash-lite' }), resetAt: nextGeminiResetMs },
+  ];
+  if (process.env.GEMINI_API_KEY_2) {
+    links.push({ provider: new GeminiProvider({ ...opts, apiKey: process.env.GEMINI_API_KEY_2 }), resetAt: nextGeminiResetMs });
+    links.push({ provider: new GeminiProvider({ ...opts, apiKey: process.env.GEMINI_API_KEY_2, model: process.env.GEMINI_MODEL_2 || 'gemini-2.5-flash-lite' }), resetAt: nextGeminiResetMs });
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    const OpenRouterProvider = require('./providers/OpenRouterProvider');
+    links.push({ provider: new OpenRouterProvider({ ...opts }), resetAt: nextUtcMidnightMs });
+  }
+  return new QuotaChainProvider({ links });
 }
 
 module.exports = {

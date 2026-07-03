@@ -232,8 +232,27 @@ async function updateMessage(opts) {
   return { ok: true, channel: ch, ts: String(ts) };
 }
 
+/**
+ * DM de verdade pra um usuário (Bruno 07-03: aviso de ocioso/checkout = canal
+ * dos operadores SEMPRE + DM em adição). resolveChannel rejeita IDs U... —
+ * aqui a gente ABRE a conversa IM (conversations.open → canal D...) e reusa o
+ * postAs. Precisa do scope `im:write`; sem ele, lança e o caller degrada
+ * (o post no canal já saiu — DM é bônus, nunca bloqueia).
+ * @param {{ userId: string, sender: {name, icon?}, text: string }} opts
+ * @returns { ok, channel, ts }
+ */
+async function postDm(opts) {
+  const { userId, sender, text, _slackClient } = opts || {};
+  if (!userId || !/^[UW][A-Z0-9]{6,}$/.test(String(userId))) throw new Error('userId inválido: ' + userId);
+  const c = _slackClient || client();
+  const im = await c.conversations.open({ users: String(userId) });
+  const dmChannel = im && im.channel && im.channel.id;
+  if (!dmChannel) throw new Error('conversations.open não devolveu canal');
+  return postAs({ channel: dmChannel, sender, text, thread_ts: null, unfurl_links: false, unfurl_media: false, _slackClient });
+}
+
 module.exports = {
-  postAs, addReaction, updateMessage,
+  postAs, addReaction, updateMessage, postDm,
   resolveChannel, parseSlackTs,
   extractFileObj, extractPermalink, extractPubSecret,
   CHANNEL_KEYS,

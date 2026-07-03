@@ -290,7 +290,7 @@ async function startWorker() {
     try {
       const { CarolinaForgottenDM } = require('../workers/carolina-forgotten-dm');
       new CarolinaForgottenDM({
-        db: _pool, slack: { postAs: slackSender.postAs },
+        db: _pool, slack: { postAs: slackSender.postAs, postDm: slackSender.postDm },
         operatorsChannel: productionChannelId, // cobrança aparece NO CANAL DOS OPERADORES
         ordersChannel: process.env.V3_ORDERS_CHANNEL,
         adminChannelId: adminChannelForOps,
@@ -329,7 +329,7 @@ async function startWorker() {
   // grupo dos operadores (#orders-and-inventory). Gated por ABSENCE_ALERT_ENABLED.
   try {
     const { AbsenceAlert } = require('../workers/absence-alert');
-    new AbsenceAlert({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId, heartbeat: () => beat('absence') }).start(5 * 60 * 1000);
+    new AbsenceAlert({ db: _pool, slack: { postAs: slackSender.postAs, postDm: slackSender.postDm }, channelId: productionChannelId, heartbeat: () => beat('absence') }).start(5 * 60 * 1000);
   } catch (e) { console.error('[V3] absence-alert não iniciou:', e.message); }
 
   // Encap monitor (Bruno 07-02): encapsulação parada ≥1h entre 8h–20h em dia ativo

@@ -602,8 +602,20 @@ class Observer {
   }
 
   async _markError(message, error) {
-    // llm_processed_at fica NULL → o worker re-tenta (até o limite abaixo).
     const errStr = String(error);
+    // COTA ESGOTADA EM TODA A CORRENTE (QuotaChain, Bruno 07-03): NÃO é falha da
+    // mensagem — é o dia que acabou. Desfaz a tentativa (o claim incrementou) e
+    // deixa a msg quieta na fila; depois do reset (3AM ET) ela processa sozinha.
+    // Sem isso, o retry martelava 429 e a msg morria em dead-letter injustamente.
+    if (/llm_quota_exhausted_all/.test(errStr)) {
+      await this.db.query(
+        `UPDATE v3.messages SET processing_attempts = GREATEST(0, processing_attempts - 1),
+                processing_error = $2, last_error = $2, last_attempt_at = NOW()
+         WHERE id = $1`,
+        [message.id, 'llm_quota_exhausted_all — aguardando reset de cota (não conta tentativa)']);
+      return;
+    }
+    // llm_processed_at fica NULL → o worker re-tenta (até o limite abaixo).
     await this.db.query(
       'UPDATE v3.messages SET processing_error = $2, last_error = $2, last_attempt_at = NOW() WHERE id = $1',
       [message.id, errStr.slice(0, 500)]);

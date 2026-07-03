@@ -72,6 +72,16 @@ class CarolinaForgottenDM {
       + `Conto com você pra não se repetir. — Carolina`;
     try {
       await this.slack.postAs({ channel: this.operatorsChannel, sender: { name: 'Carolina' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
+      // DM EM ADIÇÃO (Bruno 07-03): canal SEMPRE (managers veem) + DM pra pessoa
+      // quando ela tem conta Slack. Falha de DM nunca desfaz o envio do canal.
+      if (fc.slack_user_id && this.slack.postDm) {
+        try {
+          await this.slack.postDm({
+            userId: fc.slack_user_id, sender: { name: 'Carolina' },
+            text: `No seu último dia de trabalho você saiu *sem fazer o checkout* no sistema. Por favor, não esqueça de fazer o logout/checkout no fim do expediente. (Este lembrete também saiu no canal dos operadores.) — Carolina`,
+          });
+        } catch (e) { console.error('[forgotten-dm] DM adicional falhou (canal já saiu):', e.message); }
+      }
       return true;
     } catch (e) { console.error('[forgotten-dm] envio falhou:', e.message); return false; }
   }
