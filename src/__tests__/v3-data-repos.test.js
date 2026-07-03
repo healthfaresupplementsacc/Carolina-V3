@@ -142,31 +142,37 @@ describe('V3 data — CountsRepo', () => {
 });
 
 describe('V3 data — BatchesRepo', () => {
-  const fakeBatchService = {
-    listActive: jest.fn(async () => [{ id: 12 }]),
-    getSummary: jest.fn(async () => ({
-      batch_id: 12, product_id: 67, batch_number: '0142', status: 'in_progress',
-      started_at: 'x', finished_at: null, total_seconds: 3720, event_count: 2,
-      people: [{ person_id: 4, display_name: 'Vitor' }], phases: [], bottles: 984,
-    })),
-  };
-
-  test('activeBatches delega ao BatchService e injeta o nome do produto', async () => {
-    const db = makeDb([{ match: /FROM v3\.products WHERE id = ANY/, rows: [{ id: 67, canonical_name: 'Vitamin B2' }] }]);
-    const out = await new BatchesRepo({ db, batchService: fakeBatchService }).activeBatches();
+  // AUDITORIA 07-03: activeBatches deixou de delegar getSummary POR LOTE (N+1
+  // que travava com 113 lotes) — agora agrega em 4 queries pro conjunto todo.
+  test('activeBatches agrega em queries de conjunto (sem N+1) e injeta o nome do produto', async () => {
+    const db = makeDb([
+      { match: /FROM v3\.product_batches pb\s+WHERE pb\.status = 'in_progress'/, rows: [
+        { batch_id: 12, batch_number: '0142', status: 'in_progress', product_id: 67, started_at: '2026-05-21T13:00:00Z', finished_at: null },
+      ] },
+      { match: /ARRAY_AGG\(DISTINCT p\.display_name\)/, rows: [
+        { bid: 12, event_count: 2, total_seconds: '3720', people: ['Vitor'] },
+      ] },
+      { match: /JOIN v3\.activity_types at ON at\.id = e\.activity_type_id\s+WHERE e\.deleted_at IS NULL AND e\.product_batch_id = ANY/, rows: [
+        { bid: 12, activity: 'Linha de Produção', seconds: '3720' },
+      ] },
+      { match: /FROM v3\.production_counts pc\s+WHERE COALESCE\(pc\.kind, 'bottles'\) = 'bottles'/, rows: [
+        { bid: 12, bottles: 984 },
+      ] },
+      { match: /FROM v3\.products WHERE id = ANY/, rows: [{ id: 67, canonical_name: 'Vitamin B2' }] },
+    ]);
+    const out = await new BatchesRepo({ db }).activeBatches();
     expect(out.active).toHaveLength(1);
     expect(out.active[0]).toMatchObject({
-      batch_id: 12, total_seconds: 3720, bottles: 984,
+      batch_id: 12, total_seconds: 3720, bottles: 984, event_count: 2,
       product: { id: 67, canonical_name: 'Vitamin B2' },
     });
-    expect(out.active[0].people[0].display_name).toBe('Vitor');
+    expect(out.active[0].people).toEqual(['Vitor']);
+    expect(out.active[0].phases[0]).toMatchObject({ activity: 'Linha de Produção', seconds: 3720 });
   });
 
   test('activeBatches vazio quando não há lote in_progress', async () => {
-    const empty = { listActive: jest.fn(async () => []), getSummary: jest.fn() };
-    const out = await new BatchesRepo({ db: makeDb(), batchService: empty }).activeBatches();
+    const out = await new BatchesRepo({ db: makeDb() }).activeBatches();
     expect(out.active).toEqual([]);
-    expect(empty.getSummary).not.toHaveBeenCalled();
   });
 });
 
