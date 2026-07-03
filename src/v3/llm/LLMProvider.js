@@ -149,9 +149,13 @@ function getProductionProvider(opts = {}) {
     { provider: new GeminiProvider({ ...opts }), resetAt: nextGeminiResetMs },
     { provider: new GeminiProvider({ ...opts, model: process.env.GEMINI_MODEL_2 || 'gemini-2.5-flash-lite' }), resetAt: nextGeminiResetMs },
   ];
-  if (process.env.GEMINI_API_KEY_2) {
-    links.push({ provider: new GeminiProvider({ ...opts, apiKey: process.env.GEMINI_API_KEY_2 }), resetAt: nextGeminiResetMs });
-    links.push({ provider: new GeminiProvider({ ...opts, apiKey: process.env.GEMINI_API_KEY_2, model: process.env.GEMINI_MODEL_2 || 'gemini-2.5-flash-lite' }), resetAt: nextGeminiResetMs });
+  // Chaves extras (projetos/contas separadas — cota é POR PROJETO): cada
+  // GEMINI_API_KEY_2..5 adiciona 2 degraus (Flash + Flash-Lite daquela chave).
+  for (const n of [2, 3, 4, 5]) {
+    const key = process.env['GEMINI_API_KEY_' + n];
+    if (!key) continue;
+    links.push({ provider: new GeminiProvider({ ...opts, apiKey: key }), resetAt: nextGeminiResetMs });
+    links.push({ provider: new GeminiProvider({ ...opts, apiKey: key, model: process.env.GEMINI_MODEL_2 || 'gemini-2.5-flash-lite' }), resetAt: nextGeminiResetMs });
   }
   if (process.env.OPENROUTER_API_KEY) {
     const OpenRouterProvider = require('./providers/OpenRouterProvider');
