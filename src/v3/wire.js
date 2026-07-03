@@ -177,6 +177,61 @@ function mount(app) {
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */
 async function startWorker() {
   _init();
+  // ── FIX 07-03 (bug que MATOU os avisos da Ana): `productionChannelId` só
+  // existia no escopo do mount() → ReferenceError aqui no startWorker → o boot
+  // dos workers ABORTAVA na primeira referência e absence-alert / carolina-dm /
+  // ems-sync / crons NUNCA subiam (log: "[Boot] V3 worker start error").
+  const productionChannelId = process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
+  const adminChannelForOps = process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+
+  // ── WATCHDOG DE WORKERS (Bruno 07-03: "um worker que fica checando") ──
+  // Cada worker crítico bate um heartbeat em v3.settings a cada tick; este vigia
+  // roda a cada 10min e DENUNCIA no canal ADMIN qualquer worker sem batida dentro
+  // do esperado (falha silenciosa nunca mais). Montado ANTES de tudo — se
+  // qualquer bloco abaixo explodir, o vigia sobrevive e reporta a ausência.
+  const bootAt = Date.now();
+  const beat = (name) => _pool.query(
+    `INSERT INTO v3.settings (key, value, description) VALUES ($1, to_jsonb(NOW()), 'heartbeat do worker')
+     ON CONFLICT (key) DO UPDATE SET value = to_jsonb(NOW()), updated_at = NOW()`,
+    ['worker_tick_' + name]).catch(() => {});
+  const EXPECTED_WORKERS = [];
+  if (process.env.ABSENCE_ALERT_ENABLED !== 'false') EXPECTED_WORKERS.push({ name: 'absence', staleMin: 20 });
+  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true') EXPECTED_WORKERS.push({ name: 'forgotten_dm', staleMin: 40 });
+  if (process.env.WORKER_EMS_SYNC_ENABLED !== 'false') EXPECTED_WORKERS.push({ name: 'ems_sync', staleMin: 10 });
+  if (process.env.ENCAP_MONITOR_ENABLED !== 'false') EXPECTED_WORKERS.push({ name: 'encap', staleMin: 40 });
+  const _wdLastAlert = new Map(); // name -> ts (não spamma: 1 alerta/60min por worker)
+  setInterval(async () => {
+    try {
+      if (Date.now() - bootAt < 12 * 60 * 1000) return; // graça pós-boot
+      const r = await _pool.query("SELECT key, value FROM v3.settings WHERE key LIKE 'worker_tick_%'");
+      const ticks = new Map(r.rows.map((x) => [x.key.replace('worker_tick_', ''), new Date(JSON.parse(JSON.stringify(x.value))).getTime()]));
+      for (const w of EXPECTED_WORKERS) {
+        const last = ticks.get(w.name) || 0;
+        const staleFor = Math.round((Date.now() - last) / 60000);
+        if (staleFor < w.staleMin) continue;
+        const lastAlert = _wdLastAlert.get(w.name) || 0;
+        if (Date.now() - lastAlert < 60 * 60 * 1000) continue;
+        _wdLastAlert.set(w.name, Date.now());
+        console.error(`[V3][watchdog] worker "${w.name}" SEM heartbeat há ${last ? staleFor + 'min' : 'desde o boot'}`);
+        // alerta OPERACIONAL no canal admin — deliberado, exento do silent mode
+        // (é o vigia denunciando falha do sistema, não a Carolina conversando).
+        try {
+          await slackSender.postAs({
+            channel: adminChannelForOps,
+            sender: { name: 'HealthFare Tracker (Vigia)', icon: ':rotating_light:' },
+            thread_ts: null, unfurl_links: false, unfurl_media: false,
+            text: `:rotating_light: *Worker "${w.name}" parou de rodar* — sem heartbeat ${last ? 'há *' + staleFor + ' min*' : 'desde o último deploy'}.\n` +
+              'Isso significa que os avisos automáticos dele (ausência/checkout/EMS) NÃO estão saindo. Checar logs do Railway.',
+          });
+        } catch (_) {}
+        try {
+          await _pool.query(`INSERT INTO v3.notifications (type, payload, status) VALUES ('worker_down', $1::jsonb, 'pending')`,
+            [JSON.stringify({ worker: w.name, stale_min: last ? staleFor : null, since_boot: !last })]);
+        } catch (_) {}
+      }
+    } catch (e) { console.error('[V3][watchdog] erro:', e.message); }
+  }, 10 * 60 * 1000);
+  console.log('[V3] watchdog de workers ligado (' + EXPECTED_WORKERS.map((w) => w.name).join(', ') + ')');
   let botUserId = process.env.V3_BOT_USER_ID || null;
   if (!botUserId) {
     try {
@@ -232,12 +287,16 @@ async function startWorker() {
   // EXENTO do silent mode (ao contrário da conversa autônoma da Carolina). Off por
   // padrão (WORKER_FORGOTTEN_DM_ENABLED) até o Bruno habilitar.
   if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true') {
-    const { CarolinaForgottenDM } = require('../workers/carolina-forgotten-dm');
-    new CarolinaForgottenDM({
-      db: _pool, slack: { postAs: slackSender.postAs },
-      ordersChannel: process.env.V3_ORDERS_CHANNEL,
-      adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
-    }).start(10 * 60 * 1000);
+    try {
+      const { CarolinaForgottenDM } = require('../workers/carolina-forgotten-dm');
+      new CarolinaForgottenDM({
+        db: _pool, slack: { postAs: slackSender.postAs },
+        operatorsChannel: productionChannelId, // cobrança aparece NO CANAL DOS OPERADORES
+        ordersChannel: process.env.V3_ORDERS_CHANNEL,
+        adminChannelId: adminChannelForOps,
+        heartbeat: () => beat('forgotten_dm'),
+      }).start(10 * 60 * 1000);
+    } catch (e) { console.error('[V3] carolina-forgotten-dm não iniciou:', e.message); }
   }
 
   // FASE 1.5 — action_log APPEND-ONLY: retém 5 dias, limpa 1×/dia (só > 5 dias).
@@ -262,7 +321,7 @@ async function startWorker() {
     try {
       const { EmsActivitySync } = require('../workers/ems-activity-sync');
       const { ems } = require('./services/ems-api');
-      new EmsActivitySync({ db: _pool, ems }).start(45000);
+      new EmsActivitySync({ db: _pool, ems, heartbeat: () => beat('ems_sync') }).start(45000);
     } catch (e) { console.error('[V3] ems-activity-sync não iniciou:', e.message); }
   }
 
@@ -270,8 +329,16 @@ async function startWorker() {
   // grupo dos operadores (#orders-and-inventory). Gated por ABSENCE_ALERT_ENABLED.
   try {
     const { AbsenceAlert } = require('../workers/absence-alert');
-    new AbsenceAlert({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId }).start(5 * 60 * 1000);
+    new AbsenceAlert({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId, heartbeat: () => beat('absence') }).start(5 * 60 * 1000);
   } catch (e) { console.error('[V3] absence-alert não iniciou:', e.message); }
+
+  // Encap monitor (Bruno 07-02): encapsulação parada ≥1h entre 8h–20h em dia ativo
+  // → alerta o grupo dos operadores e REPETE por hora, com o total parado do dia.
+  // É emergência operacional → sempre ON (desliga só via ENCAP_MONITOR_ENABLED=false).
+  try {
+    const { EncapMonitor } = require('../workers/encap-monitor');
+    new EncapMonitor({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId, heartbeat: () => beat('encap') }).start(10 * 60 * 1000);
+  } catch (e) { console.error('[V3] encap-monitor não iniciou:', e.message); }
 
   // Fase 5 — refresh da matview de métricas a cada 10min (best-effort).
   setInterval(async () => {

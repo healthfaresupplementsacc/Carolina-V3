@@ -529,36 +529,85 @@ function createOpRouter(deps = {}) {
       await slack.postAs({ channel: 'production', sender: { name: 'HealthFare Tracker', icon: ':gear:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
     } catch (e) { console.error('[machine] slack falhou:', e.message); }
   }
-  async function handoffMachineWork(personId, isSandbox) {
+  // máquinas (background) RODANDO desta pessoa (as que são dela, não herdadas).
+  async function myRunningMachines(personId) {
+    return (await db.query(
+      `SELECT e.id, e.activity_type_id, e.product_batch_id, e.is_test, at.slug, at.display_name AS act_name
+         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+        WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
+          AND at.is_background = true AND e.bg_handoff_from_person_id IS NULL`, [personId])).rows;
+  }
+  // PRÓXIMO operador de máquina DISPONÍVEL (invariante Bruno 07-02: presença ≠ sessão):
+  // outro machine-op PRESENTE hoje — trabalhou hoje (qualquer evento) OU sessão viva OU
+  // evento aberto — que NÃO está em almoço/pausa e NÃO encerrou o dia (end_of_day).
+  async function findMachineRecv(personId, isSandbox) {
+    const breakSlugs = [...PAUSE_SLUGS, ...LUNCH_SLUGS];
+    return (await db.query(
+      `SELECT p.id, p.display_name, p.slack_user_id FROM v3.persons p
+        WHERE p.is_machine_operator = true AND p.active = true AND p.deleted_at IS NULL
+          AND COALESCE(p.is_sandbox, false) = $2 AND p.id <> $1
+          AND (
+            EXISTS (SELECT 1 FROM v3.events et WHERE et.person_id = p.id AND et.deleted_at IS NULL
+                    AND (et.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+            OR EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id AND s.logged_out_at IS NULL)
+            OR EXISTS (SELECT 1 FROM v3.events ea WHERE ea.person_id = p.id AND ea.ended_at IS NULL AND ea.deleted_at IS NULL)
+          )
+          AND NOT EXISTS (SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
+                          WHERE e2.person_id = p.id AND e2.ended_at IS NULL AND e2.deleted_at IS NULL AND at2.slug = ANY($3::text[]))
+          AND NOT EXISTS (SELECT 1 FROM v3.events e3 JOIN v3.activity_types at3 ON at3.id = e3.activity_type_id
+                          WHERE e3.person_id = p.id AND e3.deleted_at IS NULL AND at3.slug = 'end_of_day'
+                            AND (e3.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+        ORDER BY p.id LIMIT 1`, [personId, !!isSandbox, breakSlugs])).rows[0] || null;
+  }
+  // candidatos NÃO-operadores-de-máquina pra ficar de olho na máquina (apontados
+  // pelo operador que sai) — presentes hoje, sem almoço/pausa aberto, sem end_of_day.
+  async function appointCandidates(personId) {
+    const breakSlugs = [...PAUSE_SLUGS, ...LUNCH_SLUGS];
+    return (await db.query(
+      `SELECT p.id, p.display_name FROM v3.persons p
+        WHERE p.role = 'operator' AND p.active = true AND p.deleted_at IS NULL
+          AND COALESCE(p.is_sandbox, false) = false AND p.id <> $1
+          AND COALESCE(p.is_machine_operator, false) = false
+          AND EXISTS (SELECT 1 FROM v3.events et WHERE et.person_id = p.id AND et.deleted_at IS NULL
+                      AND (et.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+          AND NOT EXISTS (SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
+                          WHERE e2.person_id = p.id AND e2.ended_at IS NULL AND e2.deleted_at IS NULL AND at2.slug = ANY($2::text[]))
+          AND NOT EXISTS (SELECT 1 FROM v3.events e3 JOIN v3.activity_types at3 ON at3.id = e3.activity_type_id
+                          WHERE e3.person_id = p.id AND e3.deleted_at IS NULL AND at3.slug = 'end_of_day'
+                            AND (e3.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+        ORDER BY p.display_name`, [personId, breakSlugs])).rows;
+  }
+  async function adminSlack(text) {
+    if (!slack || !slack.postAs) return;
+    try {
+      await slack.postAs({ channel: adminChannel, sender: { name: 'HealthFare Tracker', icon: ':rotating_light:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
+    } catch (e) { console.error('[machine] admin slack falhou:', e.message); }
+  }
+  // appointee: null = acha outro machine-op; number = pessoa APONTADA pelo operador
+  // (inexperiente → mensagem SÉRIA); 'none' = ninguém disponível → formulação PARA.
+  async function handoffMachineWork(personId, isSandbox, appointee = null) {
     try {
       const me = (await db.query('SELECT is_machine_operator, display_name FROM v3.persons WHERE id = $1', [personId])).rows[0];
       if (!me || !me.is_machine_operator) return;
-      const mine = (await db.query(
-        `SELECT e.id, e.activity_type_id, e.product_batch_id, e.is_test, at.slug, at.display_name AS act_name
-           FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
-          WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
-            AND at.is_background = true AND e.bg_handoff_from_person_id IS NULL`, [personId])).rows;
+      const mine = await myRunningMachines(personId);
       if (!mine.length) return;
-      const breakSlugs = [...PAUSE_SLUGS, ...LUNCH_SLUGS];
-      // PRÓXIMO operador de máquina DISPONÍVEL (Bruno 06-24): outro machine-op PRESENTE
-      // — com tarefa ABERTA que não é almoço/pausa (sinal real de presença, ex.: Vitor
-      // na linha de produção) OU com sessão viva — e que NÃO está em almoço/pausa.
-      // (Antes exigia só operator_session ativa → perdia o Vitor, que trabalha com
-      //  evento aberto mas sem sessão viva, e mandava o falso "ninguém disponível".)
-      const recv = (await db.query(
-        `SELECT p.id, p.display_name, p.slack_user_id FROM v3.persons p
-          WHERE p.is_machine_operator = true AND p.active = true AND p.deleted_at IS NULL
-            AND COALESCE(p.is_sandbox, false) = $2 AND p.id <> $1
-            AND (
-              EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id AND s.logged_out_at IS NULL)
-              OR EXISTS (SELECT 1 FROM v3.events ea JOIN v3.activity_types ata ON ata.id = ea.activity_type_id
-                         WHERE ea.person_id = p.id AND ea.ended_at IS NULL AND ea.deleted_at IS NULL AND ata.slug <> ALL($3::text[]))
-            )
-            AND NOT EXISTS (SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
-                            WHERE e2.person_id = p.id AND e2.ended_at IS NULL AND e2.deleted_at IS NULL AND at2.slug = ANY($3::text[]))
-          ORDER BY p.id LIMIT 1`, [personId, !!isSandbox, breakSlugs])).rows[0];
+      const slugsAll = mine.map((m) => m.act_name || m.slug);
+      // NINGUÉM (nem apontado): situação gravíssima — máquinas sem supervisão → PARAR.
+      if (appointee === 'none') {
+        const txt = `:rotating_light: *ATENÇÃO GERENTES — MÁQUINAS SEM SUPERVISÃO.* ${me.display_name} saiu para almoço/pausa com máquina(s) rodando (${slugsAll.join(', ')}) e NÃO HÁ NINGUÉM disponível para assumir. *A FORMULAÇÃO DEVE PARAR até alguém assumir as máquinas.* Confirmem IMEDIATAMENTE quem fica responsável.`;
+        await machineSlack(txt); await adminSlack(txt);
+        await audit('machine.unattended', 'person', personId, { slugs: slugsAll }, personId);
+        return;
+      }
+      let recv = null; let inexperienced = false;
+      if (Number.isFinite(appointee)) {
+        recv = (await db.query('SELECT id, display_name, slack_user_id, is_machine_operator FROM v3.persons WHERE id = $1 AND active = true AND deleted_at IS NULL', [appointee])).rows[0] || null;
+        inexperienced = !!recv && !recv.is_machine_operator;
+      }
+      if (!recv) recv = await findMachineRecv(personId, isSandbox);
       if (!recv) {
-        await machineSlack(`:warning: *${me.display_name}* saiu (almoço/pausa) com máquina(s) rodando, mas não há outro operador de máquina disponível pra assumir. Alguém precisa checar as máquinas.`);
+        const txt = `:rotating_light: *${me.display_name}* saiu (almoço/pausa) com máquina(s) rodando (${slugsAll.join(', ')}) e não há outro operador de máquina disponível. *As máquinas NÃO PODEM ficar sozinhas — a formulação deve PARAR até alguém assumir.* Gerentes, confirmem quem fica responsável.`;
+        await machineSlack(txt); await adminSlack(txt);
         return;
       }
       // FECHA pra ele e ABRE um novo pro receptor — rastreia o PERÍODO de cada um
@@ -569,12 +618,18 @@ function createOpRouter(deps = {}) {
         await db.query(
           `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, bg_handoff_from_person_id, is_long_running, is_test)
            VALUES ($1, $2, $3, NOW(), $4, 'high', 'operator_page', $5, true, $6)`,
-          [recv.id, m.activity_type_id, m.product_batch_id, `Máquina assumida de ${me.display_name} (almoço/pausa)`, personId, !!m.is_test]);
+          [recv.id, m.activity_type_id, m.product_batch_id, `Máquina assumida de ${me.display_name} (almoço/pausa)${inexperienced ? ' — APONTADO (não é operador de máquina)' : ''}`, personId, !!m.is_test]);
         slugs.push(m.act_name || m.slug);
       }
-      await audit('machine.handoff', 'person', personId, { from: personId, to: recv.id, slugs }, personId);
+      await audit('machine.handoff', 'person', personId, { from: personId, to: recv.id, slugs, appointed: Number.isFinite(appointee), inexperienced }, personId);
       const ping = recv.slack_user_id ? `<@${recv.slack_user_id}>` : recv.display_name;
-      await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu para almoço/pausa — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho! Voltam pro ${me.display_name} quando ele retornar.`);
+      if (inexperienced) {
+        // TOM SÉRIO (regra Bruno 07-02): substituto NÃO é operador de máquina.
+        const txt = `:rotating_light: *ATENÇÃO: ${me.display_name} SAIU PARA ALMOÇO/PAUSA E APONTOU ${ping} PARA CUIDAR DA(S) MÁQUINA(S) (${slugs.join(', ')}).* ${recv.display_name} NÃO é operador de máquina. *GERENTES: confirmem se está correto.* ${ping}: se precisar de QUALQUER ajuda, comunique os gerentes IMEDIATAMENTE.`;
+        await machineSlack(txt); await adminSlack(txt);
+      } else {
+        await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu para almoço/pausa — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho! Voltam pro ${me.display_name} quando ele retornar.`);
+      }
     } catch (e) { console.error('[machine] handoff falhou:', e.message); }
   }
   async function returnMachineWork(personId) {
@@ -686,6 +741,20 @@ function createOpRouter(deps = {}) {
     const isLunch = LUNCH_SLUGS.has(act.slug);
     const isPause = PAUSE_SLUGS.has(act.slug);
     const cAck = (req.body && req.body.concurrent_ack) || null;
+    // ── MÁQUINAS SEM SUPERVISÃO (regra Bruno 07-02) ──────────────────────────
+    // Operador de máquina saindo pra almoço/pausa com máquina rodando e SEM outro
+    // operador de máquina disponível → pergunta QUEM fica responsável ANTES de
+    // deixar sair (flag interativa, nunca 4xx; o app mostra a lista e recama com
+    // machine_appointee_id = <person_id> ou 'none').
+    const apRaw = req.body && req.body.machine_appointee_id;
+    if ((isLunch || isPause) && !s.is_sandbox && apRaw == null) {
+      const machines = await myRunningMachines(s.person_id);
+      if (machines.length && !(await findMachineRecv(s.person_id, false))) {
+        const candidates = await appointCandidates(s.person_id);
+        return res.json({ ok: true, machine_appoint_required: true,
+          machines: machines.map((m) => m.act_name || m.slug), candidates });
+      }
+    }
     if (!s.is_sandbox) {
       const openFg = (await db.query(
         `SELECT e.id, e.started_at, e.cowork_group_id, at.slug, at.display_name AS activity_name
@@ -812,7 +881,11 @@ function createOpRouter(deps = {}) {
     if (noteAnalyzer && note && String(note).trim()) noteAnalyzer.queue({ text: String(note).trim(), personId: s.person_id, personName: s.display_name, slug: act.slug, isSandbox: !!s.is_sandbox }); // ③ lê o motivo
     // operador de máquina indo pro almoço/pausa → passa as máquinas ANTES de congelar
     // (handoff reatribui o background; o que sobra dele é que congela).
-    if (LUNCH_SLUGS.has(act.slug) || PAUSE_SLUGS.has(act.slug)) await handoffMachineWork(s.person_id, s.is_sandbox);
+    if (LUNCH_SLUGS.has(act.slug) || PAUSE_SLUGS.has(act.slug)) {
+      // apontado pelo operador ('none' = ninguém → alerta FORMULAÇÃO PARA)
+      const ap = apRaw === 'none' ? 'none' : (Number.isFinite(parseInt(apRaw, 10)) ? parseInt(apRaw, 10) : null);
+      await handoffMachineWork(s.person_id, s.is_sandbox, ap);
+    }
     if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
     if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
       await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
@@ -874,9 +947,33 @@ function createOpRouter(deps = {}) {
       [s.person_id, act.id, batch ? batch.id : null, started_at, ended_at || null,
         rdesc, cw, ordersPrinted, !!s.is_sandbox, !!act.is_background]);
     const ev = ins.rows[0];
+    // SINCRONIA (Bruno 07-02): retroativo com cowork ESPELHA o evento pros colegas
+    // (mesma janela/atividade/lote, grupo compartilhado) — igual ao start ao vivo,
+    // que cria 1 evento por participante. Antes só gravava cowork_with no evento do
+    // autor e o colega ficava SEM NADA na timeline (mesmo buraco do dashboard).
+    if (cw.length) {
+      const gid = crypto.randomUUID();
+      await db.query('UPDATE v3.events SET cowork_group_id = $2::uuid, updated_at = NOW() WHERE id = $1', [ev.id, gid]);
+      for (const pid of cw) {
+        // anti-duplicata: colega já tem a MESMA atividade sobrepondo a janela? pula.
+        const dup = await db.query(
+          `SELECT 1 FROM v3.events WHERE person_id = $1 AND deleted_at IS NULL AND activity_type_id = $2
+             AND started_at < COALESCE($4::timestamptz, NOW()) AND COALESCE(ended_at, NOW()) > $3::timestamptz LIMIT 1`,
+          [pid, act.id, started_at, ended_at || null]);
+        if (dup.rowCount) continue;
+        await db.query(
+          `INSERT INTO v3.events
+             (person_id, activity_type_id, product_batch_id, started_at, ended_at, description,
+              cowork_with, cowork_group_id, confidence, source, closed_reason, is_test, is_long_running)
+           VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7::int[], $8::uuid, 'high', 'operator_page_retroactive',
+                   CASE WHEN $5::timestamptz IS NULL THEN NULL ELSE 'operator_retroactive_close' END, $9, $10)`,
+          [pid, act.id, batch ? batch.id : null, started_at, ended_at || null, rdesc,
+            [s.person_id, ...cw.filter((x) => x !== pid)], gid, !!s.is_sandbox, !!act.is_background]);
+      }
+    }
     const gapMin = await db.query("SELECT ROUND(EXTRACT(EPOCH FROM (NOW() - $1::timestamptz))/60)::int g", [started_at]);
     await audit('event.retroactive_create', 'event', ev.id,
-      { slug: act.slug, retroactive: true, gap_minutes: gapMin.rows[0].g, ended: !!ended_at, batch: batch ? batch.batch_number : null }, s.person_id);
+      { slug: act.slug, retroactive: true, gap_minutes: gapMin.rows[0].g, ended: !!ended_at, batch: batch ? batch.batch_number : null, cowork_mirrored: cw.length }, s.person_id);
     await flagUnknownBatch({ res: ev, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
     res.json({ ok: true, event_id: ev.id, status: 'created' });
   }));

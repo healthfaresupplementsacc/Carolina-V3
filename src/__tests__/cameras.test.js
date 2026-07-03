@@ -103,6 +103,40 @@ describe('câmeras — /api/cam', () => {
     }
   });
 
+  test('H.264: /api/cam/:name/mp4 exige token (403) e repassa content-type video/mp4 (200)', async () => {
+    const http = require('http');
+    const mock = await new Promise((resolve) => {
+      const s = http.createServer((req2, res2) => {
+        res2.writeHead(200, { 'Content-Type': 'video/mp4; codecs="avc1.420028"' });
+        const t = setInterval(() => { try { res2.write('FAKEFMP4CHUNK'); } catch (_) {} }, 40);
+        req2.on('close', () => clearInterval(t));
+      });
+      s.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const oldUrl = process.env.CAM_TUNNEL_URL;
+    process.env.CAM_TUNNEL_URL = `http://127.0.0.1:${mock.address().port}`;
+    try {
+      // sem token → 403
+      const bad = await fetch(base + '/api/cam/warehouse/mp4');
+      expect(bad.status).toBe(403);
+      // com token → 200 + content-type do upstream repassado
+      const tok = (await (await session('510510')).json()).token;
+      const ac = new AbortController();
+      const ok = await fetch(base + '/api/cam/warehouse/mp4?t=' + encodeURIComponent(tok), { signal: ac.signal });
+      expect(ok.status).toBe(200);
+      expect(ok.headers.get('content-type')).toContain('video/mp4');
+      const chunk = (await ok.body.getReader().read()).value;
+      expect(chunk && chunk.length).toBeGreaterThan(0);
+      ac.abort();
+      // câmera inexistente → 404
+      const nf = await fetch(base + '/api/cam/nope/mp4?t=' + encodeURIComponent(tok));
+      expect(nf.status).toBe(404);
+    } finally {
+      process.env.CAM_TUNNEL_URL = oldUrl;
+      await new Promise((r) => mock.close(r));
+    }
+  });
+
   // ÚLTIMO teste do arquivo: bane o IP (estado do guard é module-level).
   test('brute force: 10 PINs errados → ban (429 no gate)', async () => {
     for (let i = 0; i < 10; i++) await session('wrong-' + i);

@@ -71,6 +71,7 @@ class EmsActivitySync {
   constructor(deps = {}) {
     this.db = deps.db;
     this.ems = deps.ems;
+    this.heartbeat = deps.heartbeat || null; // vigia (wire.js) — prova que o tick roda
     this._timer = null;
     this._ticking = false;
     // auto check-in: cria task automática quando um STAGE inicia. Gate por env +
@@ -302,6 +303,7 @@ class EmsActivitySync {
   async tick() {
     if (this._ticking) return { skipped: true };
     this._ticking = true;
+    try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
       if (!this.ems || !this.ems.configured || !this.ems.configured()) return { ems: false };
       const [line, pipeline] = await Promise.all([

@@ -24,14 +24,18 @@ describe('Fase 4 — CarolinaForgottenDM worker', () => {
       },
     };
   }
-  test('manda DM pra quem tem slack_user_id + marca enviado (dedup)', async () => {
+  // Bruno 07-02: a cobrança vai NO CANAL DOS OPERADORES (mencionando a pessoa).
+  // "DM" pra U... era estruturalmente impossível (resolveChannel só aceita C/G/D)
+  // e o fallback caía no canal ADMIN — operador nunca via a cobrança.
+  test('cobra NO CANAL DOS OPERADORES mencionando quem tem slack_user_id + marca enviado (dedup)', async () => {
     const rows = [{ id: 1, person_id: 5, display_name: 'Ana', slack_user_id: 'U_ANA', last_task_description: 'linha' }];
     const db = makeWorkerDb(rows);
     const posts = [];
-    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; } } });
+    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; } }, operatorsChannel: 'C_OPS' });
     await w.tick();
     expect(posts).toHaveLength(1);
-    expect(posts[0].channel).toBe('U_ANA');      // DM direto
+    expect(posts[0].channel).toBe('C_OPS');           // canal dos operadores
+    expect(posts[0].text).toContain('<@U_ANA>');      // menção direta
     expect(posts[0].sender).toEqual({ name: 'Carolina' });
     expect(db.updated).toEqual([1]);
     expect(db.audits).toContain('carolina_forgotten_dm_sent');
@@ -40,14 +44,14 @@ describe('Fase 4 — CarolinaForgottenDM worker', () => {
     await w.tick();
     expect(posts).toHaveLength(0);
   });
-  test('sem slack_user_id → fallback no canal de orders', async () => {
+  test('sem slack_user_id → mesmo canal dos operadores, com o nome', async () => {
     const rows = [{ id: 2, person_id: 7, display_name: 'Bruno Sarmento', slack_user_id: null, last_task_description: 'cleaning' }];
     const db = makeWorkerDb(rows);
     const posts = [];
-    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return {}; } }, ordersChannel: 'C_ORDERS' });
+    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return {}; } }, operatorsChannel: 'C_OPS' });
     await w.tick();
     expect(posts).toHaveLength(1);
-    expect(posts[0].channel).toBe('C_ORDERS');
+    expect(posts[0].channel).toBe('C_OPS');
     expect(posts[0].text).toContain('Bruno Sarmento');
   });
 });

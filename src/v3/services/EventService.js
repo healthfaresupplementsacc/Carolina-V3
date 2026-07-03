@@ -372,6 +372,35 @@ class EventService {
       } else {
         const w = await this._activeForegroundEvent(c, personId);
         targetId = w ? w.id : null;
+        // SINCRONIA DE VERDADE (Bruno 07-02): o coworker SEM evento-âncora ganha um
+        // EVENTO ESPELHO na própria timeline (mesma atividade/lote/janela). Antes só
+        // marcava cowork_with no evento do dono e o coworker ficava sem NADA — caso
+        // da Reunião da Ana (ev criado no dashboard) que não aparecia pra Simone.
+        // Vale pra evento FECHADO (retroativo) e pra ABERTO sem âncora do coworker.
+        // Guarda anti-duplicata: pula se o coworker já tem evento da MESMA atividade
+        // sobrepondo a janela.
+        if (!targetId && ev.started_at) {
+          const dup = await c.query(
+            `SELECT 1 FROM v3.events
+              WHERE person_id = $1 AND deleted_at IS NULL AND activity_type_id = $2
+                AND started_at < COALESCE($4::timestamptz, NOW())
+                AND COALESCE(ended_at, NOW()) > $3::timestamptz
+              LIMIT 1`,
+            [personId, ev.activity_type_id, ev.started_at, ev.ended_at || null]);
+          if (!dup.rowCount) {
+            const ins = await c.query(
+              `INSERT INTO v3.events
+                 (person_id, activity_type_id, product_batch_id, started_at, ended_at,
+                  phase_label, description, confidence, source, closed_reason, cowork_group_id, is_test)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, false))
+               RETURNING id`,
+              [personId, ev.activity_type_id, ev.product_batch_id || null, ev.started_at, ev.ended_at || null,
+                ev.phase_label || null, ev.description || null, ev.confidence || 'high',
+                ev.source || 'admin_cowork_mirror', ev.ended_at ? (ev.closed_reason || 'cowork_mirror') : null,
+                ev.cowork_group_id || null, ev.is_test]);
+            targetId = ins.rows[0].id;
+          }
+        }
       }
       if (targetId) {
         await this._patch(c, targetId, { cowork_with: group.filter((x) => x !== personId) });

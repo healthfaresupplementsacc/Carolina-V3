@@ -19,6 +19,7 @@ class AbsenceAlert {
     this.enabled = deps.enabled !== undefined ? deps.enabled : (process.env.ABSENCE_ALERT_ENABLED !== 'false');
     this.thresholdMin = deps.thresholdMin || parseInt(process.env.ABSENCE_THRESHOLD_MIN, 10) || 15;
     this.repeatMin = deps.repeatMin || parseInt(process.env.ABSENCE_REPEAT_MIN, 10) || 30;
+    this.heartbeat = deps.heartbeat || null; // vigia (wire.js) — prova que o tick roda
     this._t = null; this._ticking = false;
   }
   start(ms = 5 * 60 * 1000) {
@@ -47,12 +48,17 @@ class AbsenceAlert {
               ${refExpr} AS ref
        FROM v3.persons p
        WHERE p.role = 'operator' AND p.active = true AND p.deleted_at IS NULL AND COALESCE(p.is_sandbox,false) = false
-         -- PRESENTE HOJE (Bruno 06-24): logou hoje (sessão CRIADA hoje, mesmo já
-         -- deslogada — as sessões do kiosk caem em ~1min) OU tem sessão viva. Antes
-         -- exigia SÓ sessão viva e perdia todo mundo (sessões efêmeras) → caso da
-         -- Simone ociosa 11:50→12:26 sem nenhum aviso.
-         AND EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id
-                     AND (s.created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+         -- PRESENTE HOJE (Bruno 07-02): TRABALHOU hoje (qualquer evento) OU logou hoje
+         -- OU tem sessão viva (mesmo criada dias atrás — o PWA do kiosk mantém a sessão
+         -- viva sem criar linha nova, e "sessão criada hoje" sozinho deixava TODO MUNDO
+         -- invisível → nenhum alerta de ocioso saía, caso da Ana 12:40→13:05).
+         AND (
+           EXISTS (SELECT 1 FROM v3.events e WHERE e.person_id = p.id AND e.deleted_at IS NULL
+                   AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+           OR EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id
+                      AND ((s.created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+                           OR s.logged_out_at IS NULL))
+         )
          -- nenhuma task aberta agora (lunch/pausa abertos = ocupado, não ocioso)
          AND NOT EXISTS (SELECT 1 FROM v3.events e WHERE e.person_id = p.id AND e.ended_at IS NULL AND e.deleted_at IS NULL)
          -- não encerrou o dia (end_of_day) — aí foi embora, não está "ocioso"
@@ -73,6 +79,7 @@ class AbsenceAlert {
   async tick() {
     if (this._ticking || !this.enabled) return { skipped: true };
     this._ticking = true;
+    try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
       const absent = await this.findAbsent();
       let sent = 0;
@@ -97,6 +104,8 @@ class AbsenceAlert {
         } catch (e) { /* log opcional */ }
         sent++;
       }
+      // visibilidade nos logs do Railway (diagnóstico: "achou N ociosos, avisou M")
+      if (absent.length) console.log('[absence] ociosos: ' + absent.map((a) => a.display_name + '=' + a.idle_min + 'min').join(', ') + ' → avisou ' + sent);
       return { absent: absent.length, sent };
     } finally { this._ticking = false; }
   }

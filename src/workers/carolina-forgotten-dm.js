@@ -15,17 +15,24 @@ class CarolinaForgottenDM {
   constructor(deps = {}) {
     this.db = deps.db;
     this.slack = deps.slack || null; // { postAs }
+    // canal dos OPERADORES (produção) — é onde a cobrança tem que aparecer.
+    this.operatorsChannel = deps.operatorsChannel || process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
     this.ordersChannel = deps.ordersChannel || process.env.V3_ORDERS_CHANNEL || deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
-    this._timer = null; this._ticking = false;
+    this.heartbeat = deps.heartbeat || null; // vigia (wire.js) — prova que o tick roda
+    this._timer = null; this._kick = null; this._ticking = false;
   }
   start(intervalMs = 10 * 60 * 1000) {
+    // tick inicial ~30s pós-boot: redeploys reiniciavam o timer antes do 1º tick
+    // de +10min → DM vencido esperava mais 10min a cada deploy (caso Ana 07-03).
+    this._kick = setTimeout(() => this.tick().catch((e) => console.error('[forgotten-dm] tick erro:', e.message)), 30 * 1000);
     this._timer = setInterval(() => this.tick().catch((e) => console.error('[forgotten-dm] tick erro:', e.message)), intervalMs);
     console.log('[V3] carolina-forgotten-dm ligado (tick ' + Math.round(intervalMs / 60000) + 'min)');
   }
-  stop() { if (this._timer) clearInterval(this._timer); this._timer = null; }
+  stop() { if (this._timer) clearInterval(this._timer); if (this._kick) clearTimeout(this._kick); this._timer = null; this._kick = null; }
 
   async tick() {
     if (this._ticking) return; this._ticking = true;
+    try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
       const due = await this.db.query(
         `SELECT fc.id, fc.person_id, fc.last_task_description, p.display_name, p.slack_user_id
@@ -52,21 +59,19 @@ class CarolinaForgottenDM {
 
   async _sendDM(fc) {
     if (!this.slack || !this.slack.postAs) return false;
-    // Tom PROFISSIONAL, com uma PONTA de frustração (regra Bruno 06-24): avisa que
-    // esqueceu o checkout, que tive que corrigir, e pede pra não repetir. Sem emojis fofos.
-    const dmText = `Bom dia, ${fc.display_name}. No último dia de trabalho você saiu *sem fazer o checkout* no sistema novamente. `
-      + `Tive que corrigir o seu registro manualmente.\n\n`
-      + `Isso bagunça os horários e a contagem de produção, e gera retrabalho de quem precisa arrumar. `
-      + `Peço que, por favor, *não esqueça de fazer o logout/checkout no fim do expediente* — é parte da rotina e preciso que isso seja levado a sério.\n\n`
-      + `Conto com você pra não se repetir. Obrigada.`;
-    const channelText = `${fc.display_name}, no último dia você saiu *sem fazer o checkout* no sistema. Tive que corrigir o seu registro na mão. `
-      + `Por favor *não esqueça do logout no fim do expediente* — isso atrapalha os horários e a produção, e dá retrabalho. Conto com você pra não se repetir. — Carolina`;
+    // ENTREGA (fix Bruno 07-02): a cobrança vai NO CANAL DOS OPERADORES, mencionando
+    // a pessoa. O "DM" era estruturalmente impossível (resolveChannel do sender só
+    // aceita C/G/D — ID de usuário U... era rejeitado) e o fallback caía no canal
+    // ADMIN, onde operador não vê → a Carolina "cobrava" e ninguém era avisado.
+    // Tom PROFISSIONAL com uma ponta de frustração (regra Bruno 06-24), sem emoji fofo.
+    const who = fc.slack_user_id ? `<@${fc.slack_user_id}>` : `*${fc.display_name}*`;
+    const text = `${who}, no seu último dia de trabalho você saiu *sem fazer o checkout* no sistema. `
+      + `Tive que corrigir o seu registro manualmente.\n`
+      + `Isso bagunça os horários e a contagem de produção, e gera retrabalho. `
+      + `Por favor, *não esqueça de fazer o logout/checkout no fim do expediente* — é parte da rotina e preciso que isso seja levado a sério. `
+      + `Conto com você pra não se repetir. — Carolina`;
     try {
-      if (fc.slack_user_id) {
-        await this.slack.postAs({ channel: fc.slack_user_id, sender: { name: 'Carolina' }, thread_ts: null, text: dmText });
-      } else {
-        await this.slack.postAs({ channel: this.ordersChannel, sender: { name: 'Carolina' }, thread_ts: null, text: channelText });
-      }
+      await this.slack.postAs({ channel: this.operatorsChannel, sender: { name: 'Carolina' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
       return true;
     } catch (e) { console.error('[forgotten-dm] envio falhou:', e.message); return false; }
   }

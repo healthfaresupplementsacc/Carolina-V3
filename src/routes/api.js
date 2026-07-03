@@ -298,6 +298,10 @@ router.get('/health', async (req, res) => {
       status: 'ok',
       db: 'connected',
       version: '2025-05-14-v2',
+      // deploy_id: MESMA expressão do heartbeat do /op — é o que o auto-reload da
+      // página dos operadores compara. Exposto aqui pra dar pra VERIFICAR de fora
+      // que cada deploy muda o id (se aparecer 'dev', o auto-update está cego).
+      deploy_id: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_DEPLOYMENT_ID || process.env.npm_package_version || 'dev',
       lastPollTs: lastPoll.rows[0]?.value || null,
       time: new Date().toISOString(),
     });

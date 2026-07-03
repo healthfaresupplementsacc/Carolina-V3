@@ -966,8 +966,29 @@
     h += '</div>';
     return h;
   }
+  // MÁQUINAS SEM SUPERVISÃO (Bruno 07-02): o outro operador de máquina já saiu —
+  // antes de ir pro almoço/pausa, APONTE quem fica de olho na(s) máquina(s).
+  function appointMachineInner(o) {
+    var h = cardOpen(480);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:14px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.12); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svgr(WARN, 26, 2) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:19px; color:#b3261e;">Quem cuida da máquina?</div></div>';
+    h += '<div style="font-size:14.5px; color:#42566f; font-weight:600; margin-bottom:14px; line-height:1.5;">O outro operador de máquina JÁ SAIU. A(s) máquina(s) <b>' + esc((o.machines || []).join(', ')) + '</b> não pode(m) ficar sozinha(s). <b>Aponte quem fica responsável enquanto você estiver fora:</b></div>';
+    if ((o.candidates || []).length) {
+      h += '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto; margin-bottom:12px;">';
+      (o.candidates || []).forEach(function (c) {
+        h += '<button data-act="appointPick" data-arg="' + esc(c.id) + '" style="display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; padding:13px 15px; border-radius:14px; border:1px solid rgba(15,40,90,.12); background:rgba(255,255,255,.8); font-family:\'Manrope\',sans-serif;"><span style="flex:none; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(31,95,208,.12); color:#1f5fd0; font-weight:800;">' + esc((c.display_name || '?').slice(0, 2).toUpperCase()) + '</span><span style="flex:1; font-weight:700; font-size:16px; color:#0c2545;">' + esc(c.display_name) + '</span></button>';
+      });
+      h += '</div>';
+    } else {
+      h += '<div style="font-size:13.5px; color:#8a5a00; background:rgba(217,145,0,.12); border-left:3px solid #d99100; padding:11px 13px; border-radius:11px; margin-bottom:12px; font-weight:600;">Nenhum colega disponível agora no sistema.</div>';
+    }
+    h += '<button data-act="appointNone" style="width:100%; border:1px solid rgba(179,38,30,.35); background:rgba(179,38,30,.07); color:#b3261e; border-radius:14px; padding:13px; font-weight:800; font-size:14px; cursor:pointer; margin-bottom:10px;">NÃO TEM NINGUÉM — a formulação vai ter que PARAR</button>';
+    h += '<div style="display:flex; gap:11px;">' + ghostBtn('closeOverlay', 'Voltar (não vou sair agora)') + '</div>';
+    h += '</div>';
+    return h;
+  }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'appointMachine') return appointMachineInner(o);
     if (o.type === 'reclassify') return reclassifyInner(o);
     if (o.type === 'detectWhen') return detectWhenInner(o);
     if (o.type === 'finish' && o.cowork && !o.lastFinisher) return finishCoworkInner(o);
@@ -1281,6 +1302,21 @@
     doFinish: function () { doFinish(); },
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
     doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function () { S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
+    // MÁQUINAS (Bruno 07-02): apontar quem cuida da máquina antes de sair
+    appointPick: function (arg) {
+      var name = arg && S.overlay && (S.overlay.candidates || []).filter(function (c) { return String(c.id) === String(arg); }).map(function (c) { return c.display_name; })[0];
+      var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
+      if (fn) fn(parseInt(arg, 10));
+      toast((name || 'Colega') + ' vai ficar de olho na máquina — gerentes avisados');
+    },
+    appointNone: function () {
+      showAlert({ title: 'NINGUÉM VAI CUIDAR DA MÁQUINA?', message: 'As máquinas NÃO podem ficar sozinhas. Sem ninguém, a FORMULAÇÃO VAI TER QUE PARAR e os gerentes serão avisados AGORA. Confirma que não tem ninguém?', okLabel: 'Confirmo — não tem ninguém', cancel: 'Voltar' })
+        .then(function (ok) {
+          if (!ok) return;
+          var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
+          if (fn) fn('none');
+        });
+    },
     note: function () { S.overlay = { type: 'note', note: '' }; S._focus = 'ovNote'; render(); },
     saveNote: function () { var o = S.overlay; var txt = (o.note || '').trim(); if (!txt) { showAlert({ title: 'Nota vazia', message: 'Escreva ou grave algo antes de salvar a nota.', okLabel: 'Entendi' }); return; } api('/api/v3/op/note', { method: 'POST', body: { text: txt } }).then(function () { S.overlay = null; toast('Nota salva'); }).catch(function (e) { toast(e.message); }); },
     closeOverlay: function () { if (S.voice.on) stopVoice(); S.overlay = null; render(); },
@@ -1416,6 +1452,16 @@
       if (res && res.gap_detected) {
         S.gapPending = { path: path, body: body };
         S.overlay = { type: 'gap', gapMinutes: res.gap_minutes, gapStartedAt: res.gap_started_at, jtype: null, note: '' };
+        render(); return;
+      }
+      // MÁQUINAS SEM SUPERVISÃO (Bruno 07-02): saindo pro almoço/pausa com máquina
+      // rodando e sem outro operador de máquina → tem que APONTAR quem fica de olho.
+      if (res && res.machine_appoint_required) {
+        S.appointResend = function (val) {
+          var b = Object.assign({}, body, { machine_appointee_id: val });
+          api(path, { method: 'POST', body: b }).then(onOk).catch(onErr);
+        };
+        S.overlay = { type: 'appointMachine', machines: res.machines || [], candidates: res.candidates || [] };
         render(); return;
       }
       // FASE OVERLAP — almoço aberto: não pode trabalhar até encerrar o almoço.

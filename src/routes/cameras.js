@@ -172,6 +172,41 @@ function getBroker(name) {
   return p;
 }
 
+// ── H.264 fMP4 (Full HD) — ADDENDUM do gateway 07-01: {BASE}/mp4/<cam> entrega
+// 1920×1080 H.264 a ~6.2Mbps (vs MJPEG 720p ~10Mbps). Player <video> no front.
+// SEM broker aqui: fMP4 não aceita viewer entrando no meio (perde o moov/init);
+// o go2rtc do gateway já multiplexa o transcode por câmera, então N viewers =
+// N conexões leves ao gateway, 1 transcode só lá.
+router.get('/api/cam/:name/mp4', async (req, res) => {
+  const { name } = req.params;
+  if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
+  if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+  const base = process.env.CAM_TUNNEL_URL;
+  const token = process.env.CAM_TOKEN;
+  if (!base || !token) return res.status(503).json({ error: 'cameras_offline' });
+
+  const ctrl = new AbortController();
+  req.on('close', () => ctrl.abort());
+  const connectTimer = setTimeout(() => ctrl.abort(), 8000);
+  let up;
+  try {
+    up = await fetch(`${base.replace(/\/$/, '')}/mp4/${name}`, {
+      headers: { 'X-Cam-Token': token },
+      signal: ctrl.signal,
+    });
+  } catch { clearTimeout(connectTimer); return res.status(503).json({ error: 'cameras_offline' }); }
+  clearTimeout(connectTimer);
+  if (!up.ok || !up.body) return res.status(503).json({ error: 'cameras_offline' });
+
+  res.status(200);
+  res.set('Content-Type', up.headers.get('content-type') || 'video/mp4');
+  res.set('Cache-Control', 'no-store');
+  const body = Readable.fromWeb(up.body);
+  body.on('error', () => { try { res.end(); } catch (_) {} });
+  res.on('close', () => { try { ctrl.abort(); body.destroy(); } catch (_) {} });
+  body.pipe(res);
+});
+
 router.get('/api/cam/:name', async (req, res) => {
   const { name } = req.params;
   if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
@@ -200,6 +235,67 @@ router.get('/api/cam/:name', async (req, res) => {
 
 
 // ---- página standalone (não toca o dashboard-v4) --------------------------
+// ── Janela auxiliar do PIP DUPLO (Bruno 07-02): permite 2 janelas Document PIP
+// AO MESMO TEMPO. O Chrome limita 1 docPIP por aba → a 2ª nasce DESTA janelinha
+// (aberta pelo dashboard via window.open), que tem direito ao seu PRÓPRIO docPIP.
+// Fluxo: mostra a câmera + botão "📌 Fixar por cima"; o clique move o <video>
+// pra janela docPIP e esta janelinha vira um "âncora" pequeno (precisa ficar
+// aberta — pode minimizar — senão o docPIP dela morre).
+// Token vem no HASH (#t=...) — não vai pro servidor/log.
+router.get('/cameras/pip', (req, res) => {
+  const cam = String(req.query.cam || '');
+  if (!CAMS.has(cam)) return res.status(404).send('cam?');
+  const label = cam === 'warehouse' ? '🏭 Warehouse Floor' : '📦 Packaging Line';
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(`<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${label}</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px system-ui;color:#fff}
+  #wrap{position:relative;height:100%}
+  video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+  .chip{position:fixed;top:6px;left:8px;z-index:2;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px;font-weight:700;font-size:12px}
+  #pin{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:3;border:0;border-radius:10px;
+       background:#22b35d;color:#06160d;font-weight:800;font-size:14px;padding:10px 16px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+  #note{display:none;height:100%;place-items:center;text-align:center;padding:12px;font-weight:600;line-height:1.5}
+</style></head><body>
+<div id="wrap"><span class="chip">${label}</span><video id="v" muted autoplay playsinline></video>
+<button id="pin">📌 Fixar por cima (janela PIP)</button></div>
+<div id="note">Câmera fixada por cima ✅<br><small style="color:#9fb0c8">Mantenha esta janelinha aberta (pode minimizar).<br>Fechar ela fecha a câmera fixada.</small></div>
+<script>
+(function(){
+  var cam=${JSON.stringify(cam)}, label=${JSON.stringify(label)};
+  var tok=(location.hash.match(/t=([^&]+)/)||[])[1]||'';
+  if(!tok){ document.getElementById('note').style.display='grid'; document.getElementById('note').innerHTML='Sessão das câmeras não encontrada — abra pelo dashboard.'; document.getElementById('wrap').style.display='none'; return; }
+  var v=document.getElementById('v'), retry=null;
+  function src(){ return '/api/cam/'+cam+'/mp4?t='+decodeURIComponent(tok)+'&r='+Date.now(); }
+  function reconnect(){ clearTimeout(retry); retry=setTimeout(function(){ v.src=src(); v.play&&v.play().catch(function(){}); },2500); }
+  v.onerror=reconnect; v.onended=reconnect; v.src=src(); v.play&&v.play().catch(function(){});
+  var btn=document.getElementById('pin');
+  if(!(window.documentPictureInPicture&&window.documentPictureInPicture.requestWindow)){
+    // sem docPIP: esta própria janelinha JÁ é a 2ª janela — só esconde o botão
+    btn.style.display='none'; return;
+  }
+  btn.onclick=function(){
+    window.documentPictureInPicture.requestWindow({width:480,height:300}).then(function(w){
+      w.document.body.style.cssText='margin:0;background:#000;height:100vh;overflow:hidden;';
+      var chip=w.document.createElement('div'); chip.textContent=label;
+      chip.style.cssText='position:fixed;top:6px;left:8px;z-index:2;background:rgba(0,0,0,.55);color:#fff;font:bold 12px system-ui;padding:3px 8px;border-radius:6px;';
+      w.document.body.appendChild(chip);
+      w.document.body.appendChild(v); // MOVE o <video> ao vivo pra janela docPIP (stream segue)
+      try{ w.document.title=label; }catch(e){}
+      document.getElementById('wrap').style.display='none';
+      document.getElementById('note').style.display='grid';
+      try{ window.resizeTo(340,170); }catch(e){}
+      w.addEventListener('pagehide',function(){ location.reload(); }); // fechou o docPIP → volta ao estado inicial
+    }).catch(function(e){ alert('Não consegui fixar: '+e.message); });
+  };
+})();
+</script></body></html>`);
+});
+
 // Recursos (pedido Bruno 07-01): auto-reconexão com backoff (gateway flapa),
 // tamanho ajustável dos cards, fullscreen por câmera, PIP NATIVO (estilo
 // YouTube: janela flutuante do SO, redimensionável, sempre no topo).
@@ -230,8 +326,8 @@ router.get('/cameras', (_req, res) => {
   .badge.off{background:rgba(248,81,73,.15);color:#f85149;}
   .bar button{flex:none;border:1px solid #30363d;background:#0d1117;color:#c9d1d9;border-radius:8px;padding:4px 9px;font-size:12.5px;cursor:pointer;}
   .bar button:hover{background:#1f242c;}
-  .card img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000;}
-  .card:fullscreen{background:#000;} .card:fullscreen img{height:calc(100vh - 42px);aspect-ratio:auto;}
+  .card img,.card video{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000;}
+  .card:fullscreen{background:#000;} .card:fullscreen img,.card:fullscreen video{height:calc(100vh - 42px);aspect-ratio:auto;}
   .off-msg{padding:26px;text-align:center;color:#8b949e;display:none;font-size:13.5px;}
   #pin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:10;}
   #pin-overlay .box{background:#161b22;border:1px solid #30363d;padding:22px;border-radius:12px;min-width:270px;}
@@ -253,13 +349,13 @@ router.get('/cameras', (_req, res) => {
     <div class="bar"><h2>🏭 Warehouse Floor</h2><span class="badge">—</span>
       <button data-act="pip" title="Picture-in-Picture (janela flutuante)">⧉ PIP</button>
       <button data-act="fs" title="Tela cheia">⛶</button></div>
-    <img alt="Warehouse Floor"><div class="off-msg"></div>
+    <video muted autoplay playsinline></video><img alt="Warehouse Floor" style="display:none"><div class="off-msg"></div>
   </div>
   <div class="card" data-cam="packaging">
     <div class="bar"><h2>📦 Packaging Line</h2><span class="badge">—</span>
       <button data-act="pip" title="Picture-in-Picture (janela flutuante)">⧉ PIP</button>
       <button data-act="fs" title="Tela cheia">⛶</button></div>
-    <img alt="Packaging Line"><div class="off-msg"></div>
+    <video muted autoplay playsinline></video><img alt="Packaging Line" style="display:none"><div class="off-msg"></div>
   </div>
 </div>
 <script>
@@ -269,7 +365,7 @@ router.get('/cameras', (_req, res) => {
   var gw=document.getElementById('gw');
   var cams={}; // id -> {card,img,badge,offmsg,backoff,timer,pump,video,canvas,inPip}
   document.querySelectorAll('.card').forEach(function(c){
-    cams[c.dataset.cam]={card:c,img:c.querySelector('img'),badge:c.querySelector('.badge'),offmsg:c.querySelector('.off-msg'),backoff:2000,timer:null,pump:null,video:null,canvas:null,inPip:false};
+    cams[c.dataset.cam]={card:c,img:c.querySelector('img'),video:c.querySelector('video'),badge:c.querySelector('.badge'),offmsg:c.querySelector('.off-msg'),backoff:2000,timer:null,stallTimer:null,pump:null,pipVideo:null,canvas:null,inPip:false,mode:'mp4',mp4Fails:0};
   });
 
   // ── tamanho ajustável (persistido) ──
@@ -281,21 +377,44 @@ router.get('/cameras', (_req, res) => {
   function setBadge(c, cls, txt){ c.badge.className='badge '+cls; c.badge.textContent=txt; }
 
   // ── stream + AUTO-RECONEXÃO (o gateway flapa; nunca desiste) ──
+  // v3: H.264 fMP4 FULL HD primeiro (<video>, /api/cam/<id>/mp4) — 1080p fluido;
+  // se falhar 3×, cai sozinho pro MJPEG (<img>) e segue tentando.
+  function markOff(c, id){
+    c.offmsg.textContent='câmera offline — reconectando sozinho…';
+    c.offmsg.style.display='block';
+    setBadge(c,'off','offline · re-tentando');
+    c.timer=setTimeout(function(){ startStream(id); }, c.backoff);
+    c.backoff=Math.min(c.backoff*1.8, 30000); // 2s → 30s cap
+  }
   function startStream(id){
     var c=cams[id]; if(!TOKEN) return;
-    clearTimeout(c.timer);
+    clearTimeout(c.timer); clearTimeout(c.stallTimer);
     setBadge(c,'retry','conectando…');
-    c.img.style.display='block'; c.offmsg.style.display='none';
-    c.img.onerror=function(){
-      c.img.style.display='none';
-      c.offmsg.textContent='câmera offline — reconectando sozinho…';
-      c.offmsg.style.display='block';
-      setBadge(c,'off','offline · re-tentando');
-      c.timer=setTimeout(function(){ startStream(id); }, c.backoff);
-      c.backoff=Math.min(c.backoff*1.8, 30000); // 2s → 30s cap
-    };
-    c.img.onload=function(){ setBadge(c,'live','ao vivo'); c.backoff=2000; };
-    c.img.src='/api/cam/'+id+'?t='+encodeURIComponent(TOKEN)+'&r='+Date.now();
+    c.offmsg.style.display='none';
+    if(c.mode==='mp4' && c.video){
+      c.video.style.display='block'; c.img.style.display='none';
+      var v=c.video;
+      var fail=function(){
+        c.mp4Fails++;
+        v.style.display='none';
+        if(c.mp4Fails>=3){ c.mode='mjpeg'; c.backoff=2000; startStream(id); return; } // fallback MJPEG
+        markOff(c, id);
+      };
+      v.onerror=fail; v.onended=fail;
+      v.onplaying=function(){ setBadge(c,'live','ao vivo · HD'); c.backoff=2000; c.mp4Fails=0; };
+      v.onwaiting=function(){
+        clearTimeout(c.stallTimer);
+        c.stallTimer=setTimeout(function(){ if(v.readyState<3) fail(); }, 12000);
+      };
+      v.src='/api/cam/'+id+'/mp4?t='+encodeURIComponent(TOKEN)+'&r='+Date.now();
+      v.play().catch(function(){});
+    } else {
+      c.video && (c.video.style.display='none');
+      c.img.style.display='block';
+      c.img.onerror=function(){ c.img.style.display='none'; markOff(c, id); };
+      c.img.onload=function(){ setBadge(c,'live','ao vivo'); c.backoff=2000; };
+      c.img.src='/api/cam/'+id+'?t='+encodeURIComponent(TOKEN)+'&r='+Date.now();
+    }
   }
   function startAll(){ Object.keys(cams).forEach(startStream); }
 
@@ -315,28 +434,34 @@ router.get('/cameras', (_req, res) => {
   // ── fullscreen ──
   function goFs(id){ var el=cams[id].card; (el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el); }
 
-  // ── PIP nativo (estilo YouTube): canvas pump -> captureStream -> video PIP ──
+  // ── PIP nativo (estilo YouTube). No mp4 é DIRETO no <video> (Full HD, sem
+  // canvas). No fallback MJPEG usa canvas pump -> captureStream -> video PIP. ──
   function togglePip(id){
     var c=cams[id];
     if(!document.pictureInPictureEnabled){ alert('Este navegador não suporta Picture-in-Picture. Use Chrome/Edge.'); return; }
-    if(c.inPip && c.video){ document.exitPictureInPicture().catch(function(){}); return; }
+    if(c.mode==='mp4' && c.video){
+      if(document.pictureInPictureElement===c.video){ document.exitPictureInPicture().catch(function(){}); return; }
+      c.video.requestPictureInPicture().catch(function(e){ alert('PIP falhou: '+e.message); });
+      return;
+    }
+    if(c.inPip && c.pipVideo){ document.exitPictureInPicture().catch(function(){}); return; }
     if(!c.canvas){
       c.canvas=document.createElement('canvas');
-      c.video=document.createElement('video');
-      c.video.muted=true; c.video.playsInline=true; c.video.style.display='none';
-      document.body.appendChild(c.video);
+      c.pipVideo=document.createElement('video');
+      c.pipVideo.muted=true; c.pipVideo.playsInline=true; c.pipVideo.style.display='none';
+      document.body.appendChild(c.pipVideo);
     }
     var w=c.img.naturalWidth||1280, h=c.img.naturalHeight||720;
     c.canvas.width=w; c.canvas.height=h;
     var ctx=c.canvas.getContext('2d');
     clearInterval(c.pump);
     c.pump=setInterval(function(){ try{ if(c.img.complete && c.img.naturalWidth) ctx.drawImage(c.img,0,0,w,h); }catch(e){} }, 66); // ~15fps
-    if(!c.video.srcObject){ c.video.srcObject=c.canvas.captureStream(15); }
-    c.video.play().then(function(){ return c.video.requestPictureInPicture(); }).then(function(){
+    if(!c.pipVideo.srcObject){ c.pipVideo.srcObject=c.canvas.captureStream(15); }
+    c.pipVideo.play().then(function(){ return c.pipVideo.requestPictureInPicture(); }).then(function(){
       c.inPip=true;
-      c.video.addEventListener('leavepictureinpicture', function onleave(){
+      c.pipVideo.addEventListener('leavepictureinpicture', function onleave(){
         c.inPip=false; clearInterval(c.pump); c.pump=null;
-        c.video.removeEventListener('leavepictureinpicture', onleave);
+        c.pipVideo.removeEventListener('leavepictureinpicture', onleave);
       });
     }).catch(function(e){ clearInterval(c.pump); c.pump=null; alert('PIP falhou: '+e.message); });
   }
@@ -361,12 +486,16 @@ router.get('/cameras', (_req, res) => {
     clearInterval(all.pump);
     all.pump=setInterval(function(){
       ids.forEach(function(id,ix){
-        var im=cams[id].img;
+        var c2=cams[id];
+        // fonte = <video> H.264 (mp4) ou <img> MJPEG (fallback) — drawImage aceita os 2
+        var el=(c2.mode==='mp4' && c2.video && c2.video.readyState>=2) ? c2.video
+          : (c2.img && c2.img.complete && c2.img.naturalWidth) ? c2.img : null;
         try{
           ctx.fillStyle='#000'; ctx.fillRect(ix*cw,0,cw,ch);
-          if(im.complete&&im.naturalWidth){
-            var s=Math.min(cw/im.naturalWidth,ch/im.naturalHeight), w=im.naturalWidth*s, h=im.naturalHeight*s;
-            ctx.drawImage(im, ix*cw+(cw-w)/2, (ch-h)/2, w, h);
+          if(el){
+            var sw=el.videoWidth||el.naturalWidth, sh=el.videoHeight||el.naturalHeight;
+            var s=Math.min(cw/sw,ch/sh), w=sw*s, h=sh*s;
+            ctx.drawImage(el, ix*cw+(cw-w)/2, (ch-h)/2, w, h);
           } else {
             ctx.fillStyle='#8b949e'; ctx.font='26px system-ui'; ctx.fillText('câmera offline — reconectando…', ix*cw+40, ch/2);
           }
