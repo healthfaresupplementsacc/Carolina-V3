@@ -17,7 +17,7 @@ const V3_GETS = [
   '/production?date=' + today, '/pp?date=' + today, '/support?date=' + today,
   '/fnsku?date=' + today, '/review-rate?range=30d', '/deadlines',
   '/sender-profiles', '/sent-history',
-  '/search?q=urolithin', '/history/batch/104', '/history/product-family/70',
+  '/search?q=urolithin', '/history/batch/104', '/history/product-family?ids=70',
 ];
 const PAGES = ['/op/', '/dashboard-v4/', '/cameras', '/admin/', '/api/health'];
 
