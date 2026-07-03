@@ -1,6 +1,6 @@
-'use strict';
+﻿'use strict';
 /**
- * Camera-system uptime monitor — runs HERE on Railway (always-on), INDEPENDENT of the office PC.
+ * Camera-system uptime monitor â€” runs HERE on Railway (always-on), INDEPENDENT of the office PC.
  *
  * Why this exists: the camera system's live view/control depends on the office PC being online.
  * On 2026-07-02 that PC shut down unexpectedly and was dead ~4h, and nobody knew until someone
@@ -8,7 +8,7 @@
  * Tailscale funnel; on a state change (up->down / down->up) we post to the manager Slack channel
  * and @-mention Bruno.
  *
- * The probe hits {CAM_TUNNEL_URL}/mp4/warehouse (H.264 via go2rtc) — a REAL video byte proves the
+ * The probe hits {CAM_TUNNEL_URL}/frame/warehouse (H.264 via go2rtc) â€” a REAL video byte proves the
  * whole chain: PC on -> funnel -> gateway -> go2rtc has streams -> camera reachable. So it catches
  * both a dead PC (timeout) AND the "page loads but tiles are black / go2rtc has 0 streams" case
  * (the gateway returns 503 because cam8_hd doesn't exist). Token stays server-side (env), never logged.
@@ -33,20 +33,18 @@ async function probe() {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
-    const r = await fetch(`${base.replace(/\/$/, '')}/mp4/warehouse`, {
+    const r = await fetch(`${base.replace(/\/$/, '')}/frame/warehouse`, {
       headers: { 'X-Cam-Token': process.env.CAM_TOKEN || '' },
       signal: ctrl.signal,
     });
     if (!r.ok || !r.body) { clearTimeout(timer); try { r.body && r.body.cancel(); } catch (_) {} return { ok: false, why: 'HTTP ' + r.status }; }
-    const reader = r.body.getReader();
-    const { value, done } = await reader.read();      // first video chunk
+    const buf = await r.arrayBuffer();               // /frame = UMA imagem completa (nao aborta stream no meio - o abort do /mp4 derrubava o go2rtc, panic conhecido 1.9.14)
     clearTimeout(timer);
-    try { await reader.cancel(); } catch (_) {}
-    if (done || !value || value.length < 100) return { ok: false, why: 'sem video (go2rtc/camera)' };
+    if (!buf || buf.byteLength < 100) return { ok: false, why: 'sem imagem (go2rtc/camera)' };
     return { ok: true };
   } catch (e) {
     clearTimeout(timer);
-    return { ok: false, why: e.name === 'AbortError' ? 'timeout — PC/funnel fora do ar' : (e.code || e.message) };
+    return { ok: false, why: e.name === 'AbortError' ? 'timeout â€” PC/funnel fora do ar' : (e.code || e.message) };
   }
 }
 
@@ -63,12 +61,12 @@ async function tick() {
   if (res.ok && !state.up) {                       // recovered
     const downFor = human(now - state.since);
     state.up = true; state.since = now; state.fails = 0;
-    try { await slackClient.postToChannel(CHANNEL, `🟢 *Câmeras VOLTARAM* — sistema de câmeras online de novo (ficou fora ~${downFor}).`); } catch (_) {}
+    try { await slackClient.postToChannel(CHANNEL, `ðŸŸ¢ *CÃ¢meras VOLTARAM* â€” sistema de cÃ¢meras online de novo (ficou fora ~${downFor}).`); } catch (_) {}
   } else if (!res.ok && state.up) {                // possibly down
     state.fails += 1;
     if (state.fails >= 2) {                         // ~4 min of failures before alerting (avoid false alarms)
       state.up = false; state.since = now;
-      try { await slackClient.postToChannel(CHANNEL, `🔴 *Câmeras OFFLINE* <@${BRUNO}> — o PC/relay das câmeras não responde (${res.why}). Sem visualização até voltar.`); } catch (_) {}
+      try { await slackClient.postToChannel(CHANNEL, `ðŸ”´ *CÃ¢meras OFFLINE* <@${BRUNO}> â€” o PC/relay das cÃ¢meras nÃ£o responde (${res.why}). Sem visualizaÃ§Ã£o atÃ© voltar.`); } catch (_) {}
     }
   } else if (res.ok) {
     state.fails = 0;
@@ -81,7 +79,7 @@ function startCameraMonitor() {
     return;
   }
   cron.schedule(CRON_EXPR, () => { tick().catch((e) => console.error('[CameraMonitor]', e.message)); });
-  console.log(`[CameraMonitor] ativo — probe ${CRON_EXPR} via ${process.env.CAM_TUNNEL_URL}/mp4/warehouse`);
+  console.log(`[CameraMonitor] ativo â€” probe ${CRON_EXPR} via ${process.env.CAM_TUNNEL_URL}/frame/warehouse`);
 }
 
 module.exports = { startCameraMonitor, _probe: probe };
