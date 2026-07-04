@@ -20,6 +20,7 @@ class AbsenceAlert {
     this.thresholdMin = deps.thresholdMin || parseInt(process.env.ABSENCE_THRESHOLD_MIN, 10) || 15;
     this.repeatMin = deps.repeatMin || parseInt(process.env.ABSENCE_REPEAT_MIN, 10) || 30;
     this.heartbeat = deps.heartbeat || null; // vigia (wire.js) — prova que o tick roda
+    this._now = deps.now || Date.now;        // injetável (testes de janela/sábado)
     this._t = null; this._ticking = false;
   }
   start(ms = 5 * 60 * 1000) {
@@ -45,7 +46,18 @@ class AbsenceAlert {
     const r = await this.db.query(
       `SELECT p.id, p.display_name, p.slack_user_id,
               ROUND(EXTRACT(EPOCH FROM (NOW() - ${refExpr})) / 60)::int AS idle_min,
-              ${refExpr} AS ref
+              ${refExpr} AS ref,
+              -- 1º check-in de HOJE (login ou 1ª task) — âncora do expediente
+              LEAST(
+                COALESCE((SELECT MIN(s.created_at) FROM v3.operator_sessions s WHERE s.person_id=p.id AND (s.created_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date), 'infinity'::timestamptz),
+                COALESCE((SELECT MIN(e.started_at) FROM v3.events e WHERE e.person_id=p.id AND e.deleted_at IS NULL AND (e.started_at AT TIME ZONE '${EDT}')::date=(NOW() AT TIME ZONE '${EDT}')::date), 'infinity'::timestamptz)
+              ) AS first_checkin,
+              -- fim de expediente da ESCALA de hoje (se cadastrada), como timestamptz
+              (SELECT ((NOW() AT TIME ZONE '${EDT}')::date + sc.expected_end_time) AT TIME ZONE '${EDT}'
+                 FROM v3.operator_schedules sc
+                WHERE sc.person_id = p.id AND sc.is_workday = true
+                  AND sc.day_of_week = EXTRACT(DOW FROM (NOW() AT TIME ZONE '${EDT}'))::int
+                  AND sc.expected_end_time IS NOT NULL LIMIT 1) AS sched_end
        FROM v3.persons p
        WHERE p.role = 'operator' AND p.active = true AND p.deleted_at IS NULL AND COALESCE(p.is_sandbox,false) = false
          -- PRESENTE HOJE (Bruno 07-02): TRABALHOU hoje (qualquer evento) OU logou hoje
@@ -67,7 +79,87 @@ class AbsenceAlert {
                            AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)`);
     // só os realmente ociosos (entre threshold e 3h — acima disso provavelmente foi
     // embora sem marcar end_of_day) e com ref de hoje (não 1º login epoch).
-    return r.rows.filter((x) => x.idle_min >= this.thresholdMin && x.idle_min < 180 && x.ref && new Date(x.ref).getUTCFullYear() > 2000);
+    // ── JANELA DE EXPEDIENTE (Bruno 07-04 — fim do flood pós-horário) ──
+    // Fim esperado = MAX(1º check-in + 9h, fim da escala de hoje). Fora da
+    // janela (antes do 1º check-in / depois do fim / fora de 06–21h NY) =
+    // NENHUM aviso. Ex.: entrou 8h → some às 17h; entrou 9:30 → 18:30.
+    const now = this._now();
+    const nyHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour12: false, hour: '2-digit' }).format(new Date(now)), 10);
+    return r.rows.filter((x) => {
+      if (!(x.idle_min >= this.thresholdMin) || !x.ref || new Date(x.ref).getUTCFullYear() <= 2000) return false;
+      if (nyHour < 6 || nyHour >= 21) return false;                    // guarda-chuva: nunca de madrugada
+      const first = x.first_checkin ? new Date(x.first_checkin).getTime() : null;
+      if (!first || !Number.isFinite(first)) return false;             // sem check-in hoje → não é "ausente"
+      const nineH = first + 9 * 3600 * 1000;
+      const sched = x.sched_end ? new Date(x.sched_end).getTime() : 0;
+      const expectedEnd = Math.max(nineH, sched);
+      if (now < first || now > expectedEnd) return false;              // fora do expediente → silêncio
+      return true;
+    });
+  }
+
+  /** Sábado em NY? (fluxo diferente: pergunta ✅/❌ em vez de cobrar direto) */
+  _isSaturdayNy() {
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(new Date(this._now())) === 'Sat';
+  }
+
+  async _didToday(personId, actionType) {
+    const r = await this.db.query(
+      `SELECT 1 FROM v3.operator_action_log WHERE person_id = $1 AND action_type = $2
+        AND (created_at AT TIME ZONE 'America/New_York')::date = (NOW() AT TIME ZONE 'America/New_York')::date LIMIT 1`,
+      [personId, actionType]);
+    return r.rowCount > 0;
+  }
+
+  /** 1h sem ação = considerado SAÍDO: fecha as sessões, avisa 1x e para de cobrar. */
+  async _autoLogoff(a) {
+    if (await this._didToday(a.id, 'absence_auto_logoff')) return false;
+    await this.db.query(
+      `UPDATE v3.operator_sessions SET logged_out_at = NOW(), logoff_reason = 'auto_idle_1h'
+        WHERE person_id = $1 AND logged_out_at IS NULL`, [a.id]);
+    if (this.slack && this.slack.postAs && this.channelId) {
+      try {
+        await this.slack.postAs({
+          channel: this.channelId,
+          sender: { name: 'HealthFare Tracker', icon: ':door:' },
+          thread_ts: null, unfurl_links: false, unfurl_media: false,
+          text: `:door: *${a.display_name}* está sem função há *${a.idle_min} min* — considerei que saiu e fiz o *checkout automático*. (Se ainda estiver aí, é só entrar numa tarefa no aplicativo.)`,
+        });
+      } catch (e) { console.error('[absence] post logoff falhou:', e.message); }
+    }
+    try {
+      await this.db.query(
+        `INSERT INTO v3.operator_action_log (person_id, person_name, action_type, source, payload)
+         VALUES ($1, $2, 'absence_auto_logoff', 'system', $3::jsonb)`,
+        [a.id, a.display_name, JSON.stringify({ idle_min: a.idle_min })]);
+    } catch (_) {}
+    return true;
+  }
+
+  /** SÁBADO: pergunta no canal ("foi embora?") e espera reação ✅/❌ de QUALQUER um. */
+  async _saturdayAsk(a) {
+    if (await this._didToday(a.id, 'saturday_idle_question')) return false;
+    if (!this.slack || !this.slack.postAs || !this.channelId) return false;
+    let posted;
+    try {
+      posted = await this.slack.postAs({
+        channel: this.channelId,
+        sender: { name: 'HealthFare Tracker', icon: ':question:' },
+        thread_ts: null, unfurl_links: false, unfurl_media: false,
+        text: `:question: *${a.display_name}* está sem função há *${a.idle_min} min*. *Foi embora?*\n`
+          + `Reaja ✅ = sim (faço o checkout) · ❌ = não (peço pra registrar a tarefa)`,
+      });
+    } catch (e) { console.error('[absence] pergunta de sábado falhou:', e.message); return false; }
+    try {
+      await this.db.query(
+        `INSERT INTO v3.notifications (type, payload, status) VALUES ('saturday_idle_check', $1::jsonb, 'pending')`,
+        [JSON.stringify({ person_id: a.id, display_name: a.display_name, slack_user_id: a.slack_user_id || null, msg_ts: posted && posted.ts, channel: this.channelId, idle_min: a.idle_min })]);
+      await this.db.query(
+        `INSERT INTO v3.operator_action_log (person_id, person_name, action_type, source, payload)
+         VALUES ($1, $2, 'saturday_idle_question', 'system', $3::jsonb)`,
+        [a.id, a.display_name, JSON.stringify({ idle_min: a.idle_min, msg_ts: posted && posted.ts })]);
+    } catch (_) {}
+    return true;
   }
 
   async _alertedRecently(personId) {
@@ -82,8 +174,14 @@ class AbsenceAlert {
     try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
       const absent = await this.findAbsent();
+      const saturday = this._isSaturdayNy();
       let sent = 0;
       for (const a of absent) {
+        // 1h SEM AÇÃO = SAIU (Bruno 07-04): checkout automático, 1 aviso só,
+        // e o flood morre (a pessoa sai do radar até logar/trabalhar de novo).
+        if (a.idle_min >= 60) { if (await this._autoLogoff(a)) sent++; continue; }
+        // SÁBADO: em vez de cobrar, PERGUNTA (✅ checkout / ❌ pede tarefa).
+        if (saturday) { if (a.idle_min >= 30 && await this._saturdayAsk(a)) sent++; continue; }
         if (await this._alertedRecently(a.id)) continue;
         let dmSent = false;
         if (this.slack && this.slack.postAs && this.channelId) {

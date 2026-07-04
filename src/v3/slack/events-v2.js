@@ -72,6 +72,33 @@ async function handleEvent(payload, deps) {
     const emoji = ev.reaction;
     const reactorSlackUserId = ev.user;
     const carolinaMsgTs = item.ts;
+    // ── SÁBADO (Bruno 07-04): a pergunta "fulano foi embora?" aceita reação de
+    // QUALQUER UM do canal (não só admin) — ✅ faz o checkout, ❌ cobra a tarefa.
+    try {
+      const sat = await db.query(
+        `SELECT id, payload FROM v3.notifications
+         WHERE type = 'saturday_idle_check' AND status = 'pending' AND payload->>'msg_ts' = $1 LIMIT 1`,
+        [carolinaMsgTs]);
+      if (sat.rows.length) {
+        const n = sat.rows[0]; const pay = n.payload || {};
+        const yes = ['white_check_mark', '+1', 'heavy_check_mark'].includes(emoji);
+        const no = ['x', 'no_entry_sign', 'red_circle'].includes(emoji);
+        if (yes || no) {
+          await db.query("UPDATE v3.notifications SET status = 'resolved' WHERE id = $1", [n.id]);
+          const post = commandHandler && commandHandler.slack && commandHandler.slack.postAs;
+          if (yes) {
+            await db.query(
+              `UPDATE v3.operator_sessions SET logged_out_at = NOW(), logoff_reason = 'saturday_confirmed_left'
+               WHERE person_id = $1 AND logged_out_at IS NULL`, [pay.person_id]);
+            if (post) { try { await post({ channel: item.channel, sender: { name: 'HealthFare Tracker', icon: ':door:' }, thread_ts: null, text: `:door: Fazendo o checkout de *${pay.display_name}*. Bom fim de semana!` }); } catch (_) {} }
+          } else if (post) {
+            const who = pay.slack_user_id ? `<@${pay.slack_user_id}>` : `*${pay.display_name}*`;
+            try { await post({ channel: item.channel, sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' }, thread_ts: null, text: `${who}, então registra a tarefa no aplicativo da linha de produção *agora*, por favor.` }); } catch (_) {}
+          }
+          return { handled: true, action: 'saturday_idle_' + (yes ? 'checkout' : 'still_here') };
+        }
+      }
+    } catch (e) { console.error('[events-v2] saturday_idle_check erro:', e.message); }
     // Resolve reactor → person (deve ser admin com role owner/manager)
     const personR = await db.query(
       `SELECT id, role, display_name FROM v3.persons
