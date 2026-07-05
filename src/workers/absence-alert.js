@@ -8,6 +8,7 @@
  * Sandbox fora.
  */
 const EDT = 'America/New_York';
+const { isMuted } = require('../v3/alert-gate');
 
 class AbsenceAlert {
   constructor(deps = {}) {
@@ -111,13 +112,15 @@ class AbsenceAlert {
     return r.rowCount > 0;
   }
 
-  /** 1h sem ação = considerado SAÍDO: fecha as sessões, avisa 1x e para de cobrar. */
-  async _autoLogoff(a) {
+  /** 1h sem ação = considerado SAÍDO: fecha as sessões, avisa 1x e para de cobrar.
+   *  Se os avisos estiverem MUTADOS pelo admin: faz o logoff em SILÊNCIO (higiene
+   *  de sessão continua — só não posta no canal). */
+  async _autoLogoff(a, muted) {
     if (await this._didToday(a.id, 'absence_auto_logoff')) return false;
     await this.db.query(
       `UPDATE v3.operator_sessions SET logged_out_at = NOW(), logoff_reason = 'auto_idle_1h'
         WHERE person_id = $1 AND logged_out_at IS NULL`, [a.id]);
-    if (this.slack && this.slack.postAs && this.channelId) {
+    if (!muted && this.slack && this.slack.postAs && this.channelId) {
       try {
         await this.slack.postAs({
           channel: this.channelId,
@@ -173,13 +176,17 @@ class AbsenceAlert {
     this._ticking = true;
     try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
+      // KILL-SWITCH (Bruno 07-05): admin pausou os avisos → não posta nada no
+      // canal. O logoff de 1h AINDA roda (silencioso) pra manter as sessões limpas.
+      const muted = await isMuted(this.db, this._now());
       const absent = await this.findAbsent();
       const saturday = this._isSaturdayNy();
       let sent = 0;
       for (const a of absent) {
         // 1h SEM AÇÃO = SAIU (Bruno 07-04): checkout automático, 1 aviso só,
         // e o flood morre (a pessoa sai do radar até logar/trabalhar de novo).
-        if (a.idle_min >= 60) { if (await this._autoLogoff(a)) sent++; continue; }
+        if (a.idle_min >= 60) { if (await this._autoLogoff(a, muted)) sent++; continue; }
+        if (muted) continue; // avisos pausados → nenhuma cobrança de ociosidade
         // SÁBADO: em vez de cobrar, PERGUNTA (✅ checkout / ❌ pede tarefa).
         if (saturday) { if (a.idle_min >= 30 && await this._saturdayAsk(a)) sent++; continue; }
         if (await this._alertedRecently(a.id)) continue;

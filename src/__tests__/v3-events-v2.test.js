@@ -42,6 +42,48 @@ const deps = (db, extra = {}) => Object.assign({
   eventService: { softDelete: jest.fn().mockResolvedValue({}) },
 }, extra);
 
+describe('V3 §2.9 — kill-switch de avisos (canal admin, Bruno 07-05)', () => {
+  function settingsDb() {
+    const store = {}; const q = jest.fn(async (sql, params = []) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim();
+      if (/SELECT value FROM v3\.settings/.test(s)) return store[params[0]] !== undefined ? { rows: [{ value: store[params[0]] }] } : { rows: [] };
+      if (/INSERT INTO v3\.settings/.test(s)) { store[params[0]] = JSON.parse(params[1]); return { rows: [] }; }
+      if (/DELETE FROM v3\.settings/.test(s)) { delete store[params[0]]; return { rows: [] }; }
+      return { rows: [] };
+    });
+    return { store, query: q };
+  }
+  const mkCmd = () => ({ slack: { postAs: jest.fn().mockResolvedValue({ ts: 'x' }) } });
+  const msg = (text, over = {}) => ({ type: 'event_callback', event: Object.assign({ type: 'message', channel: ADMIN, user: 'U_ADM', ts: '1779220000.5', text }, over) });
+
+  test('admin humano "pausa os avisos" → seta mute + confirma, NÃO ingere', async () => {
+    const db = settingsDb(); const commandHandler = mkCmd();
+    const r = await handleEvent(msg('pausa os avisos'), deps(db, { commandHandler }));
+    expect(r).toMatchObject({ handled: true, action: 'alerts_muted' });
+    expect(db.store.operator_alerts_muted_until).toBeTruthy();
+    expect(commandHandler.slack.postAs).toHaveBeenCalledTimes(1);
+    expect(commandHandler.slack.postAs.mock.calls[0][0].channel).toBe(ADMIN);
+  });
+  test('"voltar avisos" → limpa mute', async () => {
+    const db = settingsDb(); db.store.operator_alerts_muted_until = { until: new Date(NOW_MS + 3600e3).toISOString() };
+    const r = await handleEvent(msg('voltar avisos'), deps(db, { commandHandler: mkCmd() }));
+    expect(r).toMatchObject({ handled: true, action: 'alerts_unmuted' });
+    expect(db.store.operator_alerts_muted_until).toBeUndefined();
+  });
+  test('mensagem do PRÓPRIO BOT não se auto-comanda (bot_id presente)', async () => {
+    const db = settingsDb();
+    const r = await handleEvent(msg('pausa os avisos', { bot_id: 'B123', user: undefined }), deps(db, { commandHandler: mkCmd() }));
+    expect(r.action).not.toBe('alerts_muted');
+    expect(db.store.operator_alerts_muted_until).toBeUndefined();
+  });
+  test('conversa normal no admin (sem comando, sem mention) → não vira mute', async () => {
+    const db = settingsDb();
+    const r = await handleEvent(msg('bom dia, alguém viu o lote 0249?'), deps(db, { commandHandler: mkCmd() }));
+    expect(r.action).not.toBe('alerts_muted');
+    expect(db.store.operator_alerts_muted_until).toBeUndefined();
+  });
+});
+
 describe('V3 §2.9 — verifySignature', () => {
   test('assinatura válida → true', () => {
     const body = '{"a":1}';

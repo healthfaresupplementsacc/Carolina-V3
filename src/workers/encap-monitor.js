@@ -14,6 +14,7 @@
  * ON por padrão; desliga com ENCAP_MONITOR_ENABLED=false.
  */
 const EDT = 'America/New_York';
+const { isMuted, anyonePresent } = require('../v3/alert-gate');
 
 class EncapMonitor {
   constructor(deps = {}) {
@@ -89,6 +90,12 @@ class EncapMonitor {
     try {
       const st = await this.check();
       if (!st) return { off: false };
+      // KILL-SWITCH (Bruno 07-05): admin pausou os avisos → silêncio.
+      if (await isMuted(this.db)) return { off: true, muted: true };
+      // "MÁQUINA PARADA" só faz sentido se TEM ALGUÉM aqui pra ligá-la. Se todo
+      // mundo já saiu / foi auto-deslogado (caso 07-04: checkout às 15h e a
+      // máquina gritando até 19h), a máquina parada é ESPERADO → não alerta.
+      if (!(await anyonePresent(this.db))) return { off: true, nobody_present: true };
       if (await this._alertedRecently()) return { off: true, deduped: true };
       const fmt = (m) => (m >= 60 ? Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') : m + 'min');
       if (this.slack && this.slack.postAs && this.channelId) {

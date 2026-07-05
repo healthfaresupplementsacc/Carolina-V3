@@ -22,6 +22,7 @@
  */
 const crypto = require('crypto');
 const { CommandHandler } = require('../services/CommandHandler');
+const alertGate = require('../alert-gate');
 
 const REPLAY_WINDOW_SEC = 300; // 5 min
 
@@ -164,6 +165,45 @@ async function handleEvent(payload, deps) {
   if (ev.channel === productionChannelId) {
     // ingere tudo (segue abaixo)
   } else if (ev.channel === adminChannelId) {
+    // ── KILL-SWITCH DOS AVISOS (Bruno 07-05) ──────────────────────
+    // Comando DETERMINÍSTICO (sem LLM) pro admin pausar/religar os avisos do
+    // canal de operadores direto do chat admin. Intercepta ANTES do gate de
+    // mention e do INSERT (não gasta cota). Só mensagens HUMANAS (bot não se
+    // auto-comanda). Ex.: "pausa os avisos", "por 2h", "voltar avisos".
+    const isHuman = (ev.subtype === undefined) && ev.user && !ev.bot_id;
+    if (isHuman) {
+      const cmd = alertGate.parseMuteCommand(ev.text || '', Date.now());
+      if (cmd.action) {
+        const post = (text) => {
+          const s = commandHandler && commandHandler.slack;
+          if (s && s.postAs) return s.postAs({ channel: adminChannelId, sender: { name: 'HealthFare Tracker', icon: ':bell:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text }).catch(() => {});
+          return Promise.resolve();
+        };
+        try {
+          if (cmd.action === 'mute') {
+            await alertGate.setMute(db, { untilMs: cmd.untilMs, reason: (ev.text || '').slice(0, 120), by: ev.user });
+            const f = alertGate.fmtUntil(cmd.untilMs, Date.now());
+            await post(`:mute: *Avisos do canal de operadores pausados* — ${cmd.label} (até ${f.clock}, ~${f.dur}).\nNão vou mandar cobrança de ociosidade nem alerta de máquina parada no #orders-and-inventory até lá. _Pra religar antes: "voltar avisos"._`);
+            return { handled: true, action: 'alerts_muted', until: cmd.untilMs };
+          }
+          if (cmd.action === 'unmute') {
+            await alertGate.clearMute(db);
+            await post(':bell: *Avisos do canal de operadores religados.* Voltei a monitorar ociosidade e máquina parada normalmente.');
+            return { handled: true, action: 'alerts_unmuted' };
+          }
+          if (cmd.action === 'status') {
+            const m = await alertGate.getMute(db);
+            if (m && Date.now() < m.untilMs) {
+              const f = alertGate.fmtUntil(m.untilMs, Date.now());
+              await post(`:mute: Avisos *pausados* até ${f.clock} (~${f.dur}). Pra religar: "voltar avisos".`);
+            } else {
+              await post(':bell: Avisos *ativos* (monitorando normalmente). Pra pausar: "pausa os avisos".');
+            }
+            return { handled: true, action: 'alerts_status' };
+          }
+        } catch (e) { console.error('[events-v2] kill-switch erro:', e.message); }
+      }
+    }
     if (!CommandHandler.hasMention(ev.text || '')) {
       return { handled: false, reason: 'admin_channel_no_mention' };
     }

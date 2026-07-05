@@ -16,6 +16,9 @@ function makeDb(opts = {}) {
     posts, logs, notifs, logoffs,
     query: async (sql, params = []) => {
       const s = String(sql).replace(/\s+/g, ' ').trim();
+      if (/SELECT value FROM v3\.settings WHERE key = \$1/.test(s)) {
+        return opts.mutedUntilMs ? { rows: [{ value: { until: new Date(opts.mutedUntilMs).toISOString() } }] } : { rows: [] };
+      }
       if (/FROM v3\.persons p WHERE p\.role = 'operator'/.test(s)) return { rows: opts.candidates || [], rowCount: (opts.candidates || []).length };
       if (/action_type = 'absence_alert' AND created_at >/.test(s)) { const hit = (opts.recent || []).includes(params[0]); return { rows: hit ? [{ x: 1 }] : [], rowCount: hit ? 1 : 0 }; }
       if (/action_type = \$2 AND \(created_at AT TIME ZONE/.test(s)) { const hit = (opts.didToday || []).some((d) => d.id === params[0] && d.type === params[1]); return { rows: hit ? [{ x: 1 }] : [], rowCount: hit ? 1 : 0 }; }
@@ -104,6 +107,28 @@ describe('AbsenceAlert — sábado pergunta em vez de cobrar', () => {
     ] });
     const w = new AbsenceAlert({ db, slack: mkSlack(), channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => SAT_NOON });
     expect((await w.tick()).sent).toBe(0);
+  });
+});
+
+describe('AbsenceAlert — kill-switch (Bruno 07-05)', () => {
+  test('MUTADO: não posta cobrança de ociosidade', async () => {
+    const slack = mkSlack();
+    const db = makeDb({ candidates: [
+      { id: 4, display_name: 'Vitor', idle_min: 40, ref: new Date(WED_NOON - 40 * 60000), first_checkin: hAgo(WED_NOON, 3), sched_end: null },
+    ], mutedUntilMs: WED_NOON + 3600e3 });
+    const w = new AbsenceAlert({ db, slack, channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => WED_NOON });
+    await w.tick();
+    expect(slack.calls.length).toBe(0);
+  });
+  test('MUTADO: logoff de 1h AINDA roda (silencioso) — sessão fecha, sem post', async () => {
+    const slack = mkSlack();
+    const db = makeDb({ candidates: [
+      { id: 6, display_name: 'Ana', idle_min: 65, ref: new Date(WED_NOON - 65 * 60000), first_checkin: hAgo(WED_NOON, 4), sched_end: null },
+    ], mutedUntilMs: WED_NOON + 3600e3 });
+    const w = new AbsenceAlert({ db, slack, channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => WED_NOON });
+    await w.tick();
+    expect(db.logoffs).toEqual([6]);      // sessão fechada (higiene)
+    expect(slack.calls.length).toBe(0);   // mas NADA no canal
   });
 });
 
