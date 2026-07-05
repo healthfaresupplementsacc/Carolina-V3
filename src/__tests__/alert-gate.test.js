@@ -54,6 +54,34 @@ describe('parseMuteCommand — mute/unmute/status/durações', () => {
   test('texto longo (conversa) é ignorado', () => {
     expect(P('pessoal só pra avisar que amanhã vou pausar um pouco a produção de manhã porque tem manutenção e não sei quanto tempo vai levar então').action).toBe(null);
   });
+
+  // ── Regressão da auditoria adversarial 07-05 (12 agentes) ──
+  test('FALSOS-POSITIVOS que o adversarial pegou → agora null', () => {
+    for (const t of [
+      'pausa ai', 'pausa ai deixa eu ver uma coisa', 'pausa um pouco', 'pausar tudo',
+      'muta ele', 'muta o audio dele na call', 'silencia esse povo', 'silencia o telefone',
+      'suspende ele do canal', 'suspende esse fornecedor', 'pausa a musica',
+      'pausa', 'suspende', 'pausa a linha de produção', 'pausa o lote 0249',
+      'volta a avisar o pessoal da limpeza', 'volta a avisar quando tiver novidade',
+      'para de avisar o Henrique toda hora', 'para de me avisar sobre isso', 'para de ficar avisando toda hora',
+      'manda um alerta para o Joao',
+    ]) expect(P(t).action).toBe(null);
+  });
+  test('FALSOS-NEGATIVOS que o adversarial pegou → agora mute', () => {
+    for (const t of ['para os alertas', 'para os avisos por enquanto', 'desativa os alertas',
+      'corta os avisos', 'tira os avisos', 'nao avisa mais hoje', 'nao avisa mais', 'sem avisos hoje', 'desliga os avisos'])
+      expect(P(t).action).toBe('mute');
+  });
+  test('"para de silenciar/mutar os avisos" = RELIGAR (não mutar de novo)', () => {
+    expect(P('para de silenciar os avisos').action).toBe('unmute');
+    expect(P('para de mutar os avisos').action).toBe('unmute');
+  });
+  test('verbo ambíguo só muta COM duração explícita', () => {
+    expect(P('pausa').action).toBe(null);
+    expect(P('pausa até segunda').action).toBe('mute');
+    expect(P('pausa por 2h').action).toBe('mute');
+    expect(P('pausa um pouco').action).toBe(null); // "um pouco" não é duração
+  });
 });
 
 describe('estado do mute (v3.settings)', () => {

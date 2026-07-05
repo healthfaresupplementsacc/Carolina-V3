@@ -80,16 +80,35 @@ async function clearMute(db) {
 }
 
 // ── presença ───────────────────────────────────────────────────
-/** Tem operador logado (sessão aberta) OU task aberta começada hoje? */
+/**
+ * Tem alguém REALMENTE presente agora? (pra decidir se "máquina parada" faz sentido)
+ * Endurecido após a auditoria adversarial 07-05 — o gate ingênuo (qualquer sessão
+ * logged_out_at IS NULL) mantinha "present" o dia todo porque o fluxo de FIM DE DIA
+ * NÃO fecha a operator_session (só fecha o event), e quem marca end_of_day fica de
+ * fora do auto-logoff de 1h → encap floodava 16h-20h mesmo com todos já embora.
+ * Agora: (a) sessão com atividade RECENTE (2h) E que NÃO encerrou o dia; OU
+ *        (b) task aberta começada HÁ POUCO (3h) — não uma task esquecida/abandonada.
+ * (Quem sai em silêncio é fechado pelo auto-logoff de 1h; quem marca fim de dia é
+ *  excluído aqui pelo NOT EXISTS end_of_day.)
+ */
 async function anyonePresent(db) {
   const r = await db.query(
     `SELECT (
-       EXISTS (SELECT 1 FROM v3.operator_sessions s JOIN v3.persons p ON p.id = s.person_id
-               WHERE s.logged_out_at IS NULL AND p.role = 'operator'
-                 AND p.active = true AND COALESCE(p.is_sandbox, false) = false)
-       OR EXISTS (SELECT 1 FROM v3.events e
-                  WHERE e.ended_at IS NULL AND e.deleted_at IS NULL
-                    AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+       EXISTS (
+         SELECT 1 FROM v3.operator_sessions s JOIN v3.persons p ON p.id = s.person_id
+         WHERE s.logged_out_at IS NULL AND p.role = 'operator'
+           AND p.active = true AND COALESCE(p.is_sandbox, false) = false
+           AND s.last_activity_at > NOW() - INTERVAL '2 hours'
+           AND NOT EXISTS (
+             SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
+             WHERE e2.person_id = p.id AND e2.deleted_at IS NULL AND at2.slug = 'end_of_day'
+               AND (e2.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+       )
+       OR EXISTS (
+         SELECT 1 FROM v3.events e
+         WHERE e.ended_at IS NULL AND e.deleted_at IS NULL
+           AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+           AND e.started_at > NOW() - INTERVAL '3 hours')
      ) AS present`);
   return !!(r.rows[0] && r.rows[0].present);
 }
@@ -116,41 +135,32 @@ function parseMuteCommand(text, nowMs = Date.now()) {
   const t = strip(text).replace(/<@[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t || t.length > 160) return { action: null }; // comando é curto; texto longo = conversa
 
-  const NOUN = /(aviso|alerta|alert|notif|mensage|lembrete|cobranca|spam|avisar|avisando)/;
-  const muteVerb = /(pausa|pause|parar|para de|parem|silencia|silencio|muta|mutar|mute|calar|cala|desliga|suspende|segura|chega de|nao avisa|stop|shh|quiet)/;
-  const unmuteVerb = /(volta|voltar|religa|religar|retoma|retomar|reativa|reativar|reata|liga de novo|ligar de novo|unmute|pode avisar|pode voltar|continua|reabr|desmuta|desmutar)/;
-  // verbo de mute FORTE no INÍCIO (não precisa de substantivo — "pausa até segunda")
-  const strongMuteStart = /^(pausa|pausar|pause|muta|mutar|mute|silencia|silenciar|silencio|shh+|suspende|suspender)\b/;
-
-  // STATUS primeiro: PERGUNTA ("?") com adjetivo de estado, ou "status/situação"
+  // ── STATUS primeiro: PERGUNTA ("?") com adjetivo de estado, ou "status/situação"
   const stateAdj = /(pausad|ativ|ligad|desligad|mutad|silenciad|calad)/;
   const isQuestion = /\?\s*$/.test(t);
   const isStatus = /^(status|situacao)\b/.test(t)
-    || (isQuestion && stateAdj.test(t) && NOUN.test(t))
+    || (isQuestion && stateAdj.test(t) && /(aviso|alerta|alert|notif)/.test(t))
     || /(aviso|alerta)s?\s+(estao|esta|continuam|seguem)\s+(pausad|ativ|ligad|mutad)/.test(t);
   if (isStatus) return { action: 'status' };
 
-  // exatos curtos (não precisam do substantivo)
-  const exactMute = /^(mute|silencio|shh+|pausar avisos|parar avisos|para os avisos|calar avisos|muta os avisos|muta avisos)$/.test(t);
-  const exactUnmute = /^(unmute|voltar avisos|religar avisos|retomar avisos|voltar a avisar|pode avisar|liga os avisos|desmutar avisos|reativar avisos)$/.test(t);
+  if (t.length > 70) return { action: null }; // comando é curto; frase longa = conversa
 
-  // "pausa" seguido de um OBJETO DE PRODUÇÃO ≠ mutar avisos ("pausa a linha")
-  const otherObject = /(linha|producao|produc|maquina|equipamento|lote|encapsul|mistura|formula|ordem|pedido|tarefa|task|sistema|processo|trabalho|reuniao)/;
-  // regras "fuzzy" (verbo+substantivo) só valem em mensagem CURTA — um comando é
-  // curto; frase longa que por acaso contém "pausar"+"avisar" é conversa, não comando.
-  const short = t.length <= 70;
-  const wantsUnmute = exactUnmute || (short && unmuteVerb.test(t) && NOUN.test(t));
-  const wantsMute = exactMute
-    || (short && muteVerb.test(t) && NOUN.test(t))
-    || (short && strongMuteStart.test(t) && !otherObject.test(t));
+  // ── reconhecimento ANCORADO (auditoria adversarial 07-05) ──────────────
+  // Regra de ouro: um comando de mute/unmute SEMPRE referencia o SISTEMA DE AVISOS
+  // (aviso/alerta/notificação/lembrete). Nunca um verbo solto ("pausa aí"), nunca
+  // uma pessoa/objeto ("para de avisar o Henrique", "muta o áudio dele na call").
+  // ALERT NÃO inclui o verbo "avisar" — senão "para de avisar o João" viraria mute.
+  const ALERT = '(avisos?|alertas?|alert|notifica\\w*|lembretes?|cobranca|spam)';
+  const ART = '(os |as |o |a |esses |essas |uns |umas |mais |the )*';
+  const OFF = '(pausa|pausar|pause|para|parar|parem|pare|silencia|silenciar|muta|mutar|mute|desliga|desligar|desativa|desativar|desabilita|desabilitar|corta|cortar|tira|tirar|suspende|suspender|segura|segurar|cala|calar|stop)';
+  const ON = '(volta|voltar|religa|religar|retoma|retomar|reativa|reativar|liga|ligar|ativa|ativar|desmuta|desmutar|reabre|reabrir|habilita|habilitar)';
+  const reAlertMute = new RegExp('\\b' + OFF + '\\s+' + ART + ALERT);
+  const reAlertUnmute = new RegExp('\\b' + ON + '\\s+' + ART + ALERT);
+  // objetos NÃO-aviso (pra o ramo "pausa + duração" não mutar "pausa a linha/call/música")
+  const otherObject = /(linha|producao|produc|maquina|equipament|lote|encapsul|mistura|formula|ordem|pedido|tarefa|task|sistema|processo|trabalho|reuniao|call|audio|musica|telefone|fone|som|video|fornecedor|pessoal|povo|\bele\b|\bela\b|\bvoce\b)/;
 
-  // unmute tem prioridade sobre mute quando ambos batem ("voltar a avisar" contém "avisar")
-  if (wantsUnmute && !wantsMute) return { action: 'unmute' };
-  if (wantsUnmute && wantsMute) return { action: 'unmute' };
-  if (!wantsMute) return { action: null };
-
-  // ── duração ──
-  let untilMs = null; let label = null;
+  // ── duração (durExplicit = achou uma expressão de tempo de verdade) ──
+  let untilMs = null; let label = null; let durExplicit = true;
   let m;
   if ((m = t.match(/por\s+(\d+)\s*(h|hr|hora|horas)\b/)) || (m = t.match(/(\d+)\s*(h|hora|horas)\b(?!\w)/))) {
     untilMs = nowMs + Number(m[1]) * 3600 * 1000; label = m[1] + 'h';
@@ -169,9 +179,36 @@ function parseMuteCommand(text, nowMs = Date.now()) {
     untilMs = nowMs + 30 * 24 * 3600 * 1000; label = 'até você religar';
   } else {
     // default: até amanhã de manhã (cobre a noite/madrugada — o caso do flood)
-    untilMs = nextNyHour(nowMs, 7); label = 'até amanhã de manhã';
+    untilMs = nextNyHour(nowMs, 7); label = 'até amanhã de manhã'; durExplicit = false;
   }
-  return { action: 'mute', untilMs, label };
+
+  // ── UNMUTE (religar) ──
+  const exactUnmute = /^(unmute|desmuta|desmutar|religa|religar|reativa|reativar)$/.test(t);
+  // "pode avisar" / "volta a avisar" só valem BARE (sem pessoa/objeto na cauda) —
+  // "volta a avisar o pessoal da limpeza" NÃO é religar o canal.
+  const bareResume = /\b(pode|pode voltar a)\s+avisar\s*$/.test(t) || /\bvolta(r)?\s+a\s+avisar\s*$/.test(t);
+  // "para de silenciar/mutar/pausar os avisos" = PARE de silenciar = RELIGAR (não mutar).
+  const stopSilencing = /\bpar(a|e|em)\s+de\s+(silenciar|mutar|pausar|calar|desativar|cortar|segurar|desligar|suspender)\b/.test(t);
+  const wantsUnmute = exactUnmute || bareResume || stopSilencing || reAlertUnmute.test(t);
+
+  // ── MUTE (silenciar) ──
+  const exactMute = /^(mute|muta|mutar|silencio|silencia|silenciar|shh+)$/.test(t);
+  // "para de avisar" / "nao avisa mais" só valem BARE (cauda só tempo/filler) —
+  // "para de avisar o Henrique toda hora" NÃO é mutar o canal.
+  const bareStopAvisar = /\bpar(a|e|em)\s+de\s+(me\s+)?avisar(\s+(mais|agora|hoje|por enquanto|um pouco))*\s*$/.test(t)
+    || /\bnao\s+(precisa\s+|quero\s+|vai\s+)?(me\s+)?avisar?(\s+(mais|agora|hoje|por enquanto))*\s*$/.test(t);
+  const semAvisos = new RegExp('^sem\\s+(mais\\s+)?' + ALERT).test(t);
+  const chegaDe = /\bchega de\s+(ser avisad|aviso|alerta|notifica|cobranca|spam|lembrete)/.test(t);
+  // verbo ambíguo no início ("pausa"/"suspende"/"para") só muta com DURAÇÃO explícita
+  // e sem objeto de produção — "pausa até segunda" sim; "pausa aí"/"pausa a linha" não.
+  const ambiguousStart = /^(pausa|pausar|pause|suspende|suspender|para|parar|segura|segurar)\b/.test(t);
+  const wantsMute = !stopSilencing && (exactMute || chegaDe || semAvisos || bareStopAvisar
+    || reAlertMute.test(t)
+    || (ambiguousStart && durExplicit && !otherObject.test(t)));
+
+  if (wantsUnmute) return { action: 'unmute' };
+  if (wantsMute) return { action: 'mute', untilMs, label };
+  return { action: null };
 }
 
 module.exports = {
