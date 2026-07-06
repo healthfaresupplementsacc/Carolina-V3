@@ -35,12 +35,15 @@ function makeDb(opts = {}) {
 const mkSlack = () => { const s = { calls: [], postAs: async (m) => { s.calls.push(m); return { ok: true, ts: '1.1' }; } }; return s; };
 
 describe('EncapMonitor — gates de silêncio', () => {
-  test('presente + não-mutado → ALERTA (comportamento normal)', async () => {
+  test('presente + não-mutado → ALERTA (estilo calmo, mesmo dos outros lembretes)', async () => {
     const slack = mkSlack();
     const w = new EncapMonitor({ db: makeDb({ present: true }), slack, channelId: 'C_OPS', enabled: true });
     const r = await w.tick();
     expect(r.alerted).toBe(true);
-    expect(slack.calls[0].text).toContain('ENCAPSULAÇÃO PARADA');
+    expect(slack.calls[0].sender.icon).toBe(':hourglass_flowing_sand:');       // calmo, não :rotating_light:
+    expect(slack.calls[0].text).toContain('máquina de encapsulação');
+    expect(slack.calls[0].text).toContain('ou avise o que está fazendo');       // mesmo padrão do absence
+    expect(slack.calls[0].text).not.toMatch(/PARADA\*|AGORA|já ficou/);         // sem alarme nem total escalando
   });
   test('NINGUÉM presente → silêncio (fim do flood pós-saída)', async () => {
     const slack = mkSlack();

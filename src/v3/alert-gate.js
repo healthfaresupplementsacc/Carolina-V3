@@ -91,14 +91,16 @@ async function clearMute(db) {
  * (Quem sai em silêncio é fechado pelo auto-logoff de 1h; quem marca fim de dia é
  *  excluído aqui pelo NOT EXISTS end_of_day.)
  */
-async function anyonePresent(db) {
+async function anyonePresent(db, opts = {}) {
+  const recencyMin = Math.max(5, parseInt(opts.recencyMin, 10) || 120);   // sessão ativa há < X min
+  const openEventMin = Math.max(5, parseInt(opts.openEventMin, 10) || 180); // task aberta começada há < X min
   const r = await db.query(
     `SELECT (
        EXISTS (
          SELECT 1 FROM v3.operator_sessions s JOIN v3.persons p ON p.id = s.person_id
          WHERE s.logged_out_at IS NULL AND p.role = 'operator'
            AND p.active = true AND COALESCE(p.is_sandbox, false) = false
-           AND s.last_activity_at > NOW() - INTERVAL '2 hours'
+           AND s.last_activity_at > NOW() - INTERVAL '${recencyMin} minutes'
            AND NOT EXISTS (
              SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
              WHERE e2.person_id = p.id AND e2.deleted_at IS NULL AND at2.slug = 'end_of_day'
@@ -108,7 +110,7 @@ async function anyonePresent(db) {
          SELECT 1 FROM v3.events e
          WHERE e.ended_at IS NULL AND e.deleted_at IS NULL
            AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
-           AND e.started_at > NOW() - INTERVAL '3 hours')
+           AND e.started_at > NOW() - INTERVAL '${openEventMin} minutes')
      ) AS present`);
   return !!(r.rows[0] && r.rows[0].present);
 }

@@ -92,21 +92,25 @@ class EncapMonitor {
       if (!st) return { off: false };
       // KILL-SWITCH (Bruno 07-05): admin pausou os avisos → silêncio.
       if (await isMuted(this.db)) return { off: true, muted: true };
-      // "MÁQUINA PARADA" só faz sentido se TEM ALGUÉM aqui pra ligá-la. Se todo
-      // mundo já saiu / foi auto-deslogado (caso 07-04: checkout às 15h e a
-      // máquina gritando até 19h), a máquina parada é ESPERADO → não alerta.
-      if (!(await anyonePresent(this.db))) return { off: true, nobody_present: true };
+      // "máquina parada" só faz sentido se TEM ALGUÉM aqui pra ligá-la. Se todo
+      // mundo já saiu (caso 07-04: trabalharam de manhã no sábado, foram embora
+      // ~13:40, e a máquina gritou até 19h), a parada é ESPERADA → não alerta.
+      // Recência apertada (60min) — quem não toca o app nem tem task aberta há 1h
+      // já foi embora (e o auto-logoff de 1h fecha a sessão de qualquer jeito).
+      if (!(await anyonePresent(this.db, { recencyMin: 60, openEventMin: 90 }))) return { off: true, nobody_present: true };
       if (await this._alertedRecently()) return { off: true, deduped: true };
       const fmt = (m) => (m >= 60 ? Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') : m + 'min');
       if (this.slack && this.slack.postAs && this.channelId) {
         try {
+          // Mesmo estilo calmo dos outros lembretes (Bruno 07-06): :hourglass:,
+          // sem alarme em maiúsculas nem total acumulado escalando (era o que dava
+          // sensação de spam: "há 2h... 3h... 4h... 5h parada").
           await this.slack.postAs({
             channel: this.channelId,
-            sender: { name: 'HealthFare Tracker', icon: ':rotating_light:' },
+            sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' },
             thread_ts: null, unfurl_links: false, unfurl_media: false,
-            text: `:rotating_light: *MÁQUINA DE ENCAPSULAÇÃO PARADA* — sem produzir há *${fmt(st.off_min)}* (desde ${st.off_since_t}). Está correto?\n`
-              + `Hoje a máquina já ficou *${fmt(st.total_off_min)}* parada (janela 8h–20h). `
-              + `Se estiver encapsulando, registrem no aplicativo da linha de produção AGORA.`,
+            text: `:hourglass_flowing_sand: A *máquina de encapsulação* está parada há *${fmt(st.off_min)}* (desde ${st.off_since_t}).\n`
+              + `Se estiver encapsulando, registre no aplicativo da linha de produção (ou avise o que está fazendo).`,
           });
         } catch (e) { console.error('[encap] post falhou:', e.message); return { off: true, post_failed: true }; }
       }
