@@ -38,13 +38,32 @@ class EncapMonitor {
 
   /** Estado atual: { off_min, off_since_t, total_off_min } ou null (rodando/fora da janela). */
   async check() {
-    // hora NY atual + dia ativo
+    // hora NY atual + dia ativo + JANELA DA ESCALA de hoje (Bruno 07-06: "segue o
+    // horário de trabalho pra não gritar com a parede"). A janela sai da
+    // v3.operator_schedules do dia da semana atual — do 1º início ao último fim
+    // dos operadores escalados. Sem escala pra hoje (folga) → não alerta. Sem
+    // NENHUMA escala cadastrada → cai no fallback fixo startHour–endHour.
     const env = (await this.db.query(
       `SELECT EXTRACT(HOUR FROM (NOW() AT TIME ZONE '${EDT}'))::int AS h,
               to_char(NOW() AT TIME ZONE '${EDT}', 'HH24:MI') AS now_t,
+              (NOW() AT TIME ZONE '${EDT}')::time AS now_time,
+              (SELECT COUNT(*) FROM v3.operator_schedules)::int AS sched_total,
+              (SELECT MIN(expected_start_time) FROM v3.operator_schedules
+                 WHERE is_workday = true AND expected_start_time IS NOT NULL
+                   AND day_of_week = EXTRACT(DOW FROM (NOW() AT TIME ZONE '${EDT}'))::int) AS sched_start,
+              (SELECT MAX(expected_end_time) FROM v3.operator_schedules
+                 WHERE is_workday = true AND expected_end_time IS NOT NULL
+                   AND day_of_week = EXTRACT(DOW FROM (NOW() AT TIME ZONE '${EDT}'))::int) AS sched_end,
               EXISTS (SELECT 1 FROM v3.events e WHERE e.deleted_at IS NULL AND COALESCE(e.is_test,false) = false
                       AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date) AS factory_active`)).rows[0];
-    if (env.h < this.startHour || env.h >= this.endHour || !env.factory_active) return null;
+    if (!env.factory_active) return null;
+    if (env.sched_total > 0) {
+      // usa a ESCALA real do dia
+      if (!env.sched_start) return null;                                   // hoje ninguém trabalha (folga)
+      if (env.now_time < env.sched_start || env.now_time > env.sched_end) return null; // fora do expediente
+    } else if (env.h < this.startHour || env.h >= this.endHour) {
+      return null;                                                          // fallback: janela fixa
+    }
     // intervalos de encapsulação de hoje (clampados na janela 8h–agora)
     const ivs = (await this.db.query(
       `SELECT GREATEST(e.started_at, ((NOW() AT TIME ZONE '${EDT}')::date + INTERVAL '${this.startHour} hours') AT TIME ZONE '${EDT}') AS s,
@@ -95,22 +114,26 @@ class EncapMonitor {
       // "máquina parada" só faz sentido se TEM ALGUÉM aqui pra ligá-la. Se todo
       // mundo já saiu (caso 07-04: trabalharam de manhã no sábado, foram embora
       // ~13:40, e a máquina gritou até 19h), a parada é ESPERADA → não alerta.
-      // Recência apertada (60min) — quem não toca o app nem tem task aberta há 1h
-      // já foi embora (e o auto-logoff de 1h fecha a sessão de qualquer jeito).
-      if (!(await anyonePresent(this.db, { recencyMin: 60, openEventMin: 90 }))) return { off: true, nobody_present: true };
+      // Presença: sessão ativa há < 90min OU task aberta há < 120min. (A janela da
+      // escala já barra o fora-de-expediente; o auto-logoff de 1h fecha quem saiu.
+      // 90min evita silenciar um alarme legítimo de quem está no bench sem tocar o
+      // app, sem reabrir o flood — quem some de vez é fechado pelo auto-logoff.)
+      if (!(await anyonePresent(this.db, { recencyMin: 90, openEventMin: 120 }))) return { off: true, nobody_present: true };
       if (await this._alertedRecently()) return { off: true, deduped: true };
       const fmt = (m) => (m >= 60 ? Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0') : m + 'min');
       if (this.slack && this.slack.postAs && this.channelId) {
         try {
-          // Mesmo estilo calmo dos outros lembretes (Bruno 07-06): :hourglass:,
-          // sem alarme em maiúsculas nem total acumulado escalando (era o que dava
-          // sensação de spam: "há 2h... 3h... 4h... 5h parada").
+          // ALARME GRANDE de propósito (Bruno 07-06): a fábrica depende da máquina
+          // rodando o tempo todo — o lembrete horário e o total acumulado são
+          // IMPORTANTES. O que estava errado era só o HORÁRIO (gritar com a parede
+          // fora do expediente); isso os gates de expediente + presença resolvem.
           await this.slack.postAs({
             channel: this.channelId,
-            sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' },
+            sender: { name: 'HealthFare Tracker', icon: ':rotating_light:' },
             thread_ts: null, unfurl_links: false, unfurl_media: false,
-            text: `:hourglass_flowing_sand: A *máquina de encapsulação* está parada há *${fmt(st.off_min)}* (desde ${st.off_since_t}).\n`
-              + `Se estiver encapsulando, registre no aplicativo da linha de produção (ou avise o que está fazendo).`,
+            text: `:rotating_light: *MÁQUINA DE ENCAPSULAÇÃO PARADA* — sem produzir há *${fmt(st.off_min)}* (desde ${st.off_since_t}). Está correto?\n`
+              + `Hoje a máquina já ficou *${fmt(st.total_off_min)}* parada (janela ${this.startHour}h–${this.endHour}h). `
+              + `Se estiver encapsulando, registrem no aplicativo da linha de produção AGORA.`,
           });
         } catch (e) { console.error('[encap] post falhou:', e.message); return { off: true, post_failed: true }; }
       }
