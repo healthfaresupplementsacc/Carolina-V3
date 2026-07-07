@@ -41,7 +41,7 @@ describe('EncapMonitor — alarme grande, mas gated', () => {
     expect(slack.calls[0].sender.icon).toBe(':rotating_light:');            // alarme grande, de propósito
     expect(slack.calls[0].text).toContain('MÁQUINA DE ENCAPSULAÇÃO PARADA');
     expect(slack.calls[0].text).toContain('já ficou');                      // total acumulado importante
-    expect(slack.calls[0].text).toContain('AGORA');
+    expect(slack.calls[0].text).toContain('urgentemente');                  // firme mas não rude (Bruno 07-07)
   });
   test('NINGUÉM presente → silêncio (Saturday 8pm: não grita com a parede)', async () => {
     const slack = mkSlack();

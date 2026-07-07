@@ -133,7 +133,7 @@ class EncapMonitor {
             thread_ts: null, unfurl_links: false, unfurl_media: false,
             text: `:rotating_light: *MÁQUINA DE ENCAPSULAÇÃO PARADA* — sem produzir há *${fmt(st.off_min)}* (desde ${st.off_since_t}). Está correto?\n`
               + `Hoje a máquina já ficou *${fmt(st.total_off_min)}* parada (janela ${this.startHour}h–${this.endHour}h). `
-              + `Se estiver encapsulando, registrem no aplicativo da linha de produção AGORA.`,
+              + `Se estiver encapsulando, registrem no aplicativo da linha de produção urgentemente.`,
           });
         } catch (e) { console.error('[encap] post falhou:', e.message); return { off: true, post_failed: true }; }
       }
