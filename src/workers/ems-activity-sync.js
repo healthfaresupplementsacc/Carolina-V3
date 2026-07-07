@@ -208,12 +208,19 @@ class EmsActivitySync {
         // check-OUT do /op: o stage saiu do EMS → fecha a task ABERTA correspondente
         // (mesma pessoa+lote+slug). SÓ slugs SEM contagem obrigatória (não fecha
         // production_line/P&P sem o número — perderia bottles/ordens). Gated.
+        // NÃO fecha CUSTÓDIA de máquina (bg_handoff_from_person_id IS NOT NULL):
+        // esse evento = "fulano cuida da máquina até o dono voltar do almoço"; é
+        // responsabilidade HUMANA e só termina pela custódia (returnMachineWork no
+        // retorno do dono, ou saída do substituto). Se o EMS dissolvesse aqui, a
+        // custódia sumia e não voltava pra ninguém (caso Vitor 07-07: handoff pro
+        // Bruno 12:31, EMS fechou 12:51, Vitor voltou 13:17 e não recuperou nada).
         if (this.autoCheckin && row.tracker_person_id && row.batch_number) {
           const slug = EMS_STAGE_TO_SLUG[row.stage];
           if (slug && SAFE_AUTOCLOSE.has(slug)) {
             await this.db.query(
               `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'ems_stage_completed', updated_at = NOW()
                WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND source IN ('operator_page','ems_auto')
+                 AND bg_handoff_from_person_id IS NULL
                  AND activity_type_id IN (SELECT id FROM v3.activity_types WHERE slug = $2)
                  AND product_batch_id IN (SELECT id FROM v3.product_batches WHERE batch_number = $3 OR batch_number = 'BR-2026-' || $3)`,
               [row.tracker_person_id, slug, row.batch_number]);

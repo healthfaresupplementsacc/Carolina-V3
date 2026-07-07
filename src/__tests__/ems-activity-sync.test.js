@@ -104,6 +104,24 @@ describe('EmsActivitySync._sync (upsert + stale)', () => {
   });
 });
 
+describe('EmsActivitySync — check-out NÃO dissolve custódia de máquina (caso Vitor 07-07)', () => {
+  test('ems_stage_completed exclui bg_handoff (custódia só termina pela devolução)', async () => {
+    const closes = [];
+    const db = { query: jest.fn(async (sql) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim();
+      // stale → devolve 1 linha completada (encapsulation) pra disparar o check-out
+      if (/UPDATE v3\.ems_activity_cache SET sync_status = 'completed'/.test(s))
+        return { rows: [{ auto_event_id: null, tracker_person_id: 4, batch_number: '0223', stage: 'encapsulating' }] };
+      if (/closed_reason = 'ems_stage_completed'/.test(s)) { closes.push(s); return { rows: [] }; }
+      return { rows: [] };
+    }) };
+    const w = new EmsActivitySync({ db, autoCheckin: true });
+    await w._sync([]); // nada ativo → tudo vira completed → dispara o check-out do stage
+    expect(closes).toHaveLength(1);                                   // o check-out rodou
+    expect(closes[0]).toMatch(/bg_handoff_from_person_id IS NULL/);   // mas PROTEGE a custódia
+  });
+});
+
 describe('EmsActivitySync._syncCleaning (ITEM 3 — limpeza)', () => {
   test('espelha last_cleaning das máquinas em ems_cleaning_log (idempotente)', async () => {
     const ups = [];
