@@ -25,26 +25,45 @@ describe('Fase 4 — CarolinaForgottenDM worker', () => {
     };
   }
   // Bruno 07-02: a cobrança vai NO CANAL DOS OPERADORES (mencionando a pessoa).
-  // "DM" pra U... era estruturalmente impossível (resolveChannel só aceita C/G/D)
-  // e o fallback caía no canal ADMIN — operador nunca via a cobrança.
-  test('cobra NO CANAL DOS OPERADORES mencionando quem tem slack_user_id + marca enviado (dedup)', async () => {
+  // Bruno 07-08: mensagem do BOT (NÃO assinada pela Carolina) e, se vários
+  // esqueceram, UMA mensagem só mencionando todos (não spamar uma por pessoa).
+  test('cobra NO CANAL, mensagem do BOT (sem Carolina), menciona quem tem slack + dedup', async () => {
     const rows = [{ id: 1, person_id: 5, display_name: 'Ana', slack_user_id: 'U_ANA', last_task_description: 'linha' }];
+    const db = makeWorkerDb(rows);
+    const posts = []; const dms = [];
+    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; }, postDm: async (o) => { dms.push(o); return {}; } }, operatorsChannel: 'C_OPS' });
+    await w.tick();
+    expect(posts).toHaveLength(1);
+    expect(posts[0].channel).toBe('C_OPS');
+    expect(posts[0].text).toContain('<@U_ANA>');
+    expect(posts[0].sender.name).toBe('HealthFare Tracker');   // BOT, não Carolina
+    expect(posts[0].text).not.toContain('Carolina');           // sem assinatura da Carolina
+    expect(dms[0] && dms[0].sender.name).toBe('HealthFare Tracker'); // DM também é do bot
+    expect(db.updated).toEqual([1]);
+    expect(db.audits).toContain('carolina_forgotten_dm_sent');
+    posts.length = 0;
+    await w.tick();
+    expect(posts).toHaveLength(0);                             // 2ª tick não reenvia
+  });
+  test('VÁRIOS esqueceram → UMA mensagem só mencionando todos (não uma por pessoa)', async () => {
+    const rows = [
+      { id: 1, person_id: 4, display_name: 'Vitor', slack_user_id: 'U_VIT' },
+      { id: 2, person_id: 5, display_name: 'Ana', slack_user_id: 'U_ANA' },
+      { id: 3, person_id: 6, display_name: 'Simone', slack_user_id: null },
+    ];
     const db = makeWorkerDb(rows);
     const posts = [];
     const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; } }, operatorsChannel: 'C_OPS' });
     await w.tick();
-    expect(posts).toHaveLength(1);
-    expect(posts[0].channel).toBe('C_OPS');           // canal dos operadores
-    expect(posts[0].text).toContain('<@U_ANA>');      // menção direta
-    expect(posts[0].sender).toEqual({ name: 'Carolina' });
-    expect(db.updated).toEqual([1]);
-    expect(db.audits).toContain('carolina_forgotten_dm_sent');
-    // 2ª tick não reenvia
-    posts.length = 0;
-    await w.tick();
-    expect(posts).toHaveLength(0);
+    expect(posts).toHaveLength(1);                             // UMA só, não 3
+    expect(posts[0].text).toContain('<@U_VIT>');
+    expect(posts[0].text).toContain('<@U_ANA>');
+    expect(posts[0].text).toContain('Simone');
+    expect(posts[0].text).toContain(' e ');                    // lista "A, B e C"
+    expect(posts[0].text.toLowerCase()).toContain('vocês');    // plural
+    expect(db.updated.sort()).toEqual([1, 2, 3]);              // marca TODOS enviados
   });
-  test('sem slack_user_id → mesmo canal dos operadores, com o nome', async () => {
+  test('sem slack_user_id → mesmo canal, com o nome', async () => {
     const rows = [{ id: 2, person_id: 7, display_name: 'Bruno Sarmento', slack_user_id: null, last_task_description: 'cleaning' }];
     const db = makeWorkerDb(rows);
     const posts = [];
@@ -53,6 +72,7 @@ describe('Fase 4 — CarolinaForgottenDM worker', () => {
     expect(posts).toHaveLength(1);
     expect(posts[0].channel).toBe('C_OPS');
     expect(posts[0].text).toContain('Bruno Sarmento');
+    expect(posts[0].text.toLowerCase()).toContain('você');     // singular
   });
 });
 

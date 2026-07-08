@@ -11,6 +11,9 @@
  * Se a pessoa tem slack_user_id → DM; senão posta no canal de orders
  * mencionando (fallback). Deduplica via carolina_dm_sent_at.
  */
+// Mensagem do BOT (não assinada pela Carolina — decisão Bruno 07-08).
+const BOT = { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' };
+
 class CarolinaForgottenDM {
   constructor(deps = {}) {
     this.db = deps.db;
@@ -42,46 +45,48 @@ class CarolinaForgottenDM {
            AND fc.carolina_dm_scheduled_for <= NOW()
            AND fc.carolina_dm_scheduled_for > NOW() - INTERVAL '6 hours'
          ORDER BY fc.carolina_dm_scheduled_for LIMIT 50`);
+      if (!due.rowCount) return 0;
+      if (!this.slack || !this.slack.postAs) return 0;
+      // UMA mensagem só, do BOT (não assinada pela Carolina), mencionando TODO
+      // MUNDO que esqueceu — em vez de spamar uma por pessoa (Bruno 07-08).
+      const posted = await this._postChannelBatch(due.rows);
+      if (!posted) return 0; // não conseguiu postar no canal → não marca, tenta no próximo tick
+      // DM privado por pessoa (também do bot) + marca cada uma + audit.
       for (const fc of due.rows) {
-        const sent = await this._sendDM(fc);
-        if (sent) {
-          await this.db.query(
-            "UPDATE v3.forgotten_checkouts SET carolina_dm_sent_at = NOW(), resolved_at = COALESCE(resolved_at, NOW()), resolution = 'dm_sent' WHERE id = $1", [fc.id]);
-          await this.db.query(
-            `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
-             VALUES ('system', $1, 'carolina_forgotten_dm_sent', 'person', $1, $2::jsonb)`,
-            [fc.person_id, JSON.stringify({ forgotten_checkout_id: fc.id, channel: fc.slack_user_id ? 'dm' : 'orders_channel' })]).catch(() => {});
+        if (fc.slack_user_id && this.slack.postDm) {
+          try {
+            await this.slack.postDm({
+              userId: fc.slack_user_id, sender: BOT,
+              text: 'Você saiu *sem fazer o checkout* no fim do expediente e o sistema teve que corrigir o seu registro. '
+                + 'Por favor, não esqueça de fazer o logout/checkout no fim do dia. (Este lembrete também saiu no canal dos operadores.)',
+            });
+          } catch (e) { console.error('[forgotten-dm] DM adicional falhou (canal já saiu):', e.message); }
         }
+        await this.db.query(
+          "UPDATE v3.forgotten_checkouts SET carolina_dm_sent_at = NOW(), resolved_at = COALESCE(resolved_at, NOW()), resolution = 'dm_sent' WHERE id = $1", [fc.id]).catch(() => {});
+        await this.db.query(
+          `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+           VALUES ('system', $1, 'carolina_forgotten_dm_sent', 'person', $1, $2::jsonb)`,
+          [fc.person_id, JSON.stringify({ forgotten_checkout_id: fc.id, channel: fc.slack_user_id ? 'dm+channel' : 'channel', batched_with: due.rowCount })]).catch(() => {});
       }
       return due.rowCount;
     } finally { this._ticking = false; }
   }
 
-  async _sendDM(fc) {
-    if (!this.slack || !this.slack.postAs) return false;
-    // ENTREGA (fix Bruno 07-02): a cobrança vai NO CANAL DOS OPERADORES, mencionando
-    // a pessoa. O "DM" era estruturalmente impossível (resolveChannel do sender só
-    // aceita C/G/D — ID de usuário U... era rejeitado) e o fallback caía no canal
-    // ADMIN, onde operador não vê → a Carolina "cobrava" e ninguém era avisado.
-    // Tom PROFISSIONAL com uma ponta de frustração (regra Bruno 06-24), sem emoji fofo.
-    const who = fc.slack_user_id ? `<@${fc.slack_user_id}>` : `*${fc.display_name}*`;
-    const text = `${who}, no seu último dia de trabalho você saiu *sem fazer o checkout* no sistema. `
-      + `Tive que corrigir o seu registro manualmente.\n`
-      + `Isso bagunça os horários e a contagem de produção, e gera retrabalho. `
-      + `Por favor, *não esqueça de fazer o logout/checkout no fim do expediente* — é parte da rotina e preciso que isso seja levado a sério. `
-      + `Conto com você pra não se repetir. — Carolina`;
+  /** UMA mensagem no canal dos operadores, do BOT, com TODOS os nomes. */
+  async _postChannelBatch(rows) {
+    const mentions = rows.map((fc) => (fc.slack_user_id ? `<@${fc.slack_user_id}>` : `*${fc.display_name}*`));
+    // "A", "A e B", "A, B e C"
+    const list = mentions.length === 1 ? mentions[0]
+      : mentions.slice(0, -1).join(', ') + ' e ' + mentions[mentions.length - 1];
+    const plural = rows.length > 1;
+    const text = plural
+      ? `:hourglass_flowing_sand: ${list} — vocês saíram *sem fazer o checkout* no fim do expediente e o sistema teve que corrigir os registros de vocês. `
+        + `Isso bagunça os horários e a contagem de produção. Por favor, *não esqueçam de fazer o logout/checkout* no fim do dia — faz parte da rotina.`
+      : `:hourglass_flowing_sand: ${list}, você saiu *sem fazer o checkout* no fim do expediente e o sistema teve que corrigir o seu registro. `
+        + `Isso bagunça os horários e a contagem de produção. Por favor, *não esqueça de fazer o logout/checkout* no fim do dia — faz parte da rotina.`;
     try {
-      await this.slack.postAs({ channel: this.operatorsChannel, sender: { name: 'Carolina' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
-      // DM EM ADIÇÃO (Bruno 07-03): canal SEMPRE (managers veem) + DM pra pessoa
-      // quando ela tem conta Slack. Falha de DM nunca desfaz o envio do canal.
-      if (fc.slack_user_id && this.slack.postDm) {
-        try {
-          await this.slack.postDm({
-            userId: fc.slack_user_id, sender: { name: 'Carolina' },
-            text: `No seu último dia de trabalho você saiu *sem fazer o checkout* no sistema. Por favor, não esqueça de fazer o logout/checkout no fim do expediente. (Este lembrete também saiu no canal dos operadores.) — Carolina`,
-          });
-        } catch (e) { console.error('[forgotten-dm] DM adicional falhou (canal já saiu):', e.message); }
-      }
+      await this.slack.postAs({ channel: this.operatorsChannel, sender: BOT, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
       return true;
     } catch (e) { console.error('[forgotten-dm] envio falhou:', e.message); return false; }
   }
