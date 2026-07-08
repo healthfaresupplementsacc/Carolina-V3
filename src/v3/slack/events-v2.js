@@ -237,13 +237,23 @@ async function handleEvent(payload, deps) {
     return { handled: true, action: 'deleted', slack_ts: dts };
   }
 
-  // ── mensagem nova (usuário ou bot) ──
-  if (sub === undefined || sub === 'bot_message') {
+  // ── FEEDBACK-LOOP GUARD (Bruno 07-08) ──────────────────────────────────────
+  // NÃO ingerir mensagens do PRÓPRIO BOT. O sistema posta no canal de produção
+  // (":gear: Operação de máquinas passada…", ":white_check_mark: Vitor voltou…",
+  // avisos de ociosidade/encap, Carolina) — e o Observer estava LENDO essas msgs
+  // de volta e CRIANDO eventos fantasma (5 encapsulações duplicadas hoje só das
+  // notificações de handoff). Mensagem de bot tem subtype 'bot_message' e/ou bot_id;
+  // operador/gerente sempre postam como usuário humano (ev.user, sem bot_id).
+  const isBot = sub === 'bot_message' || !!ev.bot_id;
+  if (isBot) return { handled: false, reason: 'own_bot_message_skipped' };
+
+  // ── mensagem nova (humano) ──
+  if (sub === undefined) {
     await db.query(
       `INSERT INTO v3.messages (slack_ts, slack_channel_id, slack_user_id, raw_text, created_at)
        VALUES ($1, $2, $3, $4, to_timestamp($5))
        ON CONFLICT (slack_ts) DO NOTHING`,
-      [ev.ts, ev.channel, ev.user || ev.bot_id || 'unknown', ev.text || '', parseFloat(ev.ts)]);
+      [ev.ts, ev.channel, ev.user || 'unknown', ev.text || '', parseFloat(ev.ts)]);
     return { handled: true, action: 'inserted', slack_ts: ev.ts };
   }
 

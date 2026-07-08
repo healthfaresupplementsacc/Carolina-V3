@@ -529,13 +529,19 @@ function createOpRouter(deps = {}) {
       await slack.postAs({ channel: 'production', sender: { name: 'HealthFare Tracker', icon: ':gear:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
     } catch (e) { console.error('[machine] slack falhou:', e.message); }
   }
-  // máquinas (background) RODANDO desta pessoa (as que são dela, não herdadas).
+  // máquinas (background) que esta pessoa SEGURA agora — PRÓPRIAS *e* HERDADAS de
+  // outro (auditoria 07-07): antes excluía herdadas (bg_handoff IS NULL), então
+  // quando o substituto que segurava a máquina de alguém ia pro almoço/logava out,
+  // a máquina ficava INVISÍVEL → sem re-handoff, sem alerta de "sem supervisão", e
+  // o event aberto pra sempre. Agora inclui herdadas e devolve bg_handoff_from
+  // pra PRESERVAR o dono ORIGINAL no re-handoff (A→B→C mantém A como dono).
   async function myRunningMachines(personId) {
     return (await db.query(
-      `SELECT e.id, e.activity_type_id, e.product_batch_id, e.is_test, at.slug, at.display_name AS act_name
+      `SELECT e.id, e.activity_type_id, e.product_batch_id, e.is_test, e.bg_handoff_from_person_id AS handoff_from,
+              at.slug, at.display_name AS act_name
          FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
         WHERE e.person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
-          AND at.is_background = true AND e.bg_handoff_from_person_id IS NULL`, [personId])).rows;
+          AND at.is_background = true`, [personId])).rows;
   }
   // PRÓXIMO operador de máquina DISPONÍVEL (invariante Bruno 07-02: presença ≠ sessão):
   // outro machine-op PRESENTE hoje — trabalhou hoje (qualquer evento) OU sessão viva OU
@@ -577,6 +583,68 @@ function createOpRouter(deps = {}) {
                             AND (e3.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
         ORDER BY p.display_name`, [personId, breakSlugs])).rows;
   }
+  // ── CUSTÓDIA DURÁVEL (Bruno 07-08): quem cobre a máquina de quem, persistido em
+  // v3.machine_custody. Sobrevive ao job concluir — a responsabilidade fica até o
+  // dono VOLTAR e CONFIRMAR (SIM/NÃO) no app. Escala a N operadores de máquina. ──
+  async function setCoverage(ownerId, coverId) {
+    if (!ownerId || !coverId || ownerId === coverId) return;
+    await db.query("UPDATE v3.machine_custody SET ended_at = NOW(), resolution = 'superseded' WHERE owner_person_id = $1 AND ended_at IS NULL", [ownerId]);
+    await db.query("INSERT INTO v3.machine_custody (owner_person_id, cover_person_id) VALUES ($1, $2)", [ownerId, coverId]);
+  }
+  async function activeCoverageForOwner(ownerId) {
+    return (await db.query("SELECT id, cover_person_id FROM v3.machine_custody WHERE owner_person_id = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1", [ownerId])).rows[0] || null;
+  }
+  async function activeCoverageForCover(coverId) {
+    return (await db.query("SELECT id, owner_person_id FROM v3.machine_custody WHERE cover_person_id = $1 AND ended_at IS NULL", [coverId])).rows;
+  }
+  async function endCoverage(id, resolution) {
+    await db.query("UPDATE v3.machine_custody SET ended_at = NOW(), resolution = $2 WHERE id = $1 AND ended_at IS NULL", [id, resolution]);
+  }
+  // jobs de MÁQUINA abertos que pertencem ao dono (bg_handoff_from = dono), com quem segura + produto.
+  async function openCustodyJobs(ownerId) {
+    return (await db.query(
+      `SELECT e.id, e.person_id AS holder_id, hp.display_name AS holder_name,
+              at.slug, at.display_name AS act_name, pb.batch_number, pr.canonical_name AS product
+         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+         LEFT JOIN v3.persons hp ON hp.id = e.person_id
+         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
+         LEFT JOIN v3.products pr ON pr.id = pb.product_id
+        WHERE e.bg_handoff_from_person_id = $1 AND e.ended_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY e.started_at`, [ownerId])).rows;
+  }
+  // Dono VOLTOU da pausa: NÃO devolve automático (Bruno 07-08). Monta o que o app
+  // vai perguntar. null = ele não tinha cobertura ativa (fluxo normal, sem prompt).
+  async function buildMachineReturn(ownerId) {
+    const cov = await activeCoverageForOwner(ownerId);
+    if (!cov) return null;
+    const jobs = await openCustodyJobs(ownerId);
+    const coverRow = (await db.query('SELECT display_name FROM v3.persons WHERE id = $1', [cov.cover_person_id])).rows[0];
+    const coverName = coverRow ? coverRow.display_name : 'o substituto';
+    if (!jobs.length) {
+      // nada aberto → o substituto concluiu e não começou outra → AVISA (parada).
+      await endCoverage(cov.id, 'stopped');
+      await machineSlack(`:warning: *${coverName}* concluiu a(s) máquina(s) que estava cobrindo e *não começou outra* — a máquina está *parada*. Definam qual a próxima fórmula e comecem; a máquina não pode ficar parada.`);
+      return { machine_return_notice: { cover_name: coverName } };
+    }
+    return { machine_return_confirm: {
+      coverage_id: cov.id, cover_name: coverName,
+      jobs: jobs.map((j) => ({ id: j.id, product: j.product || j.batch_number || j.act_name, batch_number: j.batch_number, activity: j.act_name, holder: j.holder_name })),
+    } };
+  }
+  // Transfere UM job de máquina pro dono que voltou: fecha o do substituto e abre
+  // um novo pro dono (rastreia o período de cada um), como o returnMachineWork faz.
+  async function transferMachineJob(jobId, toOwnerId) {
+    const j = (await db.query(
+      `SELECT id, activity_type_id, product_batch_id, is_test FROM v3.events
+        WHERE id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND bg_handoff_from_person_id = $2`, [jobId, toOwnerId])).rows[0];
+    if (!j) return false;
+    await db.query("UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_return', updated_at = NOW() WHERE id = $1", [j.id]);
+    await db.query(
+      `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, is_long_running, is_test)
+       VALUES ($1, $2, $3, NOW(), 'Máquina retomada (dono confirmou no retorno)', 'high', 'operator_page', true, $4)`,
+      [toOwnerId, j.activity_type_id, j.product_batch_id, !!j.is_test]);
+    return true;
+  }
   async function adminSlack(text) {
     if (!slack || !slack.postAs) return;
     try {
@@ -614,13 +682,21 @@ function createOpRouter(deps = {}) {
       // (regra Bruno 06-24: dá pra ver quanto tempo cada um foi responsável pela máquina).
       const slugs = [];
       for (const m of mine) {
+        // PRESERVA o dono ORIGINAL (auditoria 07-07): se a máquina já era HERDADA
+        // (m.handoff_from setado), o novo receptor herda o MESMO dono original — não
+        // vira "de mim". Assim A→B→C mantém A, e returnMachineWork(A) reencontra.
+        const originalOwner = m.handoff_from || personId;
         await db.query("UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_handoff', updated_at = NOW() WHERE id = $1", [m.id]);
         await db.query(
           `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, bg_handoff_from_person_id, is_long_running, is_test)
            VALUES ($1, $2, $3, NOW(), $4, 'high', 'operator_page', $5, true, $6)`,
-          [recv.id, m.activity_type_id, m.product_batch_id, `Máquina assumida de ${me.display_name} (almoço/pausa)${inexperienced ? ' — APONTADO (não é operador de máquina)' : ''}`, personId, !!m.is_test]);
+          [recv.id, m.activity_type_id, m.product_batch_id, `Máquina assumida de ${me.display_name} (almoço/pausa)${inexperienced ? ' — APONTADO (não é operador de máquina)' : ''}`, originalOwner, !!m.is_test]);
         slugs.push(m.act_name || m.slug);
       }
+      // registra COBERTURA por DONO original (Bruno 07-08) — durável: o retorno
+      // do dono é que resolve (SIM/NÃO). Chained A→B→C mantém A como dono.
+      const owners = [...new Set(mine.map((m) => m.handoff_from || personId))];
+      for (const ownerId of owners) { try { await setCoverage(ownerId, recv.id); } catch (_) {} }
       await audit('machine.handoff', 'person', personId, { from: personId, to: recv.id, slugs, appointed: Number.isFinite(appointee), inexperienced }, personId);
       const ping = recv.slack_user_id ? `<@${recv.slack_user_id}>` : recv.display_name;
       if (inexperienced) {
@@ -674,6 +750,14 @@ function createOpRouter(deps = {}) {
          AND activity_type_id IN (SELECT id FROM v3.activity_types WHERE slug = ANY($2::text[]))
          AND (started_at AT TIME ZONE '${EDT}')::date < (NOW() AT TIME ZONE '${EDT}')::date`,
       [personId, [...PAUSE_SLUGS]]);
+    // CUSTÓDIA de máquina que virou o dia (auditoria 07-07): um evento de custódia
+    // (bg_handoff) aberto de um dia ANTERIOR = o dono não voltou naquele dia →
+    // órfão. Fecha GLOBAL (qualquer login limpa) pra não ficar aberto pra sempre
+    // nem re-devolver fantasma amanhã. Own-machines (bg_handoff NULL) não tocadas.
+    await db.query(
+      `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_custody_expired_overnight', updated_at = NOW()
+       WHERE bg_handoff_from_person_id IS NOT NULL AND ended_at IS NULL AND deleted_at IS NULL
+         AND (started_at AT TIME ZONE '${EDT}')::date < (NOW() AT TIME ZONE '${EDT}')::date`);
     const r = await db.query(
       `UPDATE v3.events SET is_unfinished = TRUE, updated_at = NOW()
        WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND paused_at IS NOT NULL
@@ -741,6 +825,9 @@ function createOpRouter(deps = {}) {
     const isLunch = LUNCH_SLUGS.has(act.slug);
     const isPause = PAUSE_SLUGS.has(act.slug);
     const cAck = (req.body && req.body.concurrent_ack) || null;
+    // custódia: se o dono voltou da pausa (encerrou almoço/break aqui pra trabalhar),
+    // o app PERGUNTA se ele assume a máquina (Bruno 07-08). Preenchido nas transições.
+    let machineReturn = null;
     // ── MÁQUINAS SEM SUPERVISÃO (regra Bruno 07-02) ──────────────────────────
     // Operador de máquina saindo pra almoço/pausa com máquina rodando e SEM outro
     // operador de máquina disponível → pergunta QUEM fica responsável ANTES de
@@ -782,7 +869,7 @@ function createOpRouter(deps = {}) {
         if (openLunch) {
           if (cAck === 'end_lunch') {
             await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'lunch_ended_to_work', updated_at = NOW() WHERE id = $1`, [openLunch.id]);
-            await returnMachineWork(s.person_id); // voltou do almoço pra trabalhar → devolve as máquinas dele
+            try { machineReturn = await buildMachineReturn(s.person_id); } catch (e) { console.error('[machine] return-confirm falhou:', e.message); }
           } else {
             return res.json({ ok: true, lunch_active: true, lunch_event_id: openLunch.id });
           }
@@ -794,6 +881,10 @@ function createOpRouter(deps = {}) {
             const oids = others.map((o) => o.id);
             await db.query(`UPDATE v3.events SET ended_at = NOW(), closed_reason = 'closed_for_new_task', updated_at = NOW() WHERE id = ANY($1::int[])`, [oids]);
             await cleanupGids(oids); // tira o operador do cowork dos colegas
+            // retomou de um BREAK começando outra task → também é "dono voltou" → pergunta.
+            if (others.some((o) => PAUSE_SLUGS.has(o.slug))) {
+              try { machineReturn = await buildMachineReturn(s.person_id); } catch (e) { console.error('[machine] return-confirm falhou:', e.message); }
+            }
           } else if (cAck !== 'both') {
             return res.json({ ok: true, concurrent_open: true,
               open_tasks: others.map((o) => ({ id: o.id, slug: o.slug, activity: o.activity_name, started_at: o.started_at })) });
@@ -801,6 +892,14 @@ function createOpRouter(deps = {}) {
           // cAck === 'both' → segue e permite a sobreposição (operador confirmou)
         }
       }
+    }
+    // CUSTÓDIA (Bruno 07-08): se QUEM inicia está COBRINDO a máquina de alguém
+    // (cobertura ativa), um job novo de MÁQUINA pertence ao DONO — entra no pool
+    // que o dono confirma quando voltar (SIM/NÃO). Só quando é 1 dono (sem
+    // ambiguidade); background só. Vira o bg_handoff_from_person_id no INSERT.
+    let bgHandoffFrom = null;
+    if (isBackground && !s.is_sandbox) {
+      try { const cov = await activeCoverageForCover(s.person_id); if (cov.length === 1) bgHandoffFrom = cov[0].owner_person_id; } catch (_) {}
     }
     // NUNCA bloqueia: resolve o lote OU auto-cria (alerta admin depois)
     const { batch, autoCreated, typedUnlinked, resolvedFromEms } = await resolveOrCreateBatch(batch_number, req.body && req.body.product_id, s.person_id, { product_name: req.body && req.body.product_name });
@@ -844,7 +943,7 @@ function createOpRouter(deps = {}) {
         await insertOrdersCount({ eventId: starterEv.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id, kind: 'clinic' });
       }
       if (isPnpCowork(act)) await syncPnpCowork(s.is_sandbox);   // cadeia P&P → cowork automático
-      return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
+      return res.json({ ok: true, event: { ...starterEv, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null }, ...(machineReturn || {}) });
     }
 
     // DEDUP (anti "mesma task sobre a mesma task"): se já existe event ABERTO
@@ -859,7 +958,7 @@ function createOpRouter(deps = {}) {
          ORDER BY e.started_at DESC LIMIT 1`, [s.person_id, act.id, batch.id])).rows[0];
       if (dup) {
         await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start_dedup', payload: { slug: act.slug, batch_number: batch.batch_number, existing_event_id: dup.id }, relatedEventId: dup.id, isTest: !!s.is_sandbox });
-        return res.json({ ok: true, duplicate: true, event: { id: dup.id, person_id: s.person_id, started_at: dup.started_at, slug: act.slug, batch_number: batch.batch_number, product: batch.product } });
+        return res.json({ ok: true, duplicate: true, event: { id: dup.id, person_id: s.person_id, started_at: dup.started_at, slug: act.slug, batch_number: batch.batch_number, product: batch.product }, ...(machineReturn || {}) });
       }
     }
     // ── SOLO: comportamento original (1 event, sem grupo) ──
@@ -869,10 +968,10 @@ function createOpRouter(deps = {}) {
     const ins = await db.query(
       `INSERT INTO v3.events
          (person_id, activity_type_id, product_batch_id, started_at, description,
-          cowork_with, confidence, source, orders_printed, is_test, is_long_running)
-       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6, $7, $8)
+          cowork_with, confidence, source, orders_printed, is_test, is_long_running, bg_handoff_from_person_id)
+       VALUES ($1, $2, $3, NOW(), $4, $5::int[], 'high', 'operator_page', $6, $7, $8, $9)
        RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed`,
-      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted, !!s.is_sandbox, !!act.is_background]);
+      [s.person_id, act.id, batch ? batch.id : null, desc, cw, ordersPrinted, !!s.is_sandbox, !!act.is_background, bgHandoffFrom]);
     const ev = ins.rows[0];
     await audit('event.created_via_page', 'event', ev.id,
       { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw }, s.person_id);
@@ -893,7 +992,7 @@ function createOpRouter(deps = {}) {
       await insertOrdersCount({ eventId: ev.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id, kind: 'clinic' });
     }
     if (isPnpCowork(act)) await syncPnpCowork(s.is_sandbox);   // cadeia P&P → cowork automático
-    res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null } });
+    res.json({ ok: true, event: { ...ev, slug: act.slug, batch_number: batch ? batch.batch_number : null, product: batch ? batch.product : null }, ...(machineReturn || {}) });
   }));
 
   // ── retroactive check-in (task esquecida) — operador, SÓ HOJE ───────────
@@ -1206,8 +1305,23 @@ function createOpRouter(deps = {}) {
     let resumedCount = 0;
     let resumedTasks = [];
     if (PAUSE_SLUGS.has(ev.slug)) { const ri = await resumePausedFor(s.person_id); resumedCount = ri.count; resumedTasks = ri.tasks; }
-    // voltou do almoço/pausa → devolve as máquinas que eram dele (regra Bruno).
-    if (PAUSE_SLUGS.has(ev.slug) || LUNCH_SLUGS.has(ev.slug)) await returnMachineWork(s.person_id);
+    // CUSTÓDIA (Bruno 07-08): NÃO devolve mais automático. Se o dono VOLTA da
+    // pausa, o app PERGUNTA se ele assume a máquina (SIM/NÃO + escolher jobs).
+    // Se um SUBSTITUTO acabou de CONCLUIR um job que cobria, avisa que ele
+    // continua responsável (e o resto vai pro dono quando confirmar).
+    let machineReturn = null;
+    if (PAUSE_SLUGS.has(ev.slug) || LUNCH_SLUGS.has(ev.slug)) {
+      try { machineReturn = await buildMachineReturn(s.person_id); } catch (e) { console.error('[machine] return-confirm falhou:', e.message); }
+    } else {
+      try {
+        const cov = (await db.query('SELECT bg_handoff_from_person_id FROM v3.events WHERE id = $1', [ev.id])).rows[0];
+        if (cov && cov.bg_handoff_from_person_id && cov.bg_handoff_from_person_id !== s.person_id) {
+          const owner = (await db.query('SELECT display_name FROM v3.persons WHERE id = $1', [cov.bg_handoff_from_person_id])).rows[0];
+          const prod = ev.batch_number ? (' (' + ev.batch_number + ')') : '';
+          await machineSlack(`:white_check_mark: *${s.display_name}* concluiu a *${ev.activity_name || 'operação de máquina'}*${prod} que estava cobrindo enquanto *${owner ? owner.display_name : 'o operador'}* estava fora. *${s.display_name}* continua responsável pela máquina e deve começar a próxima; o que estiver relacionado vai pro *${owner ? owner.display_name : 'dono'}* quando ele confirmar na volta.`);
+        }
+      } catch (e) { console.error('[machine] notify conclusão falhou:', e.message); }
+    }
 
     let countCreated = false;
     if (needBottleLike && !exception && Number.isFinite(b) && b > 0) {
@@ -1265,7 +1379,54 @@ function createOpRouter(deps = {}) {
     } else {
       await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null, slug: ev.slug }, s.person_id);
     }
-    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, resumed_tasks: resumedTasks, bottle_warning: bottleWarning });
+    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, resumed_tasks: resumedTasks, bottle_warning: bottleWarning, ...(machineReturn || {}) });
+  }));
+
+  // ── CUSTÓDIA: dono confirma no retorno (Bruno 07-08) ────────────────────────
+  // body: { decision:'yes'|'no', job_ids:[int] }. SIM → transfere os jobs ESCOLHIDOS
+  // pro dono; os não escolhidos viram do substituto (bg_handoff=NULL, não pergunta
+  // de novo). NÃO → tudo continua do substituto. Resolve a cobertura + avisa no Slack.
+  router.post('/api/v3/op/machine/confirm-return', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const body = req.body || {};
+    const decision = body.decision === 'yes' ? 'yes' : (body.decision === 'no' ? 'no' : null);
+    if (!decision) return res.status(400).json({ error: 'bad_decision', detail: "decision deve ser 'yes' ou 'no'." });
+    const cov = await activeCoverageForOwner(s.person_id);
+    if (!cov) return res.json({ ok: true, no_coverage: true });
+    const open = await openCustodyJobs(s.person_id);
+    const openIds = new Set(open.map((j) => j.id));
+    const coverRow = (await db.query('SELECT display_name FROM v3.persons WHERE id = $1', [cov.cover_person_id])).rows[0];
+    const coverName = coverRow ? coverRow.display_name : 'o substituto';
+
+    if (decision === 'no') {
+      if (openIds.size) await db.query('UPDATE v3.events SET bg_handoff_from_person_id = NULL, updated_at = NOW() WHERE id = ANY($1::int[])', [[...openIds]]);
+      await endCoverage(cov.id, 'declined');
+      await audit('machine.return_declined', 'person', s.person_id, { cover: cov.cover_person_id, jobs: [...openIds] }, s.person_id);
+      await machineSlack(`:information_source: *${s.display_name}* informou que a encapsulação *não é responsabilidade dele agora* — segue com *${coverName}*.`);
+      return res.json({ ok: true, decision: 'no' });
+    }
+
+    // SIM → transfere os escolhidos; o resto vira do substituto.
+    const picked = Array.isArray(body.job_ids) ? body.job_ids.map((x) => parseInt(x, 10)).filter((x) => openIds.has(x)) : [];
+    const takenNames = [];
+    for (const jid of picked) {
+      if (await transferMachineJob(jid, s.person_id)) {
+        const j = open.find((x) => x.id === jid);
+        takenNames.push((j && (j.product || j.batch_number || j.act_name)) || ('#' + jid));
+      }
+    }
+    const leftover = [...openIds].filter((id) => !picked.includes(id));
+    if (leftover.length) await db.query('UPDATE v3.events SET bg_handoff_from_person_id = NULL, updated_at = NOW() WHERE id = ANY($1::int[])', [leftover]);
+    await endCoverage(cov.id, leftover.length ? 'partial' : 'taken_over');
+    await audit('machine.return_taken', 'person', s.person_id, { taken: picked, leftover, cover: cov.cover_person_id }, s.person_id);
+    if (picked.length && leftover.length) {
+      await machineSlack(`:gear: *${s.display_name}* assumiu a responsabilidade da máquina de encapsulação — *${takenNames.join(', ')}* apenas. O resto continua com *${coverName}*.`);
+    } else if (picked.length) {
+      await machineSlack(`:gear: *${s.display_name}* voltou e assumiu a operação de máquina (${takenNames.join(', ')}) de volta.`);
+    } else {
+      await machineSlack(`:information_source: *${s.display_name}* voltou mas não assumiu nenhum job da máquina — seguem com *${coverName}*.`);
+    }
+    return res.json({ ok: true, decision: 'yes', taken: picked.length, leftover: leftover.length });
   }));
 
   // ── join (cowork B) ─────────────────────────────────────────

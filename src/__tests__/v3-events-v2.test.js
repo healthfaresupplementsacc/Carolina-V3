@@ -135,14 +135,26 @@ describe('V3 §2.9 — handleEvent', () => {
     expect(db.messages).toHaveLength(0); // já existia
   });
 
-  test('bot message → também é inserida (pre-filter decide skip)', async () => {
+  // Bruno 07-08: mensagem do PRÓPRIO BOT NÃO é ingerida (feedback loop). O sistema
+  // postava ":gear: máquinas passada… / voltou…" no canal e o Observer lia de volta
+  // e criava encapsulações fantasma. Bot = subtype bot_message OU bot_id presente.
+  test('bot message → NÃO é ingerida (corta o feedback loop)', async () => {
     const db = makeFakeDb();
     const r = await handleEvent({
       type: 'event_callback',
-      event: { type: 'message', subtype: 'bot_message', channel: PROD, ts: '200.4', bot_id: 'B01', text: 'Carolina aviso' },
+      event: { type: 'message', subtype: 'bot_message', channel: PROD, ts: '200.4', bot_id: 'B01', text: ':gear: Operação de máquinas passada para Bruno' },
     }, deps(db));
-    expect(r.action).toBe('inserted');
-    expect(db.messages[0].slack_user_id).toBe('B01');
+    expect(r.handled).toBe(false);
+    expect(r.reason).toBe('own_bot_message_skipped');
+    expect(db.messages).toHaveLength(0);
+  });
+  test('mensagem com bot_id (sem subtype) → também é pulada', async () => {
+    const db = makeFakeDb();
+    const r = await handleEvent({
+      type: 'event_callback',
+      event: { type: 'message', channel: PROD, ts: '200.5', bot_id: 'B01', text: ':white_check_mark: Vitor voltou' },
+    }, deps(db));
+    expect(db.messages).toHaveLength(0);
   });
 
   test('message_changed → atualiza raw_text + reprocessa', async () => {

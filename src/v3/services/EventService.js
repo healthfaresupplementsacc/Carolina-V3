@@ -469,7 +469,11 @@ class EventService {
        WHERE e.person_id = $1
          AND e.product_batch_id = $2
          AND e.ended_at IS NULL AND e.deleted_at IS NULL
-         AND at.is_background = true`,
+         AND at.is_background = true
+         -- NÃO dissolve CUSTÓDIA de máquina (bg_handoff): é responsabilidade
+         -- humana; só termina pela devolução (returnMachineWork) ou /end do
+         -- substituto (auditoria 07-07, mesma classe do fix do EMS).
+         AND e.bg_handoff_from_person_id IS NULL`,
       [personId, batchId]);
     const closed = [];
     for (const ev of r.rows) {
@@ -507,6 +511,11 @@ class EventService {
       // end_of_day (caso histórico ev305 28/mai: meta_closed_by_fg do dia
       // seguinte fechou o end_of_day quebrando o invariant).
       if (await this._isEndOfDay(c, ev.activity_type_id)) continue;
+      // CUSTÓDIA de máquina (bg_handoff) INTOCÁVEL por close automático/Observer
+      // (auditoria 07-07): "F: encapsulação" do Slack fechava o evento do
+      // substituto e a máquina não voltava pro dono. Só termina pela devolução
+      // (returnMachineWork) ou /end explícito por id do substituto.
+      if (ev.bg_handoff_from_person_id != null) continue;
       // FASE 1 (task sumiu) — tasks da OPERATOR PAGE são do operador: o
       // processamento Slack/Observer NÃO pode fechá-las quando chega uma NOVA
       // atividade (next_event/meta). Operadores usavam /op + Slack juntos e viam

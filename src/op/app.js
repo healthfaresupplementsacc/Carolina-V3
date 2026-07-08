@@ -986,8 +986,28 @@
     h += '</div>';
     return h;
   }
+  // CUSTÓDIA (Bruno 07-08): dono voltou da pausa → "assumir a máquina? SIM/NÃO"
+  // e ESCOLHER quais jobs abertos assumir (pré-marcados). O resto segue com o substituto.
+  function machineReturnInner(o) {
+    var mr = o.cov || {}; var jobs = mr.jobs || [];
+    var h = cardOpen(480);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:12px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(31,95,208,.12); color:#1f5fd0; display:flex; align-items:center; justify-content:center;">' + svgr(WARN, 26, 2) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:19px; color:#0c2545;">Assumir a máquina de encapsulação?</div></div>';
+    h += '<div style="font-size:14.5px; color:#42566f; font-weight:600; margin-bottom:13px; line-height:1.5;">Enquanto você esteve fora, <b>' + esc(mr.cover_name || 'o substituto') + '</b> cuidou da máquina. Marque o que você vai <b>assumir de volta</b> (o resto continua com ' + esc(mr.cover_name || 'ele') + '):</div>';
+    h += '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto; margin-bottom:12px;">';
+    jobs.forEach(function (j) {
+      var on = !!o.sel[j.id];
+      h += '<button data-act="mrToggle" data-arg="' + esc(j.id) + '" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; padding:12px 14px; border-radius:14px; border:1px solid ' + (on ? 'rgba(31,95,208,.4)' : 'rgba(15,40,90,.12)') + '; background:' + (on ? 'rgba(31,95,208,.08)' : 'rgba(255,255,255,.8)') + ';"><span style="flex:none; width:22px; height:22px; border-radius:6px; border:2px solid ' + (on ? '#1f5fd0' : '#b9c4d4') + '; background:' + (on ? '#1f5fd0' : 'transparent') + '; display:flex; align-items:center; justify-content:center;">' + (on ? svgr(CHECK, 13, 3) : '') + '</span><span style="flex:1; min-width:0;"><b style="font-size:15px; color:#0c2545;">' + esc(j.product || j.batch_number || j.activity || ('#' + j.id)) + '</b><span style="display:block; font-size:12px; color:#6b7c93;">' + esc(j.activity || '') + (j.holder ? (' · com ' + esc(j.holder)) : '') + '</span></span></button>';
+    });
+    h += '</div>';
+    h += '<div style="display:flex; gap:11px;">';
+    h += '<button data-act="machineTakeNo" style="flex:1; border:1px solid rgba(179,38,30,.35); background:rgba(179,38,30,.07); color:#b3261e; border-radius:14px; padding:14px; font-weight:800; font-size:14px; cursor:pointer;">NÃO é minha</button>';
+    h += '<button data-act="machineTakeYes" style="flex:1.5; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:14px; padding:14px; font-weight:800; font-size:15px; cursor:pointer;">SIM — assumir marcados</button>';
+    h += '</div></div>';
+    return h;
+  }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'machineReturn') return machineReturnInner(o);
     if (o.type === 'appointMachine') return appointMachineInner(o);
     if (o.type === 'reclassify') return reclassifyInner(o);
     if (o.type === 'detectWhen') return detectWhenInner(o);
@@ -1241,6 +1261,9 @@
       S.resumeBusy = true; render();
       api('/api/v3/op/event/' + id + '/end', { method: 'POST', body: {} }).then(function (res) {
         S.resumeBusy = false; S.pulse = 0.8; loadData();
+        // CUSTÓDIA (Bruno 07-08): voltou da pausa → pergunta SIM/NÃO da máquina.
+        // Tem prioridade sobre o prompt de retomar tarefas congeladas.
+        if (handleMachineReturn(res)) return;
         // regra Bruno: ao voltar da pausa, pergunta CONTINUAR ou FINALIZAR cada tarefa
         // que estava congelada (se finalizar e pedir quantidade, o finish já cobra).
         var tasks = (res && res.resumed_tasks) || [];
@@ -1316,6 +1339,22 @@
           var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
           if (fn) fn('none');
         });
+    },
+    // CUSTÓDIA (Bruno 07-08): dono voltou → assume/recusa a máquina + escolhe jobs
+    mrToggle: function (arg) { if (S.overlay && S.overlay.sel) { var id = parseInt(arg, 10); S.overlay.sel[id] = !S.overlay.sel[id]; render(); } },
+    machineTakeYes: function () {
+      var o = S.overlay; if (!o) return;
+      var ids = Object.keys(o.sel || {}).filter(function (k) { return o.sel[k]; }).map(function (k) { return parseInt(k, 10); });
+      S.overlay = null; render();
+      api('/api/v3/op/machine/confirm-return', { method: 'POST', body: { decision: 'yes', job_ids: ids } })
+        .then(function (r) { toast(r && r.taken ? ('Você assumiu ' + r.taken + ' máquina(s)') : 'Ok'); loadData(); })
+        .catch(function (e) { toast(e.message); });
+    },
+    machineTakeNo: function () {
+      S.overlay = null; render();
+      api('/api/v3/op/machine/confirm-return', { method: 'POST', body: { decision: 'no' } })
+        .then(function () { toast('Ok — a máquina segue com o substituto'); loadData(); })
+        .catch(function (e) { toast(e.message); });
     },
     note: function () { S.overlay = { type: 'note', note: '' }; S._focus = 'ovNote'; render(); },
     saveNote: function () { var o = S.overlay; var txt = (o.note || '').trim(); if (!txt) { showAlert({ title: 'Nota vazia', message: 'Escreva ou grave algo antes de salvar a nota.', okLabel: 'Entendi' }); return; } api('/api/v3/op/note', { method: 'POST', body: { text: txt } }).then(function () { S.overlay = null; toast('Nota salva'); }).catch(function (e) { toast(e.message); }); },
@@ -1437,6 +1476,7 @@
       S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
       loadData();
+      handleMachineReturn(res); // dono voltou da pausa? → pergunta SIM/NÃO da máquina
     };
     var onErr = function (e) {
       var M = { note_required: 'Precisa de nota', orders_printed_required: 'Precisa da quantidade', started_at_future: 'Hora no futuro', started_at_not_today: 'Só dá pra hoje', ended_at_invalid: 'Hora de fim inválida', unknown_batch: 'Lote não encontrado' };
@@ -1487,6 +1527,22 @@
       }
       onOk(res);
     }).catch(onErr);
+  }
+  // CUSTÓDIA (Bruno 07-08): a resposta do /start ou /end pode trazer machine_return_*
+  // (dono voltou da pausa). notice = máquina parada (avisa); confirm = pergunta SIM/NÃO.
+  function handleMachineReturn(res) {
+    if (res && res.machine_return_notice) {
+      showAlert({ title: 'Máquina de encapsulação PARADA', message: (res.machine_return_notice.cover_name || 'O substituto') + ' concluiu a máquina que estava cobrindo e não começou outra — a máquina está PARADA. Ajude a definir qual a próxima fórmula e comece; a máquina não pode ficar parada.', okLabel: 'Entendi' });
+      return true;
+    }
+    if (res && res.machine_return_confirm) {
+      var mr = res.machine_return_confirm; var sel = {};
+      (mr.jobs || []).forEach(function (j) { sel[j.id] = true; }); // pré-marca todos
+      S.overlay = { type: 'machineReturn', cov: mr, sel: sel };
+      render();
+      return true;
+    }
+    return false;
   }
   // PASSADA 2 — justifica o gap e RECAMA o start com gap_ack (cascade no frontend)
   function doGapJustify() {
@@ -1607,7 +1663,9 @@
       }
       // backend fechou (último de tarefa sem contagem)
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
-      toast('Tarefa finalizada!'); loadData(); checkEndOfDay(); // PASSADA 2
+      toast('Tarefa finalizada!'); loadData();
+      if (handleMachineReturn(res)) return;   // encerrou almoço → pergunta da máquina
+      checkEndOfDay(); // PASSADA 2
     }).catch(function (e) {
       // checa o CÓDIGO em e.body.error (api() põe o detail em e.message, não o code)
       var code = (e && e.body && e.body.error) || e.message;

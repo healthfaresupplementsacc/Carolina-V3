@@ -20,6 +20,7 @@ const REAL = [
   '/api/v3/op/orders/adjust', // ajuste de ordens (Embalagem/Outro)
   '/api/v3/op/lots/available', // FASE 4 (lista lote+produto)
   '/api/v3/op/ems/my-activity', '/api/v3/op/ems/register-detected', // FASE FORM (detecção passiva)
+  '/api/v3/op/machine/confirm-return', // custódia (Bruno 07-08): dono confirma no retorno
   '/api/v3/architect/person/',
 ];
 
