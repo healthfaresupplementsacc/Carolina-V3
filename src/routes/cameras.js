@@ -32,7 +32,7 @@ const { makeRateLimit, makeBruteForceGuard } = require('../middleware/security')
 
 const router = express.Router();
 
-const CAMS = new Set(['warehouse', 'packaging']);
+const CAMS = new Set(['warehouse', 'packaging', 'formulation']);
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h ≈ um turno; expira -> pede o PIN de novo
 
 // ── proteções ───────────────────────────────────────────────
@@ -121,34 +121,41 @@ router.get('/api/cam/health', async (req, res) => {
 // importa quantos assistem. Viewer que entra no meio: o decoder MJPEG do
 // browser ressincroniza no próximo boundary (comportamento padrão de proxies
 // MJPEG). Viewer lento (>4MB de buffer) é derrubado pra não vazar memória. ──
-const brokers = new Map(); // name -> Promise<broker|null>; broker = {clients:Set, ctrl, node, contentType, alive}
+const brokers = new Map(); // name -> Promise<broker|null> | broker
+// RECONEXÃO TRANSPARENTE (Bruno 07-08 — "offline constante"): quando o upstream
+// cai (blip do funnel / restart do gateway / hiccup de rede), NÃO derruba os
+// <img> na hora. Reabre o upstream em backoff por até esta janela mantendo as
+// conexões dos navegadores VIVAS — o parser MJPEG do browser ressincroniza no
+// próximo boundary, então uma queda curta fica INVISÍVEL pro operador. Só
+// depois da janela (queda longa de verdade) é que os clientes veem "offline".
+const RECONNECT_WINDOW_MS = 30000;
 
-async function openBroker(name) {
+async function connectUpstream(name, b) {
   const base = process.env.CAM_TUNNEL_URL;
   const token = process.env.CAM_TOKEN;
-  if (!base || !token) return null;
-  const b = { clients: new Set(), ctrl: new AbortController(), node: null, contentType: null, alive: false, lingerTimer: null };
-  // fail-fast: funnel pendurado → corta em 8s (a página re-tenta sozinha).
-  const connectTimer = setTimeout(() => b.ctrl.abort(), 8000);
+  if (!base || !token) return false;
+  b.ctrl = new AbortController();
+  const connectTimer = setTimeout(() => { try { b.ctrl.abort(); } catch (_) {} }, 8000);
   let up;
   try {
-    up = await fetch(`${base.replace(/\/$/, '')}/stream/${name}`, {
-      headers: { 'X-Cam-Token': token },
-      signal: b.ctrl.signal,
-    });
-  } catch { clearTimeout(connectTimer); return null; }
+    up = await fetch(`${base.replace(/\/$/, '')}/stream/${name}`, { headers: { 'X-Cam-Token': token }, signal: b.ctrl.signal });
+  } catch { clearTimeout(connectTimer); return false; }
   clearTimeout(connectTimer);
-  if (!up.ok || !up.body) return null;
-  b.contentType = up.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=frame';
-  b.alive = true;
-  b.node = Readable.fromWeb(up.body);
-  const teardown = () => {
-    b.alive = false;
-    brokers.delete(name);
-    for (const c of b.clients) { try { c.end(); } catch (_) {} }
-    b.clients.clear();
+  if (!up.ok || !up.body) return false;
+  b.contentType = b.contentType || up.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=frame';
+  b.alive = true; b.downSince = 0; b.attempts = 0;
+  const node = Readable.fromWeb(up.body);
+  b.node = node;
+  const armStale = () => {
+    if (b.staleTimer) clearTimeout(b.staleTimer);
+    // sem NENHUM frame por 10s = upstream meio-morto (conexão aberta, gateway
+    // parou de mandar) → aborta e força reconexão (senão os <img> congelam pra
+    // sempre num frame velho sem ninguém perceber). Bruno 07-08.
+    b.staleTimer = setTimeout(() => { try { b.ctrl.abort(); } catch (_) {} }, 10000);
   };
-  b.node.on('data', (chunk) => {
+  node.on('data', (chunk) => {
+    b.lastData = Date.now();
+    armStale();
     for (const c of b.clients) {
       try {
         if (c.writableLength > 4 * 1024 * 1024) { c.destroy(); b.clients.delete(c); continue; }
@@ -156,16 +163,60 @@ async function openBroker(name) {
       } catch (_) { b.clients.delete(c); }
     }
   });
-  b.node.on('error', teardown);
-  b.node.on('end', teardown);
-  return b;
+  const onDrop = () => { if (b.node === node) onUpstreamDrop(name, b); };
+  node.on('error', onDrop);
+  node.on('end', onDrop);
+  armStale();
+  return true;
+}
+
+function onUpstreamDrop(name, b) {
+  if (b.closed) return;
+  b.alive = false;
+  if (b.staleTimer) { clearTimeout(b.staleTimer); b.staleTimer = null; } // não deixa o timer do node velho abortar o novo
+  if (b.clients.size === 0) return closeBroker(name, b);          // ninguém vendo → encerra
+  if (!b.downSince) b.downSince = Date.now();
+  if (Date.now() - b.downSince > RECONNECT_WINDOW_MS) return closeBroker(name, b); // queda longa → offline
+  scheduleReconnect(name, b);
+}
+
+function scheduleReconnect(name, b) {
+  if (b.closed || b.reconnTimer) return;
+  const delay = Math.min(1000 * (2 ** (b.attempts || 0)), 5000);  // 1s,2s,4s,5s…
+  b.attempts = (b.attempts || 0) + 1;
+  b.reconnTimer = setTimeout(async () => {
+    b.reconnTimer = null;
+    if (b.closed || b.clients.size === 0) return closeBroker(name, b);
+    const ok = await connectUpstream(name, b);
+    if (!ok) onUpstreamDrop(name, b);                             // falhou → reprograma (respeita a janela)
+  }, delay);
+}
+
+function closeBroker(name, b) {
+  if (b.closed) return;
+  b.closed = true; b.alive = false;
+  if (b.reconnTimer) { clearTimeout(b.reconnTimer); b.reconnTimer = null; }
+  if (b.lingerTimer) { clearTimeout(b.lingerTimer); b.lingerTimer = null; }
+  if (b.staleTimer) { clearTimeout(b.staleTimer); b.staleTimer = null; }
+  try { b.ctrl && b.ctrl.abort(); } catch (_) {}
+  try { b.node && b.node.destroy(); } catch (_) {}
+  for (const c of b.clients) { try { c.end(); } catch (_) {} }
+  b.clients.clear();
+  if (brokers.get(name) === b) brokers.delete(name);
+}
+
+async function openBroker(name) {
+  const b = { clients: new Set(), ctrl: null, node: null, contentType: null, alive: false, closed: false,
+    lingerTimer: null, reconnTimer: null, downSince: 0, attempts: 0, lastData: 0 };
+  const ok = await connectUpstream(name, b);
+  return ok ? b : null;
 }
 
 function getBroker(name) {
   const cur = brokers.get(name);
-  if (cur) return cur;                       // Promise (corrida de 2 primeiros-viewers → 1 upstream)
+  if (cur) return cur;                       // Promise ou broker vivo (dedup do 1º viewer)
   const p = openBroker(name).then((b) => {
-    if (!b) brokers.delete(name);
+    if (b) brokers.set(name, b); else brokers.delete(name);   // troca a Promise pelo broker resolvido
     return b;
   }).catch(() => { brokers.delete(name); return null; });
   brokers.set(name, p);
@@ -215,7 +266,9 @@ router.get('/api/cam/:name', async (req, res) => {
     return res.status(503).json({ error: 'cameras_offline' }); // migração/PC desligado — V4 segue intacto
   }
   const b = await getBroker(name);
-  if (!b || !b.alive) return res.status(503).json({ error: 'cameras_offline' });
+  // b pode estar RECONECTANDO (alive=false transitório) — anexa mesmo assim; os
+  // frames voltam quando o upstream reabre dentro da janela. Só 503 se não há broker.
+  if (!b || b.closed || !b.contentType) return res.status(503).json({ error: 'cameras_offline' });
 
   res.status(200);
   res.set('Content-Type', b.contentType);
@@ -225,27 +278,22 @@ router.get('/api/cam/:name', async (req, res) => {
   req.on('close', () => {
     b.clients.delete(res);
     // último viewer saiu → segura 5s (reload rápido reusa) e derruba o upstream
-    if (b.clients.size === 0 && b.alive) {
-      b.lingerTimer = setTimeout(() => {
-        if (b.clients.size === 0) { try { b.ctrl.abort(); b.node && b.node.destroy(); } catch (_) {} brokers.delete(name); }
-      }, 5000);
+    if (b.clients.size === 0 && !b.closed) {
+      b.lingerTimer = setTimeout(() => { if (b.clients.size === 0) closeBroker(name, b); }, 5000);
     }
   });
 });
 
 
 // ---- página standalone (não toca o dashboard-v4) --------------------------
-// ── Janela auxiliar do PIP DUPLO (Bruno 07-02): permite 2 janelas Document PIP
-// AO MESMO TEMPO. O Chrome limita 1 docPIP por aba → a 2ª nasce DESTA janelinha
-// (aberta pelo dashboard via window.open), que tem direito ao seu PRÓPRIO docPIP.
-// Fluxo: mostra a câmera + botão "📌 Fixar por cima"; o clique move o <video>
-// pra janela docPIP e esta janelinha vira um "âncora" pequeno (precisa ficar
-// aberta — pode minimizar — senão o docPIP dela morre).
-// Token vem no HASH (#t=...) — não vai pro servidor/log.
+// ── Janela avulsa de 1 câmera (só-vídeo, reconexão + fallback MJPEG). Token no
+// HASH (#t=...) — não vai pro servidor/log. NOTA (Bruno 07-07): o Chrome permite
+// só 1 PIP no navegador INTEIRO (não 1 por janela, como se supôs antes) → "as 2
+// câmeras no topo" só via "PIP tudo" (as 2 num único float) no dashboard.
 router.get('/cameras/pip', (req, res) => {
   const cam = String(req.query.cam || '');
   if (!CAMS.has(cam)) return res.status(404).send('cam?');
-  const label = cam === 'warehouse' ? '🏭 Warehouse Floor' : '📦 Packaging Line';
+  const label = { warehouse: '🏭 Warehouse Floor', packaging: '📦 Packaging Line', formulation: '🧪 Formulation Cam 1' }[cam] || cam;
   res.set('Cache-Control', 'no-store');
   res.type('html').send(`<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
@@ -255,43 +303,31 @@ router.get('/cameras/pip', (req, res) => {
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden;font:13px system-ui;color:#fff}
   #wrap{position:relative;height:100%}
-  video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+  #stage{position:absolute;inset:0}
+  video,#vm{width:100%;height:100%;object-fit:contain;display:block;background:#000}
   .chip{position:fixed;top:6px;left:8px;z-index:2;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px;font-weight:700;font-size:12px}
-  #pin{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:3;border:0;border-radius:10px;
-       background:#22b35d;color:#06160d;font-weight:800;font-size:14px;padding:10px 16px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.5)}
-  #note{display:none;height:100%;place-items:center;text-align:center;padding:12px;font-weight:600;line-height:1.5}
 </style></head><body>
-<div id="wrap"><span class="chip">${label}</span><video id="v" muted autoplay playsinline></video>
-<button id="pin">📌 Fixar por cima (janela PIP)</button></div>
-<div id="note">Câmera fixada por cima ✅<br><small style="color:#9fb0c8">Mantenha esta janelinha aberta (pode minimizar).<br>Fechar ela fecha a câmera fixada.</small></div>
+<div id="wrap"><span class="chip">${label}</span>
+<div id="stage"><video id="v" muted autoplay playsinline></video><img id="vm" alt="" style="display:none"></div></div>
 <script>
 (function(){
   var cam=${JSON.stringify(cam)}, label=${JSON.stringify(label)};
   var tok=(location.hash.match(/t=([^&]+)/)||[])[1]||'';
-  if(!tok){ document.getElementById('note').style.display='grid'; document.getElementById('note').innerHTML='Sessão das câmeras não encontrada — abra pelo dashboard.'; document.getElementById('wrap').style.display='none'; return; }
-  var v=document.getElementById('v'), retry=null;
-  function src(){ return '/api/cam/'+cam+'/mp4?t='+decodeURIComponent(tok)+'&r='+Date.now(); }
-  function reconnect(){ clearTimeout(retry); retry=setTimeout(function(){ v.src=src(); v.play&&v.play().catch(function(){}); },2500); }
-  v.onerror=reconnect; v.onended=reconnect; v.src=src(); v.play&&v.play().catch(function(){});
-  var btn=document.getElementById('pin');
-  if(!(window.documentPictureInPicture&&window.documentPictureInPicture.requestWindow)){
-    // sem docPIP: esta própria janelinha JÁ é a 2ª janela — só esconde o botão
-    btn.style.display='none'; return;
-  }
-  btn.onclick=function(){
-    window.documentPictureInPicture.requestWindow({width:480,height:300}).then(function(w){
-      w.document.body.style.cssText='margin:0;background:#000;height:100vh;overflow:hidden;';
-      var chip=w.document.createElement('div'); chip.textContent=label;
-      chip.style.cssText='position:fixed;top:6px;left:8px;z-index:2;background:rgba(0,0,0,.55);color:#fff;font:bold 12px system-ui;padding:3px 8px;border-radius:6px;';
-      w.document.body.appendChild(chip);
-      w.document.body.appendChild(v); // MOVE o <video> ao vivo pra janela docPIP (stream segue)
-      try{ w.document.title=label; }catch(e){}
-      document.getElementById('wrap').style.display='none';
-      document.getElementById('note').style.display='grid';
-      try{ window.resizeTo(340,170); }catch(e){}
-      w.addEventListener('pagehide',function(){ location.reload(); }); // fechou o docPIP → volta ao estado inicial
-    }).catch(function(e){ alert('Não consegui fixar: '+e.message); });
-  };
+  if(!tok){ document.getElementById('wrap').innerHTML='<div style="display:grid;place-items:center;height:100%;text-align:center;padding:12px">Sessão das câmeras não encontrada — abra pelo dashboard.</div>'; return; }
+  var v=document.getElementById('v'), im=document.getElementById('vm'), stage=document.getElementById('stage'), retry=null, mode='mp4', blackTimer=null, fails=0;
+  function mp4src(){ return '/api/cam/'+cam+'/mp4?t='+decodeURIComponent(tok)+'&r='+Date.now(); }
+  function mjpgsrc(){ return '/api/cam/'+cam+'?t='+decodeURIComponent(tok)+'&r='+Date.now(); }
+  // fMP4 fica PRETO numa conexão nova até o 1º keyframe (a warehouse tem GOP
+  // longo → era o "pop-out/PIP só da warehouse preto", Bruno 07-07). Se em 6s o
+  // mp4 não render, cai pra MJPEG (frame isolado, aparece na hora).
+  function toMjpeg(){ mode='mjpeg'; clearTimeout(blackTimer); try{v.pause();}catch(e){} v.removeAttribute('src'); try{v.load();}catch(e){} v.style.display='none'; im.style.display='block'; im.onerror=function(){ clearTimeout(retry); retry=setTimeout(function(){ im.src=mjpgsrc(); },2500); }; im.src=mjpgsrc(); }
+  function startMp4(){ mode='mp4'; im.style.display='none'; v.style.display='block'; v.src=mp4src(); v.play&&v.play().catch(function(){}); clearTimeout(blackTimer); blackTimer=setTimeout(function(){ if(mode==='mp4'&&v.readyState<3) toMjpeg(); },6000); }
+  v.onplaying=function(){ clearTimeout(blackTimer); };
+  v.onerror=function(){ fails++; if(fails>=2){ toMjpeg(); } else { clearTimeout(retry); retry=setTimeout(startMp4,2500); } };
+  v.onended=v.onerror;
+  startMp4();
+  // (Janela simples só-vídeo. O "sempre no topo" foi removido — Chrome só
+  // permite 1 PIP no total; pra as 2 câmeras no topo use "PIP tudo" no dashboard.)
 })();
 </script></body></html>`);
 });
@@ -365,7 +401,7 @@ router.get('/cameras', (_req, res) => {
   var gw=document.getElementById('gw');
   var cams={}; // id -> {card,img,badge,offmsg,backoff,timer,pump,video,canvas,inPip}
   document.querySelectorAll('.card').forEach(function(c){
-    cams[c.dataset.cam]={card:c,img:c.querySelector('img'),video:c.querySelector('video'),badge:c.querySelector('.badge'),offmsg:c.querySelector('.off-msg'),backoff:2000,timer:null,stallTimer:null,pump:null,pipVideo:null,canvas:null,inPip:false,mode:'mp4',mp4Fails:0};
+    cams[c.dataset.cam]={card:c,img:c.querySelector('img'),video:c.querySelector('video'),badge:c.querySelector('.badge'),offmsg:c.querySelector('.off-msg'),backoff:2000,timer:null,stallTimer:null,firstFrameTimer:null,pump:null,pipVideo:null,canvas:null,inPip:false,mode:'mp4',mp4Fails:0};
   });
 
   // ── tamanho ajustável (persistido) ──
@@ -380,6 +416,7 @@ router.get('/cameras', (_req, res) => {
   // v3: H.264 fMP4 FULL HD primeiro (<video>, /api/cam/<id>/mp4) — 1080p fluido;
   // se falhar 3×, cai sozinho pro MJPEG (<img>) e segue tentando.
   function markOff(c, id){
+    clearTimeout(c.stallTimer); clearTimeout(c.firstFrameTimer);
     c.offmsg.textContent='câmera offline — reconectando sozinho…';
     c.offmsg.style.display='block';
     setBadge(c,'off','offline · re-tentando');
@@ -388,23 +425,29 @@ router.get('/cameras', (_req, res) => {
   }
   function startStream(id){
     var c=cams[id]; if(!TOKEN) return;
-    clearTimeout(c.timer); clearTimeout(c.stallTimer);
+    clearTimeout(c.timer); clearTimeout(c.stallTimer); clearTimeout(c.firstFrameTimer);
     setBadge(c,'retry','conectando…');
     c.offmsg.style.display='none';
     if(c.mode==='mp4' && c.video){
       c.video.style.display='block'; c.img.style.display='none';
       var v=c.video;
       var fail=function(){
+        clearTimeout(c.stallTimer); clearTimeout(c.firstFrameTimer);
         c.mp4Fails++;
         v.style.display='none';
-        if(c.mp4Fails>=3){ c.mode='mjpeg'; c.backoff=2000; startStream(id); return; } // fallback MJPEG
+        // TELA PRETA / mp4 problemático (GOP longo da warehouse) → cai RÁPIDO pro
+        // MJPEG, que agora tem reconexão transparente no servidor (robusto). Bruno 07-08.
+        if(c.mp4Fails>=2){ c.mode='mjpeg'; c.backoff=2000; startStream(id); return; }
         markOff(c, id);
       };
       v.onerror=fail; v.onended=fail;
-      v.onplaying=function(){ setBadge(c,'live','ao vivo · HD'); c.backoff=2000; c.mp4Fails=0; };
+      v.onplaying=function(){ setBadge(c,'live','ao vivo · HD'); c.backoff=2000; c.mp4Fails=0; clearTimeout(c.firstFrameTimer); };
+      // WATCHDOG do 1º frame: se não COMEÇOU a tocar em 7s (keyframe não chegou →
+      // tela preta), falha e cai pro MJPEG em vez de ficar preto pra sempre.
+      c.firstFrameTimer=setTimeout(function(){ if(v.readyState<3 || !(v.currentTime>0)) fail(); }, 7000);
       v.onwaiting=function(){
         clearTimeout(c.stallTimer);
-        c.stallTimer=setTimeout(function(){ if(v.readyState<3) fail(); }, 12000);
+        c.stallTimer=setTimeout(function(){ if(v.readyState<3) fail(); }, 7000);
       };
       v.src='/api/cam/'+id+'/mp4?t='+encodeURIComponent(TOKEN)+'&r='+Date.now();
       v.play().catch(function(){});
@@ -424,7 +467,10 @@ router.get('/cameras', (_req, res) => {
     fetch('/api/cam/health?t='+encodeURIComponent(TOKEN)).then(function(r){return r.json();}).then(function(j){
       gw.className=j.reachable?'ok':'down';
       gw.title=j.reachable?'gateway das câmeras: no ar':'gateway das câmeras: fora do ar (PC das câmeras/túnel)';
-      if(j.reachable){ Object.keys(cams).forEach(function(id){ if(cams[id].badge.className.indexOf('off')>=0){ cams[id].backoff=2000; startStream(id); } }); }
+      // gateway VOLTOU e a câmera está offline → reconecta na hora, e volta a
+      // TENTAR o mp4 (HD): a queda pode ter sido do gateway, não do codec —
+      // não deixa a câmera presa no MJPEG pra sempre depois de um blip. Bruno 07-08.
+      if(j.reachable){ Object.keys(cams).forEach(function(id){ var c=cams[id]; if(c.badge.className.indexOf('off')>=0){ c.backoff=2000; if(c.video){ c.mode='mp4'; c.mp4Fails=0; } startStream(id); } }); }
     }).catch(function(){});
   }, 15000);
   document.addEventListener('visibilitychange', function(){

@@ -9,9 +9,15 @@ import React from 'react';
 const CAMS = [
   { id: 'warehouse', label: '🏭 Warehouse Floor' },
   { id: 'packaging', label: '📦 Packaging Line' },
+  { id: 'formulation', label: '🧪 Formulation Cam 1' }, // cam6_hd — gateway precisa expor /mp4/formulation
 ];
 const TOK_KEY = 'hf_cam_tok';
-const SIZE_KEY = 'hf_cam_size_dash';
+const ORDER_KEY = 'hf_cam_order_dash';   // ordem dos tiles (drag-to-reorder)
+const WIDTHS_KEY = 'hf_cam_widths_dash'; // largura por câmera (resize por tile)
+const VIS_KEY = 'hf_cam_visible_dash';       // câmera on/off (mostrar/ocultar)
+const COLLAPSE_KEY = 'hf_cam_collapsed_dash'; // câmera minimizada (só o header)
+const HEIGHTS_KEY = 'hf_cam_heights_dash';   // altura por câmera (resize livre)
+const PAN_KEY = 'hf_cam_pan_dash';           // pan da imagem por câmera (object-position %)
 
 const tokenFresh = (t) => {
   if (!t) return false;
@@ -25,9 +31,23 @@ function CameraGrid({ compact = false }) {
   });
   const [pin, setPin] = React.useState('');
   const [pinErr, setPinErr] = React.useState(null);
-  const [size, setSize] = React.useState(() => {
-    try { return parseInt(localStorage.getItem(SIZE_KEY), 10) || (compact ? 420 : 560); } catch { return compact ? 420 : 560; }
+  const defW = compact ? 420 : 560;
+  // B (07-08): ordem dos tiles (drag-to-reorder) + largura por câmera (resize por tile), persistidos.
+  const [order, setOrder] = React.useState(() => {
+    const ids = CAMS.map((c) => c.id);
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); } catch {}
+    const valid = (Array.isArray(saved) ? saved : []).filter((id) => ids.includes(id));
+    return [...valid, ...ids.filter((id) => !valid.includes(id))]; // câmeras novas entram no fim
   });
+  const [widths, setWidths] = React.useState(() => {
+    try { const w = JSON.parse(localStorage.getItem(WIDTHS_KEY) || '{}'); return (w && typeof w === 'object') ? w : {}; } catch { return {}; }
+  });
+  const dragId = React.useRef(null);
+  const [visible, setVisible] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem(VIS_KEY) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch { return {}; } });
+  const [collapsed, setCollapsed] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch { return {}; } });
+  const [heights, setHeights] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem(HEIGHTS_KEY) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch { return {}; } });
+  const [pan, setPan] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem(PAN_KEY) || '{}'); return (v && typeof v === 'object') ? v : {}; } catch { return {}; } });
   const [status, setStatus] = React.useState({});   // camId -> 'live' | 'retry' | 'off'
   const [mode, setMode] = React.useState({});        // camId -> 'mp4' | 'mjpeg'
   const [gwUp, setGwUp] = React.useState(null);
@@ -39,7 +59,7 @@ function CameraGrid({ compact = false }) {
 
   const startStream = React.useCallback((id) => {
     const c = st(id); if (!token) return;
-    clearTimeout(c.timer); clearTimeout(c.stallTimer);
+    clearTimeout(c.timer); clearTimeout(c.stallTimer); clearTimeout(c.firstFrameTimer);
     setSt(id, 'retry');
     const m = camMode(id);
     if (m === 'mp4' && c.video) {
@@ -47,19 +67,26 @@ function CameraGrid({ compact = false }) {
       v.onerror = null; v.onplaying = null;
       v.src = '/api/cam/' + id + '/mp4?t=' + encodeURIComponent(token) + '&r=' + Date.now();
       const fail = () => {
+        clearTimeout(c.stallTimer); clearTimeout(c.firstFrameTimer);
         c.mp4Fails = (c.mp4Fails || 0) + 1;
         setSt(id, 'off');
-        if (c.mp4Fails >= 3) { setMode((p) => ({ ...p, [id]: 'mjpeg' })); return; } // fallback MJPEG
+        // TELA PRETA / mp4 problemático (GOP longo da warehouse) → cai RÁPIDO pro
+        // MJPEG, que tem reconexão transparente no servidor (robusto). Bruno 07-08.
+        if (c.mp4Fails >= 2) { setMode((p) => ({ ...p, [id]: 'mjpeg' })); return; }
         c.timer = setTimeout(() => startStream(id), c.backoff || 2000);
         c.backoff = Math.min((c.backoff || 2000) * 1.8, 30000);
       };
       v.onerror = fail;
       v.onended = fail;
-      v.onplaying = () => { setSt(id, 'live'); c.backoff = 2000; c.mp4Fails = 0; };
-      // stall watchdog: 'waiting' que não volta a 'playing' em 12s → reconecta
+      v.onplaying = () => { setSt(id, 'live'); c.backoff = 2000; c.mp4Fails = 0; clearTimeout(c.firstFrameTimer); };
+      // WATCHDOG do 1º frame: mp4 que conecta mas NÃO decodifica (fica preto até o
+      // keyframe — GOP longo) não dispara onerror/onwaiting; se em 7s não tiver
+      // começado a tocar, força o fail → MJPEG. Bruno 07-08.
+      c.firstFrameTimer = setTimeout(() => { if (v.readyState < 3 || !(v.currentTime > 0)) fail(); }, 7000);
+      // stall watchdog: 'waiting' que não volta a 'playing' em 7s → reconecta
       v.onwaiting = () => {
         clearTimeout(c.stallTimer);
-        c.stallTimer = setTimeout(() => { if (v.readyState < 3) fail(); }, 12000);
+        c.stallTimer = setTimeout(() => { if (v.readyState < 3) fail(); }, 7000);
       };
       v.play().catch(() => {});
     } else if (c.img) {
@@ -85,7 +112,7 @@ function CameraGrid({ compact = false }) {
     return () => {
       Object.values(cur).forEach((c) => {
         if (!c) return;
-        clearTimeout(c.timer); clearTimeout(c.stallTimer); clearInterval(c.pump);
+        clearTimeout(c.timer); clearTimeout(c.stallTimer); clearTimeout(c.firstFrameTimer); clearInterval(c.pump);
         if (c.video) { c.video.onerror = null; c.video.onplaying = null; c.video.onwaiting = null; c.video.onended = null; c.video.removeAttribute('src'); try { c.video.load(); } catch {} }
         if (c.img) { c.img.onerror = null; c.img.onload = null; c.img.src = ''; }
         if (document.pictureInPictureElement && (document.pictureInPictureElement === c.video || document.pictureInPictureElement === c.pipVideo)) {
@@ -104,6 +131,20 @@ function CameraGrid({ compact = false }) {
     };
   }, [token, mode, startStream]);
 
+  // Expandir/mostrar uma câmera → (re)inicia o stream SÓ dela (o <video> tinha
+  // desmontado ao colapsar/ocultar → conexão fechou e economizou banda). Sem
+  // deps: roda todo render mas só age na transição escondida→visível (não pisca
+  // as outras). O efeito principal acima cuida do start inicial e de token/mode.
+  const shownRef = React.useRef({});
+  React.useEffect(() => {
+    if (!token) return;
+    CAMS.forEach((c) => {
+      const shown = isVisible(c.id) && !isCollapsed(c.id);
+      if (shown && !shownRef.current[c.id]) startStream(c.id);
+      shownRef.current[c.id] = shown;
+    });
+  });
+
   // health poll — reconecta na hora quando o gateway volta
   React.useEffect(() => {
     if (!token) return undefined;
@@ -112,7 +153,14 @@ function CameraGrid({ compact = false }) {
         setGwUp(!!j.reachable);
         if (j.reachable) {
           CAMS.forEach((cam) => {
-            if ((statusRef.current[cam.id] || '') === 'off') { st(cam.id).backoff = 2000; startStream(cam.id); }
+            // gateway VOLTOU e cam offline → reconecta já, e volta a tentar o mp4
+            // (HD): a queda pode ter sido do gateway, não do codec — não fica preso
+            // no MJPEG pra sempre depois de um blip. Bruno 07-08.
+            if ((statusRef.current[cam.id] || '') === 'off') {
+              const c = st(cam.id); c.backoff = 2000;
+              if (c.video && camMode(cam.id) === 'mjpeg') { c.mp4Fails = 0; setMode((p) => ({ ...p, [cam.id]: 'mp4' })); }
+              else startStream(cam.id);
+            }
           });
         }
       }).catch(() => {});
@@ -139,6 +187,14 @@ function CameraGrid({ compact = false }) {
   const goFullscreen = (id) => {
     const el = st(id).wrap;
     if (el) (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
+  };
+
+  // Pop-out: abre ESTA câmera numa janela de navegador normal (redimensionável,
+  // pra arrastar pra outro monitor). Reusa /cameras/pip (1 câmera, só-vídeo).
+  const popOut = (id) => {
+    const w = window.open('/cameras/pip?cam=' + encodeURIComponent(id) + '#t=' + encodeURIComponent(token),
+      'hf_win_' + id, 'width=760,height=480');
+    if (!w) alert('O navegador bloqueou a janela — permita popups pra este site.');
   };
 
   // ── PIP cross-browser: Chrome/Edge usam requestPictureInPicture; o iPhone
@@ -198,26 +254,15 @@ function CameraGrid({ compact = false }) {
     } catch (e2) { clearInterval(c.pump); c.pump = null; throw e2; }
   };
   const togglePip = async (id) => {
-    // Chrome/Edge: janela Document PIP (tamanho controlado — sempre visível)
+    // Chrome/Edge: Document PIP — flutua SÓ esta câmera, sempre no topo.
+    // (O Chrome permite 1 PIP no navegador inteiro → toggleDocPip troca a câmera
+    // ou fecha; pra ver AS DUAS no topo é o "Ambas no topo" acima.)
     if (hasDocPip()) {
-      // 2 JANELAS AO MESMO TEMPO (Bruno 07-02): o Chrome só permite 1 docPIP por
-      // aba → se JÁ tem outra câmera fixada nesta aba, a 2ª abre via janelinha
-      // auxiliar (/cameras/pip), que tem direito ao PRÓPRIO docPIP. 1 clique lá
-      // ("Fixar por cima") e as DUAS ficam flutuando juntas.
-      const h = helpersRef.current[id];
-      if (h && !h.closed) { try { h.close(); } catch {} delete helpersRef.current[id]; return; } // toggle off da auxiliar
-      const cur = docRef.current;
-      if (cur.win && !cur.win.closed && cur.key && cur.key !== 'cam:' + id) {
-        const w = window.open('/cameras/pip?cam=' + encodeURIComponent(id) + '#t=' + encodeURIComponent(token),
-          'hf_pip_' + id, 'width=520,height=340,left=60,top=60,popup=1');
-        if (!w) { alert('O navegador bloqueou a janelinha — permita popups pra este site.'); return; }
-        helpersRef.current[id] = w;
-        return;
-      }
       try { await toggleDocPip('cam:' + id, CAMS.filter((c) => c.id === id)); }
       catch (e2) { alert('PIP falhou: ' + e2.message); }
       return;
     }
+    // fallback (Safari/iPhone): PIP de vídeo nativo
     const c = st(id);
     if (!pipCapable(c.video || c.pipVideo)) { alert('Este navegador não suporta Picture-in-Picture. Use Chrome/Edge (ou Safari no iPhone).'); return; }
     if (camMode(id) === 'mp4' && c.video && inPipNow(c.video)) { exitPip(c.video); return; }
@@ -240,27 +285,41 @@ function CameraGrid({ compact = false }) {
     d.body.style.cssText = 'margin:0;background:#000;height:100vh;overflow:hidden;display:flex;';
     const base = window.location.origin;
     cams.forEach((cam) => {
-      const m = camMode(cam.id);
       const cell = d.createElement('div');
       cell.style.cssText = 'position:relative;flex:1;min-width:0;height:100%;';
       const chip = d.createElement('div');
       chip.textContent = cam.label;
       chip.style.cssText = 'position:absolute;top:6px;left:8px;z-index:2;background:rgba(0,0,0,.55);color:#fff;font:bold 12px system-ui;padding:3px 8px;border-radius:6px;';
       cell.appendChild(chip);
-      const src = () => base + (m === 'mp4' ? '/api/cam/' + cam.id + '/mp4?t=' : '/api/cam/' + cam.id + '?t=') + encodeURIComponent(tok) + '&r=' + Date.now();
-      let el;
-      if (m === 'mp4') { el = d.createElement('video'); el.muted = true; el.autoplay = true; el.playsInline = true; }
-      else el = d.createElement('img');
-      el.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
-      let retry = null;
-      const reconnect = () => { clearTimeout(retry); retry = setTimeout(() => { el.src = src(); if (el.play) el.play().catch(() => {}); }, 2500); };
-      el.onerror = reconnect;
-      if (m === 'mp4') el.onended = reconnect;
-      el.src = src();
-      cell.appendChild(el);
+      const IMG = 'width:100%;height:100%;object-fit:contain;display:block;background:#000;';
+      const mp4src = () => base + '/api/cam/' + cam.id + '/mp4?t=' + encodeURIComponent(tok) + '&r=' + Date.now();
+      const mjpgsrc = () => base + '/api/cam/' + cam.id + '?t=' + encodeURIComponent(tok) + '&r=' + Date.now();
+      // fMP4 não aceita "entrar no meio": numa conexão NOVA o vídeo fica PRETO/
+      // congelado até o próximo keyframe. A warehouse tem GOP longo → era o "PIP
+      // só da warehouse preto" (Bruno 07-07). Watchdog: se em 6s o mp4 não
+      // decodificar um frame, cai pra MJPEG (frame isolado, aparece na hora).
+      let el, retry = null, blackTimer = null, fails = 0;
+      const mountImg = () => {
+        const im = d.createElement('img');
+        im.style.cssText = IMG;
+        im.onerror = () => { clearTimeout(retry); retry = setTimeout(() => { im.src = mjpgsrc(); }, 2500); };
+        im.src = mjpgsrc();
+        return im;
+      };
+      const toMjpeg = () => { clearTimeout(blackTimer); const im = mountImg(); if (el) cell.replaceChild(im, el); else cell.appendChild(im); el = im; };
+      if (camMode(cam.id) === 'mjpeg') {
+        el = mountImg(); cell.appendChild(el);
+      } else {
+        const v = d.createElement('video'); v.muted = true; v.autoplay = true; v.playsInline = true; v.style.cssText = IMG;
+        v.onplaying = () => { clearTimeout(blackTimer); };
+        v.onerror = () => { fails += 1; if (fails >= 2) { toMjpeg(); } else { clearTimeout(retry); retry = setTimeout(() => { v.src = mp4src(); v.play && v.play().catch(() => {}); }, 2500); } };
+        v.onended = v.onerror;
+        el = v; cell.appendChild(v);
+        v.src = mp4src(); v.play && v.play().catch(() => {});
+        blackTimer = setTimeout(() => { if (v.readyState < 3) toMjpeg(); }, 6000);
+      }
       d.body.appendChild(cell);
-      if (el.play) el.play().catch(() => {});
-      w.addEventListener('pagehide', () => clearTimeout(retry));
+      w.addEventListener('pagehide', () => { clearTimeout(retry); clearTimeout(blackTimer); });
     });
   };
   // abre/troca/fecha a janela docPIP: mesmo key → fecha (toggle); key diferente
@@ -333,7 +392,67 @@ function CameraGrid({ compact = false }) {
     } catch (e2) { clearInterval(all.pump); all.pump = null; alert('PIP falhou: ' + e2.message); }
   };
 
-  const onSize = (v) => { setSize(v); try { localStorage.setItem(SIZE_KEY, String(v)); } catch {} };
+  const widthOf = (id) => widths[id] || defW;
+  const persistWidths = (n) => { try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(n)); } catch {} return n; };
+  const persistJSON = (k, obj) => { try { localStorage.setItem(k, JSON.stringify(obj)); } catch {} return obj; };
+  const isVisible = (id) => visible[id] !== false;          // default: visível
+  const isCollapsed = (id) => !!collapsed[id];              // default: expandido
+  const toggleVisible = (id) => setVisible((p) => persistJSON(VIS_KEY, { ...p, [id]: !(p[id] !== false) }));
+  const toggleCollapsed = (id) => setCollapsed((p) => persistJSON(COLLAPSE_KEY, { ...p, [id]: !p[id] }));
+  const persistHeights = (n) => { try { localStorage.setItem(HEIGHTS_KEY, JSON.stringify(n)); } catch {} return n; };
+  const heightOf = (id) => heights[id] || (Math.round((widths[id] || defW) * 9 / 16) + 44); // ~16:9 + header
+  const panOf = (id) => pan[id] || { x: 50, y: 50 };
+  // Aplica largura/altura/pan IMPERATIVAMENTE (fora do style do React) pra que um
+  // re-render de status/badge não resete no meio de um resize/pan. useLayoutEffect
+  // roda antes do paint → sem flash.
+  React.useLayoutEffect(() => {
+    order.forEach((id) => {
+      const c = ref.current[id]; if (!c) return;
+      if (c.wrap) { c.wrap.style.width = (widths[id] || defW) + 'px'; c.wrap.style.height = isCollapsed(id) ? '' : heightOf(id) + 'px'; }
+      const op = panOf(id);
+      if (c.video) c.video.style.objectPosition = op.x + '% ' + op.y + '%';
+      if (c.img) c.img.style.objectPosition = op.x + '% ' + op.y + '%';
+    });
+  }, [widths, heights, pan, order, token, mode, collapsed, visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  // resize por tile: ao soltar (pointerup) grava largura E altura efetivas.
+  const onResizeEnd = (id) => {
+    const el = st(id).wrap; if (!el) return;
+    const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
+    if (w && Math.abs(w - widthOf(id)) > 3) setWidths((p) => persistWidths({ ...p, [id]: w }));
+    if (h && !isCollapsed(id) && Math.abs(h - heightOf(id)) > 3) setHeights((p) => persistHeights({ ...p, [id]: h }));
+  };
+  // pan da imagem: arrastar dentro do vídeo escolhe a área visível (object-position).
+  const panStart = (id) => (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const start = panOf(id), sx = e.clientX, sy = e.clientY;
+    const clamp = (v) => Math.max(0, Math.min(100, v));
+    let lx = start.x, ly = start.y;
+    const apply = () => { const c = st(id); if (c.video) c.video.style.objectPosition = lx + '% ' + ly + '%'; if (c.img) c.img.style.objectPosition = lx + '% ' + ly + '%'; };
+    const onMove = (ev) => {
+      lx = clamp(start.x - (ev.clientX - sx) / rect.width * 100);
+      ly = clamp(start.y - (ev.clientY - sy) / rect.height * 100);
+      apply();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp);
+      setPan((p) => persistJSON(PAN_KEY, { ...p, [id]: { x: lx, y: ly } }));
+    };
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp);
+  };
+  const resetPan = (id) => setPan((p) => persistJSON(PAN_KEY, { ...p, [id]: { x: 50, y: 50 } }));
+  // slider "todas": iguala a largura de todas as câmeras.
+  const setAllWidths = (w) => setWidths(() => persistWidths(CAMS.reduce((n, c) => { n[c.id] = w; return n; }, {})));
+  // drag-to-reorder: solta 'src' antes do 'target'.
+  const onDropAt = (targetId) => {
+    const src = dragId.current; dragId.current = null;
+    if (!src || src === targetId) return;
+    const next = order.filter((x) => x !== src);
+    const ti = next.indexOf(targetId);
+    next.splice(ti < 0 ? next.length : ti, 0, src);
+    setOrder(next); try { localStorage.setItem(ORDER_KEY, JSON.stringify(next)); } catch {}
+  };
 
   if (!token) {
     return (
@@ -367,40 +486,60 @@ function CameraGrid({ compact = false }) {
         <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>ao vivo · somente visualização</span>
         <span style={{ flex: 1 }}/>
         {CAMS.map((cam) => (
-          <button key={cam.id} className="btn sm ghost" onClick={() => togglePip(cam.id)}
-                  title={'Janela PIP flutuante só da ' + cam.label + ' (o navegador permite 1 PIP por vez — clicar na outra troca na hora)'}>
-            ⧉ PIP {cam.label.replace(/^\S+\s/, '')}
+          <button key={'vis-' + cam.id} className="btn sm ghost" onClick={() => toggleVisible(cam.id)}
+                  title={(isVisible(cam.id) ? 'Ocultar ' : 'Mostrar ') + cam.label}
+                  style={{ opacity: isVisible(cam.id) ? 1 : 0.4 }}>
+            {isVisible(cam.id) ? '👁' : '🚫'} {cam.label.replace(/^\S+\s/, '')}
           </button>
         ))}
         <button className="btn sm ghost" onClick={togglePipAll}
-                title="As DUAS câmeras lado a lado numa janela PIP flutuante (único jeito de ver as 2 juntas — o navegador não permite 2 janelas PIP)">⧉ PIP tudo</button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-3)' }}>
-          tamanho <input type="range" min={300} max={1200} step={20} value={size} onChange={(e) => onSize(+e.target.value)} style={{ width: 120, accentColor: 'var(--hf-navy-500)' }}/>
+                title="As câmeras numa janela flutuante SEMPRE-NO-TOPO (redimensionável). O Chrome só permite 1 janela PIP no total, então vão juntas nela.">📌 Ambas no topo</button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-3)' }}
+               title="Iguala a largura de TODAS as câmeras. Cada card também dá pra redimensionar sozinho puxando o canto inferior-direito.">
+          tamanho (todas) <input type="range" min={280} max={1200} step={20} value={widthOf(order[0] || CAMS[0].id)} onChange={(e) => setAllWidths(+e.target.value)} style={{ width: 110, accentColor: 'var(--hf-navy-500)' }}/>
         </label>
         <a className="btn sm ghost" href="/cameras" target="_blank" rel="noreferrer" title="Página standalone (pra TV/2º monitor)">abrir solto ↗</a>
       </div>
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: `repeat(auto-fit, minmax(min(${size}px, 100%), 1fr))` }}>
-        {CAMS.map((cam) => (
-          <div key={cam.id} className="card" style={{ overflow: 'hidden', padding: 0 }}
-               ref={(el) => { st(cam.id).wrap = el; }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
-              <b style={{ fontSize: 12.5, flex: 1 }}>{cam.label}</b>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
+        {order.map((id) => CAMS.find((c) => c.id === id)).filter(Boolean).filter((cam) => isVisible(cam.id)).map((cam) => (
+          <div key={cam.id} className="card"
+               style={{ overflow: 'hidden', padding: 0, maxWidth: '100%', minWidth: 220, display: 'flex', flexDirection: 'column',
+                        resize: isCollapsed(cam.id) ? 'none' : 'both' }}
+               ref={(el) => { st(cam.id).wrap = el; }}
+               onPointerUp={() => onResizeEnd(cam.id)}
+               onDragOver={(e) => e.preventDefault()}
+               onDrop={() => onDropAt(cam.id)}>
+            {/* HEADER — arrasta pra mover/reordenar · clique pra minimizar */}
+            <div draggable onDragStart={() => { dragId.current = cam.id; }} onDragEnd={() => { dragId.current = null; }}
+                 onClick={() => toggleCollapsed(cam.id)}
+                 title="Arraste pra mover/reordenar · clique pra minimizar/expandir"
+                 style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '8px 12px', cursor: 'grab', flex: 'none' }}>
+              <span style={{ color: 'var(--text-3)', fontSize: 11, flex: 'none', width: 12, textAlign: 'center' }}>{isCollapsed(cam.id) ? '▸' : '▾'}</span>
+              <b style={{ fontSize: 12.5, flex: 1, minWidth: 80 }}>{cam.label}</b>
               {badge(cam.id)}
-              <button className="btn sm ghost" onClick={() => togglePip(cam.id)} title="Picture-in-Picture (janela flutuante)">⧉ PIP</button>
-              <button className="btn sm ghost" onClick={() => goFullscreen(cam.id)} title="Tela cheia">⛶</button>
+              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); togglePip(cam.id); }} title="PIP — flutua SÓ esta câmera, sempre no topo (o Chrome permite 1 PIP por vez; clicar noutra troca)">⧉ PIP</button>
+              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); popOut(cam.id); }} title="Abrir esta câmera numa janela separada (redimensionável, pra outro monitor)">⧉↗</button>
+              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); goFullscreen(cam.id); }} title="Tela cheia">⛶</button>
+              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); toggleVisible(cam.id); }} title="Fechar (ocultar — reabre no 👁 lá em cima)">✕</button>
             </div>
-            {camMode(cam.id) === 'mp4' ? (
-              <video muted autoPlay playsInline
-                     ref={(el) => { st(cam.id).video = el; }}
-                     style={{ display: 'block', width: '100%', aspectRatio: '16/9', objectFit: 'contain', background: '#000' }}/>
-            ) : (
-              <img alt={cam.label}
-                   ref={(el) => { st(cam.id).img = el; }}
-                   style={{ display: 'block', width: '100%', aspectRatio: '16/9', objectFit: 'contain', background: '#000' }}/>
-            )}
-            {status[cam.id] === 'off' && (
-              <div style={{ padding: 18, textAlign: 'center', color: 'var(--text-3)', fontSize: 12.5 }}>
-                câmera offline — reconectando sozinho…
+            {!isCollapsed(cam.id) && (
+              <div style={{ position: 'relative', flex: 1, minHeight: 120, overflow: 'hidden', background: '#000', cursor: 'grab', touchAction: 'none' }}
+                   onPointerDown={panStart(cam.id)} onDoubleClick={() => resetPan(cam.id)}
+                   title="Arraste a imagem pra escolher a área · 2 cliques recentra">
+                {camMode(cam.id) === 'mp4' ? (
+                  <video muted autoPlay playsInline draggable={false}
+                         ref={(el) => { st(cam.id).video = el; }}
+                         style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', background: '#000' }}/>
+                ) : (
+                  <img alt={cam.label} draggable={false}
+                       ref={(el) => { st(cam.id).img = el; }}
+                       style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', background: '#000' }}/>
+                )}
+                {status[cam.id] === 'off' && (
+                  <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--text-3)', fontSize: 12.5, background: 'rgba(0,0,0,0.6)' }}>
+                    câmera offline — reconectando sozinho…
+                  </div>
+                )}
               </div>
             )}
           </div>
