@@ -215,6 +215,9 @@ async function handleEvent(payload, deps) {
   // ── edição ──
   if (sub === 'message_changed') {
     const mm = ev.message || {};
+    // guarda do feedback-loop também na edição (Bruno 07-08): não re-armar o LLM
+    // pra mensagem do PRÓPRIO bot (senão uma edição de notificação re-dispararia).
+    if (mm.subtype === 'bot_message' || mm.bot_id) return { handled: false, reason: 'own_bot_edit_skipped' };
     await db.query(
       `UPDATE v3.messages SET raw_text = $2, llm_processed_at = NULL, processing_error = NULL
        WHERE slack_ts = $1`,

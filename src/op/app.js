@@ -1702,7 +1702,12 @@
       var w = res && res.bottle_warning;
       if (w) toast('⚠️ ' + w.actual + ' bottles vs estimado ' + w.target + ' (' + (w.pct > 0 ? '+' : '') + w.pct + '%) — produção avisada');
       else toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
-      loadData(); checkEndOfDay(); // PASSADA 2 — pergunta os totais do dia se for a hora
+      loadData();
+      // CUSTÓDIA (Bruno 07-08): ALMOÇO é finalizado por AQUI (não pelo resumeWork,
+      // que é só do break) → sem isto, encerrar o almoço engolia o machine_return_*
+      // e a pergunta SIM/NÃO nunca aparecia. Tem prioridade sobre o fim-do-dia.
+      if (handleMachineReturn(res)) return;
+      checkEndOfDay(); // PASSADA 2 — pergunta os totais do dia se for a hora
     }).catch(function (e) {
       var code = (e && e.body && e.body.error) || e.message;
       var M = { bottles_required: 'Informe quantas bottles', orders_required: 'Informe quantas ordens', exception_reason_required: 'Explique o motivo (mín. 10 caracteres)' };

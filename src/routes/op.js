@@ -595,7 +595,12 @@ function createOpRouter(deps = {}) {
     return (await db.query("SELECT id, cover_person_id FROM v3.machine_custody WHERE owner_person_id = $1 AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1", [ownerId])).rows[0] || null;
   }
   async function activeCoverageForCover(coverId) {
-    return (await db.query("SELECT id, owner_person_id FROM v3.machine_custody WHERE cover_person_id = $1 AND ended_at IS NULL", [coverId])).rows;
+    // date-scope HOJE (auditoria 07-08): defesa extra contra cobertura órfã de um
+    // dia anterior que ainda não foi expirada — não mis-taggeia job novo do substituto.
+    return (await db.query(
+      `SELECT id, owner_person_id FROM v3.machine_custody
+        WHERE cover_person_id = $1 AND ended_at IS NULL
+          AND (started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date`, [coverId])).rows;
   }
   async function endCoverage(id, resolution) {
     await db.query("UPDATE v3.machine_custody SET ended_at = NOW(), resolution = $2 WHERE id = $1 AND ended_at IS NULL", [id, resolution]);
@@ -758,6 +763,12 @@ function createOpRouter(deps = {}) {
       `UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_custody_expired_overnight', updated_at = NOW()
        WHERE bg_handoff_from_person_id IS NOT NULL AND ended_at IS NULL AND deleted_at IS NULL
          AND (started_at AT TIME ZONE '${EDT}')::date < (NOW() AT TIME ZONE '${EDT}')::date`);
+    // …e RESOLVE as linhas de cobertura órfãs (auditoria 07-08): a cobertura é
+    // durável, então se o dono não voltou e virou o dia, a linha ficava ATIVA pra
+    // sempre — mis-taggeava jobs novos do substituto e disparava "máquina parada"
+    // falso. Fecha as de dias anteriores como 'expired'.
+    await db.query(
+      "UPDATE v3.machine_custody SET ended_at = NOW(), resolution = 'expired' WHERE ended_at IS NULL AND (started_at AT TIME ZONE '" + EDT + "')::date < (NOW() AT TIME ZONE '" + EDT + "')::date").catch(() => {});
     const r = await db.query(
       `UPDATE v3.events SET is_unfinished = TRUE, updated_at = NOW()
        WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND paused_at IS NOT NULL
@@ -2139,6 +2150,17 @@ function createOpRouter(deps = {}) {
        SET ended_at = NOW(), closed_reason = 'clock_out', updated_at = NOW()
        WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND is_long_running = false
        RETURNING id`, [s.person_id]);
+    // 1b) CUSTÓDIA (auditoria 07-08): se ele é DONO com cobertura ativa e está
+    // batendo o ponto (não vai voltar hoje), o substituto FICA com a máquina →
+    // os jobs abertos viram do substituto (bg_handoff=NULL) e a cobertura resolve.
+    // Evita cobertura órfã mis-taggeando jobs do substituto no resto do dia.
+    try {
+      const owned = await activeCoverageForOwner(s.person_id);
+      if (owned) {
+        await db.query('UPDATE v3.events SET bg_handoff_from_person_id = NULL, updated_at = NOW() WHERE bg_handoff_from_person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL', [s.person_id]);
+        await endCoverage(owned.id, 'owner_clocked_out');
+      }
+    } catch (e) { console.error('[machine] cleanup custódia no clock-out falhou:', e.message); }
 
     // 2) aplica counts informados
     for (const citem of counts) {
