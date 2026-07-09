@@ -128,6 +128,10 @@ function createOpRouter(deps = {}) {
       await actionLog({ personId: person.id, personName: person.display_name, actionType: 'login', payload: { session_id: session.id }, isTest: !!person.is_sandbox });
       // FASE PAUSA: pausa não retomada que virou o dia → unfinished (nunca bloqueia login)
       try { await expireOvernightPauses(person.id); } catch (e) { console.error('[op] expireOvernightPauses:', e.message); }
+      // CUSTÓDIA (Bruno 07-08): se um operador de FORMULAÇÃO volta e tem máquina que
+      // ficou com um colega não-operador (saída de emergência), a responsabilidade
+      // TRANSFERE pra ele agora + aviso "FOI TRANSFERIDO PRA VOCÊ". (nunca bloqueia)
+      try { await checkMachineReturnFor(person.id); } catch (e) { console.error('[op] checkMachineReturnFor:', e.message); }
       const forgotten = await detectForgottenOperators(person.id);
       res.json({
         session_token: session.session_token,
@@ -650,6 +654,39 @@ function createOpRouter(deps = {}) {
       [toOwnerId, j.activity_type_id, j.product_batch_id, !!j.is_test]);
     return true;
   }
+  // Operador de FORMULAÇÃO voltou (Bruno 07-08): se alguma máquina ficou com um
+  // colega NÃO-operador (saída de emergência de quem estava sozinho), a
+  // responsabilidade TRANSFERE pra ele AGORA (a máquina precisa de um operador de
+  // formulação) + aviso ALTO "FOI TRANSFERIDO PRA VOCÊ". Automático, sem perguntar.
+  async function checkMachineReturnFor(personId) {
+    const me = (await db.query('SELECT is_machine_operator, display_name, slack_user_id FROM v3.persons WHERE id = $1', [personId])).rows[0];
+    if (!me || !me.is_machine_operator) return;
+    const emerg = (await db.query(
+      `SELECT mc.id, mc.owner_person_id, mc.cover_person_id
+         FROM v3.machine_custody mc JOIN v3.persons cov ON cov.id = mc.cover_person_id
+        WHERE mc.ended_at IS NULL AND COALESCE(cov.is_machine_operator, false) = false
+          AND mc.cover_person_id <> $1`, [personId])).rows;
+    if (!emerg.length) return;
+    const transferred = [];
+    for (const c of emerg) {
+      const jobs = (await openCustodyJobs(c.owner_person_id)).filter((j) => j.holder_id === c.cover_person_id);
+      for (const j of jobs) {
+        await db.query("UPDATE v3.events SET ended_at = NOW(), closed_reason = 'machine_return', updated_at = NOW() WHERE id = $1", [j.id]);
+        await db.query(
+          `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, is_long_running, is_test)
+           SELECT $1, activity_type_id, product_batch_id, NOW(), 'Formulação transferida (operador de máquina voltou)', 'high', 'operator_page', true, is_test
+             FROM v3.events WHERE id = $2`, [personId, j.id]);
+        transferred.push(j.product || j.batch_number || j.act_name);
+      }
+      await endCoverage(c.id, 'taken_over_on_return');
+    }
+    if (transferred.length) {
+      const who = me.slack_user_id ? `<@${me.slack_user_id}>` : `*${me.display_name}*`;
+      const txt = `:arrows_counterclockwise: *FOI TRANSFERIDO PRA VOCÊ, ${who}.* Você voltou e é operador de formulação → a(s) máquina(s) (${transferred.join(', ')}) que estava(m) com um colega enquanto ninguém da formulação estava presente *agora é(são) sua responsabilidade.* Fica de olho!`;
+      await machineSlack(txt); await adminSlack(txt);
+      await audit('machine.transferred_on_return', 'person', personId, { jobs: transferred }, personId);
+    }
+  }
   async function adminSlack(text) {
     if (!slack || !slack.postAs) return;
     try {
@@ -658,16 +695,17 @@ function createOpRouter(deps = {}) {
   }
   // appointee: null = acha outro machine-op; number = pessoa APONTADA pelo operador
   // (inexperiente → mensagem SÉRIA); 'none' = ninguém disponível → formulação PARA.
-  async function handoffMachineWork(personId, isSandbox, appointee = null, leaveLabel = 'almoço/pausa') {
+  async function handoffMachineWork(personId, isSandbox, appointee = null, leaveLabel = 'almoço/pausa', silentSlack = false) {
     try {
       const me = (await db.query('SELECT is_machine_operator, display_name FROM v3.persons WHERE id = $1', [personId])).rows[0];
-      if (!me || !me.is_machine_operator) return;
+      if (!me || !me.is_machine_operator) return null;
       const mine = await myRunningMachines(personId);
-      if (!mine.length) return;
+      if (!mine.length) return null;
       const slugsAll = mine.map((m) => m.act_name || m.slug);
-      // NINGUÉM (nem apontado): situação gravíssima — máquinas sem supervisão → PARAR.
+      // NINGUÉM apontado: a máquina SEGUE RODANDO (nunca paramos — regra Bruno) e
+      // alertamos ALTO pra alguém assumir já. Nunca dizer "PARAR".
       if (appointee === 'none') {
-        const txt = `:rotating_light: *ATENÇÃO GERENTES — MÁQUINAS SEM SUPERVISÃO.* ${me.display_name} saiu (${leaveLabel}) com máquina(s) rodando (${slugsAll.join(', ')}) e NÃO HÁ NINGUÉM disponível para assumir. *A FORMULAÇÃO DEVE PARAR até alguém assumir as máquinas.* Confirmem IMEDIATAMENTE quem fica responsável.`;
+        const txt = `:rotating_light::rotating_light: *ATENÇÃO TODOS — MÁQUINA(S) DE FORMULAÇÃO SEM NINGUÉM DE OLHO.* ${me.display_name} saiu (${leaveLabel}) e a(s) máquina(s) (${slugsAll.join(', ')}) *seguem rodando* sem ninguém apontado. *Alguém disponível precisa assumir AGORA* — pode ser qualquer operador. Gerentes, confirmem quem assume.`;
         await machineSlack(txt); await adminSlack(txt);
         await audit('machine.unattended', 'person', personId, { slugs: slugsAll }, personId);
         return;
@@ -679,7 +717,7 @@ function createOpRouter(deps = {}) {
       }
       if (!recv) recv = await findMachineRecv(personId, isSandbox);
       if (!recv) {
-        const txt = `:rotating_light: *${me.display_name}* saiu (${leaveLabel}) com máquina(s) rodando (${slugsAll.join(', ')}) e não há outro operador de máquina disponível. *As máquinas NÃO PODEM ficar sozinhas — a formulação deve PARAR até alguém assumir.* Gerentes, confirmem quem fica responsável.`;
+        const txt = `:rotating_light: *${me.display_name}* saiu (${leaveLabel}) e a(s) máquina(s) (${slugsAll.join(', ')}) *seguem rodando* sem outro operador de máquina disponível. *Alguém precisa assumir pra não ficar sem supervisão* — pode ser qualquer operador disponível. Gerentes, apontem quem fica responsável.`;
         await machineSlack(txt); await adminSlack(txt);
         return;
       }
@@ -705,14 +743,17 @@ function createOpRouter(deps = {}) {
       await audit('machine.handoff', 'person', personId, { from: personId, to: recv.id, slugs, appointed: Number.isFinite(appointee), inexperienced }, personId);
       const ping = recv.slack_user_id ? `<@${recv.slack_user_id}>` : recv.display_name;
       const willReturn = leaveLabel === 'almoço/pausa'; // clock-out não volta hoje
-      if (inexperienced) {
-        // TOM SÉRIO (regra Bruno 07-02): substituto NÃO é operador de máquina.
-        const txt = `:rotating_light: *ATENÇÃO: ${me.display_name} saiu (${leaveLabel}) E APONTOU ${ping} PARA CUIDAR DA(S) MÁQUINA(S) (${slugs.join(', ')}).* ${recv.display_name} NÃO é operador de máquina. *GERENTES: confirmem se está correto.* ${ping}: se precisar de QUALQUER ajuda, comunique os gerentes IMEDIATAMENTE.`;
-        await machineSlack(txt); await adminSlack(txt);
-      } else {
-        await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu (${leaveLabel}) — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho!${willReturn ? ` Voltam pro ${me.display_name} quando ele retornar.` : ' A máquina NÃO pode parar.'}`);
+      if (!silentSlack) {
+        if (inexperienced) {
+          // TOM SÉRIO (regra Bruno 07-02): substituto NÃO é operador de máquina.
+          const txt = `:rotating_light: *ATENÇÃO: ${me.display_name} saiu (${leaveLabel}) E APONTOU ${ping} PARA CUIDAR DA(S) MÁQUINA(S) (${slugs.join(', ')}).* ${recv.display_name} NÃO é operador de máquina. *GERENTES: confirmem se está correto.* ${ping}: se precisar de QUALQUER ajuda, comunique os gerentes IMEDIATAMENTE.`;
+          await machineSlack(txt); await adminSlack(txt);
+        } else {
+          await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu (${leaveLabel}) — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho!${willReturn ? ` Voltam pro ${me.display_name} quando ele retornar.` : ''}`);
+        }
       }
-    } catch (e) { console.error('[machine] handoff falhou:', e.message); }
+      return { recv, slugs, inexperienced };
+    } catch (e) { console.error('[machine] handoff falhou:', e.message); return null; }
   }
   async function returnMachineWork(personId) {
     try {
@@ -2145,13 +2186,47 @@ function createOpRouter(deps = {}) {
     const unknownIds = Array.isArray(body.unknown_event_ids)
       ? body.unknown_event_ids.map((x) => parseInt(x, 10)).filter(Number.isFinite) : [];
 
-    // 0) SUPERVISÃO (Bruno 07-08): se ele SEGURA máquina rodando (própria OU
-    // herdada de alguém que está fora) e bate o ponto → RE-PASSA pra outro operador
-    // de máquina disponível, ou dispara o alerta "MÁQUINAS SEM SUPERVISÃO" se não
-    // há ninguém. A máquina NUNCA fica sozinha. (myRunningMachines já inclui herdadas.)
+    // 0) FORMULAÇÃO no clock-out (Bruno 07-08): NUNCA para a linha. Se ele SEGURA
+    // máquina rodando (própria OU herdada) e bate o ponto:
+    //   • tem OUTRO operador de máquina presente → passa pra ele e segue;
+    //   • é a ÚNICA pessoa da formulação → EMERGÊNCIA: o app mostra o box
+    //     ("VOCÊ É A ÚNICA... É EMERGÊNCIA? EXPLIQUE"), ele confirma + aponta
+    //     QUALQUER um disponível, alerta ALTO nos 2 grupos (employees + admin) com
+    //     o motivo, e a máquina SEGUE RODANDO. Quando um operador de formulação
+    //     volta, a responsabilidade transfere pra ele (ver checkMachineReturnFor).
     if (!s.is_sandbox) {
-      try { await handoffMachineWork(s.person_id, s.is_sandbox, null, 'fim do expediente (bateu ponto)'); }
-      catch (e) { console.error('[machine] handoff no clock-out falhou:', e.message); }
+      try {
+        const machines = await myRunningMachines(s.person_id);
+        if (machines.length) {
+          const apRaw = body.machine_appointee_id;
+          const slugsTxt = machines.map((m) => m.act_name || m.slug).join(', ');
+          if (apRaw == null) {
+            const recv = await findMachineRecv(s.person_id, false); // outro OPERADOR DE MÁQUINA presente
+            if (recv) {
+              await handoffMachineWork(s.person_id, false, recv.id, 'fim do expediente (bateu ponto)');
+            } else {
+              // é a única pessoa da formulação → pede o box + apontar (não fecha o ponto ainda)
+              const candidates = await appointCandidates(s.person_id);
+              return res.json({ ok: true, machine_leaving_emergency: true, machines: machines.map((m) => m.act_name || m.slug), candidates });
+            }
+          } else {
+            const reason = (body.machine_leave_reason || '').toString().slice(0, 500);
+            const ap = apRaw === 'none' ? 'none' : parseInt(apRaw, 10);
+            if (ap === 'none' || !Number.isFinite(ap)) {
+              // ninguém disponível → máquina SEGUE RODANDO + alerta ALTO (nunca para)
+              await handoffMachineWork(s.person_id, false, 'none', 'saída urgente (bateu ponto)');
+            } else {
+              // apontou alguém → passa (silencioso) e manda a mensagem ALTA com o motivo
+              const r = await handoffMachineWork(s.person_id, false, ap, 'saída urgente (bateu ponto)', true);
+              const recvRow = (await db.query('SELECT display_name, slack_user_id FROM v3.persons WHERE id = $1', [ap])).rows[0];
+              const who = recvRow ? (recvRow.slack_user_id ? `<@${recvRow.slack_user_id}>` : `*${recvRow.display_name}*`) : 'a pessoa apontada';
+              const txt = `:rotating_light::rotating_light: *URGENTE — ${s.display_name} PRECISOU SAIR e era a ÚNICA pessoa cuidando da FORMULAÇÃO.* Apontou ${who} pra tomar conta da(s) máquina(s) (${slugsTxt}) enquanto está fora — *a máquina SEGUE RODANDO.* Assim que um operador de formulação voltar, a responsabilidade passa pra ele.` + (reason ? `\n*Motivo informado:* ${reason}` : '');
+              await machineSlack(txt); await adminSlack(txt);
+              await audit('machine.emergency_leave', 'person', s.person_id, { to: ap, reason, slugs: machines.map((m) => m.act_name || m.slug), inexperienced: !!(r && r.inexperienced) }, s.person_id);
+            }
+          }
+        }
+      } catch (e) { console.error('[machine] emergência no clock-out falhou:', e.message); }
     }
     // 1) fecha as tasks ABERTAS do operador (long_running fica)
     const closed = await db.query(
@@ -2159,15 +2234,18 @@ function createOpRouter(deps = {}) {
        SET ended_at = NOW(), closed_reason = 'clock_out', updated_at = NOW()
        WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND is_long_running = false
        RETURNING id`, [s.person_id]);
-    // 1b) CUSTÓDIA (auditoria 07-08): se ele é DONO com cobertura ativa e está
-    // batendo o ponto (não vai voltar hoje), o substituto FICA com a máquina →
-    // os jobs abertos viram do substituto (bg_handoff=NULL) e a cobertura resolve.
-    // Evita cobertura órfã mis-taggeando jobs do substituto no resto do dia.
+    // 1b) CUSTÓDIA no clock-out do DONO (auditoria 07-08): se a máquina dele está
+    // com um substituto que É operador de máquina → o substituto FICA com ela (vira
+    // dele, cobertura resolve). Se o substituto NÃO é operador (emergência), MANTÉM
+    // a cobertura: um operador de formulação assume ao voltar (checkMachineReturnFor).
     try {
       const owned = await activeCoverageForOwner(s.person_id);
       if (owned) {
-        await db.query('UPDATE v3.events SET bg_handoff_from_person_id = NULL, updated_at = NOW() WHERE bg_handoff_from_person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL', [s.person_id]);
-        await endCoverage(owned.id, 'owner_clocked_out');
+        const cov = (await db.query('SELECT is_machine_operator FROM v3.persons WHERE id = $1', [owned.cover_person_id])).rows[0];
+        if (cov && cov.is_machine_operator) {
+          await db.query('UPDATE v3.events SET bg_handoff_from_person_id = NULL, updated_at = NOW() WHERE bg_handoff_from_person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL', [s.person_id]);
+          await endCoverage(owned.id, 'owner_clocked_out');
+        }
       }
     } catch (e) { console.error('[machine] cleanup custódia no clock-out falhou:', e.message); }
 

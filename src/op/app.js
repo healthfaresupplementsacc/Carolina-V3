@@ -981,7 +981,7 @@
     } else {
       h += '<div style="font-size:13.5px; color:#8a5a00; background:rgba(217,145,0,.12); border-left:3px solid #d99100; padding:11px 13px; border-radius:11px; margin-bottom:12px; font-weight:600;">Nenhum colega disponível agora no sistema.</div>';
     }
-    h += '<button data-act="appointNone" style="width:100%; border:1px solid rgba(179,38,30,.35); background:rgba(179,38,30,.07); color:#b3261e; border-radius:14px; padding:13px; font-weight:800; font-size:14px; cursor:pointer; margin-bottom:10px;">NÃO TEM NINGUÉM — a formulação vai ter que PARAR</button>';
+    h += '<button data-act="appointNone" style="width:100%; border:1px solid rgba(179,38,30,.35); background:rgba(179,38,30,.07); color:#b3261e; border-radius:14px; padding:13px; font-weight:800; font-size:14px; cursor:pointer; margin-bottom:10px;">Não tem ninguém agora — deixar rodando e AVISAR TODOS</button>';
     h += '<div style="display:flex; gap:11px;">' + ghostBtn('closeOverlay', 'Voltar (não vou sair agora)') + '</div>';
     h += '</div>';
     return h;
@@ -1005,8 +1005,34 @@
     h += '</div></div>';
     return h;
   }
+  // EMERGÊNCIA DA FORMULAÇÃO (Bruno 07-08): a pessoa vai bater ponto e é a ÚNICA
+  // cuidando da máquina. NÃO paramos a linha — ela explica, aponta quem cuida, e a
+  // máquina segue rodando. Alerta ALTO vai pros 2 grupos no Slack.
+  function machineEmergencyInner(o) {
+    var h = cardOpen(500);
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:12px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.14); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svgr(WARN, 26, 2) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:18px; color:#b3261e; line-height:1.2;">VOCÊ É A ÚNICA PESSOA CUIDANDO DA FORMULAÇÃO</div></div>';
+    h += '<div style="font-size:14.5px; color:#42566f; font-weight:600; margin-bottom:6px; line-height:1.5;">A(s) máquina(s) <b>' + esc((o.machines || []).join(', ')) + '</b> segue(m) rodando. Isso é uma <b>emergência</b>? <b>Explique embaixo</b> por que precisa sair:</div>';
+    h += '<textarea data-input="emReason" data-focus="emReason" placeholder="Ex: emergência médica, tive que sair urgente…" style="width:100%; min-height:80px; font-size:16px; padding:13px 15px; border:1px solid rgba(179,38,30,.3); border-radius:14px; background:#fff; color:#0c2545; outline:none; margin-bottom:14px;">' + esc(o.reason || '') + '</textarea>';
+    h += '<div style="font-size:14px; font-weight:700; color:#0c2545; margin-bottom:8px;">Quem vai cuidar da máquina enquanto você estiver fora?</div>';
+    if ((o.candidates || []).length) {
+      h += '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:230px; overflow-y:auto; margin-bottom:12px;">';
+      (o.candidates || []).forEach(function (c) {
+        var on = String(o.appointee) === String(c.id);
+        h += '<button data-act="emPick" data-arg="' + esc(c.id) + '" style="display:flex; align-items:center; gap:12px; width:100%; text-align:left; cursor:pointer; padding:12px 15px; border-radius:14px; border:1px solid ' + (on ? 'rgba(31,95,208,.5)' : 'rgba(15,40,90,.12)') + '; background:' + (on ? 'rgba(31,95,208,.1)' : 'rgba(255,255,255,.8)') + ';"><span style="flex:none; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:rgba(31,95,208,.12); color:#1f5fd0; font-weight:800;">' + esc((c.display_name || '?').slice(0, 2).toUpperCase()) + '</span><span style="flex:1; font-weight:700; font-size:15px; color:#0c2545;">' + esc(c.display_name) + '</span>' + (on ? '<span style="color:#1f5fd0;">' + svgr(CHECK, 18, 3) + '</span>' : '') + '</button>';
+      });
+      h += '</div>';
+    } else {
+      h += '<div style="font-size:13.5px; color:#8a5a00; background:rgba(217,145,0,.12); border-left:3px solid #d99100; padding:11px 13px; border-radius:11px; margin-bottom:12px; font-weight:600;">Ninguém disponível no sistema agora.</div>';
+    }
+    h += '<button data-act="emConfirm" ' + (o.appointee ? '' : 'disabled') + ' style="width:100%; border:0; background:' + (o.appointee ? 'linear-gradient(135deg,#3a86ee,#1f5fd0)' : '#b9c4d4') + '; color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; cursor:' + (o.appointee ? 'pointer' : 'not-allowed') + '; margin-bottom:10px;">Confirmar saída — a máquina SEGUE RODANDO</button>';
+    h += '<button data-act="emNobody" style="width:100%; border:1px solid rgba(179,38,30,.35); background:rgba(179,38,30,.07); color:#b3261e; border-radius:14px; padding:12px; font-weight:800; font-size:13.5px; cursor:pointer;">Não tem NINGUÉM disponível — deixar rodando e AVISAR TODOS</button>';
+    h += '<div style="margin-top:10px;">' + ghostBtn('closeOverlay', 'Voltar (não vou sair ainda)') + '</div>';
+    h += '</div>';
+    return h;
+  }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'machineEmergency') return machineEmergencyInner(o);
     if (o.type === 'machineReturn') return machineReturnInner(o);
     if (o.type === 'appointMachine') return appointMachineInner(o);
     if (o.type === 'reclassify') return reclassifyInner(o);
@@ -1333,7 +1359,7 @@
       toast((name || 'Colega') + ' vai ficar de olho na máquina — gerentes avisados');
     },
     appointNone: function () {
-      showAlert({ title: 'NINGUÉM VAI CUIDAR DA MÁQUINA?', message: 'As máquinas NÃO podem ficar sozinhas. Sem ninguém, a FORMULAÇÃO VAI TER QUE PARAR e os gerentes serão avisados AGORA. Confirma que não tem ninguém?', okLabel: 'Confirmo — não tem ninguém', cancel: 'Voltar' })
+      showAlert({ title: 'Ninguém pra cuidar da máquina?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pros funcionários e pros gerentes pra alguém assumir o mais rápido possível. Confirma que não tem ninguém disponível agora?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
         .then(function (ok) {
           if (!ok) return;
           var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
@@ -1355,6 +1381,18 @@
       api('/api/v3/op/machine/confirm-return', { method: 'POST', body: { decision: 'no' } })
         .then(function () { toast('Ok — a máquina segue com o substituto'); loadData(); })
         .catch(function (e) { toast(e.message); });
+    },
+    // EMERGÊNCIA da formulação no clock-out
+    emPick: function (arg) { if (S.overlay) { S.overlay.appointee = parseInt(arg, 10); render(); } },
+    emConfirm: function () {
+      var o = S.overlay; if (!o || !o.appointee) return;
+      if (!(o.reason || '').trim()) { showAlert({ title: 'Explique o motivo', message: 'Escreva rapidinho por que precisa sair deixando a máquina — é importante pro registro.', okLabel: 'Entendi' }); S._focus = 'emReason'; render(); return; }
+      doClockOut(o);
+    },
+    emNobody: function () {
+      var o = S.overlay; if (!o) return;
+      showAlert({ title: 'Ninguém disponível?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pros funcionários e gerentes pra alguém assumir. Confirma?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
+        .then(function (ok) { if (ok) doClockOut(Object.assign({}, o, { appointee: 'none' })); });
     },
     note: function () { S.overlay = { type: 'note', note: '' }; S._focus = 'ovNote'; render(); },
     saveNote: function () { var o = S.overlay; var txt = (o.note || '').trim(); if (!txt) { showAlert({ title: 'Nota vazia', message: 'Escreva ou grave algo antes de salvar a nota.', okLabel: 'Entendi' }); return; } api('/api/v3/op/note', { method: 'POST', body: { text: txt } }).then(function () { S.overlay = null; toast('Nota salva'); }).catch(function (e) { toast(e.message); }); },
@@ -1719,15 +1757,29 @@
       S.overlay = { type: 'clock', missing: info.missing || [], is_last: info.is_last_operator, can_skip: info.can_skip, counts: {}, unknown: {} }; render();
     }).catch(function (e) { toast(e.message); });
   }
-  function doClockOut() {
-    var o = S.overlay; var counts = []; var unknown = []; var incomplete = false;
-    (o.missing || []).forEach(function (m) {
-      if ((o.unknown || {})[m.event_id]) unknown.push(m.event_id);
-      else { var v = (o.counts || {})[m.event_id]; if (v !== undefined && v !== '' && parseInt(v, 10) >= 0) counts.push({ event_id: m.event_id, bottles: parseInt(v, 10) }); else incomplete = true; }
-    });
-    if (incomplete && o.is_last && !o.can_skip && (o.missing || []).length) { showAlert({ title: 'Faltam contagens', message: 'Preencha quantos bottles saíram em cada produção, ou marque "Não sei".', okLabel: 'Entendi' }); return; }
-    api('/api/v3/op/clock-out', { method: 'POST', body: { counts: counts, unknown_event_ids: unknown } }).then(function () { S.overlay = null; toast('Até amanhã!'); endSession(); }).catch(function (e) {
-      if (e.status === 422 && e.body && e.body.missing) { S.overlay = { type: 'clock', missing: e.body.missing, is_last: true, can_skip: false, counts: o.counts || {}, unknown: o.unknown || {} }; render(); }
+  function doClockOut(em) {
+    var counts, unknown;
+    if (em && em.clockCounts) { counts = em.clockCounts.counts; unknown = em.clockCounts.unknown; }
+    else {
+      var o = S.overlay; counts = []; unknown = []; var incomplete = false;
+      (o.missing || []).forEach(function (m) {
+        if ((o.unknown || {})[m.event_id]) unknown.push(m.event_id);
+        else { var v = (o.counts || {})[m.event_id]; if (v !== undefined && v !== '' && parseInt(v, 10) >= 0) counts.push({ event_id: m.event_id, bottles: parseInt(v, 10) }); else incomplete = true; }
+      });
+      if (incomplete && o.is_last && !o.can_skip && (o.missing || []).length) { showAlert({ title: 'Faltam contagens', message: 'Preencha quantos bottles saíram em cada produção, ou marque "Não sei".', okLabel: 'Entendi' }); return; }
+    }
+    var body = { counts: counts, unknown_event_ids: unknown };
+    if (em) { body.machine_appointee_id = em.appointee; body.machine_leave_reason = em.reason || ''; }
+    api('/api/v3/op/clock-out', { method: 'POST', body: body }).then(function (res) {
+      // FORMULAÇÃO (Bruno 07-08): é a ÚNICA pessoa cuidando da máquina → box de
+      // emergência (explica + aponta quem cuida). A máquina segue rodando.
+      if (res && res.machine_leaving_emergency) {
+        S.overlay = { type: 'machineEmergency', machines: res.machines || [], candidates: res.candidates || [], reason: '', appointee: null, clockCounts: { counts: counts, unknown: unknown } };
+        S._focus = 'emReason'; render(); return;
+      }
+      S.overlay = null; toast('Até amanhã!'); endSession();
+    }).catch(function (e) {
+      if (e.status === 422 && e.body && e.body.missing) { S.overlay = { type: 'clock', missing: e.body.missing, is_last: true, can_skip: false, counts: (S.overlay || {}).counts || {}, unknown: (S.overlay || {}).unknown || {} }; render(); }
       else toast(e.message);
     });
   }
@@ -1758,6 +1810,7 @@
     else if (k === 'finNote') { S.overlay.note = v; }
     else if (k === 'clockCount') { S.overlay.counts = S.overlay.counts || {}; S.overlay.counts[el.dataset.arg] = v; }
     else if (k === 'gapNote') { S.overlay.note = v; }
+    else if (k === 'emReason') { S.overlay.reason = v; }
     else if (k === 'eodNote') { S.overlay.note = v; }
     else if (k === 'eodBottles') { S.overlay.totals = S.overlay.totals || {}; S.overlay.totals[el.dataset.arg] = v; }
   });
