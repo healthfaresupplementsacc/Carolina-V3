@@ -1238,6 +1238,20 @@ function createOpRouter(deps = {}) {
     if (requiresBottleCount && ev.product_batch_id && await othersOnBatchLine(ev.product_batch_id, ev.id)) {
       requiresBottleCount = false;
     }
+    // JÁ CONTADO no lote (todos os dias, outros eventos) → mostra "faltam ~X pro
+    // alvo" no fim, pra quem continua o lote no dia seguinte não digitar o total de
+    // novo (Bruno 07-08). Só pra linha (bottles).
+    let alreadyCounted = 0;
+    if (ev.product_batch_id) {
+      try {
+        const cc = await db.query(
+          `SELECT COALESCE(SUM(pc.bottles),0)::int AS total FROM v3.production_counts pc
+            WHERE pc.kind='bottles' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+              AND pc.product_batch_id=$1 AND pc.source_event_id <> $2`, [ev.product_batch_id, ev.id]);
+        alreadyCounted = Number(cc.rows[0].total || 0);
+      } catch (_) {}
+    }
+    const targetB = ev.target_bottles != null ? Number(ev.target_bottles) : null;
     res.json({
       ok: true,
       event_id: ev.id,
@@ -1247,7 +1261,9 @@ function createOpRouter(deps = {}) {
       requires_bottle_count: requiresBottleCount,
       requires_fnsku_count: (!isCowork || isLast) && isFnsku,  // FNSKU: # labels colados
       needs_order_count: needsOrderCount,
-      estimated_bottles: ev.target_bottles != null ? ev.target_bottles : null, // ITEM 1 — EMS target
+      estimated_bottles: targetB, // ITEM 1 — EMS target
+      already_counted: alreadyCounted,   // já contado no lote (outros eventos)
+      remaining_to_target: (targetB && targetB > 0) ? Math.max(0, targetB - alreadyCounted) : null,
       cowork_remaining: isCowork ? Math.max(0, remaining - 1) : 0, // colegas além de mim ainda na tarefa
     });
   }));
@@ -1335,6 +1351,29 @@ function createOpRouter(deps = {}) {
       }
     }
 
+    // VALIDAÇÃO CONTRA O ALVO DO EMS (Bruno 07-08): a soma de TODAS as contagens do
+    // lote (todos os dias) + esta nova NÃO pode estourar o alvo além da margem.
+    // Pega o double-count (mesmo número 2×, ex. Ana 603+603 no lote 0249 de alvo
+    // 750) E o multi-dia (dia 1 faz 600 de 800, dia 2 digita 800 de novo em vez de
+    // ~200). Warning → o operador confirma; se confirmar acima, GRITA no Slack.
+    if (needCount && !exception && Number.isFinite(b) && b > 0 && ev.product_batch_id
+        && Number(ev.target_bottles) > 0 && body.over_target_ack !== true) {
+      const cum = await db.query(
+        `SELECT COALESCE(SUM(pc.bottles),0)::int AS total
+           FROM v3.production_counts pc
+          WHERE pc.kind = 'bottles' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL
+            AND pc.product_batch_id = $1 AND pc.source_event_id <> $2`, [ev.product_batch_id, ev.id]);
+      const already = Number(cum.rows[0].total || 0);
+      const target = Number(ev.target_bottles);
+      const wouldTotal = already + b;
+      if (wouldTotal > Math.round(target * 1.15)) {  // 15% de margem
+        return res.json({ ok: true, bottle_over_target: true,
+          target, already, attempted: b, would_total: wouldTotal,
+          remaining_estimate: Math.max(0, target - already),
+          pct: Math.round((wouldTotal / target) * 100) });
+      }
+    }
+
     await db.query(
       `UPDATE v3.events
        SET ended_at = NOW(), closed_reason = 'operator_page',
@@ -1382,6 +1421,23 @@ function createOpRouter(deps = {}) {
       // linha → kind='bottles' (com proteção de dobra acima).
       await insertCount({ event: ev, bottles: b, unit: countUnit, personId: s.person_id, kind: countKind });
       countCreated = true;
+      // GRITA no Slack (Bruno 07-08): confirmou uma contagem ACIMA do alvo → alerta
+      // ALTO pros 2 grupos pra verificarem contagem dobrada. Nunca some silencioso.
+      if (body.over_target_ack === true && countKind === 'bottles' && Number(ev.target_bottles) > 0 && !s.is_sandbox) {
+        try {
+          const info = (await db.query(
+            `SELECT COALESCE(SUM(pc.bottles),0)::int AS total FROM v3.production_counts pc
+              WHERE pc.kind='bottles' AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL AND pc.product_batch_id=$1`,
+            [ev.product_batch_id])).rows[0];
+          const finalTotal = Number(info.total);
+          const target = Number(ev.target_bottles);
+          const pct = Math.round((finalTotal / target) * 100);
+          const prod = ev.product || ev.batch_number || 'lote';
+          const txt = `:rotating_light: *CONTAGEM ACIMA DO ALVO — CONFIRAM!* Lote *${ev.batch_number || '?'}* (${prod}): o alvo do EMS é *${target}* bottles, mas o total contado agora é *${finalTotal}* (*${pct}%*). ${s.display_name} confirmou. *Verifiquem se não houve contagem DOBRADA* (mesmo número lançado 2×, ou o total do dia anterior digitado de novo).`;
+          await machineSlack(txt); await adminSlack(txt);
+          await audit('bottle.over_target_confirmed', 'event', ev.id, { target, total: finalTotal, pct, added: b }, s.person_id);
+        } catch (e) { console.error('[op] scream over-target falhou:', e.message); }
+      }
     }
     // ITEM 1 — estimated bottles: compara o real com o target do EMS. Diferença
     // relevante (>=10%) → warning na resposta + aviso na produção (sistema).

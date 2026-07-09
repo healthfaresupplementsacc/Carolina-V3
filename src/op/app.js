@@ -911,6 +911,11 @@
     h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:16px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(ICONS.factory, 26, 1.7) + '</span><div style="min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + titleTxt + '</div>' + (sub ? '<div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + sub + '</div>' : '') + '</div></div>';
     if (o.lastFinisher) h += '<div style="margin-bottom:14px; padding:12px 14px; border-radius:12px; background:rgba(217,145,0,.12); border-left:3px solid #d99100; font-size:13px; font-weight:700; color:#8a5a00;">Você é o último a finalizar — informe o TOTAL de ' + noun + ' do grupo.</div>';
     var estLine = o.estimatedBottles ? '<div style="font-size:12.5px; color:#1f5fd0; font-weight:700; margin-bottom:6px;">📦 Estimado: ' + o.estimatedBottles + (fn ? ' labels' : ' frascos') + '</div>' : '';
+    // Bruno 07-08: se o lote JÁ tem contagem (continuando dia seguinte), mostra
+    // quanto já foi contado e ~quanto falta pro alvo — pra NÃO digitar o total de novo.
+    if (!fn && o.alreadyCounted > 0 && o.remainingToTarget != null) {
+      estLine += '<div style="font-size:12.5px; color:#b35c00; font-weight:800; margin-bottom:8px; background:rgba(217,145,0,.1); border-radius:9px; padding:7px 10px;">⚠️ Este lote já tem <b>' + o.alreadyCounted + '</b> contados de ' + (o.estimatedBottles || '?') + '. Deve faltar <b>~' + o.remainingToTarget + '</b> — informe SÓ o que saiu agora, não o total.</div>';
+    }
     h += '<div style="opacity:' + (o.exc ? '.5' : '1') + '; transition:opacity .2s;"><div style="font-size:14px; font-weight:600; color:#42566f; margin-bottom:8px;">' + askTxt + '</div>' + estLine + '<input value="' + esc(o.bottles || '') + '" data-input="finBottles" inputmode="numeric" ' + (o.exc ? 'disabled' : '') + ' placeholder="' + (o.estimatedBottles ? 'ex: ' + o.estimatedBottles : 'ex: 754') + '" style="width:100%; min-height:56px; font-size:18px; padding:12px 16px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:#fff; color:#0c2545; outline:none;"></div>';
     h += '<button data-act="toggleExc" style="display:flex; align-items:center; gap:11px; width:100%; text-align:left; cursor:pointer; margin-top:14px; padding:12px 14px; border-radius:14px; border:1px solid ' + (o.exc ? 'rgba(179,92,0,.35)' : 'rgba(15,40,90,.12)') + '; background:' + (o.exc ? 'rgba(179,92,0,.08)' : 'rgba(255,255,255,.6)') + ';">' + checkBox + '<span style="flex:1; min-width:0;"><span style="display:block; font-weight:700; font-size:14.5px; color:' + (o.exc ? '#b35c00' : '#0c2545') + ';">Exceção: não tenho o número</span><span style="display:block; font-size:12px; color:#566681;">(será notificado em Orders &amp; Inventory)</span></span></button>';
     if (o.exc) {
@@ -1631,6 +1636,8 @@
       if (typeof pv.requires_fnsku_count === 'boolean') o.needsFnsku = pv.requires_fnsku_count;
       if (typeof pv.needs_order_count === 'boolean') o.needsOrders = pv.needs_order_count;
       o.estimatedBottles = pv.estimated_bottles != null ? pv.estimated_bottles : null;
+      o.alreadyCounted = pv.already_counted != null ? pv.already_counted : 0;
+      o.remainingToTarget = pv.remaining_to_target != null ? pv.remaining_to_target : null;
       if (pv.cowork_remaining != null) o.coworkRemaining = pv.cowork_remaining;
       o.previewing = false; render();
     }).catch(function () {
@@ -1727,12 +1734,20 @@
       body = { bottles: (o.bottles !== '' && parseInt(o.bottles, 10) >= 0) ? parseInt(o.bottles, 10) : null, note: (o.note || '').trim() || null };
     }
     if (o._dupAck) body.dup_count_ack = true; // operador confirmou que NÃO é dobra
+    if (o._overAck) body.over_target_ack = true; // confirmou contagem acima do alvo
     api('/api/v3/op/event/' + o.eventId + '/end', { method: 'POST', body: body }).then(function (res) {
       // PROTEÇÃO contagem dobrada: o lote já tem contagem hoje (de outro evento) →
       // confirma antes de somar de novo. Cancelar = não conta (provável dobra).
       if (res && res.dup_count_warning) {
         var msg = 'Esse lote JÁ tem ' + res.existing_total + ' bottles contados hoje' + (res.existing_by ? ' por ' + res.existing_by : '') + '.\n\nVocê quer MESMO adicionar mais ' + res.attempted + '? (Se vocês contaram juntos, NÃO adicione — seria contagem dobrada.)';
         if (window.confirm(msg)) { postFinish(Object.assign({}, o, { _dupAck: true })); }
+        return;
+      }
+      // VALIDAÇÃO CONTRA O ALVO (Bruno 07-08): o total do lote passaria MUITO do
+      // alvo do EMS → o número parece errado. Confirma; se confirmar, grita no Slack.
+      if (res && res.bottle_over_target) {
+        var m2 = 'ATENÇÃO — O NÚMERO PARECE ERRADO.\n\nEste lote tem alvo de ' + res.target + ' bottles' + (res.already > 0 ? (' e JÁ foram contados ' + res.already) : '') + '. Adicionar ' + res.attempted + ' daria ' + res.would_total + ' no total (' + res.pct + '% do alvo).' + (res.remaining_estimate > 0 ? ('\n\nO esperado pra fechar era ~' + res.remaining_estimate + ' bottles.') : '') + '\n\nO número está certo mesmo? (Se confirmar, os gerentes serão avisados pra conferir.)';
+        if (window.confirm(m2)) { postFinish(Object.assign({}, o, { _overAck: true })); }
         return;
       }
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
