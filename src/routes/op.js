@@ -658,7 +658,7 @@ function createOpRouter(deps = {}) {
   }
   // appointee: null = acha outro machine-op; number = pessoa APONTADA pelo operador
   // (inexperiente → mensagem SÉRIA); 'none' = ninguém disponível → formulação PARA.
-  async function handoffMachineWork(personId, isSandbox, appointee = null) {
+  async function handoffMachineWork(personId, isSandbox, appointee = null, leaveLabel = 'almoço/pausa') {
     try {
       const me = (await db.query('SELECT is_machine_operator, display_name FROM v3.persons WHERE id = $1', [personId])).rows[0];
       if (!me || !me.is_machine_operator) return;
@@ -667,7 +667,7 @@ function createOpRouter(deps = {}) {
       const slugsAll = mine.map((m) => m.act_name || m.slug);
       // NINGUÉM (nem apontado): situação gravíssima — máquinas sem supervisão → PARAR.
       if (appointee === 'none') {
-        const txt = `:rotating_light: *ATENÇÃO GERENTES — MÁQUINAS SEM SUPERVISÃO.* ${me.display_name} saiu para almoço/pausa com máquina(s) rodando (${slugsAll.join(', ')}) e NÃO HÁ NINGUÉM disponível para assumir. *A FORMULAÇÃO DEVE PARAR até alguém assumir as máquinas.* Confirmem IMEDIATAMENTE quem fica responsável.`;
+        const txt = `:rotating_light: *ATENÇÃO GERENTES — MÁQUINAS SEM SUPERVISÃO.* ${me.display_name} saiu (${leaveLabel}) com máquina(s) rodando (${slugsAll.join(', ')}) e NÃO HÁ NINGUÉM disponível para assumir. *A FORMULAÇÃO DEVE PARAR até alguém assumir as máquinas.* Confirmem IMEDIATAMENTE quem fica responsável.`;
         await machineSlack(txt); await adminSlack(txt);
         await audit('machine.unattended', 'person', personId, { slugs: slugsAll }, personId);
         return;
@@ -679,7 +679,7 @@ function createOpRouter(deps = {}) {
       }
       if (!recv) recv = await findMachineRecv(personId, isSandbox);
       if (!recv) {
-        const txt = `:rotating_light: *${me.display_name}* saiu (almoço/pausa) com máquina(s) rodando (${slugsAll.join(', ')}) e não há outro operador de máquina disponível. *As máquinas NÃO PODEM ficar sozinhas — a formulação deve PARAR até alguém assumir.* Gerentes, confirmem quem fica responsável.`;
+        const txt = `:rotating_light: *${me.display_name}* saiu (${leaveLabel}) com máquina(s) rodando (${slugsAll.join(', ')}) e não há outro operador de máquina disponível. *As máquinas NÃO PODEM ficar sozinhas — a formulação deve PARAR até alguém assumir.* Gerentes, confirmem quem fica responsável.`;
         await machineSlack(txt); await adminSlack(txt);
         return;
       }
@@ -704,12 +704,13 @@ function createOpRouter(deps = {}) {
       for (const ownerId of owners) { try { await setCoverage(ownerId, recv.id); } catch (_) {} }
       await audit('machine.handoff', 'person', personId, { from: personId, to: recv.id, slugs, appointed: Number.isFinite(appointee), inexperienced }, personId);
       const ping = recv.slack_user_id ? `<@${recv.slack_user_id}>` : recv.display_name;
+      const willReturn = leaveLabel === 'almoço/pausa'; // clock-out não volta hoje
       if (inexperienced) {
         // TOM SÉRIO (regra Bruno 07-02): substituto NÃO é operador de máquina.
-        const txt = `:rotating_light: *ATENÇÃO: ${me.display_name} SAIU PARA ALMOÇO/PAUSA E APONTOU ${ping} PARA CUIDAR DA(S) MÁQUINA(S) (${slugs.join(', ')}).* ${recv.display_name} NÃO é operador de máquina. *GERENTES: confirmem se está correto.* ${ping}: se precisar de QUALQUER ajuda, comunique os gerentes IMEDIATAMENTE.`;
+        const txt = `:rotating_light: *ATENÇÃO: ${me.display_name} saiu (${leaveLabel}) E APONTOU ${ping} PARA CUIDAR DA(S) MÁQUINA(S) (${slugs.join(', ')}).* ${recv.display_name} NÃO é operador de máquina. *GERENTES: confirmem se está correto.* ${ping}: se precisar de QUALQUER ajuda, comunique os gerentes IMEDIATAMENTE.`;
         await machineSlack(txt); await adminSlack(txt);
       } else {
-        await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu para almoço/pausa — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho! Voltam pro ${me.display_name} quando ele retornar.`);
+        await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu (${leaveLabel}) — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho!${willReturn ? ` Voltam pro ${me.display_name} quando ele retornar.` : ' A máquina NÃO pode parar.'}`);
       }
     } catch (e) { console.error('[machine] handoff falhou:', e.message); }
   }
@@ -2144,6 +2145,14 @@ function createOpRouter(deps = {}) {
     const unknownIds = Array.isArray(body.unknown_event_ids)
       ? body.unknown_event_ids.map((x) => parseInt(x, 10)).filter(Number.isFinite) : [];
 
+    // 0) SUPERVISÃO (Bruno 07-08): se ele SEGURA máquina rodando (própria OU
+    // herdada de alguém que está fora) e bate o ponto → RE-PASSA pra outro operador
+    // de máquina disponível, ou dispara o alerta "MÁQUINAS SEM SUPERVISÃO" se não
+    // há ninguém. A máquina NUNCA fica sozinha. (myRunningMachines já inclui herdadas.)
+    if (!s.is_sandbox) {
+      try { await handoffMachineWork(s.person_id, s.is_sandbox, null, 'fim do expediente (bateu ponto)'); }
+      catch (e) { console.error('[machine] handoff no clock-out falhou:', e.message); }
+    }
     // 1) fecha as tasks ABERTAS do operador (long_running fica)
     const closed = await db.query(
       `UPDATE v3.events
