@@ -477,6 +477,21 @@ describe('V3 data — FlowViewsRepo (Bloco 3)', () => {
     ]);
   });
 
+  test('pnpByDay: P&P do dia = TEMPO REAL (união), NÃO o span com gaps (Bruno 07-08)', async () => {
+    // P&P de manhã (09:00→10:00) e de tarde (16:00→17:00) — 2h de trabalho real,
+    // mas o span 09:00→17:00 = 8h. total_seconds tem que ser 2h (união), não 8h.
+    const db = makeDb(evRoute([
+      { id: 1, person_id: 5, started_at: '2026-07-07T13:00:00Z', ended_at: '2026-07-07T14:00:00Z',
+        activity_name: 'Empacotamento', activity_slug: 'packaging', person_name: 'Simone' },
+      { id: 2, person_id: 5, started_at: '2026-07-07T20:00:00Z', ended_at: '2026-07-07T21:00:00Z',
+        activity_name: 'Empacotamento', activity_slug: 'packaging', person_name: 'Simone' },
+    ]));
+    const out = await new FlowViewsRepo({ db }).pnpByDay('2026-07-07');
+    expect(out.total_seconds).toBe(7200);   // 2h de P&P REAL (união), não o span
+    expect(out.span_seconds).toBe(28800);   // 8h de janela (com o gap) — só referência
+    expect(out.wall_seconds).toBe(7200);
+  });
+
   test('FASE 3: reviewRate agrega cápsulas/seg + frascos/min + média POR PRODUTO e POR PESSOA', async () => {
     const db = makeDb([
       { match: /AND at\.slug = 'review'/, rows: [

@@ -380,9 +380,13 @@ class FlowViewsRepo {
       .sort((a, b) => b.seconds - a.seconds);
     return {
       date: d, flow: 'pnp', mode: 'block',
-      total_seconds: spanSeconds,         // P&P do dia = SPAN corrido (Bruno)
-      wall_seconds: wallSeconds,          // união de intervalos (referência)
-      span_seconds: spanSeconds,
+      // P&P do dia = TEMPO REAL de P&P (união dos intervalos, SEM os gaps entre um
+      // bloco e outro). Bruno 07-08: o "span corrido" (1º início→último fim) dava
+      // 8h25m num dia com ~1h53m de P&P real — enganoso ("muito bugado"). O span
+      // fica em span_seconds pra quem quiser a janela do dia.
+      total_seconds: wallSeconds,         // = união dos intervalos de P&P
+      wall_seconds: wallSeconds,
+      span_seconds: spanSeconds,          // janela 1º início→último fim (com gaps) — referência
       person_seconds_total: personTotal,  // SOMA do tempo de todas as pessoas no P&P
       person_seconds: byPerson,           // tempo de cada pessoa (Simone, Ana, …)
       person_seconds_per_order: orders > 0 ? Math.round(personTotal / orders) : null, // média pessoa-hora ÷ pacote
@@ -394,10 +398,10 @@ class FlowViewsRepo {
       orders,
       orders_inputs: ordersInputs,        // detalhe por impressão (input bruto do operador)
       orders_reset: ordersReset,          // { old_total, new_total, by, at } se reajustaram hoje
-      seconds_per_order: orders > 0 ? Math.round(spanSeconds / orders) : null,
+      seconds_per_order: orders > 0 ? Math.round(wallSeconds / orders) : null, // tempo-de-relógio por ordem (sem gaps)
       quantities,
       packages: orders > 0 ? orders : null,
-      seconds_per_package: orders > 0 ? Math.round(spanSeconds / orders) : null,
+      seconds_per_package: orders > 0 ? Math.round(wallSeconds / orders) : null,
     };
   }
 
