@@ -30,11 +30,11 @@ Where the same concern exists twice:
 
 | Concern | Legacy | V3 | Which to use for new work |
 | --- | --- | --- | --- |
-| Slack | `src/slack/` | `src/v3/slack/` | TODO: confirm |
-| Data access | `src/db/` | `src/v3/data/` | TODO: confirm |
-| AI / LLM | `src/ai/` | `src/v3/llm/` | TODO: confirm |
-| Admin | `src/admin/` | `src/v3/admin-v3/` | TODO: confirm |
-| Utils | `src/utils/` | `src/v3/utils/` | TODO: confirm |
+| Slack | `src/slack/` | `src/v3/slack/` | **V3 (`src/v3/slack/`)**. Both handle live Slack traffic: legacy `slack/events` is mounted at `/` and `slack/poller` runs on a cron (`src/index.js:45-46`, `:141`), but they are gated off by `V2_DISABLED=1` (`src/index.js:136-154`); the V3 webhook `/slack/events-v2` (`src/v3/wire.js:96`) plus `src/v3/slack/sender` drive all current bot output and are never gated. |
+| Data access | `src/db/` | `src/v3/data/` | **Depends on surface, both live.** Legacy `src/db` backs migrations + boot and every legacy router (`src/index.js:9,70,77`; imported by `routes/api.js`, `dashboard/router.js`, all `slack/*`). `src/v3/data/router` serves `/api/v3/data/*` for the operator page + dashboard-v4 (`src/v3/wire.js:200`). New dashboard/operator reads → `src/v3/data/`; legacy API/dashboard-template reads → `src/db`. Writes go through V3 services (e.g. `ProductionCountService`), never raw DDL. |
+| AI / LLM | `src/ai/` | `src/v3/llm/` | **V3 (`src/v3/llm/`)**. Legacy `src/ai` detect cron is gated off by `V2_DISABLED` (`src/index.js:150`). The V3 Observer (`src/v3/wire.js:324,335`) + `note-analyzer` (`:145`) + all `LLMProvider` usage are the live LLM path. |
+| Admin | `src/admin/` | `src/v3/admin-v3/` | **Neither is the primary; the live admin API is `src/routes/admin.js`** (mounted `src/v3/wire.js:166`, served at `/admin` with static UI from `src/admin/` at `:172`). `src/v3/admin-v3/routes` is shadow/inspection only (`/api/admin/v3/*`, `src/v3/wire.js:131`). Legacy `src/admin/` is now just the static SPA assets, not a router. For new admin work use `src/routes/admin.js`. |
+| Utils | `src/utils/` | `src/v3/utils/` | **Different, non-overlapping; keep each in its layer.** Legacy `src/utils/` holds only `time.js` (used by `src/dashboard/router.js:1210`, 5 legacy importers). `src/v3/utils/` holds `v3-pool.js`, `audit.js`, `idempotency.js` (V3-internal, e.g. `makeV3Pool` at `src/v3/wire.js:15,39`). New V3 code → `src/v3/utils/`; touching legacy dashboard time formatting → `src/utils/time.js`. |
 
 Bruno: fill in the right-hand column. Until it is filled in, Claude will keep
 guessing, and guessing is what caused the drift.
