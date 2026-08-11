@@ -116,3 +116,22 @@ This project connects to a live production database used by the warehouse daily.
   the existing one or explain why you cannot.
 - Portuguese is used in some docs and Slack copy. Keep existing language; do not
   translate.
+
+## Keeping ARCHITECTURE.md true
+
+`docs/ARCHITECTURE.md` is the map of what actually runs. It only stays useful if it
+never drifts from the code.
+
+Any change that adds, removes, or reroutes a **route**, a **worker**, a **cron job**, a
+**Slack listener**, a **database table**, or a **new writer to an existing table** MUST
+update `docs/ARCHITECTURE.md` in the **same commit** as the code change.
+
+This is enforced automatically:
+- `src/__tests__/architecture-drift.test.js` (runs in `npm test`) fails if a route,
+  worker, migration table, or a writer of `v3.events.ended_at` / `v3.production_counts`
+  / `v3.stock_movements` appears that the doc does not account for. Its failure message
+  names the offending file and says the doc needs updating. If you legitimately added
+  something, update `ARCHITECTURE.md` (and, for a table the summary intentionally omits,
+  the test's baseline set) in the same change.
+- A weekly scheduled task (`HealthFare drift check` → `drift-check.ps1`) re-traces the
+  system and DMs Bruno any drift. See `docs/DRIFT-SETUP.md`.
