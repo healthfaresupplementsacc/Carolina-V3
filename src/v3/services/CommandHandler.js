@@ -29,8 +29,11 @@
  */
 
 const ADMIN_ROLES = ['owner', 'manager'];
-const CAROLINA_MENTION_REGEX = /<@U0B3EQLPEPL>|@carolina|@Carolina/;
+// Bruno 08-03: ID da Carolina env-overridable (era hardcoded). @carolina textual continua.
+const _CAROLINA_ID = process.env.CAROLINA_ADMIN_USER_ID || 'U0B3EQLPEPL';
+const CAROLINA_MENTION_REGEX = new RegExp('<@' + _CAROLINA_ID + '>|@carolina|@Carolina');
 const DEFAULT_TTL_MIN = 10;
+const { setPlan } = require('../workday'); // plano do dia sob demanda (fds) — Bruno 07-11
 
 class CommandHandler {
   /**
@@ -283,6 +286,10 @@ class CommandHandler {
       '- mark_long_running: marca/desmarca event como long_running. target:',
       '  { event_id } OR { person_id, slug, product_batch_id }. params: { flag }',
       '- query_status: pergunta status (read-only). params: { question, scope? }',
+      '- set_workday_plan: horário de um dia SEM escala fixa (sábado/domingo/extra).',
+      '  params: { date?: "YYYY-MM-DD" (null=hoje), end_time: "HH:MM", start_time?: "HH:MM", note? }.',
+      '  Use quando o admin diz até que horas trabalham num dia extra ("Vitor trabalha',
+      '  amanhã 9:30 até 18h", "hoje vão até 6", "até 18h", "amanhã trabalham das 10 às 4").',
       '',
       'DESTRUTIVOS (precisam confirmação ✅):',
       '- delete_event: soft-delete. target: { event_id }. params: { reason? }',
@@ -315,6 +322,16 @@ class CommandHandler {
       '',
       'TIMESTAMPS: NY timezone (EDT/EST). Devolva ISO UTC com Z. Hoje é',
       `  ${this._todayNyDate()} (use pra resolver horários relativos como "4:18 PM" → ISO completo).`,
+      '  IMPORTANTE: se a mensagem NÃO diz um horário, deixe started_at = null — o',
+      '  sistema usa a hora da mensagem (agora). SÓ preencha started_at quando o admin',
+      '  DER um horário explícito ("9am", "1:01pm", "às 14h", "meio-dia"). NUNCA invente',
+      '  horário (ex: início do expediente) quando não foi dito.',
+      '',
+      'COWORK: se o admin diz que X está fazendo algo JUNTO COM Y ("X está na limpeza',
+      '  junto com Y", "X foi ajudar o Y", "X e Y estão embalando") → create_event com',
+      '  person_id=X, o slug da atividade, cowork_with=[id de Y] e started_at=null. O',
+      '  sistema coloca X no trabalho ABERTO do Y como cowork, começando agora — NÃO cria',
+      '  um evento separado retroativo.',
       '',
       'EXEMPLOS:',
       '',
@@ -325,6 +342,19 @@ class CommandHandler {
       '                "ended_at": null, "description": "Almoço Simone (criado retroativo)" },',
       '    "destructive": false, "uncertain": false,',
       '    "explanation": "Criar lunch da Simone começando 1:01 PM" }',
+      '',
+      'msg: "@Carolina Vitor está na limpeza junto com Bruno Sarmento"',
+      '→ { "command_type": "create_event", "target": null,',
+      '    "params": { "person_id": 4, "slug": "cleaning", "cowork_with": [7],',
+      '                "started_at": null, "description": "Vitor entrou na limpeza com Bruno Sarmento (cowork)" },',
+      '    "destructive": false, "uncertain": false,',
+      '    "explanation": "Vitor entra no cowork da limpeza aberta do Bruno Sarmento, começando agora" }',
+      '',
+      'msg: "@Carolina hoje eles trabalham até 18h"  (dia extra, sáb/dom)',
+      '→ { "command_type": "set_workday_plan", "target": null,',
+      '    "params": { "date": null, "end_time": "18:00" },',
+      '    "destructive": false, "uncertain": false,',
+      '    "explanation": "Horário de saída de hoje = 18:00 (dia sem escala fixa)" }',
       '',
       'msg: "@Carolina maquinario sem funcionar de 4:18pm as 4:52pm"',
       '→ { "command_type": "create_downtime", "target": null,',
@@ -402,6 +432,8 @@ class CommandHandler {
         return this._execAnnotateNote(parsed, adminPerson, message);
       case 'mark_long_running':
         return this._execMarkLongRunning(parsed, adminPerson, message);
+      case 'set_workday_plan':
+        return this._execSetWorkdayPlan(parsed, adminPerson, message);
       default:
         return { replyText: `⚠ Tipo não-destrutivo desconhecido: ${parsed.command_type}` };
     }
@@ -427,30 +459,55 @@ class CommandHandler {
   async _execCreateEvent(parsed, adminPerson, message) {
     const p = parsed.params || {};
     const slug = p.slug;
-    if (!slug || !p.person_id || !p.started_at) {
-      return { replyText: `⚠ Faltam params: slug, person_id, started_at.` };
+    if (!slug || !p.person_id) {
+      return { replyText: `⚠ Faltam params: slug, person_id.` };
     }
     const at = await this.db.query(`SELECT id FROM v3.activity_types WHERE slug = $1`, [slug]);
     if (at.rows.length === 0) {
       return { replyText: `⚠ slug "${slug}" não existe no catálogo.` };
     }
+    const actId = at.rows[0].id;
+    // BUG 1 (Bruno 07-10): sem horário EXPLÍCITO na msg, o evento começa AGORA
+    // (hora da msg) — não um chute da LLM. A LLM já mandou "9am" fantasma quando
+    // o admin só disse "Vitor está na limpeza". Só confia no started_at da LLM
+    // quando a mensagem REALMENTE tem hora.
+    const msgIso = this._messageTimeIso(message);
+    const startAt = (p.started_at && this._messageHasExplicitTime(message && message.raw_text))
+      ? p.started_at : msgIso;
+
+    // BUG 2 (Bruno 07-10): "X trabalhando junto com Y" = ENTRA no trabalho ABERTO
+    // do Y como cowork, começando agora — não cria um evento solto e retroativo.
+    // Espelha o /join do app (op.js). Se o admin não deu ended_at (não é retroativo
+    // fechado) e há co-worker, tenta juntar.
+    const coworkers = Array.isArray(p.cowork_with) ? [...new Set(p.cowork_with.filter((x) => x && x !== p.person_id))] : [];
+    if (coworkers.length && !p.ended_at) {
+      const j = await this._joinOpenCowork({ joinerId: p.person_id, coworkerIds: coworkers, slug, startIso: msgIso });
+      if (j && j.already) {
+        return { replyText: `ℹ Person ${p.person_id} já estava no cowork (ev${j.event_id}).`, event_id: j.event_id };
+      }
+      if (j && j.joined) {
+        return { replyText: `✅ Person ${p.person_id} entrou no cowork de ev${j.anchor_event_id} (ev${j.event_id}, ${slug}, começando agora).`, event_id: j.event_id };
+      }
+      // colega sem trabalho aberto → cai no create normal abaixo (começando agora).
+    }
+
     // Idempotência: checa se já existe event MESMA pessoa, MESMO slug, MESMO horário (±60s)
     const existing = await this.db.query(`
       SELECT id FROM v3.events
       WHERE person_id = $1 AND activity_type_id = $2 AND deleted_at IS NULL
         AND ABS(EXTRACT(EPOCH FROM (started_at - $3::timestamptz))) < 60
-      LIMIT 1`, [p.person_id, at.rows[0].id, p.started_at]);
+      LIMIT 1`, [p.person_id, actId, startAt]);
     if (existing.rows.length > 0) {
       return { replyText: `ℹ Já existe event similar (ev${existing.rows[0].id}). Comando idempotente — nada a fazer.` };
     }
     const ev = await this.eventService.upsert({
       person_id: p.person_id,
-      activity_type_id: at.rows[0].id,
+      activity_type_id: actId,
       product_batch_id: p.product_batch_id || null,
-      started_at: p.started_at,
+      started_at: startAt,
       ended_at: p.ended_at || null,
-      description: p.description || `Criado retroativo via comando admin (msg ${message.slack_ts}).`,
-      cowork_with: p.cowork_with || [],
+      description: p.description || `Criado via comando admin (msg ${message.slack_ts}).`,
+      cowork_with: coworkers,
       confidence: 'medium',
       actor_type: 'admin',
     });
@@ -460,6 +517,108 @@ class CommandHandler {
     return {
       replyText: `✅ Criado ev${ev.id} (${slug}, person ${p.person_id}).`,
       event_id: ev.id,
+    };
+  }
+
+  /**
+   * Hora "agora" pra um evento sem horário explícito: a hora da própria mensagem
+   * do admin (slack_ts preferido, senão created_at, senão relógio). Bruno 07-10.
+   */
+  _messageTimeIso(message) {
+    if (message && message.slack_ts) {
+      const sec = parseFloat(message.slack_ts);
+      if (Number.isFinite(sec) && sec > 0) return new Date(sec * 1000).toISOString();
+    }
+    if (message && message.created_at) return new Date(message.created_at).toISOString();
+    return this.now().toISOString();
+  }
+
+  /** A mensagem menciona um horário explícito? (senão o evento começa "agora"). */
+  _messageHasExplicitTime(text) {
+    if (!text) return false;
+    return /\b\d{1,2}\s*:\s*\d{2}\b/.test(text)                              // 1:01, 13:05
+      || /\b\d{1,2}\s*(am|pm|a\.?m\.?|p\.?m\.?)\b/i.test(text)               // 9am, 4 pm
+      || /\b\d{1,2}\s*(h|hs|hrs|horas?)\b/i.test(text)                       // 14h, 9 horas
+      || /\bmeio[-\s]?dia\b|\bmeia[-\s]?noite\b/i.test(text)                 // meio-dia
+      || /\b\d{1,2}\s*(da|de)\s*(manh[ãa]|tarde|noite|madrugada)\b/i.test(text); // 9 da manhã
+  }
+
+  /**
+   * "X trabalhando junto com Y" → coloca X (joinerId) no trabalho ABERTO do(s)
+   * co-worker(s) como cowork, começando em startIso (o momento do aviso).
+   * Espelha o /api/v3/op/event/:id/join do app: garante cowork_group_id no âncora,
+   * cria o event do X no MESMO grupo/atividade/lote, e liga o cowork_with dos dois.
+   * Retorna {joined} | {already} | {joined:false,no_anchor:true} (colega sem trabalho aberto).
+   */
+  async _joinOpenCowork({ joinerId, coworkerIds, slug, startIso }) {
+    // âncora = trabalho ABERTO do colega; prefere o slug informado, senão o mais recente.
+    const anchorQ = await this.db.query(
+      `SELECT e.id, e.person_id, e.activity_type_id, e.product_batch_id, e.cowork_group_id, e.started_at
+         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+        WHERE e.person_id = ANY($1::int[]) AND e.ended_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY (at.slug = $2) DESC, e.started_at DESC
+        LIMIT 1`, [coworkerIds, slug]);
+    const anchor = anchorQ.rows[0];
+    if (!anchor) return { joined: false, no_anchor: true };
+
+    // PREENCHE O BURACO (Bruno 07-10): se o admin avisa TARDE ("Vitor está na
+    // limpeza com Bruno") e o Vitor terminou a última task faz tempo, ele entrou
+    // no cowork QUANDO ficou livre — não na hora do aviso. Começa no fim da última
+    // task concluída dele, limitado por quando o colega começou e por "agora".
+    let startAt = startIso;
+    const lastQ = await this.db.query(
+      `SELECT MAX(ended_at) AS last_end FROM v3.events
+        WHERE person_id = $1 AND deleted_at IS NULL AND ended_at IS NOT NULL
+          AND ended_at <= $2::timestamptz`, [joinerId, startIso]);
+    const lastEnd = lastQ.rows[0] && lastQ.rows[0].last_end;
+    if (lastEnd && anchor.started_at) {
+      const cand = Math.max(new Date(lastEnd).getTime(), new Date(anchor.started_at).getTime());
+      if (cand <= new Date(startIso).getTime()) startAt = new Date(cand).toISOString();
+    }
+
+    let gid = anchor.cowork_group_id;
+    if (!gid) {
+      const g = await this.db.query(
+        `UPDATE v3.events SET cowork_group_id = gen_random_uuid(), updated_at = NOW()
+          WHERE id = $1 RETURNING cowork_group_id`, [anchor.id]);
+      gid = g.rows[0].cowork_group_id;
+    }
+    const mine = await this.db.query(
+      `SELECT id FROM v3.events WHERE cowork_group_id = $1 AND person_id = $2
+         AND ended_at IS NULL AND deleted_at IS NULL LIMIT 1`, [gid, joinerId]);
+    if (mine.rows[0]) return { already: true, event_id: mine.rows[0].id, cowork_group_id: gid, anchor_event_id: anchor.id };
+    const grp = await this.db.query(
+      `SELECT DISTINCT person_id FROM v3.events WHERE cowork_group_id = $1
+         AND ended_at IS NULL AND deleted_at IS NULL`, [gid]);
+    const others = [...new Set([anchor.person_id, ...grp.rows.map((r) => r.person_id)])].filter((x) => x !== joinerId);
+    const ins = await this.db.query(
+      `INSERT INTO v3.events
+         (person_id, activity_type_id, product_batch_id, started_at, cowork_with, confidence, source, cowork_group_id)
+       VALUES ($1, $2, $3, $4::timestamptz, $5::int[], 'medium', 'slack', $6::uuid)
+       RETURNING id`,
+      [joinerId, anchor.activity_type_id, anchor.product_batch_id, startAt, others, gid]);
+    await this.db.query(
+      `UPDATE v3.events SET cowork_with = array_append(COALESCE(cowork_with, '{}'), $2), updated_at = NOW()
+        WHERE cowork_group_id = $1 AND ended_at IS NULL AND deleted_at IS NULL
+          AND person_id <> $2 AND NOT (COALESCE(cowork_with, '{}') @> ARRAY[$2]::int[])`, [gid, joinerId]);
+    return { joined: true, event_id: ins.rows[0].id, cowork_group_id: gid, anchor_event_id: anchor.id };
+  }
+
+  /** Anota o horário de um dia SEM escala fixa (sáb/dom/extra) — o admin avisa
+   *  até que horas trabalham; os alarmes + câmeras passam a valer nesse horário.
+   *  Bruno 07-11. */
+  async _execSetWorkdayPlan(parsed, adminPerson, message) {
+    const p = parsed.params || {};
+    const okDate = typeof p.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.date);
+    const date = okDate ? p.date : this._todayNyDate();
+    const clip = (t) => (typeof t === 'string' && /^\d{1,2}:\d{2}/.test(t.trim()) ? t.trim().slice(0, 5) : null);
+    const end = clip(p.end_time);
+    const start = clip(p.start_time);
+    if (!end && !start) return { replyText: `⚠ Não peguei o horário. Ex: "até 18h" ou "das 9:30 às 18h".` };
+    await setPlan(this.db, { date, end, start, note: p.note || null, by: adminPerson.id });
+    return {
+      replyText: `✅ Anotado pro dia ${date}${start ? ` · entra ${start}` : ''}${end ? ` · sai ${end}` : ''}.`
+        + ` Vou ligar as câmeras e cobrar o pessoal dentro desse horário.`,
     };
   }
 

@@ -247,7 +247,37 @@ a { color: inherit; text-decoration: none; }
 .brand-sub { font-size: 11px; color: var(--text-3); margin-top: 3px; letter-spacing: 0.04em; text-transform: uppercase; }
 
 .nav { padding: 8px; display: flex; flex-direction: column; gap: 2px; position: relative; z-index: 1; }
+.nav-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 2px; }
+/* cabeçalho de grupo colapsável (Bruno 08-03) */
 .nav-section { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-3); padding: 12px 12px 6px; }
+/* MENU PRINCIPAL (grupo): mais forte e destacado que os submenus (Bruno 08-07) */
+.nav-section-btn {
+  display: flex; align-items: center; gap: 2px; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 11px 10px 7px; border-radius: 9px; margin-top: 6px;
+  color: var(--hf-navy-700); font: inherit; font-size: 11.5px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+.nav-section-btn:hover { background: var(--surface-2); }
+.nav-section-btn.has-active { color: var(--hf-leaf-700); }
+/* dark: principal claro e nítido, submenu apagado */
+:root[data-theme="dark"] .nav-section-btn { color: #e6edf9; }
+:root[data-theme="dark"] .nav-section-btn.has-active { color: #7ee0a4; }
+.nav-section-label { font-weight: 800; }
+.nav-section-en { opacity: 0.5; margin-left: 5px; font-weight: 500; text-transform: none; letter-spacing: 0.02em; }
+.nav-caret { margin-left: auto; font-size: 11px; transition: transform 0.16s ease; opacity: 0.7; }
+.nav-caret.up { transform: rotate(180deg); }
+/* SUBMENUS: recuados, menores e mais leves que o menu principal (Bruno 08-07) */
+.nav-group .nav-item {
+  margin-left: 10px; font-size: 12.5px; font-weight: 500;
+  color: var(--text-3); border-left: 2px solid var(--border);
+  border-radius: 0 10px 10px 0; padding-left: 9px;
+}
+.nav-group .nav-item:hover { color: var(--text); border-left-color: var(--hf-navy-300, #9db8e0); }
+.nav-group .nav-item.active { border-left-color: var(--hf-leaf-500); font-weight: 700; }
+:root[data-theme="dark"] .nav-group .nav-item { color: #94a7c4; border-left-color: rgba(255,255,255,.10); }
+:root[data-theme="dark"] .nav-group .nav-item:hover { color: #dbe6f7; }
 .nav-item {
   display: flex; align-items: center; gap: 11px;
   padding: 9px 11px; border-radius: 10px;
@@ -422,6 +452,7 @@ a { color: inherit; text-decoration: none; }
   height: 22px; padding: 0 9px; border-radius: 999px;
   font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em;
   background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border);
+  white-space: nowrap; flex: 0 0 auto;
 }
 .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .pill.prod { background: rgba(30,63,140,0.08); color: var(--hf-navy-700); border-color: rgba(30,63,140,0.18); }
@@ -436,6 +467,8 @@ a { color: inherit; text-decoration: none; }
 :root[data-theme="dark"] .pill.pnp { background: rgba(63,200,116,0.18); color: #c5f0d4; border-color: rgba(63,200,116,0.32); }
 :root[data-theme="dark"] .pill.support { background: rgba(169,139,232,0.18); color: #ddd0fa; border-color: rgba(169,139,232,0.32); }
 :root[data-theme="dark"] .pill.live { color: #c5f0d4; }
+.pill-write { background: rgba(34,179,93,0.12); color: var(--hf-leaf-700); border-color: rgba(34,179,93,0.32); }
+:root[data-theme="dark"] .pill-write { background: rgba(63,200,116,0.18); color: #c5f0d4; border-color: rgba(63,200,116,0.32); }
 
 /* ===== Leaf accent ===== */
 .leaf-accent { color: var(--hf-leaf-500); display: inline-flex; vertical-align: middle; }

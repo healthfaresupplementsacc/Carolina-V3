@@ -115,11 +115,15 @@ describe('V3 data API — endpoints chamam o repo certo', () => {
     expect(out.data.id).toBe(1);
   });
 
-  test('53 endpoints registrados, todos sob /api/v3/data/', () => {
-    expect(ENDPOINTS).toHaveLength(53);  // +1: /history/product-family
+  test('96 endpoints registrados, todos sob /api/v3/data/', () => {
+    // ... anteriores + Picklist (Bruno 08-04): 1 GET
+    // + Roadmap board (Bruno 08-05): 3 GET (roadmap, card comments, sketch)
+    //   + 4 POST (card, comment, sketch, sketch delete)
+    //   [/login e /print-stream são registrados fora do array ENDPOINTS]
+    expect(ENDPOINTS).toHaveLength(101);
     expect(ENDPOINTS.every((e) => e.path.startsWith('/api/v3/data/'))).toBe(true);
-    expect(ENDPOINTS.filter((e) => (e.method || 'get') === 'get')).toHaveLength(29);
-    expect(ENDPOINTS.filter((e) => e.method === 'post')).toHaveLength(12);
+    expect(ENDPOINTS.filter((e) => (e.method || "get") === "get")).toHaveLength(51);
+    expect(ENDPOINTS.filter((e) => e.method === "post")).toHaveLength(38);
     expect(ENDPOINTS.filter((e) => e.method === 'patch')).toHaveLength(7);
     expect(ENDPOINTS.filter((e) => e.method === 'delete')).toHaveLength(5);
   });

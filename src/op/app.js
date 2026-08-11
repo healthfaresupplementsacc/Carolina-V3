@@ -94,6 +94,7 @@
     myTasks: [], team: [], completedToday: 0, goal: 8, pulse: 0, online: navigator.onLine,
     flow: null, overlay: null, settingsOpen: false, alert: null, settings: loadSettings(),
     mantraIdx: 0, mantraLangTick: 0, toast: '', voice: { on: false, secs: 0, target: null }, _focus: null,
+    workspaceOpen: false, ws: null,   // P&P Workspace (Bruno 08-06)
   };
 
   // ── API (Bearer pageToken + X-Session-Token + offline queue) ─
@@ -188,6 +189,7 @@
         '<div id="scr-login" class="hf-layer"></div>' +
         '<div id="scr-home" class="hf-layer"></div>' +
         '<div id="lyr-flow" class="hf-layer hf-modal"></div>' +
+        '<div id="lyr-workspace" class="hf-layer"></div>' +
         '<div id="lyr-overlay" class="hf-layer hf-modal"></div>' +
         '<div id="lyr-settings" class="hf-layer"></div>' +
         '<div id="lyr-alert" class="hf-layer hf-modal"></div>' +
@@ -195,7 +197,7 @@
       '<div id="hf-toast"></div>';
     AMBIENT = document.getElementById('hf-ambient');
     MANTRA = document.getElementById('hf-mantra-wrap');
-    ['login', 'home', 'flow', 'overlay', 'settings', 'alert'].forEach(function (n) {
+    ['login', 'home', 'flow', 'workspace', 'overlay', 'settings', 'alert'].forEach(function (n) {
       LYR[n] = { el: document.getElementById(n === 'login' || n === 'home' ? 'scr-' + n : 'lyr-' + n), on: false, key: null };
     });
     buildAmbient();
@@ -292,12 +294,13 @@
     RS.setProperty('--pulse', S.pulse.toFixed(3));
     if (ambientDensity !== S.settings.density) buildAmbient();
     // mantra (fixa no rodapé; só na home e quando ligada)
-    MANTRA.innerHTML = (S.settings.mantras && S.screen === 'home')
+    MANTRA.innerHTML = (S.settings.mantras && S.screen === 'home' && !S.workspaceOpen)
       ? '<div style="position:absolute; bottom:24px; left:0; right:0; z-index:4; display:flex; justify-content:center; pointer-events:none; padding:0 16px;"><div id="hf-mantra-text" style="animation:hfMantra 7s ease-in-out infinite; font-family:\'Sora\',sans-serif; font-weight:600; font-size:18px; letter-spacing:.01em; color:#4a6485; text-align:center; max-width:760px; text-shadow:0 1px 14px rgba(255,255,255,.7);">' + esc(curMantra()) + '</div></div>'
       : '';
 
     mountLayer('login', S.screen === 'login', loginInner, 'login|' + S.pin.length + '|' + S.pinError + '|' + (S.shake ? 1 : 0));
     mountLayer('home', S.screen === 'home', homeInner, homeKey());
+    mountLayer('workspace', !!S.workspaceOpen, workspaceInner, workspaceKey(), function (el) { restoreFocus(el); });
     mountFlow();
     mountLayer('overlay', !!S.overlay, overlayInner, overlayKey(), function (el) { restoreFocus(el); });
     mountLayer('settings', S.settingsOpen && adminUI(), settingsInner, settingsKey());
@@ -362,6 +365,8 @@
     var t = (S.myTasks || []).map(function (x) { return x.id + ':' + x.slug + ':' + (x.batch_number || ''); }).join(',');
     var tm = (S.team || []).map(function (o) { return o.id + ':' + (o.current_event_id || '') + ':' + (o.online ? 1 : 0) + ':' + (o.current_slug || '') + ':' + (o.current_batch || '') + ':' + ((o.bg_tasks || []).map(function (b) { return b.event_id; }).join('-')); }).join(',');
     var det = (S.emsDetected ? S.emsDetected.ems_key : '') + '|' + (S.detectBusy ? 1 : 0); // FASE FORM
+    var cq = (S.confirmQ ? S.confirmQ.unconfirmed_id : '') + '|' + (S.confirmBusy ? 1 : 0); // Bruno 07-18
+    det += '|' + cq;
     var pz = (S.myTasks || []).filter(function (x) { return x.is_paused; }).length + '|' + (S.resumeBusy ? 1 : 0); // FASE PAUSA
     return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0) + '|' + det + '|' + pz;
   }
@@ -393,6 +398,40 @@
     h += '</div>';
     return h;
   }
+  // Bruno 07-18 — CARD DE CONFIRMAÇÃO: o EMS atribuiu uma tarefa automática a alguém
+  // que não fez check-in. Pergunta a este operador quem realmente fez. A resposta é
+  // autoritativa (move a tarefa). Dois formatos: adjacência ("foi você ou X?") e
+  // presença ("X está trabalhando hoje?").
+  var STAGE_NOUN = { weighing: 'a pesagem', mixing: 'a mistura', encapsulation: 'a encapsulação', encapsulating: 'a encapsulação', blending: 'a mistura' };
+  function confirmCard() {
+    var q = S.confirmQ; if (!q || S.confirmBusy) return q && S.confirmBusy ? '' : '';
+    if (!q) return '';
+    var subj = esc(q.subject && q.subject.name || 'a pessoa');
+    var noun = STAGE_NOUN[q.stage] || STAGE_NOUN[q.slug] || 'a tarefa de formulação';
+    var prod = q.product_name ? (' de <b>' + esc(q.product_name) + '</b>') : '';
+    var lote = q.batch_number ? (' (lote <b>' + esc(q.batch_number) + '</b>)') : '';
+    var uid = q.unconfirmed_id;
+    var h = '<div style="background:linear-gradient(135deg,rgba(217,145,0,.14),rgba(217,145,0,.06)); border:1px solid rgba(217,145,0,.42); border-radius:20px; padding:16px 18px; display:flex; flex-direction:column; gap:12px;">';
+    h += '<div style="display:flex; align-items:flex-start; gap:12px;"><span style="flex:none; width:44px; height:44px; border-radius:14px; background:rgba(217,145,0,.18); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:24px;">🤔</span><div style="flex:1; min-width:0;">';
+    h += '<div style="font-size:12px; font-weight:800; letter-spacing:.03em; text-transform:uppercase; color:#8a5a00;">Preciso confirmar</div>';
+    if (q.kind === 'adjacency') {
+      h += '<div style="font-size:14.5px; font-weight:500; color:#0c2545; margin-top:4px; line-height:1.45;">O sistema registrou <b>' + subj + '</b> fazendo ' + noun + prod + lote + '. Foi <b>você</b> ou foi o <b>' + subj + '</b>?</div>';
+      h += '</div></div>';
+      h += '<button data-act="confirmAns" data-arg="' + uid + ':me" style="' + confBtn('#1aa06a', '#0e7a4e') + '">Fui eu</button>';
+      h += '<button data-act="confirmAns" data-arg="' + uid + ':subject" style="' + confBtn('#3a86ee', '#1f5fd0') + '">Foi o ' + subj + '</button>';
+    } else {
+      h += '<div style="font-size:14.5px; font-weight:500; color:#0c2545; margin-top:4px; line-height:1.45;">O <b>' + subj + '</b> está trabalhando hoje? O sistema registrou ' + noun + prod + lote + ' no nome dele, mas não tenho certeza.</div>';
+      h += '</div></div>';
+      h += '<button data-act="confirmAns" data-arg="' + uid + ':subject" style="' + confBtn('#1aa06a', '#0e7a4e') + '">Sim, está trabalhando</button>';
+      h += '<button data-act="confirmAns" data-arg="' + uid + ':not_working" style="' + confBtn('#d99100', '#a06a00') + '">Não está trabalhando hoje</button>';
+    }
+    h += '<button data-act="confirmAns" data-arg="' + uid + ':skip" style="border:0; cursor:pointer; background:transparent; color:#566681; font-size:12.5px; font-family:\'Sora\',sans-serif; padding:4px;">Não sei</button>';
+    h += '</div>';
+    return h;
+  }
+  function confBtn(c1, c2) {
+    return 'border:0; cursor:pointer; border-radius:14px; padding:13px; background:linear-gradient(135deg,' + c1 + ',' + c2 + '); color:#fff; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 12px 26px -16px ' + c2 + '; display:flex; align-items:center; justify-content:center; gap:8px;';
+  }
   // FASE PAUSA — operador em pausa: banner com nota + "Voltar ao trabalho".
   // Terminar a pausa descongela todos os processos (backend resumePausedFor).
   function pauseTask() { return (S.myTasks || []).find(function (t) { return t.slug === 'break'; }) || null; }
@@ -408,6 +447,295 @@
     h += '</div>';
     return h;
   }
+
+  // ── P&P WORKSPACE (Bruno 08-06) ─────────────────────────────
+  // Central do operador: picklist + registrar saída de estoque. Visual = STYLE-KIT
+  // (ground dot-grid, título serif com itálico verde, pill navy, chips tonais).
+  // Sandbox SEMPRE vê (Bruno testa); operadores só com a flag do servidor ligada.
+  var WS_SLUGS = { order_printing: 1, order_printing_2: 1, stock_organization: 1 };
+  function wsAllowed() { return CFG.workspace === true || isSandbox(); }
+  function wsTask() { return (S.myTasks || []).find(function (t) { return WS_SLUGS[t.slug] || (typeMeta(t.slug) || {}).counts_as_pp; }) || null; }
+  function wsBanner() {
+    if (!wsAllowed() || !wsTask()) return '';
+    return '<div style="background:linear-gradient(135deg,#0d1f3c,#1a3a6b); border-radius:20px; padding:18px 20px; display:flex; align-items:center; gap:16px; box-shadow:0 22px 44px -20px rgba(13,31,60,.6);">'
+      + '<span style="flex:none; width:50px; height:50px; border-radius:16px; background:rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center; font-size:26px;">📦</span>'
+      + '<div style="flex:1; min-width:0;"><div style="font-family:Georgia,serif; font-weight:400; font-size:21px; color:#fff; line-height:1.1;">Central de <em style="color:#7fd696; font-style:italic;">P&amp;P &amp; Estoque</em></div>'
+      + '<div style="font-size:13px; color:rgba(255,255,255,.75); margin-top:2px;">Picklist do dia, registrar saída de estoque e organização</div></div>'
+      + '<button data-act="openWorkspace" style="border:0; cursor:pointer; border-radius:999px; height:46px; padding:0 26px; background:#fff; color:#0d1f3c; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 10px 24px -10px rgba(0,0,0,.4);">Abrir</button>'
+      + '</div>';
+  }
+  function loadWorkspace() {
+    S.ws = S.ws || { picklist: null, recent: null, q: '', sel: null, qty: '1', kind: 'pick', reason: '', busy: false };
+    api('/api/v3/op/picklist').then(function (r) { S.ws.picklist = r; render(); }).catch(function () { S.ws.picklist = { groups: [], total_orders: 0 }; render(); });
+    api('/api/v3/op/stock/recent').then(function (r) { S.ws.recent = r.items || []; render(); }).catch(function () { S.ws.recent = []; render(); });
+    // falta de estoque cruzada com o EMS (pode demorar: Veeqo + EMS)
+    api('/api/v3/op/stock-gaps').then(function (r) { S.ws.gaps = r; render(); }).catch(function () { S.ws.gaps = { items: [] }; render(); });
+  }
+  // Painel "Falta de estoque" (Bruno 08-06): o que está zerado/baixo pro P&P de
+  // hoje + o que o EMS diz (cápsulas prontas / na linha / já passou / nada).
+  function wsGapsHtml() {
+    var g = S.ws && S.ws.gaps;
+    if (!g) return '<div style="color:#6b7f92; font-size:12.5px;">verificando estoque…</div>';
+    var items = g.items || [];
+    if (!items.length) return '<div style="color:#1e6b2e; font-size:13px; font-weight:600;">✓ Tudo que precisa hoje tem estoque.</div>';
+    var h = '';
+    items.forEach(function (x) {
+      var crit = x.severity === 'critical';
+      h += '<div style="border-radius:12px; padding:10px 12px; margin-bottom:8px; background:' + (crit ? '#fdeeec' : '#fdf6e3')
+        + '; border:1px solid ' + (crit ? '#f5cdc7' : '#eeddad') + ';">'
+        + '<div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;">'
+        + '<span style="font-weight:800; font-size:13.5px; color:' + (crit ? '#a02c20' : '#6b4c07') + ';">' + esc(x.product || x.sku) + '</span>'
+        + '<span style="font-family:\'DM Mono\',monospace; font-size:11px; color:#54687c;">precisa ' + x.needed + ' · tem ' + x.stock + '</span>'
+        + (x.status === 'out' ? '<span style="height:19px; display:inline-flex; align-items:center; padding:0 8px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:10px; background:#a02c20; color:#fff; font-weight:700;">ZERADO</span>' : '')
+        + '</div>'
+        + '<div style="font-size:12.5px; color:' + (crit ? '#a02c20' : '#6b4c07') + '; margin-top:3px; font-weight:' + (crit ? '700' : '500') + ';">' + esc(x.advice) + '</div>'
+        + '</div>';
+    });
+    return h;
+  }
+  function wsSupps() {
+    var q = ((S.ws && S.ws.q) || '').toLowerCase().trim();
+    if (!q || q.length < 2) return [];
+    return (DATA.supplements || []).filter(function (s) {
+      if ((s.canonical_name || '').toLowerCase().indexOf(q) >= 0) return true;
+      return (s.aliases || []).some(function (a) { return String(a).toLowerCase().indexOf(q) >= 0; });
+    }).slice(0, 8);
+  }
+  // Nome LIMPO do produto: sem marca, sem mg, sem contagem, sem marketing.
+  // Prefere o nome canônico (curto e certo); só usa o título do marketplace se
+  // não houver produto mapeado — e aí corta no primeiro atributo (mg/caps/pipe).
+  function wsCleanName(g) {
+    var src = String(g.product || '').trim();
+    if (!src) {
+      src = String(g.title || '').split('|')[0];
+      // corta tudo a partir do 1º "300mg" / "200 caps" — o resto é marketing
+      src = src.replace(/\s*[\d.,]+\s*(mg|mcg)\b.*$/i, '')
+               .replace(/\s*\d+\s*(veg(an)?\s*)?(capsules?|caps|tablets?|tabs|softgels?|count|ct)\b.*$/i, '');
+    }
+    return src.replace(/healthfare|healtfare/ig, '')
+      .replace(/\s*-\s*C\d+\s*$/i, '')            // sufixo de casepack sai do nome
+      .replace(/\b[\d.,]+\s*(mg|mcg)\b/ig, '')     // mg sai daqui (é adicionado 1x depois)
+      .replace(/[^A-Za-z0-9\-+' ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function wsMg(g) {
+    var m = String(g.product || '').match(/([\d.,]+)\s*(mg|mcg)/i)
+         || String(g.title || '').match(/([\d.,]+)\s*(mg|mcg)/i);
+    return m ? (m[1] + m[2].toLowerCase()) : '';
+  }
+  function wsCaps(g) {
+    var cd = String(g.content_desc || '').match(/(\d+)\s*(caps?|capsules?|tabs?|tablets?|softgels?|count|ct)/i);
+    if (cd) return cd[1] + (/tab/i.test(cd[2]) ? 'tabs' : 'caps');
+    var m = String(g.title || '').match(/(\d+)\s*(?:veg(?:an)?\s*)?(capsules?|caps|tablets?|tabs|softgels?|count|ct)\b/i);
+    return m ? m[1] + (/tab/i.test(m[2]) ? 'tabs' : 'caps') : '';
+  }
+  // Casepack ("C2") pra mostrar separado — é outro produto, não pode sumir.
+  function wsPack(g) {
+    var m = String(g.sku || '').match(/\bC(\d+)\b/i) || String(g.product || '').match(/\bC(\d+)\b/i);
+    return m ? 'C' + m[1] : '';
+  }
+  // Título CURTO (Bruno 08-06): nome + mg + caps [+ casepack].
+  function wsShortTitle(g) {
+    var pack = wsPack(g), mg = wsMg(g), caps = wsCaps(g);
+    return (wsCleanName(g) + (mg ? ' ' + mg : '') + (caps ? ' ' + caps : '') + (pack ? ' · ' + pack : '')).trim()
+      || String(g.sku || '?');
+  }
+  // Título do PRINT: nome COMPLETO do suplemento + mg + caps, all caps.
+  // "BENFOTIAMINE 300mg/200caps" (Bruno 08-06).
+  function wsPrintTitle(g) {
+    var pack = wsPack(g), mg = wsMg(g), caps = wsCaps(g);
+    return (wsCleanName(g).toUpperCase() + (mg ? ' ' + mg : '') + (caps ? '/' + caps : '')
+      + (pack ? ' ' + pack : '')).trim() || String(g.sku || '?');
+  }
+  function wsLocation(g) {
+    var loc = [];
+    if (g.location && g.location.shelf) loc.push('SHELF ' + g.location.shelf);
+    if (g.location && g.location.bin) loc.push('BIN ' + g.location.bin);
+    if (g.location && g.location.pallet) loc.push('PALLET ' + g.location.pallet);
+    return loc.length ? loc.join(' · ') : 'LOCAL A DEFINIR';
+  }
+  // ENVELOPES no topo do papel (Bruno 08-06): quantos de cada tamanho separar.
+  // 1 envelope por ORDEM. Backend calcula pela cor + nº de garrafas (saco perfeito).
+  function wsEnvelopesHtml(pl) {
+    var env = (pl && pl.envelopes) || {};
+    var sizes = Object.keys(env).sort(function (a, b) {
+      if (a === 'BX') return 1; if (b === 'BX') return -1;   // caixa por último
+      return (parseFloat(a) || 0) - (parseFloat(b) || 0);
+    });
+    if (!sizes.length && !(pl && pl.envelopes_unknown)) return '';
+    var h = '<div class="env"><span class="ttl">ENVELOPES:</span> ';
+    sizes.forEach(function (s) { h += '<span class="e">' + esc(s) + ' <b>' + env[s] + '</b></span>'; });
+    var pend = (pl.envelopes_unknown || 0) + (pl.envelopes_mixed || 0);
+    if (pend) h += '<span class="warn">+ ' + pend + ' outras a definir</span>';
+    return h + '</div>';
+  }
+  // PRINT 4x6 (Bruno 08-06): linha 1 = SKU + nome/mg/caps (identifica);
+  // linha do meio = LOCATION e QTY em MAIÚSCULAS GRANDES (difícil de errar).
+  function wsPrint() {
+    var w = S.ws; if (!w || !w.picklist || !(w.picklist.groups || []).length) { toast('Picklist vazia'); return; }
+    var rows = '';
+    (w.picklist.groups || []).forEach(function (g) {
+      var tot = (g.orders || []).reduce(function (n, o) { return n + (Number(o.bottles) || 0); }, 0);
+      rows += '<div class="row">'
+        + '<div class="id"><span class="sku">' + esc(g.sku || '?') + '</span> <span class="nm">' + esc(wsPrintTitle(g)) + '</span></div>'
+        + '<div class="big"><span class="loc">' + esc(wsLocation(g)) + '</span><span class="qty">QTY <b>' + tot + '</b></span></div>'
+        + '</div>';
+    });
+    var doc = '<!doctype html><html><head><meta charset="utf-8"><title>Picklist</title><style>'
+      + '@page { size: 4in 6in; margin: 0.12in; }'
+      + 'body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #000; }'
+      + '.hdr { font-size: 10px; font-weight: bold; border-bottom: 2px solid #000; padding: 1px 0 3px; }'
+      + '.env { font-size: 11px; font-weight: 900; border-bottom: 2px solid #000; padding: 3px 0 4px; margin-bottom: 3px; }'
+      + '.env .ttl { font-size: 8.5px; font-weight: bold; letter-spacing: .06em; }'
+      + '.env .e { display: inline-block; margin-right: 10px; }'
+      + '.env .e b { font-size: 15px; }'
+      + '.env .warn { display: block; font-size: 8.5px; font-weight: bold; margin-top: 1px; }'
+      + '.row { break-inside: avoid; border-bottom: 1.5px solid #000; padding: 4px 0 5px; }'
+      + '.id { font-size: 10px; line-height: 1.15; }'
+      + '.sku { font-family: Consolas, monospace; font-weight: bold; }'
+      + '.nm { font-weight: bold; }'
+      + '.big { display: flex; justify-content: space-between; align-items: baseline; margin-top: 2px; }'
+      + '.loc { font-size: 17px; font-weight: 900; letter-spacing: .01em; }'
+      + '.qty { font-size: 14px; font-weight: 900; white-space: nowrap; margin-left: 8px; }'
+      + '.qty b { font-size: 22px; }'
+      + '</style></head><body>'
+      + '<div class="hdr">PICKLIST &middot; ' + esc(new Date().toLocaleDateString('pt-BR')) + ' &middot; '
+      + (w.picklist.total_orders || 0) + ' ORDENS &middot; ' + (w.picklist.total_bottles || 0) + ' BOTTLES</div>'
+      + wsEnvelopesHtml(w.picklist)
+      + rows + '<script>window.onload=function(){window.print();}<\/script></body></html>';
+    var win = window.open('', '_blank');
+    if (!win) { toast('Popup bloqueado — libera popup pra imprimir'); return; }
+    win.document.write(doc); win.document.close();
+  }
+
+  function workspaceKey() {
+    if (!S.workspaceOpen) return 'ws-off';
+    var w = S.ws || {};
+    return 'ws|' + w.q + '|' + (w.sel ? w.sel.id : 0) + '|' + w.qty + '|' + w.kind + '|' + (w.busy ? 1 : 0)
+      + '|' + (w.picklist ? (w.picklist.total_orders + '.' + (w.picklist.groups || []).length) : 'L')
+      + '|' + (w.recent ? w.recent.length : 'L');
+  }
+  function workspaceInner() {
+    var w = S.ws || {};
+    var h = '<div style="position:absolute; inset:0; display:flex; flex-direction:column; background:#f4f8fc; background-image:radial-gradient(circle,rgba(26,58,107,.06) 1px,transparent 1px); background-size:26px 26px;">';
+    // header
+    h += '<div style="flex:none; display:flex; align-items:center; gap:16px; padding:22px 34px 8px;">'
+      + '<button data-act="closeWorkspace" style="border:1px solid #d4e2f0; background:#fff; cursor:pointer; border-radius:999px; height:42px; padding:0 20px; font-weight:700; font-size:14px; color:#1c2b3a; font-family:\'Sora\',sans-serif;">&larr; Voltar</button>'
+      + '<div style="flex:1; min-width:0;"><div style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#2e8b3c; font-weight:600;">&#9679; HEALTHFARE P&amp;P &middot; CENTRAL</div>'
+      + '<div style="font-family:\'DM Serif Display\',Georgia,serif; font-weight:400; font-size:30px; color:#0d1f3c; line-height:1.05;">Central de <em style="color:#2e8b3c;">P&amp;P &amp; Estoque</em></div></div>'
+      + (isSandbox() ? '<span style="height:24px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:11px; background:rgba(10,154,166,.12); color:#06707a; box-shadow:inset 0 0 0 1px rgba(10,154,166,.35);">sandbox &middot; n&atilde;o conta no estoque real</span>' : '')
+      + '<button data-act="wsPrint" style="border:0; cursor:pointer; border-radius:999px; height:46px; padding:0 26px; background:#0d1f3c; color:#fff; font-weight:800; font-size:15px; font-family:\'Sora\',sans-serif; box-shadow:0 10px 24px -10px rgba(13,31,60,.5); display:inline-flex; align-items:center; gap:8px;">&#128424; PRINT</button>'
+      + '</div>';
+    // body: 2 colunas
+    h += '<div class="hf-scroll" style="flex:1; overflow-y:auto; padding:14px 34px 40px;"><div style="display:grid; grid-template-columns:1.2fr 1fr; gap:20px; max-width:1240px; margin:0 auto;">';
+
+    // ── FALTA DE ESTOQUE (largura toda, antes das colunas) — Bruno 08-06
+    var gp = S.ws && S.ws.gaps;
+    if (!gp || (gp.items || []).length) {
+      var nCrit = gp ? (gp.critical_count || 0) : 0;
+      h += '<div style="grid-column:1 / -1; background:#fff; border:1px solid ' + (nCrit ? '#f5cdc7' : '#d4e2f0')
+        + '; border-radius:18px; box-shadow:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05); padding:16px 20px;">'
+        + '<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:10px;">'
+        + '<div style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#6b7f92; font-weight:600;">Falta de estoque pro P&amp;P de hoje</div>'
+        + (gp && gp.out_count ? '<span style="height:20px; display:inline-flex; align-items:center; padding:0 9px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:10.5px; background:#fdeeec; color:#a02c20; font-weight:800; box-shadow:inset 0 0 0 1px #f5cdc7;">' + gp.out_count + ' zerado(s)</span>' : '')
+        + (gp && gp.low_count ? '<span style="height:20px; display:inline-flex; align-items:center; padding:0 9px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:10.5px; background:#fdf6e3; color:#6b4c07; font-weight:800; box-shadow:inset 0 0 0 1px #eeddad;">' + gp.low_count + ' baixo(s)</span>' : '')
+        + '</div>' + wsGapsHtml() + '</div>';
+    }
+
+    // ── coluna 1: PICKLIST
+    h += '<div style="background:#fff; border:1px solid #d4e2f0; border-radius:18px; box-shadow:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05); padding:18px 20px;">';
+    h += '<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:10px;"><div style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#6b7f92; font-weight:600;">Imprimir ordem &middot; picklist de hoje</div><span style="flex:1;"></span>'
+      + '<button data-act="wsReload" style="border:1px solid #d4e2f0; background:#f7fafd; cursor:pointer; border-radius:999px; height:30px; padding:0 14px; font-size:12px; font-weight:700; color:#1c2b3a;">Atualizar</button></div>';
+    if (!w.picklist) h += '<div style="color:#6b7f92; font-size:13px; padding:14px 0;">Carregando picklist&hellip;</div>';
+    else if (!(w.picklist.groups || []).length) h += '<div style="color:#6b7f92; font-size:13px; padding:14px 0;">Nenhum pedido pendente pra separar agora.</div>';
+    else {
+      h += '<div style="display:flex; gap:8px; margin-bottom:12px;">'
+        + '<span style="height:24px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:11px; background:#eaf0fb; color:#1a3a6b; box-shadow:inset 0 0 0 1px #d4e2f0;">' + w.picklist.total_orders + ' pedidos</span>'
+        + '<span style="height:24px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:11px; background:#eaf0fb; color:#1a3a6b; box-shadow:inset 0 0 0 1px #d4e2f0;">' + (w.picklist.total_bottles || 0) + ' garrafas</span>'
+        + '<span style="height:24px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:11px; background:#eaf0fb; color:#1a3a6b; box-shadow:inset 0 0 0 1px #d4e2f0;">' + (w.picklist.product_count || (w.picklist.groups || []).length) + ' produtos</span></div>';
+      // ENVELOPES a separar (mesma conta do papel)
+      var envK = Object.keys(w.picklist.envelopes || {});
+      if (envK.length || w.picklist.envelopes_unknown) {
+        h += '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:-4px 0 12px;">'
+          + '<span style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#6b7f92;">Envelopes:</span>';
+        envK.sort(function (a, b) { if (a === 'BX') return 1; if (b === 'BX') return -1; return (parseFloat(a) || 0) - (parseFloat(b) || 0); })
+          .forEach(function (s) {
+            h += '<span style="height:26px; display:inline-flex; align-items:center; gap:5px; padding:0 12px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:12px; background:#0d1f3c; color:#fff; font-weight:700;">' + esc(s) + ' <b style="font-size:14px;">' + w.picklist.envelopes[s] + '</b></span>';
+          });
+        var pend = (w.picklist.envelopes_unknown || 0) + (w.picklist.envelopes_mixed || 0);
+        if (pend) h += '<span style="height:26px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:11px; background:#fdf6e3; color:#6b4c07; box-shadow:inset 0 0 0 1px #eeddad;">+' + pend + ' sem tamanho</span>';
+        h += '</div>';
+      }
+      (w.picklist.groups || []).forEach(function (g) {
+        var loc = [];
+        if (g.location && g.location.shelf) loc.push('SHELF ' + g.location.shelf);
+        if (g.location && g.location.bin) loc.push('BIN ' + g.location.bin);
+        if (g.location && g.location.pallet) loc.push('PALLET ' + g.location.pallet);
+        var totBottles = (g.orders || []).reduce(function (n, o) { return n + (Number(o.bottles) || 0); }, 0);
+        var lbl = function (t) { return '<span style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:#6b7f92;">' + t + '</span> '; };
+        h += '<div style="border-top:1px dotted #c6d7e8; padding:10px 2px; display:flex; flex-direction:column; gap:3px;">'
+          + '<div style="display:flex; align-items:baseline; gap:10px;">' + lbl('SKU:')
+          + '<span style="font-family:\'DM Mono\',monospace; font-size:14px; font-weight:700; color:#0d1f3c;">' + esc(g.sku || '?') + '</span>'
+          + '<span style="flex:1;"></span>'
+          + lbl('QTY:') + '<span style="font-family:\'DM Mono\',monospace; font-size:16px; font-weight:800; color:#0d1f3c;">' + totBottles + '</span></div>'
+          + '<div style="display:flex; align-items:baseline; gap:6px; min-width:0;">' + lbl('Title:')
+          + '<span style="font-size:13.5px; color:#1c2b3a; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(wsShortTitle(g)) + '</span></div>'
+          + '<div style="display:flex; align-items:baseline; gap:6px;">' + lbl('Location:')
+          + '<span style="font-family:\'DM Mono\',monospace; font-size:12px; color:' + (loc.length ? '#1a3a6b' : '#6b7f92') + '; font-weight:600;">' + (loc.length ? esc(loc.join(' &middot; ')) : 'local a definir') + '</span></div>'
+          + '</div>';
+      });
+    }
+    h += '</div>';
+
+    // ── coluna 2: REGISTRAR SAÍDA + recentes
+    h += '<div style="display:flex; flex-direction:column; gap:16px;">';
+    h += '<div style="background:#fff; border:1px solid #d4e2f0; border-radius:18px; box-shadow:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05); padding:18px 20px;">';
+    h += '<div style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#6b7f92; font-weight:600; margin-bottom:8px;">Registrar sa&iacute;da de estoque</div>';
+    h += '<div style="font-size:12.5px; color:#54687c; margin-bottom:10px;">Pegou garrafa fora de um pedido? Registra aqui em 3 segundos. Nunca trava, s&oacute; registra.</div>';
+    if (!w.sel) {
+      h += '<input data-input="wsQ" data-focus="wsQ" value="' + esc(w.q || '') + '" placeholder="busque o suplemento&hellip;" style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #d4e2f0; font-size:15px; background:#f7fafd; color:#1c2b3a; outline:none;">';
+      var list = wsSupps();
+      if ((w.q || '').length >= 2 && !list.length) h += '<div style="color:#6b7f92; font-size:12.5px; padding:8px 2px;">nada com &quot;' + esc(w.q) + '&quot;</div>';
+      list.forEach(function (s) {
+        h += '<button data-act="wsPick" data-arg="' + s.id + '" style="display:block; width:100%; text-align:left; border:0; background:none; cursor:pointer; border-bottom:1px dotted #c6d7e8; padding:9px 4px; font-size:14.5px; font-weight:600; color:#1c2b3a;">' + esc(s.canonical_name) + '</button>';
+      });
+    } else {
+      h += '<div style="display:flex; align-items:center; gap:10px; background:#f7fafd; border:1px solid #d4e2f0; border-radius:12px; padding:10px 14px; margin-bottom:12px;">'
+        + '<div style="flex:1; font-family:\'DM Serif Display\',Georgia,serif; font-size:19px; color:#0d1f3c;">' + esc(w.sel.canonical_name) + '</div>'
+        + '<button data-act="wsClear" style="border:0; background:none; cursor:pointer; color:#6b7f92; font-size:13px; font-weight:700;">trocar</button></div>';
+      // qty stepper
+      h += '<div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">'
+        + '<button data-act="wsQtyDelta" data-arg="-1" style="border:1px solid #d4e2f0; background:#fff; cursor:pointer; border-radius:12px; width:52px; height:52px; font-size:26px; color:#0d1f3c;">&minus;</button>'
+        + '<input data-input="wsQty" inputmode="numeric" value="' + esc(String(w.qty || '1')) + '" style="width:90px; text-align:center; padding:12px 0; border-radius:12px; border:1px solid #d4e2f0; font-size:22px; font-weight:800; color:#0d1f3c; background:#fff;">'
+        + '<button data-act="wsQtyDelta" data-arg="1" style="border:1px solid #d4e2f0; background:#fff; cursor:pointer; border-radius:12px; width:52px; height:52px; font-size:24px; color:#0d1f3c;">+</button>'
+        + '<span style="font-size:13px; color:#54687c;">garrafas</span></div>';
+      // motivo
+      h += '<div style="display:inline-flex; border:1px solid #d4e2f0; border-radius:10px; overflow:hidden; margin-bottom:12px;">'
+        + '<button data-act="wsKind" data-arg="pick" style="padding:9px 16px; border:0; cursor:pointer; font-weight:700; font-size:13px; background:' + (w.kind !== 'damaged' ? '#0d1f3c' : '#fff') + '; color:' + (w.kind !== 'damaged' ? '#fff' : '#54687c') + ';">Peguei do estoque</button>'
+        + '<button data-act="wsKind" data-arg="damaged" style="padding:9px 16px; border:0; cursor:pointer; font-weight:700; font-size:13px; background:' + (w.kind === 'damaged' ? '#a02c20' : '#fff') + '; color:' + (w.kind === 'damaged' ? '#fff' : '#54687c') + ';">Danificada</button></div>';
+      h += '<input data-input="wsReason" data-focus="wsReason" value="' + esc(w.reason || '') + '" placeholder="' + (w.kind === 'damaged' ? 'o que aconteceu? (opcional)' : 'motivo &middot; ex.: extra pro pedido 12-345 (opcional)') + '" style="width:100%; box-sizing:border-box; padding:11px 14px; border-radius:12px; border:1px solid #d4e2f0; font-size:14px; background:#f7fafd; color:#1c2b3a; outline:none; margin-bottom:14px;">';
+      h += '<button data-act="wsSubmit" ' + (w.busy ? 'disabled' : '') + ' style="width:100%; border:0; cursor:pointer; border-radius:999px; height:52px; background:#0d1f3c; color:#fff; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -14px rgba(13,31,60,.6);">' + (w.busy ? 'Registrando&hellip;' : 'Registrar sa&iacute;da') + '</button>';
+    }
+    h += '</div>';
+    // recentes
+    h += '<div style="background:#fff; border:1px solid #d4e2f0; border-radius:18px; box-shadow:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05); padding:16px 20px;">';
+    h += '<div style="font-family:\'DM Mono\',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#6b7f92; font-weight:600; margin-bottom:8px;">Registrado hoje</div>';
+    if (!w.recent) h += '<div style="color:#6b7f92; font-size:12.5px;">carregando&hellip;</div>';
+    else if (!w.recent.length) h += '<div style="color:#6b7f92; font-size:12.5px;">Nada registrado ainda.</div>';
+    else w.recent.forEach(function (r) {
+      h += '<div style="border-top:1px dotted #c6d7e8; padding:7px 2px; display:flex; align-items:center; gap:8px; font-size:13px;">'
+        + '<span style="flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#1c2b3a; font-weight:600;">' + esc(r.nickname || r.product) + '</span>'
+        + '<span style="font-family:\'DM Mono\',monospace; font-size:12px; color:#0d1f3c; font-weight:700;">&times;' + r.qty + '</span>'
+        + (r.kind === 'damaged'
+          ? '<span style="height:20px; display:inline-flex; align-items:center; padding:0 9px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:10.5px; background:#fdeeec; color:#a02c20; box-shadow:inset 0 0 0 1px #f5cdc7;">danificada</span>'
+          : '<span style="height:20px; display:inline-flex; align-items:center; padding:0 9px; border-radius:999px; font-family:\'DM Mono\',monospace; font-size:10.5px; background:#e8f7ea; color:#1e6b2e; box-shadow:inset 0 0 0 1px #c8ecce;">saiu</span>')
+        + '</div>';
+    });
+    h += '</div>';
+    h += '</div>';        // fim coluna 2
+    h += '</div></div>';  // fim grid + scroll
+    h += '</div>';
+    return h;
+  }
   function homeInner() {
     var p = S.session.person; var ac = accent();
     var circ = 2 * Math.PI * 52; var frac = Math.min(1, S.goal ? S.completedToday / S.goal : 0);
@@ -417,7 +745,9 @@
       + '<div style="width:min(100%,1120px); margin:0 auto; display:flex; flex-direction:column; gap:clamp(16px,2vw,22px);">';
     // Item A — banner de SANDBOX (conta de teste do Bruno; tudo some em ~15s)
     if (isSandbox()) h += '<div style="display:flex; align-items:center; gap:10px; background:rgba(10,154,166,.12); border:1px solid rgba(10,154,166,.35); border-radius:16px; padding:12px 16px; color:#06707a; font-weight:700; font-size:14px;"><span style="font-size:18px;">🧪</span>Modo Sandbox · suas tarefas e contagens somem sozinhas em ~15s (nada vai pro Slack, métricas ou equipe).</div>';
+    h += confirmCard(); // Bruno 07-18 — confirmar auto-task do EMS ("foi você ou X?")
     h += pauseBanner(); // FASE PAUSA — banner "em pausa" + voltar ao trabalho
+    h += wsBanner();    // P&P Workspace (Bruno 08-06) — box grande enquanto task P&P aberta
     // hero
     h += '<div style="display:grid; grid-template-columns:1fr auto; gap:24px; align-items:center; background:rgba(255,255,255,.62); backdrop-filter:blur(22px) saturate(1.4); border:1px solid rgba(255,255,255,.8); border-radius:30px; padding:clamp(22px,3vw,34px) clamp(22px,3.2vw,38px); box-shadow:0 30px 70px -34px rgba(15,40,90,.42), inset 0 1px 0 rgba(255,255,255,.85);">'
       + '<div style="min-width:0;"><div style="font-size:14px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:' + ac + '; opacity:.9;">' + esc(phaseLabel()) + ' · <span id="hf-clock">' + esc(clockNow()) + '</span></div>'
@@ -444,9 +774,12 @@
       // background (na máquina: encapsulação/mistura/tablete) roda longo de
       // propósito → NÃO envelhece (sem badge "demorando"); ganha pill própria.
       var isBg = !!t.is_long_running;
-      var a = isBg ? 'ok' : ageState(t.started_at); var ag = AGE[a];
+      // ALMOÇO/PAUSA: sem cronômetro pro funcionário (Bruno 07-22 — o tempo de pausa
+      // é interno/admin; aqui mostra só "EM PAUSA", sem contagem).
+      var isBreakT = (t.slug === 'lunch' || t.slug === 'break');
+      var a = (isBg || isBreakT) ? 'ok' : ageState(t.started_at); var ag = AGE[a];
       var prod = t.product || t.supplement || t.supplement_name || null;
-      var sub = (prod ? prod + (t.batch_number ? ' · ' + t.batch_number : '') + ' · ' : (t.batch_number ? t.batch_number + ' · ' : '')) + 'há ' + fmtDur(t.started_at);
+      var sub = (prod ? prod + (t.batch_number ? ' · ' + t.batch_number : '') + ' · ' : (t.batch_number ? t.batch_number + ' · ' : '')) + (isBreakT ? 'EM PAUSA 🍽️' : 'há ' + fmtDur(t.started_at));
       var card = { display: 'flex', alignItems: 'center', gap: '14px', background: 'rgba(255,255,255,.74)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,.85)', borderLeft: '4px solid ' + ag.border, borderRadius: '20px', padding: '15px 16px', boxShadow: ag.glow, transition: 'box-shadow .5s, border-color .5s' };
       var ico = { flex: 'none', width: '46px', height: '46px', borderRadius: '14px', background: ag.icoBg, color: ag.ico, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background .5s, color .5s' };
       h += '<div style="' + sty(card) + '"><span style="' + sty(ico) + '">' + svg(iconPath(t.slug), 24) + '</span><div style="flex:1; min-width:0;"><div style="font-weight:700; font-size:16px; color:#0c2545;">' + esc(labelOf(t.slug)) + '</div><div style="font-size:13px; color:#5a6e87; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(sub) + '</div>'
@@ -465,12 +798,16 @@
       var hasFg = !!o.current_event_id;
       var bg = Array.isArray(o.bg_tasks) ? o.bg_tasks : [];
       var inCw = Array.isArray(o.current_cowork) && o.current_cowork.indexOf(p.id) >= 0;
-      var a = hasFg ? ageState(o.current_started_at) : 'ok'; var ag = AGE[a];
+      var oBreakAge = hasFg && (o.current_slug === 'lunch' || o.current_slug === 'break');
+      var a = (hasFg && !oBreakAge) ? ageState(o.current_started_at) : 'ok'; var ag = AGE[a];
       // linha principal: foreground se houver; senão a 1ª background ("na máquina")
       // nome do SUPLEMENTO seguido do batch (antes mostrava só o batch). prodBatch helper.
       var prodBatch = function (prod, batch) { return (prod ? prod + (batch ? ' · ' + batch : '') : (batch || '')); };
+      // colega em almoço/pausa: "EM PAUSA" sem tempo (contagem é interna/admin)
       var mainSub = hasFg
-        ? (labelOf(o.current_slug) + ((o.current_product || o.current_batch) ? ' · ' + prodBatch(o.current_product, o.current_batch) : '') + ' · há ' + fmtDur(o.current_started_at) + (Array.isArray(o.current_cowork) && o.current_cowork.length ? ' · em grupo' : ''))
+        ? (oBreakAge
+            ? (labelOf(o.current_slug) + ' · EM PAUSA')
+            : (labelOf(o.current_slug) + ((o.current_product || o.current_batch) ? ' · ' + prodBatch(o.current_product, o.current_batch) : '') + ' · há ' + fmtDur(o.current_started_at) + (Array.isArray(o.current_cowork) && o.current_cowork.length ? ' · em grupo' : '')))
         : ('⚙ na máquina: ' + labelOf(bg[0].slug) + ((bg[0].product || bg[0].batch) ? ' · ' + prodBatch(bg[0].product, bg[0].batch) : '') + ' · há ' + fmtDur(bg[0].started_at));
       // pills das background extras (se bg-only, a 1ª já vai na linha principal)
       var bgPills = '';
@@ -1175,14 +1512,18 @@
       api('/api/v3/architect/person/' + S.session.person.id + '/today', { headers: { 'X-Operator-Id': String(S.session.person.id) } }).catch(function () { return { events: [] }; }),
       api('/api/v3/op/active-operators').catch(function () { return { operators: [] }; }),
       api('/api/v3/op/ems/my-activity').catch(function () { return { detected: null }; }), // FASE FORM: detecção passiva
+      api('/api/v3/op/pending-confirmations').catch(function () { return { question: null }; }), // Bruno 07-18: confirmar auto-task
     ]).then(function (r) {
       var mine = r[0] || { events: [] }; var ops = r[1] || { operators: [] };
       var evs = mine.events || [];
       S.myTasks = evs.filter(function (e) { return !e.ended_at && !e.is_unfinished; }); // FASE PAUSA: unfinished some
+      // Central de P&P: tarefa completada → fecha sozinha (Bruno 08-06: só fecha ao completar)
+      if (S.workspaceOpen && !wsTask()) { S.workspaceOpen = false; toast('Tarefa concluída — Central fechada'); }
       S.completedToday = evs.filter(function (e) { return e.ended_at; }).length;
       S.goal = mine.goal || Math.max(8, evs.length);
       S.team = ops.operators || [];
       S.emsDetected = (r[2] && r[2].detected) || null;
+      S.confirmQ = (r[3] && r[3].question) || null; // pergunta de confirmação pendente
       render();
     });
   }
@@ -1243,6 +1584,36 @@
   function flowOrdersHighlight() { var inp = LYR.flow.el.querySelector('[data-focus="orders"]'); if (inp) { inp.focus(); inp.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; inp.style.animation = 'hfShake .4s'; setTimeout(function () { inp.style.boxShadow = ''; inp.style.animation = ''; }, 1200); } }
 
   var ACT = {
+    // ── P&P Workspace (Bruno 08-06) ──
+    openWorkspace: function () { S.workspaceOpen = true; loadWorkspace(); render(); },
+    closeWorkspace: function () { S.workspaceOpen = false; render(); },
+    wsReload: function () { if (S.ws) { S.ws.picklist = null; } loadWorkspace(); render(); },
+    wsPrint: function () { wsPrint(); },
+    wsPick: function (arg) {
+      var id = parseInt(arg, 10);
+      var s = (DATA.supplements || []).find(function (x) { return x.id === id; });
+      if (s && S.ws) { S.ws.sel = s; S.ws.q = ''; render(); }
+    },
+    wsClear: function () { if (S.ws) { S.ws.sel = null; S.ws.qty = '1'; render(); } },
+    wsQtyDelta: function (arg) {
+      if (!S.ws) return;
+      var n = Math.max(1, (parseInt(S.ws.qty, 10) || 1) + parseInt(arg, 10));
+      S.ws.qty = String(n); render();
+    },
+    wsKind: function (arg) { if (S.ws) { S.ws.kind = arg === 'damaged' ? 'damaged' : 'pick'; render(); } },
+    wsSubmit: function () {
+      var w = S.ws; if (!w || !w.sel || w.busy) return;
+      var qty = parseInt(w.qty, 10);
+      if (!qty || qty < 1) { toast('Quantidade inválida'); return; }
+      w.busy = true; render();
+      api('/api/v3/op/stock/take', { method: 'POST', body: { product_id: w.sel.id, qty: qty, kind: w.kind, reason: (w.reason || '').trim() || null } })
+        .then(function () {
+          toast(w.kind === 'damaged' ? 'Garrafa danificada registrada' : 'Saída registrada — obrigado!');
+          w.sel = null; w.qty = '1'; w.reason = ''; w.busy = false;
+          api('/api/v3/op/stock/recent').then(function (r) { w.recent = r.items || []; render(); }).catch(function () { render(); });
+        })
+        .catch(function (e) { w.busy = false; toast('Erro: ' + (e.message || e)); render(); });
+    },
     pinkey: function (k) {
       if (k === '⌫') S.pin = S.pin.slice(0, -1);
       else if (k === '✓') { if (S.pin.length === 4) return submitPin(); }
@@ -1308,6 +1679,21 @@
       var n = new Date(); var ap = n.getHours() >= 12 ? 'PM' : 'AM';
       S.overlay = { type: 'detectWhen', det: d, pickTime: false, tpH: '', tpM: String(Math.floor(n.getMinutes() / 5) * 5).padStart(2, '0'), tpAP: ap };
       render();
+    },
+    // Bruno 07-18 — responder a confirmação de auto-task ("foi você ou X?" / "X trabalha?").
+    // arg = "<unconfirmed_id>:<answer>" com answer ∈ me|subject|not_working|skip.
+    confirmAns: function (arg) {
+      if (S.confirmBusy || !arg) return;
+      var parts = String(arg).split(':'); var uid = parseInt(parts[0], 10); var ans = parts[1];
+      if (!Number.isFinite(uid) || !ans) return;
+      S.confirmBusy = true; render();
+      api('/api/v3/op/pending-confirmations/answer', { method: 'POST', body: { unconfirmed_id: uid, answer: ans } }).then(function (r) {
+        S.confirmBusy = false; S.confirmQ = null;
+        if (r && r.moved) toast('Corrigido — ' + r.moved + ' tarefa(s) movida(s) pro ' + (r.to || 'operador certo') + '. Obrigado!');
+        else if (r && r.confirmed) toast('Obrigado por confirmar!');
+        else if (r && r.skipped) toast('Ok, vou perguntar pra outra pessoa.');
+        loadData(); // recarrega (pode haver outra pergunta pendente)
+      }).catch(function () { S.confirmBusy = false; toast('Não consegui registrar a resposta.'); render(); });
     },
     detectPickTime: function () { var o = S.overlay; if (!o) return; o.pickTime = true; if (!o.tpH) { var n = new Date(); o.tpH = String(n.getHours() % 12 || 12); o.tpAP = n.getHours() >= 12 ? 'PM' : 'AM'; } render(); },
     detectModeNow: function () { var o = S.overlay; if (!o) return; o.pickTime = false; render(); },
@@ -1445,7 +1831,7 @@
       setTimeout(function () { S.shake = false; render(); }, 650);
     });
   }
-  function endSession() { S.session = null; S.screen = 'login'; S.pin = ''; S.myTasks = []; S.team = []; S.overlay = null; S.flow = null; S.settingsOpen = false; S.alert = null; stopTimers(); render(); }
+  function endSession() { S.session = null; S.screen = 'login'; S.pin = ''; S.myTasks = []; S.team = []; S.overlay = null; S.flow = null; S.settingsOpen = false; S.alert = null; S.workspaceOpen = false; S.ws = null; stopTimers(); render(); }
   function doLogout(reason) { api('/api/v3/op/auth/logout', { method: 'POST', body: { reason: reason } }).catch(function () {}); endSession(); }
 
   function confirmStart() {
@@ -1518,6 +1904,9 @@
       }
       S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
+      // P&P Workspace (Bruno 08-06): registrou Impressão de ordens / Organização de
+      // Stock → abre a central na hora (e o banner fica no topo pra voltar depois).
+      if (!startedAt && wsAllowed() && WS_SLUGS[f.slug]) { S.workspaceOpen = true; loadWorkspace(); }
       loadData();
       handleMachineReturn(res); // dono voltou da pausa? → pergunta SIM/NÃO da máquina
     };
@@ -1812,7 +2201,10 @@
   ROOT.addEventListener('click', function (e) { var el = e.target.closest('[data-act]'); if (!el) return; bump(); var fn = ACT[el.dataset.act]; if (fn) fn(el.dataset.arg, el); });
   ROOT.addEventListener('input', function (e) {
     var el = e.target.closest('[data-input]'); if (!el) return; bump(); var k = el.dataset.input; var v = el.value;
-    if (k === 'query') { S.flow.query = v; S._focus = 'query'; render(); }
+    if (k === 'wsQ') { if (S.ws) { S.ws.q = v; S._focus = 'wsQ'; render(); } }
+    else if (k === 'wsQty') { if (S.ws) S.ws.qty = v; }
+    else if (k === 'wsReason') { if (S.ws) S.ws.reason = v; }
+    else if (k === 'query') { S.flow.query = v; S._focus = 'query'; render(); }
     else if (k === 'lotQuery') { S.flow.lotQuery = v; S._focus = 'lotQuery'; render(); }
     else if (k === 'batch') { S.flow.batchInput = v; }
     else if (k === 'orders') { S.flow.ordersInput = v; }
@@ -1854,6 +2246,10 @@
       S.pulse = Math.max(0, S.pulse - 0.06);
       document.documentElement.style.setProperty('--pulse', S.pulse.toFixed(3));
       if (S.session && S.logoffLeft != null) {
+        // Central de P&P aberta com a task ainda em andamento → NUNCA desloga
+        // sozinho (Bruno 08-06: fechar no meio do trabalho dá problema; só fecha
+        // quando a tarefa é completada).
+        if (S.workspaceOpen && wsTask()) S.logoffLeft = S.session.auto_logoff_seconds || S.logoffLeft;
         S.logoffLeft -= 1;
         if (S.logoffLeft <= 0) { doLogout('auto_timeout'); return; }
         var lg = document.getElementById('hf-logoff'); if (lg) lg.textContent = (S.logoffLeft <= 120 ? 'sai em ' + S.logoffLeft + 's' : '');
@@ -1872,14 +2268,14 @@
       // VIRADA DE DIA: página aberta de ontem pro novo dia → recarrega (não trava
       // mais nas tarefas de ontem). Só na home, sem overlay/flow aberto pra não
       // interromper algo em andamento.
-      if (S.dataDay && edtDay() !== S.dataDay && S.screen === 'home' && !S.overlay && !S.flow) { loadData(); return; }
+      if (S.dataDay && edtDay() !== S.dataDay && S.screen === 'home' && !S.overlay && !S.flow && !S.workspaceOpen) { loadData(); return; }
       api('/api/v3/op/auth/heartbeat', { method: 'POST' }).then(function (r) {
         if (!r || !r.version) return;
         if (!S.appVersion) { S.appVersion = r.version; return; }   // 1ª resposta: guarda a versão atual
         // DEPLOY NOVO no servidor → recarrega sozinho (só na home, sem nada aberto,
         // pra não interromper um registro em andamento). Resolve "página aberta o
         // dia todo não pega atualização".
-        if (r.version !== S.appVersion && S.screen === 'home' && !S.overlay && !S.flow) location.reload();
+        if (r.version !== S.appVersion && S.screen === 'home' && !S.overlay && !S.flow && !S.workspaceOpen) location.reload();
       }).catch(function () {});
     }, 45000);
     tMantra = setInterval(function () {

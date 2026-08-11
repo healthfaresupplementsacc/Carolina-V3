@@ -36,7 +36,7 @@ function makeFakeDb(opts = {}) {
       }
       // activity_types
       if (/FROM v3\.activity_types WHERE slug = \$1/.test(s)) {
-        const slugs = { lunch: 20, machine_downtime: 27, production_line: 5 };
+        const slugs = { lunch: 20, machine_downtime: 27, production_line: 5, cleaning: 10 };
         const id = slugs[params[0]];
         return { rows: id ? [{ id }] : [] };
       }
@@ -118,6 +118,31 @@ function makeFakeDb(opts = {}) {
         // auto-detect cowork (pessoas em produção no intervalo)
         return { rows: [{ person_id: 4, display_name: 'Vitor', role: 'operator' },
           { person_id: 6, display_name: 'Ana', role: 'operator' }] };
+      }
+      // ── cowork-join do admin (Bruno 07-10): _joinOpenCowork ──
+      // âncora = trabalho ABERTO do colega. Sem opts.coworkAnchor → [] (cai no create normal).
+      if (/FROM v3\.events e JOIN v3\.activity_types at.*person_id = ANY/.test(s)) {
+        return { rows: opts.coworkAnchor ? [opts.coworkAnchor] : [] };
+      }
+      // fim da última task do joiner (pra preencher o buraco). Default null → começa no aviso.
+      if (/SELECT MAX\(ended_at\) AS last_end FROM v3\.events/.test(s)) {
+        return { rows: [{ last_end: opts.lastEnd || null }] };
+      }
+      if (/UPDATE v3\.events SET cowork_group_id = gen_random_uuid\(\)/.test(s)) {
+        return { rows: [{ cowork_group_id: opts.newGid || 'gid-new' }] };
+      }
+      if (/SELECT id FROM v3\.events WHERE cowork_group_id = \$1 AND person_id = \$2/.test(s)) {
+        return { rows: [] }; // joiner ainda não está no grupo
+      }
+      if (/SELECT DISTINCT person_id FROM v3\.events WHERE cowork_group_id/.test(s)) {
+        return { rows: opts.coworkAnchor ? [{ person_id: opts.coworkAnchor.person_id }] : [] };
+      }
+      if (/INSERT INTO v3\.events .*cowork_group_id\) VALUES.*RETURNING id/.test(s)) {
+        events.push({ id: opts.joinEventId || 2044, insertParams: params });
+        return { rows: [{ id: opts.joinEventId || 2044 }] };
+      }
+      if (/UPDATE v3\.events SET cowork_with = array_append/.test(s)) {
+        return { rows: [] };
       }
       return { rows: [] };
     }),
@@ -326,6 +351,20 @@ describe('CommandHandler — não-destrutivo (executa direto)', () => {
     expect(eventService.upsert.mock.calls[0][0].cowork_with).toEqual([6]);
   });
 
+  test('set_workday_plan — admin avisa horário do dia extra → grava plano em settings', async () => {
+    const llmJson = {
+      command_type: 'set_workday_plan', target: null,
+      params: { date: null, end_time: '18:00' },
+      destructive: false, uncertain: false,
+    };
+    const { handler, db } = makeHandler({ llmJson });
+    const r = await handler.tryRoute(msg({ raw_text: '<@U0B3EQLPEPL> hoje trabalham até 18h' }));
+    expect(r.result).toBe('executed');
+    const call = db.query.mock.calls.find(([sql, params]) => /INSERT INTO v3\.settings/.test(String(sql)) && params && params[0] === 'workday_plan');
+    expect(call).toBeTruthy();
+    expect(JSON.parse(call[1][1]).end).toBe('18:00');
+  });
+
   test('query_status — read-only, sem write, sem react ✓', async () => {
     // Ainda reage ✓ no admin msg (acknowledgment); só não cria event.
     const llmJson = {
@@ -338,6 +377,93 @@ describe('CommandHandler — não-destrutivo (executa direto)', () => {
     expect(r.result).toBe('executed');
     expect(eventService.upsert).not.toHaveBeenCalled();
     expect(slack.calls.posts.length).toBeGreaterThan(0);  // posta resposta
+  });
+});
+
+// ─── cowork join + start "agora" (Bruno 07-10) ────────────
+
+describe('CommandHandler — cowork join + start "agora" (Bruno 07-10)', () => {
+  test('"X na limpeza junto com Y" → ENTRA no trabalho aberto do Y (join), sem evento solto', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 4, slug: 'cleaning', cowork_with: [7], started_at: null,
+        description: 'Vitor entrou na limpeza com Bruno Sarmento (cowork)' },
+      destructive: false, uncertain: false,
+    };
+    const anchor = { id: 2038, person_id: 7, activity_type_id: 10, product_batch_id: null, cowork_group_id: null };
+    const { handler, db, eventService } = makeHandler({
+      llmJson, dbOpts: { coworkAnchor: anchor, joinEventId: 2044 },
+    });
+    await handler.tryRoute(msg({ raw_text: '<@U0B3EQLPEPL> Vitor está na limpeza junto com Bruno Sarmento' }));
+    // NÃO cria evento solto via upsert — junta no grupo do Bruno
+    expect(eventService.upsert).not.toHaveBeenCalled();
+    const insertCall = db.query.mock.calls.find(([sql]) =>
+      /INSERT INTO v3\.events .*cowork_group_id\) VALUES.*RETURNING id/.test(String(sql).replace(/\s+/g, ' ')));
+    expect(insertCall).toBeTruthy();
+    const params = insertCall[1]; // [joinerId, activity_type_id, product_batch_id, startIso, others, gid]
+    expect(params[0]).toBe(4);            // Vitor entra
+    expect(params[1]).toBe(10);           // cleaning (herda do âncora do Bruno)
+    expect(params[4]).toEqual([7]);       // cowork_with = Bruno Sarmento
+    expect(params[3]).toBe(new Date(1000.1 * 1000).toISOString()); // start = hora da msg, NÃO 9am
+  });
+
+  test('aviso TARDE → preenche o buraco: start = fim da última task do joiner (não a hora do aviso)', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 4, slug: 'cleaning', cowork_with: [7], started_at: null },
+      destructive: false, uncertain: false,
+    };
+    // Bruno (âncora) limpando desde 16:10; Vitor terminou a última task 17:01:45.
+    const anchor = { id: 2038, person_id: 7, activity_type_id: 10, product_batch_id: null,
+      cowork_group_id: null, started_at: '2026-07-10T20:10:31Z' };
+    const { handler, db, eventService } = makeHandler({
+      llmJson, dbOpts: { coworkAnchor: anchor, joinEventId: 2044, lastEnd: '2026-07-10T21:01:45Z' },
+    });
+    // aviso às 18:17 (slack_ts) — mas o Vitor entrou quando ficou livre (17:01:45)
+    await handler.tryRoute(msg({ slack_ts: (Date.parse('2026-07-10T22:17:38Z') / 1000).toString(),
+      raw_text: '<@U0B3EQLPEPL> Vitor está na limpeza junto com Bruno Sarmento' }));
+    expect(eventService.upsert).not.toHaveBeenCalled();
+    const insertCall = db.query.mock.calls.find(([sql]) =>
+      /INSERT INTO v3\.events .*cowork_group_id\) VALUES.*RETURNING id/.test(String(sql).replace(/\s+/g, ' ')));
+    // start = fim da última task do Vitor (preenche o buraco), NÃO a hora do aviso
+    expect(insertCall[1][3]).toBe('2026-07-10T21:01:45.000Z');
+  });
+
+  test('colega SEM trabalho aberto → cai no create normal (não trava), começando agora', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 4, slug: 'cleaning', cowork_with: [7], started_at: null },
+      destructive: false, uncertain: false,
+    };
+    const { handler, eventService } = makeHandler({ llmJson }); // sem coworkAnchor → âncora vazio
+    await handler.tryRoute(msg({ raw_text: '<@U0B3EQLPEPL> Vitor está na limpeza junto com Bruno Sarmento' }));
+    expect(eventService.upsert).toHaveBeenCalledTimes(1);
+    expect(eventService.upsert.mock.calls[0][0].started_at).toBe(new Date(1000.1 * 1000).toISOString());
+  });
+
+  test('sem horário na msg → started_at = hora da msg, NÃO o chute da LLM (9am fantasma)', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 4, slug: 'production_line', started_at: '2026-07-10T13:00:00Z' }, // 9am chutado
+      destructive: false, uncertain: false,
+    };
+    const { handler, eventService } = makeHandler({ llmJson });
+    await handler.tryRoute(msg({ raw_text: '<@U0B3EQLPEPL> Vitor entrou na linha de produção' })); // SEM hora
+    expect(eventService.upsert).toHaveBeenCalledTimes(1);
+    const started = eventService.upsert.mock.calls[0][0].started_at;
+    expect(started).toBe(new Date(1000.1 * 1000).toISOString()); // hora da msg
+    expect(started).not.toBe('2026-07-10T13:00:00Z');            // ignorou o chute
+  });
+
+  test('COM horário explícito na msg → respeita o started_at da LLM (retroativo real)', async () => {
+    const llmJson = {
+      command_type: 'create_event', target: null,
+      params: { person_id: 5, slug: 'lunch', started_at: '2026-05-31T17:01:00Z' },
+      destructive: false, uncertain: false,
+    };
+    const { handler, eventService } = makeHandler({ llmJson });
+    await handler.tryRoute(msg({ raw_text: '<@U0B3EQLPEPL> anota lunch da Simone às 1:01pm' }));
+    expect(eventService.upsert.mock.calls[0][0].started_at).toBe('2026-05-31T17:01:00Z');
   });
 });
 

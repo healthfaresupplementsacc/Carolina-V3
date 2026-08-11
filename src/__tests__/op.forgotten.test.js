@@ -156,6 +156,13 @@ describe('Fase 4 — resolve forgotten checkout', () => {
     expect(alert.text).toContain('Forgotten checkout');
     expect(alert.text).toContain('Ana');
   });
+  test('resposta "não trabalha" é AUTORITATIVA → fecha mesmo (Bruno 07-21: confia na resposta; anti-spam é no detector)', async () => {
+    const tok = await login();
+    const r = await resolve(tok, { person_id: 5, still_working: false, discovered_via: 'login' });
+    expect(r.status).toBe(200);
+    expect(mem.closedEventsFor).toContain(5);
+    expect(mem.loggedOut).toContain(5);
+  });
   test('resolve do próprio usuário → 400 bad_person', async () => {
     const tok = await login();
     const r = await resolve(tok, { person_id: 4, still_working: false });

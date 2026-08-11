@@ -32,7 +32,7 @@ async function prereqWarning({ operatorName, phaseName, missing }) {
   if (!missing || missing.length === 0) return;
   await toAdmin(
     `⚠️ Pré-requisito: *${operatorName || 'alguém'}* iniciou *${phaseName}* sem ` +
-    `concluir: ${missing.join(', ')}. Não bloqueei (soft) — confere se tá certo.`
+    `concluir: ${missing.join(', ')}. Não bloqueei (soft), confere se tá certo.`
   );
 }
 
@@ -55,7 +55,7 @@ async function adHocPending({ operatorName, taskName }) {
 async function batchChanged({ entityType, entityId, from, to, who }) {
   await toAdmin(
     `✏️ ${who || 'alguém'} mudou o batch da ${entityType} #${entityId} de ` +
-    `${from || '(vazio)'} pra *${to || '(vazio)'}* — review necessário ` +
+    `${from || '(vazio)'} pra *${to || '(vazio)'}*, review necessário ` +
     `(badge ⏳ no dashboard até aprovar).`
   );
 }
@@ -87,7 +87,7 @@ async function voltaSemBreak({ operatorName }) {
   await toAdmin(
     `↩️ *${n}* clicou "Voltei" mas não havia break aberto. Criei um break ` +
     `não-rastreado (horário a confirmar). A pergunta do horário foi pro ` +
-    `canal (suprimida se silent_text=ON) — edita manualmente se quiser.`
+    `canal (suprimida se silent_text=ON), edita manualmente se quiser.`
   );
 }
 

@@ -110,7 +110,10 @@ async function anyonePresent(db, opts = {}) {
          SELECT 1 FROM v3.events e
          WHERE e.ended_at IS NULL AND e.deleted_at IS NULL
            AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
-           AND e.started_at > NOW() - INTERVAL '${openEventMin} minutes')
+           AND e.started_at > NOW() - INTERVAL '${openEventMin} minutes'
+           -- Bruno 07-18: task automática do EMS NÃO prova presença (o EMS pode
+           -- atribuir a quem não está aqui). Só evento com fonte humana conta.
+           AND e.source <> 'ems_auto')
      ) AS present`);
   return !!(r.rows[0] && r.rows[0].present);
 }

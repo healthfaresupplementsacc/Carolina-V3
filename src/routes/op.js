@@ -32,6 +32,10 @@ const crypto = require('crypto');
 const { extractBearer } = require('../middleware/architect-auth');
 const opAuth = require('../lib/op-auth');
 const { ems: emsSingleton } = require('../v3/services/ems-api');
+const alertGate = require('../v3/alert-gate');   // kill-switch de avisos (Bruno 07-17: alerta de coleta respeita)
+const presence = require('../v3/presence');      // presença REAL (Bruno 07-18: ignora phantom do EMS)
+const emsConfirm = require('../v3/ems-confirm');  // confirmação de auto-task do EMS (Bruno 07-18)
+const { stationOperatorNow } = require('../v3/station-operator');  // fonte ÚNICA: quem está na estação de impressão (Bruno 07-27)
 
 const EDT = 'America/New_York';
 const LOGIN_LIMIT = 5;            // tentativas/min/IP
@@ -84,7 +88,12 @@ function createOpRouter(deps = {}) {
   // ── config público (token da página; identidade real = PIN/sessão) ──
   router.get('/op/config.js', (req, res) => {
     res.type('application/javascript').send(
-      'window.HF_OP_CONFIG = ' + JSON.stringify({ pageToken: operatorToken || '' }) + ';');
+      'window.HF_OP_CONFIG = ' + JSON.stringify({
+        pageToken: operatorToken || '',
+        // P&P Workspace (Bruno 08-06): flag pro kiosk. Sandbox SEMPRE vê (teste);
+        // operadores só quando OP_WORKSPACE_ENABLED=true (aprovação do Bruno).
+        workspace: process.env.OP_WORKSPACE_ENABLED === 'true',
+      }) + ';');
   });
 
   // ── gate: Bearer OPERATOR_PAGE_TOKEN em tudo /api/v3/op/* ──
@@ -122,6 +131,14 @@ function createOpRouter(deps = {}) {
         return res.status(401).json({ error: 'invalid_pin' });
       }
       if (bf) bf.recordSuccess(ip);
+      // ANTI-VAZAMENTO DE SESSÃO (Bruno 08-03): o kiosk PWA reconecta e criava uma
+      // sessão nova sem fechar a anterior (a Ana tinha 4 abertas). 1 sessão viva por
+      // pessoa: fecha as antigas ANTES de abrir a nova. Mantém `logged_in` confiável.
+      try {
+        await db.query(
+          `UPDATE v3.operator_sessions SET logged_out_at=NOW(), logoff_reason='superseded_by_new_login'
+            WHERE person_id=$1 AND logged_out_at IS NULL`, [person.id]);
+      } catch (e) { console.error('[op] fechar sessões antigas:', e.message); }
       const session = await opAuth.createSession(db, { personId: person.id, ip, userAgent: req.headers['user-agent'] });
       await db.query('UPDATE v3.persons SET last_page_login_at = NOW() WHERE id = $1', [person.id]);
       await audit('op_login_success', 'person', person.id, { ip, session_id: session.id }, person.id);
@@ -189,7 +206,18 @@ function createOpRouter(deps = {}) {
            AND sched.is_workday = true
            AND sched.expected_end_time IS NOT NULL
            AND (NOW() AT TIME ZONE '${EDT}')::time > sched.expected_end_time
-           AND s.last_activity_at < NOW() - INTERVAL '15 minutes'`, [triggeringPersonId]);
+           AND s.last_activity_at < NOW() - INTERVAL '15 minutes'
+           -- GUARDA (caso Simone 07-21): quem tem tarefa ABERTA iniciada há pouco
+           -- está trabalhando — não é "esquecido". Não pergunta.
+           AND NOT EXISTS (SELECT 1 FROM v3.events eo WHERE eo.person_id = s.person_id
+                            AND eo.ended_at IS NULL AND eo.deleted_at IS NULL
+                            AND eo.started_at > NOW() - INTERVAL '60 minutes')
+           -- GUARDA 2 (Bruno 07-21): alguém confirmou "está trabalhando" → SILÊNCIO
+           -- por 1 HORA antes de re-perguntar. (Era o spam: confirmou 18:31 e o
+           -- sistema re-perguntou 18:50 — a pessoa respondeu sem ler de saco cheio.)
+           AND NOT EXISTS (SELECT 1 FROM v3.forgotten_checkouts fc2 WHERE fc2.person_id = s.person_id
+                            AND fc2.resolution = 'still_working'
+                            AND fc2.resolved_at > NOW() - INTERVAL '60 minutes')`, [triggeringPersonId]);
       const seen = new Set();
       const prompts = [];
       for (const x of r.rows) {
@@ -224,6 +252,720 @@ function createOpRouter(deps = {}) {
     // atualiza". RAILWAY_GIT_COMMIT_SHA muda a cada deploy.
     const version = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.RAILWAY_DEPLOYMENT_ID || process.env.npm_package_version || 'dev';
     res.json({ ok: true, person_id: alive.person_id, version });
+  }));
+
+  // ESTAÇÃO DE IMPRESSÃO: login no lock → grava QUEM está na estação agora (Bruno
+  // 07-17). Desacoplado dos eventos (o operador pode já estar na linha) — o
+  // print-event vincula por AQUI. Abre a task label_printing best-effort (timeline).
+  router.post('/api/v3/op/print-login', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    await db.query(
+      `INSERT INTO v3.settings (key, value, description)
+         VALUES ('print_station_operator', $1::jsonb, 'quem está na estação de impressão (.28) agora — Bruno 07-17')
+       ON CONFLICT (key) DO UPDATE SET value=$1::jsonb, updated_at=NOW()`,
+      [JSON.stringify({ person_id: s.person_id, name: s.display_name, at: new Date().toISOString() })]);
+    // HISTÓRICO de logins na estação (Bruno 07-27): PROVA de quem+quando logou. O
+    // settings só guarda o ATUAL (sobrescreve); este log mantém TODAS as trocas —
+    // pra nunca mais atribuir errado sem poder verificar (caso Ana×Simone 27/07).
+    try {
+      await db.query(
+        `INSERT INTO v3.print_station_login_log (person_id, person_name, computer) VALUES ($1, $2, $3)`,
+        [s.person_id, s.display_name, req.body && req.body.computer ? String(req.body.computer) : 'Printer-PC']);
+    } catch (_) { /* best-effort */ }
+    try {
+      const at = (await db.query("SELECT id FROM v3.activity_types WHERE slug='label_printing' AND active=true")).rows[0];
+      if (at) {
+        const open = await db.query('SELECT 1 FROM v3.events WHERE person_id=$1 AND activity_type_id=$2 AND ended_at IS NULL AND deleted_at IS NULL LIMIT 1', [s.person_id, at.id]);
+        if (!open.rows[0]) {
+          await db.query("INSERT INTO v3.events (person_id, activity_type_id, started_at, confidence, source, is_long_running) VALUES ($1,$2,NOW(),'high','print_station',true)", [s.person_id, at.id]);
+        }
+      }
+    } catch (e) { /* best-effort */ }
+    res.json({ ok: true, person: s.display_name });
+  }));
+
+  // ── P&P WORKSPACE do operador (Bruno 08-06) ─────────────────────────────
+  // Workspace abre ao registrar "Impressão de ordens"/"Organização de Stock".
+  // Conteúdo: picklist do dia + registrar saída de estoque ("peguei"/danificada).
+
+  // Picklist pro operador — REUSA o handler do data-router (mesma lógica do
+  // dashboard, zero duplicação). Auth = sessão do operador (não PIN admin).
+  router.get('/api/v3/op/picklist', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const { ENDPOINTS, buildServices } = require('../v3/data/router');   // lazy (evita ciclo)
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/picklist');
+    const out = await ep.handler({ query: {}, params: {} }, {}, buildServices(db));
+    res.json({ ok: true, ...out.data });
+  }));
+
+  // FALTA DE ESTOQUE pro P&P de hoje: o que está zerado/baixo na picklist cruzado
+  // com o EMS (cápsulas prontas? na linha? já passou?). Bruno 08-06.
+  router.get('/api/v3/op/stock-gaps', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const { ENDPOINTS, buildServices } = require('../v3/data/router');   // lazy (evita ciclo)
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/stock-gaps');
+    const out = await ep.handler({ query: {}, params: {} }, {}, buildServices(db));
+    res.json({ ok: true, ...out.data });
+  }));
+
+  // Registrar SAÍDA de estoque — camada 1 anti-shrinkage ("peguei do estoque")
+  // + garrafa danificada. Ledger append-only (v3.stock_movements), RULE #0:
+  // nunca bloqueia, só registra. Sandbox → is_test (não contamina o real).
+  router.post('/api/v3/op/stock/take', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const b = req.body || {};
+    const productId = parseInt(b.product_id, 10);
+    const qty = parseInt(b.qty, 10);
+    const kind = b.kind === 'damaged' ? 'damaged' : 'pick';
+    if (!Number.isFinite(productId)) return res.status(400).json({ error: 'product_id obrigatório' });
+    if (!Number.isFinite(qty) || qty <= 0 || qty > 5000) return res.status(400).json({ error: 'quantidade inválida' });
+    const reason = (b.reason ? String(b.reason) : '').slice(0, 300) || null;
+    const r = await db.query(
+      `INSERT INTO v3.stock_movements (kind, product_id, qty, person_id, source, note, is_test)
+       VALUES ($1, $2, $3, $4, 'op_kiosk', $5, $6)
+       RETURNING id, created_at`,
+      [kind, productId, -qty, s.person_id, reason, !!s.is_sandbox]);
+    res.json({ ok: true, movement_id: r.rows[0].id });
+  }));
+
+  // Saídas recentes do operador (hoje) — pro workspace mostrar o que já registrou
+  router.get('/api/v3/op/stock/recent', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const r = await db.query(
+      `SELECT m.id, m.kind, -m.qty AS qty, m.note, m.created_at, p.canonical_name AS product, p.nickname
+         FROM v3.stock_movements m JOIN v3.products p ON p.id = m.product_id
+        WHERE m.person_id = $1 AND m.source = 'op_kiosk'
+          AND m.created_at > NOW() - INTERVAL '16 hours'
+          AND m.is_test = $2
+        ORDER BY m.created_at DESC LIMIT 20`,
+      [s.person_id, !!s.is_sandbox]);
+    res.json({ ok: true, items: r.rows });
+  }));
+
+  // HEARTBEAT do lock: reporta o TEMPO ATIVO (teclado/mouse) da pessoa na estação
+  // — o "quanto o Vitor ficou mexendo no PC". O lock manda a cada ~20s. Bruno 07-17.
+  router.post('/api/v3/op/print-heartbeat', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const activeSec = Math.max(0, parseInt((req.body && req.body.active_sec), 10) || 0);
+    await db.query(
+      `UPDATE v3.settings SET value = jsonb_set(value, '{active_sec}', to_jsonb($1::int)), updated_at = NOW()
+       WHERE key='print_station_operator' AND (value->>'person_id')::int = $2`,
+      [activeSec, s.person_id]);
+    res.json({ ok: true });
+  }));
+
+  // ── ESTAÇÃO DE IMPRESSÃO (.28): OTHER — não-funcionário se identifica ──────
+  // Bruno 07-16: quem NÃO é operador clica OTHER na User Screen, diz quem é + o
+  // que vai fazer (requisito pra usar o PC), e o admin é avisado NA HORA no Slack.
+  router.post('/api/v3/print/other', h(async (req, res) => {
+    const name = String((req.body && req.body.name) || '').trim().slice(0, 80);
+    const what = String((req.body && req.body.what) || '').trim().slice(0, 200);
+    if (!name || !what) return res.status(400).json({ error: 'name_and_what_required' });
+    await adminSlack(`:printer: *${name}* no PC de impressão, vai *${what}*.`);
+    try {
+      await db.query(
+        `INSERT INTO v3.operator_action_log (person_id, person_name, action_type, source, payload)
+         VALUES (NULL, $1, 'print_other', 'print_station', $2::jsonb)`,
+        [name, JSON.stringify({ what })]);
+    } catch (e) { /* log opcional */ }
+    res.json({ ok: true });
+  }));
+
+  // ── ESTAÇÃO DE IMPRESSÃO: print-event (.28 → tracker). Bruno 07-16 ────────
+  // Cada job de impressão do PC .28: registra quem/qual label/quantos/tempo e
+  // VINCULA ao suplemento + batch recente pelo nome do arquivo. Auth por
+  // X-Print-Token (segredo). Alimenta a task "Impressão de Labels" + o futuro
+  // Supplement Control System.
+  const _normTxt = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // "núcleo" do nome: tira dose/unidade/números → casa "L Theanine" (arquivo) com
+  // "L-Theanine 400mg 150caps" (produto). Bruno 07-17 (o matcher falhava sem isso).
+  const _coreTxt = (s) => _normTxt(String(s || '').toLowerCase()
+    .replace(/\b\d[\d.,]*\s*(mg|mcg|g|iu|ml|ct|count|caps?|capsules?|tablets?|softgels?|pills?|un|billion|bi|afu)\b/g, ' ')
+    .replace(/\b\d[\d.,]*\b/g, ' '));
+  async function resolveProductFromText(text) {
+    const t = _normTxt(text); const tc = _coreTxt(text); if (!t) return null;
+    const rows = (await db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true')).rows;
+    let best = null, bestLen = 0;
+    for (const p of rows) {
+      // candidatos: nome completo, NÚCLEO do nome (sem dose), e os aliases
+      for (const nm of [p.canonical_name, _coreTxt(p.canonical_name), ...(p.aliases || [])]) {
+        const n = _normTxt(nm);
+        if (n.length < 4) continue;                       // ignora curto/código
+        if (t.includes(n) || tc.includes(n)) {
+          if (n.length > bestLen) { best = { id: p.id, canonical_name: p.canonical_name }; bestLen = n.length; }
+        }
+      }
+    }
+    return best;
+  }
+  async function resolveRecentBatch(productId) {
+    if (!productId) return null;
+    const r = await db.query(
+      `SELECT id, batch_number FROM v3.product_batches
+        WHERE product_id = $1 AND deleted_at IS NULL
+        ORDER BY COALESCE(finished_at, started_at, created_at) DESC LIMIT 1`, [productId]);
+    return r.rows[0] || null;
+  }
+  async function currentLabelEvent() {
+    const r = await db.query(
+      `SELECT e.id, e.person_id, pe.display_name FROM v3.events e
+         JOIN v3.activity_types at ON at.id = e.activity_type_id
+         LEFT JOIN v3.persons pe ON pe.id = e.person_id
+        WHERE at.slug = 'label_printing' AND e.ended_at IS NULL AND e.deleted_at IS NULL
+        ORDER BY e.started_at DESC LIMIT 1`);
+    return r.rows[0] || null;
+  }
+  router.post('/api/print-event', h(async (req, res) => {
+    const tok = req.headers['x-print-token'];
+    if (!process.env.PRINT_EVENT_TOKEN || tok !== process.env.PRINT_EVENT_TOKEN) {
+      return res.status(401).json({ error: 'invalid_print_token' });
+    }
+    const b = req.body || {};
+    const doc = String(b.document || '');
+    // GUARD (pj34, 07-21): evento sem documento E sem job id = lixo (não registra)
+    if (!doc.trim() && b.id == null) return res.status(400).json({ error: 'empty_print_event' });
+    const product = await resolveProductFromText(doc);
+    const batch = product ? await resolveRecentBatch(product.id) : null;
+    const labelEv = await currentLabelEvent();
+    // SYNC imediato (Bruno 07-21): o event "Impressão de Labels" aberto ganha o batch
+    // já na chegada do job (painel mostra Produto na hora; a contagem REAL chega no
+    // fim físico via /api/printer-status).
+    if (labelEv && batch) {
+      try {
+        await db.query(
+          `UPDATE v3.events SET product_batch_id = COALESCE(product_batch_id, $2), updated_at = NOW()
+           WHERE id = $1 AND deleted_at IS NULL`, [labelEv.id, batch.id]);
+      } catch (e) { console.error('[print-event] event batch sync:', e.message); }
+    }
+    // operador = quem está na ESTAÇÃO de impressão agora (login recente no lock),
+    // senão o evento label_printing aberto. Bruno 07-17 (o operador pode já estar
+    // na linha, então não dá pra confiar só no evento).
+    let opPersonId = null, opName = null, opAt = null, opActiveSec = null;
+    try {
+      const st = (await db.query("SELECT value FROM v3.settings WHERE key='print_station_operator'")).rows[0];
+      if (st && st.value && st.value.at && (Date.now() - new Date(st.value.at).getTime() < 3 * 3600 * 1000)) {
+        opPersonId = st.value.person_id; opName = st.value.name; opAt = st.value.at;
+        if (st.value.active_sec != null) opActiveSec = Number(st.value.active_sec);
+      }
+    } catch (e) { /* ok */ }
+    if (!opName && labelEv) { opPersonId = labelEv.person_id; opName = labelEv.display_name; }
+    const sheets = b.sheets != null ? b.sheets : ((Number(b.pages) || 0) * (Number(b.copies) || 1));
+    const completed = b.completed_ts ? new Date(Number(b.completed_ts) * 1000).toISOString() : null;
+    const ins = await db.query(
+      `INSERT INTO v3.print_jobs
+         (computer, job_id, job_ts, document, printer, win_user, operator, pages, copies, sheets, size_bytes,
+          submitted_at, completed_at, duration_sec, session_active_sec, product_id, product_batch_id,
+          label_event_id, person_id, has_batch, status, error, raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)
+       -- DEDUP por DIA (Bruno 07-28): o spooler do Windows REUSA IDs pequenos (2,3,5…)
+       -- todo dia. O índice antigo (computer,job_id) global fazia o job de HOJE colidir
+       -- com um id igual de dias atrás → DO NOTHING → impressão SUMIA (jobs #67-87).
+       -- Agora a chave inclui a DATA NY: mesmo id em dias diferentes = jobs distintos.
+       ON CONFLICT (computer, job_id, ((created_at AT TIME ZONE 'America/New_York')::date))
+         WHERE job_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [b.computer || null, b.id != null ? String(b.id) : null, b.ts || null, doc || null, b.printer || null,
+        b.user || null, b.operator || null, b.pages || null, b.copies || null, sheets || null, b.size_bytes || null,
+        b.submitted || null, completed, b.duration_sec || null,
+        // "ativo no PC" = o heartbeat do PIN (teclado/mouse REAL da sessão), NÃO o
+        // valor do printmon (congelava num número velho — bug 21m09s, Bruno 07-21)
+        (opActiveSec != null ? opActiveSec : (b.session_active_sec || null)),
+        product ? product.id : null, batch ? batch.id : null, labelEv ? labelEv.id : null,
+        opPersonId, !!batch, b.status || 'completed', b.error || null, JSON.stringify(b)]);
+    // DEDUP (Bruno 07-27): se o INSERT foi IGNORADO por conflito (mesmo computer+job_id
+    // já existe), NÃO notifica de novo. Era o spam: o printmon reenvia o mesmo job e o
+    // Slack disparava a cada reenvio (3× "Ana imprimiu Melatonin" em 3 segundos).
+    let wasInserted = !!(ins.rows && ins.rows[0]);
+    // DEDUP EXTRA por documento (cobre job_id null/repetido): se o MESMO documento +
+    // computer + impressora já foi notificado nos últimos 90s, não notifica de novo.
+    if (wasInserted && doc) {
+      try {
+        const recent = await db.query(
+          `SELECT 1 FROM v3.print_jobs
+            WHERE document = $1 AND computer IS NOT DISTINCT FROM $2 AND printer IS NOT DISTINCT FROM $3
+              AND id <> COALESCE($4, -1) AND created_at > NOW() - INTERVAL '90 seconds' LIMIT 1`,
+          [doc, b.computer || null, b.printer || null, ins.rows[0] ? ins.rows[0].id : null]);
+        if (recent.rowCount > 0) wasInserted = false;   // já notificou esse doc há pouco
+      } catch (_) { /* segue */ }
+    }
+    // NOTIFICAÇÃO detalhada no #admin-orin — com o OPERADOR DO PIN (Bruno 07-17).
+    // Só pra impressora de LABEL/produção (EPSON/Graphtec) ou suplemento resolvido
+    // (não spamma PDF/HP aleatório). O tempo do spooler != impresso (a EPSON imprime
+    // do buffer depois) — o físico ainda está sendo medido.
+    if (wasInserted && (product || /EPSON|Graphtec/i.test(b.printer || ''))) {
+      // tempo ATIVO (teclado/mouse, do lock) — senão o "desde o login"
+      const activeMin = opActiveSec != null ? Math.round(opActiveSec / 60)
+        : (opAt ? Math.max(0, Math.round((Date.now() - new Date(opAt).getTime()) / 60000)) : null);
+      const activeTxt = activeMin != null ? ` · *~${activeMin}min ativo no PC*` : '';
+      const startT = b.submitted ? new Date(b.submitted).toLocaleString('pt-BR', { timeZone: EDT, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '?';
+      const whoTxt = opName ? `*${opName}* (logou com PIN)` : '*Unknown* (ninguém logou no lock)';
+      const prodTxt = product ? `\nsuplemento: *${product.canonical_name}*${batch ? ` · Batch *${batch.batch_number}*` : ' · *SEM BATCH — confiram*'}` : '';
+      // Tempo FÍSICO: o REAL chega depois (via /api/printer-status, na transição
+      // PR→IL) e dispara o "pode coletar". Aqui, na hora do spooler, ainda não
+      // temos o físico — então avisamos que vem, ou damos a estimativa se calibrada.
+      // Bruno 07-17.
+      const rate = parseFloat(process.env.PRINT_EPSON_LABELS_PER_SEC || '0');
+      let physTxt = '_o tempo FÍSICO real (e o "pode coletar") chega quando a impressora terminar de imprimir de verdade._';
+      if (rate > 0 && sheets && /EPSON/i.test(b.printer || '')) {
+        const est = Math.round(sheets / rate);
+        physTxt = `estimado ~${est >= 60 ? Math.round(est / 60) + 'min' : est + 's'}, o real confirma no fim.`;
+      }
+      await adminSlack(
+        `:printer: Impressão: ${b.document || '?'} · ${whoTxt}${activeTxt}\n`
+        + `${printerLabel(b.printer)} · *${sheets || '?'} labels* (${b.pages || '?'}pág × ${b.copies || 1})${prodTxt} · ${startT}\n`
+        + physTxt);
+    }
+    res.json({ ok: true, id: ins.rows[0] ? ins.rows[0].id : null, deduped: !ins.rows[0],
+      product: product ? product.canonical_name : null, batch: batch ? batch.batch_number : null,
+      operator: opName, sheets });
+    // PUSH pro dashboard (SSE): job terminou (some do "ativo", entra em "recém-impresso")
+    try {
+      require('../v3/print-stream').broadcast('done', {
+        computer: b.computer || null, job_id: b.id != null ? String(b.id) : null, document: doc || null, printer: b.printer || null,
+        product: product ? product.canonical_name : null, batch: batch ? batch.batch_number : null,
+        operator: opName, sheets, duration_sec: b.duration_sec || null, status: b.status || 'completed' });
+    } catch (_) { /* best-effort */ }
+  }));
+
+  // ── ESTADO FÍSICO DA MÁQUINA (machinemon .28 → tracker). Bruno 08-03 ──────────
+  // O machinemon (câmera cam3/cam4) sabe se a máquina de encapsulação está SE
+  // MEXENDO agora. O .28 faz push desse sinal a cada ~30s (mesmo padrão do print-
+  // event). Guardamos o último estado em settings pra o encap-monitor CRUZAR antes
+  // de gritar "máquina parada" (RULE #1: sincronizar câmera ↔ eventos). Se a câmera
+  // vê a máquina rodando mas ninguém registrou tarefa → o encap-monitor NÃO manda o
+  // alarme falso pro operador; pergunta no admin-orin (Bruno: até ter 100% de certeza
+  // do sinal, só pergunta; depois invocamos RULE #0 e registra sozinho).
+  router.post('/api/machine-state', h(async (req, res) => {
+    const tok = req.headers['x-print-token'];
+    if (!process.env.PRINT_EVENT_TOKEN || tok !== process.env.PRINT_EVENT_TOKEN) return res.status(401).json({ error: 'invalid_print_token' });
+    const b = req.body || {};
+    // shape esperado: { machines: [{ id, name, running:bool, moving:bool, human:bool }], ts }
+    const machines = Array.isArray(b.machines) ? b.machines : [];
+    const payload = { machines, at: new Date().toISOString(), source: '28_machinemon' };
+    try {
+      await db.query(
+        `INSERT INTO v3.settings (key, value, description)
+           VALUES ('machine_state', $1::jsonb, 'estado físico da máquina via câmera (machinemon .28) — Bruno 08-03')
+         ON CONFLICT (key) DO UPDATE SET value=$1::jsonb, updated_at=NOW()`,
+        [JSON.stringify(payload)]);
+      res.json({ ok: true, count: machines.length });
+    } catch (e) {
+      console.error('[op] machine-state falhou:', e.message);
+      res.status(500).json({ error: 'internal' });
+    }
+  }));
+
+  // PROGRESSO AO VIVO do spooler (.28 manda a cada ~2s por job ativo). Upsert.
+  // WATCHDOG da estação de impressão (.28) — avisa quando reviveu um processo que
+  // caiu (printmon/epson_status/printprogress). Bruno 07-24: "reviver + avisar".
+  router.post('/api/print-watchdog', h(async (req, res) => {
+    const tok = req.headers['x-print-token'];
+    if (!process.env.PRINT_EVENT_TOKEN || tok !== process.env.PRINT_EVENT_TOKEN) return res.status(401).json({ error: 'invalid_print_token' });
+    const b = req.body || {};
+    if (b.event === 'revived') {
+      // debounce: no máximo 1 aviso do mesmo script por 10min (evita spam se ficar caindo)
+      let recent = false;
+      try {
+        const r = await db.query(
+          `SELECT 1 FROM v3.audit_log WHERE action='print_watchdog.revived' AND target_id IS NOT DISTINCT FROM NULL
+             AND metadata->>'script' = $1 AND created_at > NOW() - INTERVAL '10 minutes' LIMIT 1`, [String(b.script || '')]);
+        recent = r.rowCount > 0;
+      } catch (_) {}
+      try { await db.query(`INSERT INTO v3.audit_log (actor_type, action, target_type, metadata) VALUES ('system','print_watchdog.revived','print_station',$1::jsonb)`, [JSON.stringify(b)]); } catch (_) {}
+      if (!recent) {
+        try {
+          await adminSlack(`:wrench: PC de impressão: *${b.friendly || b.script}* caiu e o watchdog reviveu. Se repetir muito, olhem o PC .28.`);
+        } catch (_) {}
+      }
+    }
+    res.json({ ok: true });
+  }));
+
+  router.post('/api/print-progress', h(async (req, res) => {
+    const tok = req.headers['x-print-token'];
+    if (!process.env.PRINT_EVENT_TOKEN || tok !== process.env.PRINT_EVENT_TOKEN) return res.status(401).json({ error: 'invalid_print_token' });
+    const b = req.body || {};
+    if (!b.computer || b.job_id == null) return res.status(400).json({ error: 'computer_and_job_id_required' });
+    const up = await db.query(
+      `INSERT INTO v3.print_progress (computer, job_id, printer, document, status, pages_printed, total_pages, size_bytes, submitted_at, last_seen_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, NOW())
+       ON CONFLICT (computer, job_id) DO UPDATE SET
+         printer=EXCLUDED.printer, document=EXCLUDED.document, status=EXCLUDED.status,
+         pages_printed=EXCLUDED.pages_printed, total_pages=EXCLUDED.total_pages, size_bytes=EXCLUDED.size_bytes,
+         submitted_at=COALESCE(v3.print_progress.submitted_at, EXCLUDED.submitted_at), last_seen_at=NOW(), done=false
+       RETURNING first_seen_at`,
+      [String(b.computer), String(b.job_id), b.printer || null, b.document || null, b.status || null,
+        b.pages_printed != null ? Number(b.pages_printed) : null, b.total_pages != null ? Number(b.total_pages) : null,
+        b.size != null ? Number(b.size) : null, b.submitted || null]);
+    res.json({ ok: true });
+    // PUSH pro dashboard (SSE): progresso ao vivo + pct + ETA
+    try {
+      const fs = up.rows[0] && up.rows[0].first_seen_at;
+      const el = fs ? Math.max(0, Math.round((Date.now() - new Date(fs).getTime()) / 1000)) : 0;
+      const pp = b.pages_printed != null ? Number(b.pages_printed) : 0;
+      const tp = b.total_pages != null ? Number(b.total_pages) : 0;
+      const pct = tp > 0 ? Math.min(100, Math.round((pp / tp) * 100)) : null;
+      const eta = (pp > 0 && el > 0 && tp > pp) ? Math.round((tp - pp) / (pp / el)) : null;
+      require('../v3/print-stream').broadcast('progress', {
+        computer: String(b.computer), job_id: String(b.job_id), printer: b.printer || null, document: b.document || null,
+        status: b.status || null, pages_printed: pp, total_pages: tp, elapsed_sec: el, pct, eta_sec: eta });
+    } catch (_) { /* SSE best-effort */ }
+  }));
+
+  // Erros REAIS que merecem alerta (Bruno 07-17, ampliado 07-24). Inclui os textos
+  // que o leitor manda via ~H(SEA,E: fatal, cartucho, cabeçote, corte, serviço, etc.
+  const ISSUE_RE = /sem papel|sem tinta|atol|jam|paper.?out|ink.?out|porta aberta|tampa|cover open|bandeja|no media|sem m[íi]dia|trocar|cartucho|cabe[çc]ote|erro fatal|caixa de manuten|chamar servi|erro de corte|temperatura|erro de recupera|erro na impressora/i;
+
+  // ERRO → AÇÃO (Bruno 08-11): o operador precisa saber O QUE FAZER, não só o código.
+  // "chamar servico" (código SE da EPSON) quase sempre é a CAIXA DE MANUTENÇÃO cheia.
+  // Traduz o erro pra uma instrução concreta, usando os dados de tinta/maint box quando dá.
+  function printerErrorAction(errorLabel, media, ink) {
+    const e = String(errorLabel || '').toLowerCase();
+    if (/tampa|porta aberta|cover/.test(e)) return 'Feche a tampa/porta da impressora.';
+    if (/sem papel|paper.?out|no media|sem m[íi]dia|bandeja/.test(e)) return 'Coloque papel/etiqueta na impressora.';
+    if (/atol|jam/.test(e)) return 'Tem papel atolado. Abra e remova com cuidado.';
+    if (/caixa de manuten|maint/.test(e)) return 'Troque a CAIXA DE MANUTENÇÃO (maintenance box).';
+    if (/sem tinta|ink.?out|cartucho/.test(e)) {
+      // qual cor está no fim?
+      const low = ink && typeof ink === 'object' ? Object.entries(ink).filter(([, v]) => v && (v.code === 'RN' || v.pct <= 10)).map(([c]) => c) : [];
+      return 'Troque o cartucho de tinta' + (low.length ? ' (' + low.join(', ') + ').' : '.');
+    }
+    if (/cabe[çc]ote/.test(e)) return 'Problema no cabeçote. Rode a limpeza pelo painel.';
+    if (/chamar servi|erro fatal|erro de recupera|erro na impressora/.test(e)) {
+      // "SE" (Service Error) da CW-C8000: a impressora NÃO reporta a causa exata via USB,
+      // só o código genérico. O motivo detalhado está na TELA da própria impressora.
+      const mb = media && media.maint_box;
+      if (mb && (mb.code === 'RN' || (mb.pct != null && mb.pct <= 10))) return 'Provável caixa de manutenção no fim. Vejam a tela da impressora e troquem se pedir.';
+      return 'Vejam a mensagem na tela da impressora (ela diz o motivo). Tente desligar e ligar.';
+    }
+    return 'Vejam a tela da impressora pra o motivo.';
+  }
+
+  // Normaliza um rótulo de status físico → estado canônico. A EPSON responde ao
+  // ESC/Label ~H(SMA,S com PR (imprimindo), IL (ocioso), WT, PS, CL, ER; o poller
+  // pode também mandar rótulos do WMI ("imprimindo"/"ociosa"). Bruno 07-17.
+  // IMPORTANTE: só vira 'error' se houver um errorLabel de MÍDIA de verdade — o
+  // código ER/oscilações do ESC/Label numa impressora ociosa NÃO são erro real.
+  function normPrinterState(label, errorLabel) {
+    const s = String(label || '').toLowerCase();
+    if (errorLabel && errorLabel !== 'none' && ISSUE_RE.test(errorLabel)) return 'error';
+    if (/\bpr\b|imprim|printing/.test(s)) return 'printing';
+    if (/\bil\b|ocios|idle|ready|pronta|normal/.test(s)) return 'idle';
+    if (/\bwt\b|wait|aguard/.test(s)) return 'waiting';
+    if (/\bps\b|paus/.test(s)) return 'paused';
+    if (/\bcl\b|mainten|limpeza|cabeç/.test(s)) return 'maintenance';
+    if (/\ber\b|erro|error|jam|paper.?out|falta/.test(s) && ISSUE_RE.test(s)) return 'error';
+    return 'unknown';
+  }
+
+  // NOME DA IMPRESSORA NO SLACK (Bruno 07-28): as notificações do Slack devem mostrar
+  // um nome amigável ("SUPPLEMENT LABEL PRINTER"), NÃO o nome técnico do device
+  // ("EPSON CW-C8000u (Copy 1)"). O nome real fica só no DASHBOARD. Mapa configurável
+  // via PRINTER_LABELS (JSON: {"trecho do device":"Nome bonito"}); default cobre a EPSON.
+  let _printerLabelMap = null;
+  function printerLabel(raw) {
+    if (_printerLabelMap === null) {
+      _printerLabelMap = {};
+      try { if (process.env.PRINTER_LABELS) _printerLabelMap = JSON.parse(process.env.PRINTER_LABELS); } catch (_) { _printerLabelMap = {}; }
+    }
+    const name = String(raw || '').trim();
+    if (!name) return 'impressora';
+    for (const [needle, pretty] of Object.entries(_printerLabelMap)) {
+      if (name.toLowerCase().includes(String(needle).toLowerCase())) return pretty;
+    }
+    // default: qualquer EPSON CW-C8000 (a impressora de labels de suplemento) → nome amigável
+    if (/epson|cw-?c8000|graphtec/i.test(name)) return 'SUPPLEMENT LABEL PRINTER';
+    return name;
+  }
+
+  // STATUS FÍSICO da impressora — CÉREBRO DO FIM FÍSICO (Bruno 07-17). O poller do
+  // .28 manda SÓ quando MUDA. Fluxo:
+  //   1. persiste estado atual + log de transição (telemetria/dashboard);
+  //   2. na transição imprimindo→ocioso (PR→IL) = FIM FÍSICO real: calcula o tempo
+  //      físico do último job daquela impressora, grava em print_jobs.print_seconds,
+  //      e DISPARA "acabou de imprimir, pode coletar" (produto/batch/operador);
+  //   3. em erro (sem papel/atolou) → alerta.
+  // O tempo físico é a diferença entre quando a impressora ENTROU em "imprimindo"
+  // (changed_at do estado anterior) e AGORA (voltou a ociosa) — o que o WMI não dá
+  // (volta pra ociosa em 5s), mas o ~H(SMA,S dá (fica PR até o último label sair).
+  router.post('/api/printer-status', h(async (req, res) => {
+    const tok = req.headers['x-print-token'];
+    if (!process.env.PRINT_EVENT_TOKEN || tok !== process.env.PRINT_EVENT_TOKEN) return res.status(401).json({ error: 'invalid_print_token' });
+    const b = req.body || {};
+    const printer = String(b.printer || '').slice(0, 120);
+    if (!printer) return res.status(400).json({ error: 'printer_required' });
+    const computer = String(b.computer || 'DESKTOP-SUB8JL6');
+    const label = String(b.status_label || b.status || '?');
+    const errorLabel = b.error_label && b.error_label !== 'none' ? String(b.error_label) : null;
+    const errAction = errorLabel ? printerErrorAction(errorLabel, b.media, b.ink) : 'Confiram a impressora.';
+    const newState = normPrinterState(label, errorLabel);
+
+    // estado anterior (pra detectar a transição + medir o tempo físico)
+    let prev = null;
+    try {
+      prev = (await db.query('SELECT status_label, error_label, changed_at, updated_at FROM v3.printer_status WHERE computer=$1 AND printer=$2', [computer, printer])).rows[0] || null;
+    } catch (_) { /* ok */ }
+    const prevState = prev ? normPrinterState(prev.status_label, prev.error_label) : null;
+    const changed = prevState !== newState;
+
+    // persiste estado atual (upsert) + log só quando MUDA (o poller já só manda na
+    // mudança, mas guardamos changed_at real da transição pra medir o físico).
+    try {
+      await db.query(
+        `INSERT INTO v3.printer_status (computer, printer, status_label, error_label, ink, media, raw, changed_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())
+         ON CONFLICT (computer, printer) DO UPDATE SET
+           status_label=EXCLUDED.status_label, error_label=EXCLUDED.error_label,
+           ink=COALESCE(EXCLUDED.ink, v3.printer_status.ink),
+           media=COALESCE(EXCLUDED.media, v3.printer_status.media),
+           raw=EXCLUDED.raw,
+           changed_at=CASE WHEN v3.printer_status.status_label IS DISTINCT FROM EXCLUDED.status_label THEN NOW() ELSE v3.printer_status.changed_at END,
+           updated_at=NOW()`,
+        [computer, printer, label, errorLabel,
+          b.ink ? JSON.stringify(b.ink) : null, b.media ? JSON.stringify(b.media) : null, JSON.stringify(b)]);
+      if (changed) {
+        await db.query(`INSERT INTO v3.printer_status_log (computer, printer, status_label, error_label) VALUES ($1,$2,$3,$4)`,
+          [computer, printer, label, errorLabel]);
+      }
+    } catch (e) { console.error('[printer-status] persist:', e.message); }
+
+    // SSE pro dashboard (estado ao vivo)
+    try { require('../v3/print-stream').broadcast('printer', { printer, status: label, state: newState, error: errorLabel, ts: Date.now() }); } catch (_) {}
+
+    // ── FIM FÍSICO: imprimindo → ocioso ────────────────────────────────────────
+    if (changed && prevState === 'printing' && newState === 'idle') {
+      // tempo físico = quanto a impressora ficou em "imprimindo"
+      const startedMs = prev && prev.changed_at ? new Date(prev.changed_at).getTime() : null;
+      const physSec = startedMs ? Math.max(1, Math.round((Date.now() - startedMs) / 1000)) : null;
+      // CONTAGEM REAL da máquina (Bruno 07-21): delta do contador não-resetável
+      // (~H(SCN,L) que o leitor manda. O spooler MENTE pra PDF (Acrobat expande as
+      // cópias internamente → "1 página"); o contador da EPSON é a verdade física.
+      const machineLabels = Number.isFinite(Number(b.labels_printed)) && Number(b.labels_printed) > 0
+        ? Math.round(Number(b.labels_printed)) : null;
+      // TODOS os jobs dessa impressora ainda sem tempo físico (janela 2h). Com PDF na
+      // fila pode haver >1 job no MESMO período físico — o delta do contador cobre
+      // todos. Fecha TODOS (senão um pendente velho rouba a contagem da PRÓXIMA
+      // impressão); a contagem agregada vai pro mais recente, com nota. (07-21)
+      let pending = [];
+      try {
+        pending = (await db.query(
+          `SELECT pj.id, pj.document, pj.sheets, pj.person_id, pj.product_id, pj.product_batch_id,
+                  pj.label_event_id,
+                  COALESCE(pe.display_name, pj.operator) AS operator,
+                  pr.canonical_name AS product, pb.batch_number AS batch
+             FROM v3.print_jobs pj
+             LEFT JOIN v3.persons pe ON pe.id = pj.person_id
+             LEFT JOIN v3.products pr ON pr.id = pj.product_id
+             LEFT JOIN v3.product_batches pb ON pb.id = pj.product_batch_id
+            WHERE pj.printer = $1 AND pj.print_seconds IS NULL
+              AND pj.created_at > NOW() - INTERVAL '2 hours'
+            ORDER BY pj.created_at DESC`, [printer])).rows;
+      } catch (_) { /* ok */ }
+      const job = pending[0] || null;   // o mais recente = dono da contagem
+      const multiJob = pending.length > 1;
+      // labels efetivos: contagem da máquina > spooler (que pode dizer "1" pra PDF)
+      const effSheets = machineLabels != null ? machineLabels : (job ? job.sheets : null);
+      if (job && physSec != null) {
+        try {
+          // fecha TODOS os pendentes com o período físico; a contagem só no dono
+          await db.query(
+            `UPDATE v3.print_jobs SET print_seconds=$1, phys_started_at=$2, phys_ended_at=NOW()
+             WHERE id = ANY($3::int[])`,
+            [physSec, prev.changed_at, pending.map((p) => p.id)]);
+          await db.query(
+            `UPDATE v3.print_jobs SET sheets = COALESCE($2, sheets), pages = COALESCE(pages, $2),
+               raw = raw || $3::jsonb
+             WHERE id=$1`,
+            [job.id, machineLabels,
+              JSON.stringify({ machine_labels: machineLabels, aggregated_jobs: multiJob ? pending.length : 1 })]);
+        } catch (e) { console.error('[printer-status] print_seconds:', e.message); }
+        // SINCRONIZA o event "Impressão de Labels" (Bruno 07-21: TUDO em TODAS as
+        // partes): vincula o batch ao event (painel mostra Produto) + registra no
+        // description a impressão com a contagem REAL.
+        if (job.label_event_id) {
+          try {
+            if (job.product_batch_id) {
+              await db.query(
+                `UPDATE v3.events SET product_batch_id = COALESCE(product_batch_id, $2), updated_at = NOW()
+                 WHERE id = $1 AND deleted_at IS NULL`, [job.label_event_id, job.product_batch_id]);
+            }
+            const line = `[${effSheets != null ? effSheets + ' labels' : 'impressão'} — ${job.product || job.document || '?'}${job.batch ? ' · ' + job.batch : ''} · ${physSec}s físico]`;
+            await db.query(
+              `UPDATE v3.events SET description = TRIM(BOTH ' ' FROM COALESCE(description,'') || ' ' || $2), updated_at = NOW()
+               WHERE id = $1 AND deleted_at IS NULL AND COALESCE(description,'') NOT LIKE '%' || $3 || '%'`,
+              [job.label_event_id, line, line.slice(0, 60)]);
+          } catch (e) { console.error('[printer-status] event sync:', e.message); }
+        }
+      }
+      // ALERTA de coleta — SÓ se houve uma impressão real (≥3s físicos) E de tamanho
+      // real (> PRINT_TEST_MAX labels; 1-10 = teste, não avisa — Bruno 07-17/07-21).
+      // Usa a contagem REAL da máquina no gate e na mensagem. Mensagem ENXUTA pro
+      // operador: só produto/batch/qtd. O admin recebe o detalhe técnico.
+      const TEST_MAX = parseInt(process.env.PRINT_TEST_MAX || '10', 10);
+      const realJob = job && physSec != null && physSec >= 3 && (effSheets || 0) > TEST_MAX;
+      if (realJob) {
+        const opLine = `:printer: Impressão pronta, pode coletar. `
+          + `${job.product ? `*${job.product}*` : (job.document || 'labels')}`
+          + `${job.batch ? ` (${job.batch})` : ''}`
+          + `${effSheets ? ` · ${effSheets} labels` : ''}`;
+        let muted = false;
+        try { muted = await alertGate.isMuted(db); } catch (_) { /* segue */ }
+        // PRINTER OFF no canal dos operadores (Bruno 07-28): TODA notificação de
+        // impressora vai SÓ pro admin-orin por enquanto (o fluxo tava dando ruído).
+        // O "pode coletar" NÃO vai mais pro operador. (era: if(!muted) machineSlack)
+        // admin recebe versão com detalhe técnico (tempo/impressora/operador/fonte da contagem)
+        const physTxt = physSec >= 60 ? `~${Math.round(physSec / 60)}min` : `${physSec}s`;
+        try {
+          await adminSlack(opLine
+            + `\n_${printerLabel(printer)} · físico ${physTxt}${machineLabels != null ? ' · contagem da máquina' : ' · contagem do spooler'}${job.operator ? ' · ' + job.operator : ''}${muted ? ' · avisos pausados (operador não recebeu)' : ''}_`
+            + (multiJob ? `\n:warning: _${pending.length} arquivos imprimiram em sequência sem a impressora parar — a contagem (${effSheets} labels) é o TOTAL dos ${pending.length}; conferir a divisão: ${pending.map((p) => p.document || '?').join(' · ')}_` : ''));
+        } catch (_) {}
+        try {
+          require('../v3/print-stream').broadcast('finished', {
+            printer, job_id: job.id, document: job.document,
+            product: job.product, batch: job.batch, operator: job.operator,
+            sheets: effSheets, print_seconds: physSec, ts: Date.now() });
+        } catch (_) {}
+      }
+    }
+    // ── ERRO de mídia — máquina de estados de INCIDENTE (Bruno 07-17). Regras:
+    //  • deu problema → 1 alerta (operador + admin). Guarda incidente.
+    //  • consertou → 1 aviso SÓ no admin-orin (Bruno 07-28: NÃO no canal dos
+    //      operadores) que voltou ao normal + quem resolveu (interno/gestão).
+    //  • segue em erro → re-alerta a cada 30min, MAS:
+    //      - alguém ATIVO no PC/sistema agora → tão cuidando, fica quieto;
+    //      - se alguém logou depois do 1º alerta (tentou) e agora tá idle e não
+    //        resolveu → "fulano tentou consertar mas parece que não conseguiu,
+    //        alguém pode ajudar? a impressora continua dando problema".
+    //  • fim de semana / ninguém trabalhando → NÃO alerta (não roda o fds todo).
+    // Incidente por impressora em settings key `printer_incident:<printer>`.
+    const isMediaErr = newState === 'error' && errorLabel && ISSUE_RE.test(errorLabel);
+    if (isMediaErr || (changed && prevState === 'error' && newState !== 'error')) {
+      const incKey = 'printer_incident:' + printer;   // chave do DB usa o nome REAL
+      const printerNm = printerLabel(printer);         // nome amigável pro Slack (Bruno 07-28)
+      // quem está na estação AGORA — fonte ÚNICA de verdade (histórico de login,
+      // não a setting velha). Bruno 07-27: sincroniza o ÚLTIMO que logou; se o dado
+      // está velho (stale), NÃO afirma nome nenhum (melhor "não sei" do que errar).
+      let stationName = null, stationActiveNow = false, stationStale = false;
+      try {
+        const so = await stationOperatorNow(db);
+        if (so) {
+          stationActiveNow = so.active_now;
+          stationStale = so.stale;
+          stationName = so.stale ? null : (so.name || null);
+        }
+      } catch (_) { /* ok */ }
+      // alguém trabalhando no sistema (sessão ativa ou task aberta) — inclui não-estação
+      let present = false;
+      try { present = await alertGate.anyonePresent(db, { recencyMin: 30, openEventMin: 60 }); } catch (_) {}
+      const someoneActive = stationActiveNow || present;
+      let muted = false;
+      try { muted = await alertGate.isMuted(db); } catch (_) {}
+      // quem está logado no PC da impressão AGORA — vai SÓ no admin (Bruno 07-27),
+      // pra vocês saberem quem está usando a estação quando dá problema.
+      const whoTag = stationName
+        ? `\n_na estação agora: *${stationName}*${stationActiveNow ? ' (ativo)' : ''}_`
+        : (stationStale
+            ? '\n_estação: último login está velho — não dá pra confirmar quem está agora_'
+            : '\n_ninguém logado na estação agora_');
+      // PRINTER OFF no canal dos operadores (Bruno 07-28): TODO alerta de impressora
+      // (erro, "confiram", "tentou consertar", etc.) vai SÓ pro admin-orin por
+      // enquanto. Nada de impressora no canal dos operadores. (era: if(!muted) machineSlack)
+      const say = async (txt) => {
+        try { await adminSlack(txt + whoTag); } catch (_) {}            // admin: COM nome
+      };
+      // incidente atual
+      let inc = null;
+      try { inc = (await db.query('SELECT value FROM v3.settings WHERE key=$1', [incKey])).rows[0]; inc = inc ? inc.value : null; } catch (_) {}
+      const saveInc = async (v) => {
+        try {
+          await db.query(
+            `INSERT INTO v3.settings (key, value, description) VALUES ($1, $2::jsonb, 'incidente de impressora — Bruno 07-17')
+             ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`, [incKey, JSON.stringify(v)]);
+        } catch (_) {}
+      };
+      const clearInc = async () => { try { await db.query('DELETE FROM v3.settings WHERE key=$1', [incKey]); } catch (_) {} };
+
+      if (changed && prevState === 'error' && newState !== 'error') {
+        // SAIU do erro. NÃO anuncia "consertou" na hora — a EPSON OSCILA porta-aberta→
+        // ok→porta-aberta em segundos (caso 07-27, ~8 msgs em 5min). Só declara resolvido
+        // depois de ESTABILIDADE_MS sem voltar ao erro. Marca o momento e agenda a
+        // confirmação; se voltar ao erro antes disso, cancela (não era conserto real).
+        if (inc && !inc.resolved_pending_at) {
+          inc.resolved_pending_at = Date.now();
+          await saveInc(inc);
+          // agenda a confirmação do conserto (fora do request)
+          setTimeout(async () => {
+            try {
+              const cur = (await db.query('SELECT value FROM v3.settings WHERE key=$1', [incKey])).rows[0];
+              const c = cur ? cur.value : null;
+              // ainda pendente de resolução E o estado atual não é mais erro → confirma
+              if (c && c.resolved_pending_at) {
+                const st2 = (await db.query('SELECT status_label, error_label FROM v3.printer_status WHERE printer=$1', [printer])).rows[0];
+                const stillErr = st2 && normPrinterState(st2.status_label, st2.error_label) === 'error';
+                if (!stillErr) {
+                  // fixer = quem está NA ESTAÇÃO no momento que voltou ao normal
+                  // (re-resolvido AGORA, fresco). Se stale, não afirma nome — evita
+                  // agradecer a pessoa errada (caso Simone×Ana 27/07).
+                  let fixer = c.tried_by || null;
+                  try {
+                    const soNow = await stationOperatorNow(db);
+                    if (soNow && !soNow.stale && soNow.name) fixer = soNow.name;
+                    else if (soNow && soNow.stale) fixer = null;
+                  } catch (_) {}
+                  // Conserto confirmado → SÓ admin-orin (Bruno 07-28): NÃO agradecer
+                  // no canal dos operadores. O operador não precisa desse aviso; o
+                  // registro de "voltou ao normal / quem resolveu" é interno (gestão).
+                  const thanks = fixer
+                    ? `:printer: *${fixer}* resolveu, a ${printerNm} voltou ao normal.`
+                    : `:printer: A ${printerNm} voltou ao normal.`;
+                  try { await adminSlack(thanks); } catch (_) {}
+                  await db.query('DELETE FROM v3.settings WHERE key=$1', [incKey]).catch(() => {});
+                }
+              }
+            } catch (_) { /* best-effort */ }
+          }, 90 * 1000).unref?.();   // 90s de estabilidade antes de confirmar conserto
+        }
+      } else if (isMediaErr) {
+        const nowMs = Date.now();
+        // voltou ao erro → cancela qualquer "conserto pendente" (não era conserto real)
+        if (inc && inc.resolved_pending_at) { delete inc.resolved_pending_at; await saveInc(inc); }
+        if (!inc) {
+          // NOVO incidente. Só alerta se tem gente trabalhando (senão fica mudo — fds).
+          if (someoneActive) {
+            await say(`:warning: ${printerNm}: ${errorLabel}. ${errAction}`);
+            await saveInc({ error: errorLabel, since: nowMs, last_alert: nowMs, tried_by: stationName, alerts: 1 });
+          } else {
+            // ninguém trabalhando: registra o incidente SEM alertar; alerta quando alguém aparecer
+            await saveInc({ error: errorLabel, since: nowMs, last_alert: 0, tried_by: null, alerts: 0 });
+          }
+        } else {
+          // incidente EM ANDAMENTO. Atualiza quem tentou (quem logou na estação).
+          if (stationName && stationName !== inc.tried_by) { inc.tried_by = stationName; await saveInc(inc); }
+          const since = inc.last_alert || 0;
+          const due = nowMs - since >= 30 * 60 * 1000;   // 30min desde o último aviso
+          // se está sendo cuidado agora (alguém ativo), NÃO repete
+          if (someoneActive && stationActiveNow) {
+            // alguém mexendo no PC agora — deixa quieto (tão consertando)
+          } else if (due && someoneActive) {
+            // passou 30min e tem gente (mas não ativa na estação): re-alerta
+            if (inc.tried_by) {
+              await say(`:warning: ${inc.tried_by} tentou consertar mas a ${printerNm} continua com ${errorLabel}. ${errAction} Alguém pode ajudar?`);
+            } else {
+              await say(`:warning: ${printerNm}: ${errorLabel} há mais de 30min. ${errAction}`);
+            }
+            inc.last_alert = nowMs; inc.alerts = (inc.alerts || 0) + 1; await saveInc(inc);
+          } else if (inc.alerts === 0 && someoneActive) {
+            // o incidente nasceu com ninguém trabalhando; agora chegou alguém → 1º alerta
+            await say(`:warning: ${printerNm}: ${errorLabel}. ${errAction}`);
+            inc.last_alert = nowMs; inc.alerts = 1; await saveInc(inc);
+          }
+          // ninguém trabalhando → silêncio (não alerta no vazio)
+        }
+      }
+    }
+
+    res.json({ ok: true, state: newState, transition: changed ? `${prevState || '∅'}→${newState}` : 'sem mudança' });
   }));
 
   // ── helpers de domínio ──────────────────────────────────────
@@ -552,15 +1294,18 @@ function createOpRouter(deps = {}) {
   // evento aberto — que NÃO está em almoço/pausa e NÃO encerrou o dia (end_of_day).
   async function findMachineRecv(personId, isSandbox) {
     const breakSlugs = [...PAUSE_SLUGS, ...LUNCH_SLUGS];
+    // PRESENÇA REAL (Bruno 07-18): só é elegível quem tem prova HUMANA de presença
+    // hoje — sessão de login OU evento que não seja task automática do EMS ainda
+    // não-confirmada. Uma atribuição-fantasma do EMS (ems_auto em ems_unconfirmed)
+    // NÃO torna ninguém elegível a receber máquina. (Antes: "tem evento hoje" pegava
+    // o phantom e passava a máquina pra quem não estava trabalhando.)
     return (await db.query(
       `SELECT p.id, p.display_name, p.slack_user_id FROM v3.persons p
         WHERE p.is_machine_operator = true AND p.active = true AND p.deleted_at IS NULL
           AND COALESCE(p.is_sandbox, false) = $2 AND p.id <> $1
           AND (
-            EXISTS (SELECT 1 FROM v3.events et WHERE et.person_id = p.id AND et.deleted_at IS NULL
-                    AND (et.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+            ${presence.confirmedPresenceSQL('p')}
             OR EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id AND s.logged_out_at IS NULL)
-            OR EXISTS (SELECT 1 FROM v3.events ea WHERE ea.person_id = p.id AND ea.ended_at IS NULL AND ea.deleted_at IS NULL)
           )
           AND NOT EXISTS (SELECT 1 FROM v3.events e2 JOIN v3.activity_types at2 ON at2.id = e2.activity_type_id
                           WHERE e2.person_id = p.id AND e2.ended_at IS NULL AND e2.deleted_at IS NULL AND at2.slug = ANY($3::text[]))
@@ -632,7 +1377,7 @@ function createOpRouter(deps = {}) {
     if (!jobs.length) {
       // nada aberto → o substituto concluiu e não começou outra → AVISA (parada).
       await endCoverage(cov.id, 'stopped');
-      await machineSlack(`:warning: *${coverName}* concluiu a(s) máquina(s) que estava cobrindo e *não começou outra* — a máquina está *parada*. Definam qual a próxima fórmula e comecem; a máquina não pode ficar parada.`);
+      await machineSlack(`:warning: Máquina parada. *${coverName}* terminou e não começou outra. Escolham a próxima fórmula e comecem.`);
       return { machine_return_notice: { cover_name: coverName } };
     }
     return { machine_return_confirm: {
@@ -682,7 +1427,7 @@ function createOpRouter(deps = {}) {
     }
     if (transferred.length) {
       const who = me.slack_user_id ? `<@${me.slack_user_id}>` : `*${me.display_name}*`;
-      const txt = `:arrows_counterclockwise: *FOI TRANSFERIDO PRA VOCÊ, ${who}.* Você voltou e é operador de formulação → a(s) máquina(s) (${transferred.join(', ')}) que estava(m) com um colega enquanto ninguém da formulação estava presente *agora é(são) sua responsabilidade.* Fica de olho!`;
+      const txt = `${who}, você voltou. ${transferred.join(', ')} agora é sua de novo.`;
       await machineSlack(txt); await adminSlack(txt);
       await audit('machine.transferred_on_return', 'person', personId, { jobs: transferred }, personId);
     }
@@ -705,7 +1450,7 @@ function createOpRouter(deps = {}) {
       // NINGUÉM apontado: a máquina SEGUE RODANDO (nunca paramos — regra Bruno) e
       // alertamos ALTO pra alguém assumir já. Nunca dizer "PARAR".
       if (appointee === 'none') {
-        const txt = `:rotating_light::rotating_light: *ATENÇÃO TODOS — MÁQUINA(S) DE FORMULAÇÃO SEM NINGUÉM DE OLHO.* ${me.display_name} saiu (${leaveLabel}) e a(s) máquina(s) (${slugsAll.join(', ')}) *seguem rodando* sem ninguém apontado. *Alguém disponível precisa assumir AGORA* — pode ser qualquer operador. Gerentes, confirmem quem assume.`;
+        const txt = `:rotating_light: ${me.display_name} saiu (${leaveLabel}) e ${slugsAll.join(', ')} está rodando sem ninguém de olho. *Alguém precisa assumir agora.* Gerentes, confirmem quem fica.`;
         await machineSlack(txt); await adminSlack(txt);
         await audit('machine.unattended', 'person', personId, { slugs: slugsAll }, personId);
         return;
@@ -717,7 +1462,7 @@ function createOpRouter(deps = {}) {
       }
       if (!recv) recv = await findMachineRecv(personId, isSandbox);
       if (!recv) {
-        const txt = `:rotating_light: *${me.display_name}* saiu (${leaveLabel}) e a(s) máquina(s) (${slugsAll.join(', ')}) *seguem rodando* sem outro operador de máquina disponível. *Alguém precisa assumir pra não ficar sem supervisão* — pode ser qualquer operador disponível. Gerentes, apontem quem fica responsável.`;
+        const txt = `:rotating_light: ${me.display_name} saiu (${leaveLabel}) e ${slugsAll.join(', ')} está rodando sem operador de máquina. *Alguém precisa assumir.* Gerentes, apontem quem fica.`;
         await machineSlack(txt); await adminSlack(txt);
         return;
       }
@@ -746,10 +1491,10 @@ function createOpRouter(deps = {}) {
       if (!silentSlack) {
         if (inexperienced) {
           // TOM SÉRIO (regra Bruno 07-02): substituto NÃO é operador de máquina.
-          const txt = `:rotating_light: *ATENÇÃO: ${me.display_name} saiu (${leaveLabel}) E APONTOU ${ping} PARA CUIDAR DA(S) MÁQUINA(S) (${slugs.join(', ')}).* ${recv.display_name} NÃO é operador de máquina. *GERENTES: confirmem se está correto.* ${ping}: se precisar de QUALQUER ajuda, comunique os gerentes IMEDIATAMENTE.`;
+          const txt = `:rotating_light: ${me.display_name} saiu (${leaveLabel}) e apontou ${ping} pra cuidar de ${slugs.join(', ')}. ${recv.display_name} não é operador de máquina. Gerentes, confirmem se tá certo. ${ping}, qualquer dúvida chama a gestão.`;
           await machineSlack(txt); await adminSlack(txt);
         } else {
-          await machineSlack(`:gear: *Operação de máquinas passada para ${ping}.* ${me.display_name} saiu (${leaveLabel}) — as máquinas (${slugs.join(', ')}) agora são sua responsabilidade. Fica de olho!${willReturn ? ` Voltam pro ${me.display_name} quando ele retornar.` : ''}`);
+          await machineSlack(`${me.display_name} saiu (${leaveLabel}). ${slugs.join(', ')} agora é do ${ping}.${willReturn ? ` Volta pro ${me.display_name} quando ele voltar.` : ''}`);
         }
       }
       return { recv, slugs, inexperienced };
@@ -784,7 +1529,7 @@ function createOpRouter(deps = {}) {
       const since = back[0].since_t, nowT = back[0].now_t;
       await audit('machine.return', 'person', personId, { to: personId, slugs, sub, since, now: nowT }, personId);
       // Mensagem (regra Bruno 06-24): registra o PERÍODO que o substituto foi responsável.
-      await machineSlack(`:white_check_mark: *${meName} voltou* — a operação de máquina (${slugs.join(', ')}) volta de ${sub} pra ${meName}. Ficou registrado como responsabilidade de *${sub}* das *${since}* às *${nowT}* (enquanto ${meName} estava em almoço/pausa).`);
+      await machineSlack(`${meName} voltou. ${slugs.join(', ')} volta pra ele. Ficou com *${sub}* das ${since} às ${nowT}.`);
     } catch (e) { console.error('[machine] return falhou:', e.message); }
   }
   // pausa não retomada que virou o dia (P-PAUSA.5): fecha o break velho e marca o
@@ -1169,15 +1914,22 @@ function createOpRouter(deps = {}) {
       d = r.rows[0] || {};
     } catch (e) { console.error('[op] detalhes exceção falharam:', e.message); }
     const isLine = ev.slug === 'production_line';
+    // LINHA DE PRODUÇÃO fechada sem total (Bruno 07-27): NÃO é mais um warning seco.
+    // Abre uma CONVERSA (followup) — o sistema pergunta o motivo/número e fica
+    // ouvindo até ter o total OU escalar pro admin. Ver production-total-followup.js.
+    if (isLine) {
+      try {
+        const { openFollowup } = require('../v3/production-total-followup');
+        await openFollowup({ db, slack, productionChannel, ev, reason, s, detail: d });
+        await audit('production.total_followup.opened', 'event', ev.id, { channel: productionChannel, reason }, s.person_id);
+      } catch (e) { console.error('[op] abrir followup de total falhou:', e.message); }
+      return;
+    }
+    // P&P/embalagem: segue o warning simples (não exige número duro como a linha).
     const text =
-      '⚠️ *' + (isLine ? 'Linha de Produção' : 'Tarefa (P&P/embalagem)') + ' fechada sem contagem*\n\n' +
-      '*Tarefa:* ' + (ev.slug || '—') + '\n' +
-      '*Operador(a):* ' + (d.operator || s.display_name || '?') + '\n' +
-      '*Produto:* ' + (d.product || '—') + '\n' +
-      '*Lote:* ' + (d.batch_number || '—') + '\n' +
-      '*Duração:* ' + (d.duration_min != null ? d.duration_min + ' min' : '—') + '\n' +
-      '*Motivo informado:* "' + reason + '"\n\n' +
-      '_Notificação automática — favor verificar contagem com o operador quando possível._';
+      '⚠️ P&P/embalagem fechada sem contagem. *' + (d.operator || s.display_name || '?') + '*'
+      + (d.product ? ', ' + d.product : '') + (d.batch_number ? ' (' + d.batch_number + ')' : '')
+      + '. Motivo: "' + reason + '". Confiram a contagem com ela.';
     try {
       await slack.postAs({
         channel: productionChannel,
@@ -1192,12 +1944,9 @@ function createOpRouter(deps = {}) {
     if (!slack || !slack.postAs) return;
     const arrow = pct > 0 ? ':arrow_up:' : ':arrow_down:';
     const text =
-      ':bar_chart: *Contagem fora do estimado*\n\n' +
-      '*Operador(a):* ' + (s.display_name || '?') + '\n' +
-      '*Produto/Lote:* ' + (ev.product || '—') + ' · ' + (ev.batch_number || '—') + '\n' +
-      '*Estimado (EMS):* ' + target + ' bottles\n' +
-      '*Informado:* ' + actual + ' bottles  ' + arrow + ' ' + (pct > 0 ? '+' : '') + pct + '%\n\n' +
-      '_Diferença ≥ 10% — verificar se a contagem está correta._';
+      '⚠️ Contagem fora do estimado. *' + (s.display_name || '?') + '*, '
+      + (ev.product || '?') + (ev.batch_number ? ' (' + ev.batch_number + ')' : '')
+      + ': EMS estima ' + target + ', informado *' + actual + '* ' + arrow + ' ' + (pct > 0 ? '+' : '') + pct + '%. Confiram.';
     try {
       await slack.postAs({ channel: productionChannel, sender: { name: 'HealthFare Tracker (Sistema)', icon: ':bar_chart:' }, thread_ts: null, text, unfurl_links: false, unfurl_media: false });
     } catch (e) { console.error('[op] aviso bottle mismatch falhou:', e.message); }
@@ -1408,9 +2157,47 @@ function createOpRouter(deps = {}) {
       try {
         const cov = (await db.query('SELECT bg_handoff_from_person_id FROM v3.events WHERE id = $1', [ev.id])).rows[0];
         if (cov && cov.bg_handoff_from_person_id && cov.bg_handoff_from_person_id !== s.person_id) {
-          const owner = (await db.query('SELECT display_name FROM v3.persons WHERE id = $1', [cov.bg_handoff_from_person_id])).rows[0];
+          const ownerId = cov.bg_handoff_from_person_id;
+          const owner = (await db.query('SELECT display_name FROM v3.persons WHERE id = $1', [ownerId])).rows[0];
+          const ownerName = owner ? owner.display_name : 'o dono';
           const prod = ev.batch_number ? (' (' + ev.batch_number + ')') : '';
-          await machineSlack(`:white_check_mark: *${s.display_name}* concluiu a *${ev.activity_name || 'operação de máquina'}*${prod} que estava cobrindo enquanto *${owner ? owner.display_name : 'o operador'}* estava fora. *${s.display_name}* continua responsável pela máquina e deve começar a próxima; o que estiver relacionado vai pro *${owner ? owner.display_name : 'dono'}* quando ele confirmar na volta.`);
+          // RULE #1 (Bruno 08-06 + 08-10): checar o ponto de AMBOS os nomes citados.
+          // Uma pessoa "saiu" = bateu a saída OU state='out'.
+          const leftSql = `SELECT 1 FROM v3.att_state WHERE person_id=$1
+              AND att_date=(NOW() AT TIME ZONE 'America/New_York')::date
+              AND (checkout_at IS NOT NULL OR state='out') LIMIT 1`;
+          const ownerLeft = (await db.query(leftSql, [ownerId])).rowCount > 0;
+          // "Prestes a sair" (Bruno 08-10): usa o HORÁRIO DE SAÍDA da escala. Se a pessoa
+          // está a <=30min do fim do expediente dela, NÃO dizemos que ela "continua
+          // responsável" (o Vitor concluiu 16:58 e saiu 17:00 — a escala dele acaba 17:00,
+          // então já dava pra saber que ele estava prestes a sair). Cruza escala + ponto.
+          const nearEndSql = `SELECT 1 FROM v3.operator_schedules sch
+              WHERE sch.person_id=$1
+                AND sch.day_of_week = EXTRACT(DOW FROM (NOW() AT TIME ZONE 'America/New_York'))::int
+                AND sch.is_workday = true AND sch.expected_end_time IS NOT NULL
+                AND (sch.expected_end_time - (NOW() AT TIME ZONE 'America/New_York')::time)
+                    BETWEEN INTERVAL '-15 minutes' AND INTERVAL '30 minutes' LIMIT 1`;
+          const finisherLeft = (await db.query(leftSql, [s.person_id])).rowCount > 0;
+          const finisherNearEnd = (await db.query(nearEndSql, [s.person_id])).rowCount > 0;
+          if (finisherLeft || finisherNearEnd) {
+            // quem concluiu JÁ saiu ou está PRESTES a sair → não afirmar que continua na
+            // máquina. Se o dono ainda está aqui, devolve pra ele; senão pede pra definirem.
+            const goneWord = finisherLeft ? 'já foi embora' : 'tá saindo';
+            if (!ownerLeft) {
+              // quem terminou vai/foi embora, mas o responsável anterior está aqui → volta pra ele
+              await machineSlack(`${s.display_name} terminou a máquina${prod} e ${goneWord}. *${ownerName}* assume e começa a próxima.`);
+            } else {
+              // os DOIS saíram → aí sim avisa: máquina sem ninguém
+              await machineSlack(`:warning: ${s.display_name} terminou a máquina${prod} e ${goneWord}. Precisa de alguém pra continuar, definam quem assume.`);
+            }
+          } else if (ownerLeft) {
+            // O OUTRO já saiu. Bruno vira responsável automaticamente e já sabe disso.
+            // NÃO manda mensagem (Bruno 08-10: se o colega saiu, o que ficou já sabe as
+            // obrigações dele; notificar é só ruído). Silêncio de propósito.
+          } else {
+            // os dois presentes: quem terminou continua responsável, volta pro outro quando trocar
+            await machineSlack(`${s.display_name} terminou a máquina${prod}. Continua com ele até *${ownerName}* assumir de novo.`);
+          }
         }
       } catch (e) { console.error('[machine] notify conclusão falhou:', e.message); }
     }
@@ -1433,7 +2220,7 @@ function createOpRouter(deps = {}) {
           const target = Number(ev.target_bottles);
           const pct = Math.round((finalTotal / target) * 100);
           const prod = ev.product || ev.batch_number || 'lote';
-          const txt = `:rotating_light: *CONTAGEM ACIMA DO ALVO — CONFIRAM!* Lote *${ev.batch_number || '?'}* (${prod}): o alvo do EMS é *${target}* bottles, mas o total contado agora é *${finalTotal}* (*${pct}%*). ${s.display_name} confirmou. *Verifiquem se não houve contagem DOBRADA* (mesmo número lançado 2×, ou o total do dia anterior digitado de novo).`;
+          const txt = `:rotating_light: Contagem acima do alvo. Lote *${ev.batch_number || '?'}* (${prod}): alvo ${target}, contado *${finalTotal}* (${pct}%). Confiram se não foi contado 2×.`;
           await machineSlack(txt); await adminSlack(txt);
           await audit('bottle.over_target_confirmed', 'event', ev.id, { target, total: finalTotal, pct, added: b }, s.person_id);
         } catch (e) { console.error('[op] scream over-target falhou:', e.message); }
@@ -1511,7 +2298,7 @@ function createOpRouter(deps = {}) {
       if (openIds.size) await db.query('UPDATE v3.events SET bg_handoff_from_person_id = NULL, updated_at = NOW() WHERE id = ANY($1::int[])', [[...openIds]]);
       await endCoverage(cov.id, 'declined');
       await audit('machine.return_declined', 'person', s.person_id, { cover: cov.cover_person_id, jobs: [...openIds] }, s.person_id);
-      await machineSlack(`:information_source: *${s.display_name}* informou que a encapsulação *não é responsabilidade dele agora* — segue com *${coverName}*.`);
+      await machineSlack(`${s.display_name} não vai assumir a encapsulação agora. Segue com *${coverName}*.`);
       return res.json({ ok: true, decision: 'no' });
     }
 
@@ -1529,11 +2316,11 @@ function createOpRouter(deps = {}) {
     await endCoverage(cov.id, leftover.length ? 'partial' : 'taken_over');
     await audit('machine.return_taken', 'person', s.person_id, { taken: picked, leftover, cover: cov.cover_person_id }, s.person_id);
     if (picked.length && leftover.length) {
-      await machineSlack(`:gear: *${s.display_name}* assumiu a responsabilidade da máquina de encapsulação — *${takenNames.join(', ')}* apenas. O resto continua com *${coverName}*.`);
+      await machineSlack(`${s.display_name} assumiu *${takenNames.join(', ')}*. O resto segue com *${coverName}*.`);
     } else if (picked.length) {
-      await machineSlack(`:gear: *${s.display_name}* voltou e assumiu a operação de máquina (${takenNames.join(', ')}) de volta.`);
+      await machineSlack(`${s.display_name} voltou e assumiu ${takenNames.join(', ')} de volta.`);
     } else {
-      await machineSlack(`:information_source: *${s.display_name}* voltou mas não assumiu nenhum job da máquina — seguem com *${coverName}*.`);
+      await machineSlack(`${s.display_name} voltou mas não assumiu nada. Segue com *${coverName}*.`);
     }
     return res.json({ ok: true, decision: 'yes', taken: picked.length, leftover: leftover.length });
   }));
@@ -1864,6 +2651,65 @@ function createOpRouter(deps = {}) {
     catch (e) { console.error('[op] my-activity erro:', e.message); res.json({ detected: null }); }
   }));
 
+  // ── CONFIRMAÇÃO de tarefa automática do EMS (Bruno 07-18) ────────────────────
+  // Toda auto-task é suspeita. Quando o operador loga, pergunta se uma task
+  // automática (de alguém que não fez check-in) foi dele ou do "suspeito", ou se o
+  // suspeito está trabalhando hoje. A resposta é autoritativa e move a task.
+  router.get('/api/v3/op/pending-confirmations', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    try {
+      const q = await emsConfirm.nextQuestionFor(db, s.person_id);
+      res.json({ question: q || null });
+    } catch (e) { console.error('[op] pending-confirmations:', e.message); res.json({ question: null }); }
+  }));
+
+  router.post('/api/v3/op/pending-confirmations/answer', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    const b = req.body || {};
+    const unconfirmedId = parseInt(b.unconfirmed_id, 10);
+    const answer = String(b.answer || '');
+    if (!Number.isFinite(unconfirmedId)) return res.status(400).json({ error: 'unconfirmed_id_required' });
+    // "não sei" → pula (não repergunta pra ele); não move nada
+    if (answer === 'skip' || answer === 'dont_know') {
+      await emsConfirm.skip(db, unconfirmedId, s.person_id);
+      return res.json({ ok: true, skipped: true });
+    }
+    if (!['me', 'subject', 'not_working', 'other'].includes(answer)) return res.status(400).json({ error: 'invalid_answer' });
+    try {
+      const r = await emsConfirm.applyAnswer(db, {
+        unconfirmedId, askerId: s.person_id, answer,
+        otherPersonId: b.other_person_id ? parseInt(b.other_person_id, 10) : null, note: b.note || null,
+      });
+      // era ele mesmo → nada muda, sem Slack
+      if (r.already) return res.json({ ok: true, already: r.status });
+      if (r.confirmedSubject) {
+        await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'ems_confirm_subject', payload: { unconfirmed_id: unconfirmedId, subject: r.subject && r.subject.display_name }, isTest: !!s.is_sandbox });
+        return res.json({ ok: true, confirmed: 'subject' });
+      }
+      // MOVEU → explica no Slack (voz Carolina) + agradece quem avisou
+      const subjName = r.subject ? r.subject.display_name : 'a pessoa';
+      const toName = r.to_person ? r.to_person.display_name : '?';
+      const askerName = s.display_name;
+      const nTasks = (r.moved || []).length;
+      const tasksTxt = nTasks > 1 ? `as ${nTasks} tarefas` : 'a tarefa';
+      let msg;
+      if (answer === 'not_working') {
+        msg = `Corrigido: ${tasksTxt} era do *${toName}*, não do ${subjName}. Valeu, ${askerName}!`;
+      } else {
+        msg = `Corrigido: ${tasksTxt} era do *${toName}*. Valeu, ${askerName}!`;
+      }
+      // canal dos operadores (respeita kill-switch) + sempre no admin
+      let muted = false; try { muted = await alertGate.isMuted(db); } catch (_) {}
+      if (!muted) { try { await machineSlack(msg); } catch (_) {} }
+      try { await adminSlack(msg + (muted ? ' _(operador não recebeu, avisos pausados)_' : '')); } catch (_) {}
+      await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'ems_confirm_reassign', payload: { unconfirmed_id: unconfirmedId, answer, subject: subjName, to: toName, moved: nTasks }, isTest: !!s.is_sandbox });
+      res.json({ ok: true, moved: nTasks, to: toName });
+    } catch (e) {
+      console.error('[op] confirm answer:', e.message);
+      res.status(500).json({ error: 'confirm_failed', detail: e.message });
+    }
+  }));
+
   // resolve product_id LOCAL por nome (best-effort) pra vincular o lote do EMS.
   async function productIdByName(name) {
     if (!name) return null;
@@ -2080,13 +2926,143 @@ function createOpRouter(deps = {}) {
       if (!s.is_sandbox && slack && slack.postAs) {
         try {
           await slack.postAs({ channel: 'production', sender: { name: 'HealthFare Tracker', icon: ':warning:' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
-            text: `:warning: *${s.display_name} reajustou o TOTAL de ordens do dia.*\nAntes: *${oldTotal}* → Agora: *${qty}* ordens (edição manual do operador — confiram se está certo).` });
+            text: `:warning: ${s.display_name} reajustou o total de ordens do dia. Antes: ${oldTotal}, agora: *${qty}*. Confiram se tá certo.` });
         } catch (e) { console.error('[orders.adjust] slack falhou:', e.message); }
       }
     }
     await audit('orders.adjust', 'production_count', ins.id, { mode, quantity: qty, old_total: oldTotal, new_total: newTotal }, s.person_id);
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'orders_adjust', payload: { mode, quantity: qty, old_total: oldTotal, new_total: newTotal }, relatedEventId: srcEventId, isTest: !!s.is_sandbox });
     res.json({ ok: true, mode, old_total: oldTotal, new_total: newTotal });
+  }));
+
+  // ── CENTRO DE ESTOQUE — kiosk do operador (Bruno 08-01) ─────────────────────
+  // ZERO-DISRUPÇÃO: tudo atrás de STOCK_UI_ENABLED. Enquanto OFF, o /op renderiza
+  // exatamente como hoje: o context devolve {enabled:false} e o client não mostra
+  // NADA. Allowlist (STOCK_UI_ALLOWLIST='1,7') + sandbox podem testar antes do
+  // launch. Escrita SEMPRE via StockService (porta única); sandbox → is_test.
+  const { StockService: _StockService } = require('../v3/services/StockService');
+  const stockKiosk = new _StockService({
+    db,
+    onDiscrepancy: async (d) => {
+      try {
+        await db.query(
+          `INSERT INTO v3.data_incidents (kind, severity, title, explanation, product_id, amount, where_json)
+           VALUES ($1, 'warning', $2, $3, $4, $5, $6::jsonb)`,
+          ['stock_' + (d.kind || 'desync'), 'Estoque: ' + (d.kind || 'divergência'),
+            d.note || 'divergência de estoque', d.product_id || null,
+            d.wanted != null ? d.wanted : null,
+            JSON.stringify({ bin_id: d.bin_id || null, box_id: d.box_id || null, applied: d.applied != null ? d.applied : null })]);
+      } catch (e) { console.error('[op.stock] incidente falhou:', e.message); }
+    },
+  });
+  function stockUiAllowed(s) {
+    if (process.env.STOCK_UI_ENABLED === 'true') return true;
+    if (s.is_sandbox) return true;      // sandbox sempre pode (é como testamos)
+    const allow = String(process.env.STOCK_UI_ALLOWLIST || '').split(',').map((x) => parseInt(x, 10));
+    return allow.includes(s.person_id);
+  }
+
+  router.get('/api/v3/op/stock/context', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    if (!stockUiAllowed(s)) return res.json({ enabled: false });
+    const [products, bins, boxes] = await Promise.all([
+      db.query(`SELECT id, canonical_name AS name FROM v3.products WHERE active ORDER BY canonical_name`),
+      db.query(`SELECT b.id, b.bin_code, b.shelf_code, b.area, b.qty, b.min_qty, b.product_id,
+                       p.canonical_name AS product,
+                       (b.qty <= b.min_qty AND b.min_qty > 0) AS needs_restock
+                  FROM v3.stock_bins b LEFT JOIN v3.products p ON p.id = b.product_id
+                 WHERE b.active ORDER BY b.bin_code`),
+      db.query(`SELECT x.id, x.box_number, x.area, x.qty, x.product_id, p.canonical_name AS product
+                  FROM v3.stock_boxes x LEFT JOIN v3.products p ON p.id = x.product_id
+                 WHERE x.status = 'in_storage' ORDER BY x.box_number`),
+    ]);
+    res.json({ enabled: true, products: products.rows, bins: bins.rows, boxes: boxes.rows });
+  }));
+
+  // entrada: guarda garrafas num bin OU caixa (caixa nova é criada na hora)
+  router.post('/api/v3/op/stock/store', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    if (!stockUiAllowed(s)) return res.status(403).json({ error: 'stock_ui_disabled' });
+    const b = req.body || {};
+    const qty = parseInt(b.qty, 10);
+    if (!b.product_id) return res.status(400).json({ error: 'product_required', detail: 'Escolha o produto.' });
+    if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'qty_required', detail: 'Quantidade maior que 0.' });
+    let binId = null, boxId = null;
+    if (b.bin_code) {
+      const r = await db.query('SELECT id FROM v3.stock_bins WHERE bin_code = $1 AND active', [String(b.bin_code).trim().toUpperCase()]);
+      if (!r.rows[0]) return res.status(400).json({ error: 'bin_unknown', detail: 'Bin não existe: ' + b.bin_code });
+      binId = r.rows[0].id;
+    } else if (b.box_number) {
+      const num = String(b.box_number).trim().toUpperCase();
+      const r = await db.query(
+        `INSERT INTO v3.stock_boxes (box_number, product_id, area, created_by_person_id)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (box_number) DO UPDATE SET
+           status = 'in_storage', area = COALESCE($3, v3.stock_boxes.area), updated_at = NOW()
+         RETURNING id`,
+        [num, b.product_id, b.area || null, s.person_id]);
+      boxId = r.rows[0].id;
+    } else {
+      return res.status(400).json({ error: 'destination_required', detail: 'Informe o bin ou a caixa.' });
+    }
+    const out = await stockKiosk.storeIn({
+      product_id: b.product_id, qty, bin_id: binId, box_id: boxId,
+      person_id: s.person_id, source: 'op_kiosk', authorized_by: b.authorized_by || null,
+      note: b.note || null, is_test: !!s.is_sandbox, actor_type: 'operator',
+    });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'stock_store', payload: { product_id: b.product_id, qty, bin_id: binId, box_id: boxId }, isTest: !!s.is_sandbox });
+    res.json({ ok: true, movement_id: out.movement && out.movement.id, applied: out.applied });
+  }));
+
+  // restock: caixa → bin ("shelves x,y,z precisam de restock; caixas x,y,z")
+  router.post('/api/v3/op/stock/restock', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    if (!stockUiAllowed(s)) return res.status(403).json({ error: 'stock_ui_disabled' });
+    const b = req.body || {};
+    const qty = parseInt(b.qty, 10);
+    if (!b.bin_id || !b.box_id) return res.status(400).json({ error: 'bin_box_required', detail: 'Escolha o bin e a caixa.' });
+    if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'qty_required', detail: 'Quantidade maior que 0.' });
+    const out = await stockKiosk.restock({
+      bin_id: b.bin_id, box_id: b.box_id, qty,
+      found_bin_qty: Number.isFinite(parseInt(b.found_bin_qty, 10)) ? parseInt(b.found_bin_qty, 10) : undefined,
+      found_box_qty: Number.isFinite(parseInt(b.found_box_qty, 10)) ? parseInt(b.found_box_qty, 10) : undefined,
+      person_id: s.person_id, source: 'op_kiosk', note: b.note || null,
+      is_test: !!s.is_sandbox, actor_type: 'operator',
+    });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'stock_restock', payload: { bin_id: b.bin_id, box_id: b.box_id, qty, applied: out.applied }, isTest: !!s.is_sandbox });
+    res.json({ ok: true, applied: out.applied, box_left: out.box_left, bin_now: out.bin_now });
+  }));
+
+  // garrafa com problema (2 toques): label torta / lacre ruim → separada + deduz bin
+  router.post('/api/v3/op/stock/damaged', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    if (!stockUiAllowed(s)) return res.status(403).json({ error: 'stock_ui_disabled' });
+    const b = req.body || {};
+    const qty = parseInt(b.qty, 10) || 1;
+    if (!b.product_id) return res.status(400).json({ error: 'product_required', detail: 'Escolha o produto.' });
+    const out = await stockKiosk.damaged({
+      product_id: b.product_id, qty, reason: b.reason || 'other', bin_id: b.bin_id || null,
+      person_id: s.person_id, note: b.note || null, is_test: !!s.is_sandbox, actor_type: 'operator',
+    });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'stock_damaged', payload: { product_id: b.product_id, qty, reason: b.reason }, isTest: !!s.is_sandbox });
+    res.json({ ok: true, issue_id: out.issue && out.issue.id, applied: out.applied });
+  }));
+
+  // contagem física de um bin/caixa (o operador diz o que ENCONTROU)
+  router.post('/api/v3/op/stock/count', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    if (!stockUiAllowed(s)) return res.status(403).json({ error: 'stock_ui_disabled' });
+    const b = req.body || {};
+    const found = parseInt(b.found, 10);
+    if (!Number.isFinite(found) || found < 0) return res.status(400).json({ error: 'found_required', detail: 'Informe a quantidade encontrada (0 ou mais).' });
+    if (!b.bin_id && !b.box_id) return res.status(400).json({ error: 'bin_box_required', detail: 'Escolha o bin ou a caixa.' });
+    const out = await stockKiosk.count({
+      bin_id: b.bin_id || null, box_id: b.box_id || null, found,
+      person_id: s.person_id, source: 'op_kiosk', note: b.note || null,
+      is_test: !!s.is_sandbox, actor_type: 'operator',
+    });
+    await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'stock_count', payload: { bin_id: b.bin_id, box_id: b.box_id, found, delta: out.applied }, isTest: !!s.is_sandbox });
+    res.json({ ok: true, delta: out.applied });
   }));
 
   // ── trocar o TIPO de uma task AO VIVO (operador escolheu errado) — regra Bruno ──
@@ -2276,7 +3252,7 @@ function createOpRouter(deps = {}) {
               const r = await handoffMachineWork(s.person_id, false, ap, 'saída urgente (bateu ponto)', true);
               const recvRow = (await db.query('SELECT display_name, slack_user_id FROM v3.persons WHERE id = $1', [ap])).rows[0];
               const who = recvRow ? (recvRow.slack_user_id ? `<@${recvRow.slack_user_id}>` : `*${recvRow.display_name}*`) : 'a pessoa apontada';
-              const txt = `:rotating_light::rotating_light: *URGENTE — ${s.display_name} PRECISOU SAIR e era a ÚNICA pessoa cuidando da FORMULAÇÃO.* Apontou ${who} pra tomar conta da(s) máquina(s) (${slugsTxt}) enquanto está fora — *a máquina SEGUE RODANDO.* Assim que um operador de formulação voltar, a responsabilidade passa pra ele.` + (reason ? `\n*Motivo informado:* ${reason}` : '');
+              const txt = `:rotating_light: ${s.display_name} precisou sair e era o único na formulação. Apontou ${who} pra ${slugsTxt} enquanto isso.` + (reason ? ` Motivo: ${reason}` : '');
               await machineSlack(txt); await adminSlack(txt);
               await audit('machine.emergency_leave', 'person', s.person_id, { to: ap, reason, slugs: machines.map((m) => m.act_name || m.slug), inexperienced: !!(r && r.inexperienced) }, s.person_id);
             }
@@ -2403,7 +3379,10 @@ function createOpRouter(deps = {}) {
       return res.json({ ok: true, kept: true });
     }
 
-    // still_working=false → cascade: fecha tasks no last_activity + logout + agenda DM + avisa admin
+    // still_working=false → cascade. A resposta humana é AUTORITATIVA (Bruno 07-21:
+    // "se a pessoa falou que não tá trabalhando, fecha"). A proteção contra engano é
+    // NÃO SPAMMAR a pergunta (detector: 1h de silêncio após um "sim" + não pergunta
+    // sobre quem tem tarefa recém-aberta) — não bloquear a resposta.
     // GUARD: o fim NUNCA pode ser antes do início (gerava evento invertido —
     // ex.: cleaning 16:31→08:33 da Ana, que desenhava um gap fantasma no
     // dashboard) nem no futuro. ended_at = clamp entre started_at e NOW().

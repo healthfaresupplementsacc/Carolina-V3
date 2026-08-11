@@ -41,6 +41,9 @@ const GROUPS = [
   { key: 'embalagem', icon: '📦', label: 'Envio De Pacotes', items: [
     ['order_printing', 'Impressão de ordens'],
     ['order_printing_2', '2ª impressão'],
+    // Bruno 08-06: acesso fácil ao workspace de estoque também daqui (mesmo slug
+    // existe em 'limpeza' — padrão já usado pelo clinic_shipment em 2 grupos)
+    ['stock_organization', 'Organização de Stock (Inventário)'],
     ['packaging', 'Empacotando Suplementos'],
     ['marketplace_prep', 'Trocar label'],
     ['clinic_shipment', 'Envio Clínica'],
@@ -63,7 +66,8 @@ const QUICK = [['lunch', 'Almoço', '🍽️']];
 // Slugs cuja nota é OBRIGATÓRIA (validado também no servidor — op.js).
 // Os 5 "*_other" entram aqui: tarefa livre só faz sentido com explicação.
 const NOTE_REQUIRED = new Set([
-  'break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
+  // Bruno 08-06: impressão de ordens (1ª E 2ª) NAO exige motivo — só a QUANTIDADE.
+  'break', 'special_task', 'meeting', 'training',
   'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other',
   'label_change', 'label_repair',
   'machine_downtime', // mudança #5: motivo da parada é obrigatório

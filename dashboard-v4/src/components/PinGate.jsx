@@ -3,18 +3,24 @@
    sessionStorage key: 'v3pin' (compartilhado com /dashboard atual).
 */
 import React from 'react';
-import { setPin } from '../adapters/from-api.js';
+import { login } from '../adapters/from-api.js';
 
 function PinGate({ onOk }) {
   const [v, setV] = React.useState('');
-  const [err, setErr] = React.useState(false);
+  const [err, setErr] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     const pin = v.trim();
-    if (!pin) { setErr(true); return; }
-    setPin(pin);
-    onOk();
+    if (!pin) { setErr('Digite o PIN.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const info = await login(pin);   // valida no servidor + guarda identidade/funções
+      onOk(info);
+    } catch (ex) {
+      setErr(ex.unauthorized ? 'PIN inválido.' : (ex.message || 'Erro ao entrar.'));
+    } finally { setBusy(false); }
   };
 
   return (
@@ -43,7 +49,7 @@ function PinGate({ onOk }) {
             value={v}
             placeholder="PIN"
             autoFocus
-            onChange={(e) => { setV(e.target.value); setErr(false); }}
+            onChange={(e) => { setV(e.target.value); setErr(''); }}
             style={{
               width: '100%', padding: '12px 12px', fontSize: 16,
               border: '1px solid var(--border, #d8dce5)', borderRadius: 8,
@@ -51,18 +57,19 @@ function PinGate({ onOk }) {
               boxSizing: 'border-box',
             }}
           />
-          <button type="submit" style={{
+          <button type="submit" disabled={busy} style={{
             marginTop: 12, width: '100%', padding: '10px 14px',
             fontSize: 14, fontWeight: 700, color: '#fff',
             background: 'var(--hf-navy-600, #2855ad)',
-            border: 'none', borderRadius: 8, cursor: 'pointer',
+            border: 'none', borderRadius: 8, cursor: busy ? 'wait' : 'pointer',
+            opacity: busy ? 0.7 : 1,
           }}>
-            Entrar
+            {busy ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
         {err && (
           <p style={{ color: 'var(--bad, #d9534f)', fontSize: 12, marginTop: 10 }}>
-            Digite o PIN.
+            {err}
           </p>
         )}
       </div>

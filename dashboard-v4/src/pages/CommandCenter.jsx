@@ -13,11 +13,264 @@ import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
-import { apiGet } from '../adapters/from-api.js';
+import { apiGet, apiPost, usePoll } from '../adapters/from-api.js';
 import nyTime from '../utils/ny-time.cjs';
 import dayStats from '../utils/day-stats.cjs';
 
 const NOTIFS_VISIBLE_KEY = 'hf-notifs-visible';
+
+/* ── PONTO (relógio NGTeco) — Bruno 07-22. ADMIN ONLY: os horários do relógio são
+   internos (nunca aparecem na página do funcionário/canal dos operadores; aqui é o
+   dashboard PIN-admin). Quadrados: entrou / EM PAUSA (Xmin) / saiu. Poll 30s. ── */
+function AttendanceStrip({ data, refresh }) {
+  const people = (data && data.people) || [];
+  const [busy, setBusy] = React.useState(null);
+  // Deslogar um operador (Bruno 08-01): login por engano na conta de outra pessoa.
+  const logoff = async (p) => {
+    if (busy) return;
+    if (!window.confirm(
+      `Deslogar ${p.name} da estação?\n\n` +
+      `Fecha a sessão do kiosk e encerra tarefas ativas (a máquina em background não é afetada). ` +
+      `Vou checar se ela bateu a saída no relógio e avisar no admin-orin.`)) return;
+    setBusy(p.person_id);
+    try {
+      const r = await apiPost(`/operator/${p.person_id}/logoff`, { reason: 'admin_dashboard' });
+      const d = (r && r.data) || r || {};
+      window.alert(`${p.name} deslogado(a).` +
+        (d.sessions_closed ? ` Sessões fechadas: ${d.sessions_closed.length}.` : '') +
+        (d.tasks_closed && d.tasks_closed.length ? ` Tarefas encerradas: ${d.tasks_closed.length}.` : '') +
+        (d.clocked_out === false ? ' ⚠️ Ainda não bateu a saída no relógio.' : ''));
+      if (refresh) refresh();
+    } catch (e) { window.alert('Falhou deslogar: ' + (e && e.message || e)); }
+    finally { setBusy(null); }
+  };
+  // SAÍDA MANUAL (Bruno 08-03): a pessoa esqueceu de bater a saída → o admin registra.
+  const doCheckout = async (p) => {
+    if (busy) return;
+    const t = window.prompt(
+      `Registrar SAÍDA de ${p.name} (esqueceu de bater no relógio).\n\n` +
+      `Hora da saída (HH:MM), ou deixe vazio pra usar AGORA:`, '');
+    if (t === null) return; // cancelou
+    let atIso = null;
+    if (t && t.trim()) {
+      const m = t.trim().match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) { window.alert('Hora inválida. Use HH:MM (ex: 17:30).'); return; }
+      const d = new Date(); d.setHours(+m[1], +m[2], 0, 0); atIso = d.toISOString();
+    }
+    setBusy(p.person_id);
+    try {
+      const r = await apiPost(`/operator/${p.person_id}/checkout`, atIso ? { at: atIso } : {});
+      const dd = (r && r.data) || r || {};
+      window.alert(`Saída de ${p.name} registrada.` + (dd.tasks_closed && dd.tasks_closed.length ? ` ${dd.tasks_closed.length} tarefa(s) encerrada(s).` : ''));
+      if (refresh) refresh();
+    } catch (e) { window.alert('Falhou registrar saída: ' + (e && e.message || e)); }
+    finally { setBusy(null); }
+  };
+  if (!people.length) return null;
+  const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) : null;
+  const card = (p) => {
+    let dot = 'var(--text-3)', txt = 'sem ponto hoje', sub = null;
+    if (p.state === 'in') {
+      dot = 'var(--hf-leaf-500, #22b35d)';
+      txt = `entrou ${fmtT(p.checkin_at) || '—'}`;
+      if (p.no_clockin) { dot = 'var(--warn, #d97706)'; txt = 'trabalhando SEM ponto'; sub = `início (tarefa) ${fmtT(p.checkin_at) || '—'}`; }
+      else if (p.last_in_at && p.checkin_at && p.last_in_at !== p.checkin_at) sub = `voltou ${fmtT(p.last_in_at)}`;
+    } else if (p.state === 'break') {
+      dot = 'var(--warn, #d97706)';
+      txt = 'EM PAUSA';
+      sub = p.break_sec != null ? `${Math.round(p.break_sec / 60)}min` : null;
+    } else if (p.checkout_at) {
+      dot = 'var(--text-3)';
+      txt = `saiu ${fmtT(p.checkout_at)}`;
+      sub = p.checkin_at ? `entrou ${fmtT(p.checkin_at)}` : null;
+    }
+    return (
+      <div key={p.person_id} className="card" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 150 }}
+           title={`relógio #${p.clock_code} · ${p.punches.length} batida(s)`}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flex: '0 0 8px' }}/>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{txt}{sub ? <span style={{ marginLeft: 5, opacity: 0.8 }}>· {sub}</span> : null}</div>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
+          {p.logged_in ? (
+            <button
+              onClick={() => logoff(p)}
+              disabled={busy === p.person_id}
+              title={`Deslogar ${p.name} do kiosk (fecha a sessão)`}
+              style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 7px', borderRadius: 6,
+                border: '1px solid var(--warn, #d97706)', background: 'transparent', color: 'var(--warn, #d97706)',
+                cursor: busy === p.person_id ? 'wait' : 'pointer', opacity: busy === p.person_id ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+              {busy === p.person_id ? '…' : '⨯ deslogar'}
+            </button>
+          ) : null}
+          {p.state !== 'out' && !p.checkout_at ? (
+            <button
+              onClick={() => doCheckout(p)}
+              disabled={busy === p.person_id}
+              title={`Registrar saída de ${p.name} (esqueceu de bater o ponto)`}
+              style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 7px', borderRadius: 6,
+                border: '1px solid var(--text-3)', background: 'transparent', color: 'var(--text-3)',
+                cursor: busy === p.person_id ? 'wait' : 'pointer', opacity: busy === p.person_id ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+              🏁 saída
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+      <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <Icon name="clock" size={12}/> Ponto
+      </span>
+      {people.map(card)}
+    </div>
+  );
+}
+
+/* ── CAIXA URGENTE de incidentes de dados (Bruno 07-23): duplicatas etc, com o
+   relatório detalhado (o quê/onde/canal/foi-falta-de-atenção). ── */
+function IncidentsBox() {
+  const { data, refresh } = usePoll('/incidents', [], 30000);
+  const incidents = (data && data.incidents) || [];
+  const [expanded, setExpanded] = React.useState(null);
+  if (!incidents.length) return null;
+  const resolve = async (id, dismiss) => {
+    try { await apiGet('/incidents/' + id + '/resolve' + (dismiss ? '?dismiss=1' : ''), { method: 'POST' }); } catch (_) {}
+    try {
+      await fetch('/api/v3/data/incidents/' + id + '/resolve', { method: 'POST',
+        headers: { 'x-admin-pin': sessionStorage.getItem('v3pin') || '', 'content-type': 'application/json' },
+        body: JSON.stringify({ dismiss: !!dismiss }) });
+    } catch (_) {}
+    if (refresh) refresh();
+  };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {incidents.map((inc) => {
+        const w = inc.where_json || {};
+        const isOpen = expanded === inc.id;
+        return (
+          <div key={inc.id} className="card" style={{ padding: 0, marginBottom: 8, overflow: 'hidden',
+                 border: '1.5px solid var(--bad, #dc2626)', background: 'color-mix(in srgb, var(--bad,#dc2626) 6%, var(--surface))' }}>
+            <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>🚨</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--bad, #dc2626)' }}>{inc.title}
+                  {inc.auto_fixed && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--hf-leaf-700)', background: 'color-mix(in srgb, var(--hf-leaf-500) 14%, transparent)', padding: '1px 6px', borderRadius: 5 }}>já corrigido</span>}
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 3 }}>{inc.explanation}</div>
+                {inc.diagnosis && (
+                  <div style={{ fontSize: 12.5, marginTop: 5, padding: '5px 8px', borderRadius: 6, background: 'var(--surface-2)', fontWeight: 600 }}>
+                    🔎 {inc.diagnosis}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 12, marginTop: 6, alignItems: 'center' }}>
+                  <button className="btn sm" onClick={() => setExpanded(isOpen ? null : inc.id)}>{isOpen ? 'Ocultar detalhes' : 'Ver onde aconteceu'}</button>
+                  <button className="btn sm" onClick={() => resolve(inc.id, false)}>Entendi, resolver</button>
+                </div>
+                {isOpen && (
+                  <div style={{ marginTop: 8, fontSize: 12, display: 'grid', gap: 6 }}>
+                    <div style={{ padding: '6px 9px', borderRadius: 6, background: 'var(--surface-2)' }}>
+                      <b style={{ color: 'var(--hf-leaf-700)' }}>✓ 1ª (mantida)</b> — canal: <b>{w.original?.channel || '?'}</b> · pessoa: <b>{w.original?.person || '?'}</b>
+                      {w.original?.event_id ? <> · evento <span className="mono">ev{w.original.event_id}</span></> : null}
+                      {w.original?.slack_ts ? <> · <span className="mono">Slack</span></> : null}
+                    </div>
+                    <div style={{ padding: '6px 9px', borderRadius: 6, background: 'color-mix(in srgb, var(--bad,#dc2626) 8%, var(--surface-2))' }}>
+                      <b style={{ color: 'var(--bad)' }}>✗ 2ª (duplicata removida)</b> — canal: <b>{w.duplicate?.channel || '?'}</b> · pessoa: <b>{w.duplicate?.person || '?'}</b>
+                      {w.duplicate?.event_id ? <> · evento <span className="mono">ev{w.duplicate.event_id}</span></> : null}
+                      {w.duplicate?.slack_ts ? <> · <span className="mono">Slack</span></> : null}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                      {w.minutes_apart != null ? `As duas entradas foram feitas com ${w.minutes_apart}min de diferença. ` : ''}
+                      {w.same_person_same_channel ? 'Mesma pessoa, mesmo canal → foi falta de atenção.' : 'Canais diferentes → registraram no app e no Slack.'}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// TOTAIS DE PRODUÇÃO PENDENTES (Bruno 07-27): linhas fechadas sem total. Enquanto
+// o sistema conversa com o operador ficam 'open' (amarelo); se escalou pro admin,
+// 'escalated' (vermelho). O admin pode digitar o total aqui → grava + fecha.
+function PendingTotalsBox() {
+  const { data, refresh } = usePoll('/pending-totals', [], 30000);
+  const pending = (data && data.pending) || [];
+  const [vals, setVals] = React.useState({});
+  if (!pending.length) return null;
+  const submit = async (id) => {
+    const n = parseInt(vals[id], 10);
+    if (!Number.isInteger(n) || n < 0) return;
+    try {
+      await fetch('/api/v3/data/pending-totals/' + id + '/resolve', { method: 'POST',
+        headers: { 'x-admin-pin': sessionStorage.getItem('v3pin') || '', 'content-type': 'application/json' },
+        body: JSON.stringify({ bottles: n }) });
+    } catch (_) {}
+    setVals((v) => ({ ...v, [id]: '' }));
+    if (refresh) refresh();
+  };
+  // DISPENSAR "foi engano" (Bruno 08-03): abertura errada da tarefa, sem produção real.
+  const dismiss = async (id) => {
+    if (!window.confirm('Dispensar essa cobrança? Use quando a tarefa foi aberta por engano (sem produção real).')) return;
+    try {
+      await fetch('/api/v3/data/pending-totals/' + id + '/resolve', { method: 'POST',
+        headers: { 'x-admin-pin': sessionStorage.getItem('v3pin') || '', 'content-type': 'application/json' },
+        body: JSON.stringify({ dismiss: true }) });
+    } catch (_) {}
+    if (refresh) refresh();
+  };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {pending.map((f) => {
+        const escalated = f.status === 'escalated';
+        const color = escalated ? 'var(--bad, #dc2626)' : 'var(--warn, #d97706)';
+        return (
+          <div key={f.id} className="card" style={{ padding: '10px 14px', marginBottom: 8,
+                 border: '1.5px solid ' + color, background: 'color-mix(in srgb, ' + color + ' 6%, var(--surface))' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>{escalated ? '🚨' : '⏳'}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 13.5, color }}>
+                  Total de produção pendente{escalated ? ' — precisa investigar' : ''}
+                </div>
+                <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 3 }}>
+                  <b>{f.person_name || '?'}</b> fechou a linha{f.product_name ? <> de <b>{f.product_name}</b></> : null}
+                  {f.batch_number ? <> (lote <b>{f.batch_number}</b>)</> : null} sem informar a quantidade final.
+                </div>
+                {f.close_reason && (
+                  <div style={{ fontSize: 12, marginTop: 4, padding: '4px 8px', borderRadius: 6, background: 'var(--surface-2)' }}>
+                    Motivo dado: <i>"{f.close_reason}"</i>
+                  </div>
+                )}
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
+                  {escalated
+                    ? 'O sistema não conseguiu o número com o operador — alguém precisa ir atrás e registrar.'
+                    : 'O sistema está conversando com o operador no Slack pra obter o total.'}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                  <input type="number" min="0" placeholder="total de unidades"
+                    value={vals[f.id] || ''} onChange={(e) => setVals((v) => ({ ...v, [f.id]: e.target.value }))}
+                    style={{ width: 130, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
+                  <button className="btn sm" onClick={() => submit(f.id)}>Registrar total</button>
+                  <button className="btn sm ghost" onClick={() => dismiss(f.id)}
+                    title="Tarefa aberta por engano, sem produção real — remove a cobrança"
+                    style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}>foi engano</button>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>linha <span className="mono">ev{f.event_id}</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só editáveis via expand
 const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
@@ -40,6 +293,23 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const HFD = hfdata || window.HFData;
   const { operators = [], goals = [], alerts = [], pp = {}, fnsku = null, _gaps = {} } = HFD;
   const { fmtClock, fmtDur } = window.HFH;
+
+  // PONTO (relógio) — busca uma vez, alimenta a faixa E os ícones da timeline (Bruno 07-23)
+  const attPoll = usePoll('/attendance', [], 30000);
+  // Veeqo do dia (Bruno 08-06): mostrar no card P&P o digitado vs Veeqo + diferença
+  const vqToday = usePoll('/veeqo-today', [], 180000);
+  const attData = attPoll.data;
+  // markers + estado por person_id pra a Timeline (ícones + "saiu" em vez de idle)
+  const attMarkersByPerson = React.useMemo(() => {
+    const m = {};
+    for (const p of (attData && attData.people) || []) m[p.person_id] = p.markers || [];
+    return m;
+  }, [attData]);
+  const attStateByPerson = React.useMemo(() => {
+    const m = {};
+    for (const p of (attData && attData.people) || []) m[p.person_id] = { state: p.state, checkout_at: p.checkout_at, last_in_at: p.last_in_at, checkin_at: p.checkin_at, no_clockin: p.no_clockin };
+    return m;
+  }, [attData]);
 
   // ── State local ──────────────────────────────────────────
   const [filterOps, setFilterOps] = React.useState(new Set());
@@ -393,6 +663,13 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         </>
       )}
 
+      {/* ── INCIDENTES DE DADOS (urgente) ──────────────────── */}
+      <IncidentsBox/>
+      <PendingTotalsBox/>
+
+      {/* ── PONTO (relógio) — admin only ───────────────────── */}
+      <AttendanceStrip data={attData} refresh={attPoll.refresh}/>
+
       {/* ── KPI strip ──────────────────────────────────────── */}
       {wOn('kpis') && (<section style={{ order: wOrder('kpis') }}>
       <div className="kpi-grid">
@@ -535,10 +812,25 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                      </span>
                    ) : <b className="mono">{pp.orders || 0}</b>}
                  </div>
+                 {/* Veeqo do dia + diferença vs digitado (Bruno 08-06) */}
+                 {vqToday.data && vqToday.data.total_orders != null && (() => {
+                   const v = vqToday.data.total_orders; const d = (pp.orders || 0) - v;
+                   return (
+                     <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>Veeqo</div>
+                       <b className="mono">{v}</b>
+                       <span className="mono" title="digitado − Veeqo (positivo = TikTok/clínica ou sobra; negativo = faltou digitar)"
+                         style={{ marginLeft: 5, fontSize: 11, fontWeight: 800,
+                           color: d === 0 ? 'var(--hf-leaf-600)' : (d > 0 ? '#b45309' : '#c0352b') }}>
+                         {d === 0 ? '✓' : (d > 0 ? '+' + d : d)}
+                       </span>
+                     </div>
+                   );
+                 })()}
                  <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
                  {correioNotif && (
                    <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>corte</div>
-                        <b className="mono" style={{ color: 'var(--hf-leaf-600)' }}>{fmtClock(correioNotif._minutes)}</b></div>
+                        <b className="mono" style={{ color: (correioNotif._minutes != null && window.HFH.liveNowMin() > correioNotif._minutes) ? '#c0352b' : 'var(--hf-leaf-600)' }}>
+                          {fmtClock(correioNotif._minutes)}{(correioNotif._minutes != null && window.HFH.liveNowMin() > correioNotif._minutes) ? ' vencido' : ''}</b></div>
                  )}
                </div>
                {/* TEMPO POR PESSOA (Bruno 06-22): cada pessoa no P&P + soma + média/pacote */}
@@ -590,6 +882,60 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  )}
                </EditPopover>
              </>}/>
+
+        {/* PEDIDOS HOJE (Veeqo · Fase ① Bruno 07-08) — read-only: pedidos com
+            etiqueta impressa (shipped) hoje + unidades por suplemento e canal.
+            Só aparece quando a Veeqo está configurada e há dado. */}
+        {(() => {
+          const vq = (raw && raw.veeqo) || null;
+          if (!vq || vq.configured === false) return null;
+          const shortName = (s) => String(s || '?').split('|')[0].replace(/^HealthFare\s*/i, '').replace(/^Healthfare\s*/i, '').trim() || '?';
+          const chans = vq.by_channel || [];
+          const prods = (vq.by_product || []).slice(0, 8);
+          return (
+            <KPI label="Pedidos hoje" en="Orders shipped · Veeqo"
+                 value={(Number(vq.total_orders) || 0).toLocaleString()} suffix="pedidos"
+                 headRight={<span title="Veeqo — pedidos com etiqueta impressa hoje (multi-canal)"
+                                  style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-pnp)',
+                                           border: '1px solid var(--flow-pnp)', borderRadius: 4, padding: '1px 5px' }}>VEEQO</span>}
+                 foot={<>
+                   <div style={{ fontSize: 12, color: 'var(--flow-pnp)', fontWeight: 700, marginBottom: 4 }}>
+                     {(Number(vq.total_units) || 0).toLocaleString()} <span style={{ fontWeight: 500, color: 'var(--text-3)' }}>unidades a produzir/enviar</span>
+                   </div>
+                   {vq.error ? (
+                     <div style={{ fontSize: 11, color: '#c0352b' }}>Veeqo indisponível ({vq.error}) — mostrando 0</div>
+                   ) : (<>
+                     {chans.length > 0 && (
+                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                         {chans.map((c) => (
+                           <span key={c.channel} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
+                             {c.channel}: <b>{c.orders}</b>
+                           </span>
+                         ))}
+                       </div>
+                     )}
+                     {prods.length > 0 && (
+                       <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 5 }}>
+                         <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-pnp)', textTransform: 'uppercase', marginBottom: 3 }}>
+                           Unidades por suplemento
+                         </div>
+                         {prods.map((p) => (
+                           <div key={(p.sku || '') + p.product} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, lineHeight: 1.6 }}>
+                             <span style={{ color: 'var(--text-2, #4b5563)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.product}>{shortName(p.product)}</span>
+                             <b className="mono" style={{ color: 'var(--flow-pnp)' }}>{p.units}</b>
+                           </div>
+                         ))}
+                         {(vq.by_product || []).length > prods.length && (
+                           <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 3 }}>
+                             +{(vq.by_product || []).length - prods.length} outros suplementos
+                           </div>
+                         )}
+                       </div>
+                     )}
+                   </>)}
+                 </>}/>
+          );
+        })()}
 
         {/* FNSKU — labels colados, tempo, labels/min + por pessoa (Bruno 06-23) */}
         {fnsku && (Number(fnsku.total_labels) > 0 || (fnsku.person_seconds || []).length > 0) && (
@@ -825,6 +1171,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           <Timeline
             operators={operators}
             events={state.events}
+            attMarkers={attMarkersByPerson}
+            attState={attStateByPerson}
             now={now}
             hourPx={hourPx}
             setHourPx={setHourPx}

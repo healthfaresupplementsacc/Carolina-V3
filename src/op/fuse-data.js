@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-06-23T17:54:37.616Z",
+ "generated_at": "2026-08-07T00:37:16.580Z",
  "groups": [
   {
    "key": "linha",
@@ -220,7 +220,7 @@ window.HF_DATA = {
      "slug": "order_printing",
      "label": "Impressão de ordens",
      "requires_product": false,
-     "note_required": true,
+     "note_required": false,
      "orders_required": true,
      "requires_order_count": true,
      "counts_as_pp": true
@@ -229,10 +229,19 @@ window.HF_DATA = {
      "slug": "order_printing_2",
      "label": "2ª impressão",
      "requires_product": false,
-     "note_required": true,
+     "note_required": false,
      "orders_required": true,
      "requires_order_count": true,
      "counts_as_pp": true
+    },
+    {
+     "slug": "stock_organization",
+     "label": "Organização de Stock (Inventário)",
+     "requires_product": false,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false
     },
     {
      "slug": "packaging",
@@ -408,7 +417,7 @@ window.HF_DATA = {
     "carnitine",
     "acetil l-carnitina"
    ],
-   "last_used_at": "2026-05-26T19:00:44.042Z"
+   "last_used_at": "2026-07-21T19:51:09.265Z"
   },
   {
    "id": 16,
@@ -420,7 +429,27 @@ window.HF_DATA = {
     "activated charcoal",
     "carbon ativado"
    ],
-   "last_used_at": "2026-06-23T17:14:22.580Z"
+   "last_used_at": null
+  },
+  {
+   "id": 71,
+   "canonical_name": "Activated Charcoal 1200mg",
+   "aliases": [
+    "HF-CHAR-1200",
+    "HEAFA-2010-150-FBA",
+    "HF-CHAR-1200-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 72,
+   "canonical_name": "Activated Charcoal 1200mg C2",
+   "aliases": [
+    "HF-CHAR-1200-C2",
+    "HEAFA-2010-150-FBA-C2",
+    "HF-CHAR-1200-C2-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 17,
@@ -433,7 +462,7 @@ window.HF_DATA = {
     "garlic",
     "alho"
    ],
-   "last_used_at": "2026-06-22T18:27:17.121Z"
+   "last_used_at": "2026-07-29T14:01:33.328Z"
   },
   {
    "id": 18,
@@ -443,7 +472,25 @@ window.HF_DATA = {
     "akkermansia muciniphila",
     "akkemansia"
    ],
-   "last_used_at": "2026-06-17T16:25:40.933Z"
+   "last_used_at": "2026-07-08T22:07:35.335Z"
+  },
+  {
+   "id": 162,
+   "canonical_name": "Akkermansia + Inulin",
+   "aliases": [
+    "HFC-AKKERMANSIA-INULIN"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 73,
+   "canonical_name": "Akkermansia Municiphila Probiotic 300bi Afu",
+   "aliases": [
+    "HF-AKKE-300",
+    "HEAFA-2057-90-FBA",
+    "HF-AKKE-300-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 19,
@@ -453,6 +500,16 @@ window.HF_DATA = {
     "aloe vera",
     "babosa",
     "gel de aloe"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 74,
+   "canonical_name": "Aloe Vera 40,000mg",
+   "aliases": [
+    "HF-ALOE-40000",
+    "HEAFA-2050-90-FBA",
+    "HF-ALOE-40000-WFS"
    ],
    "last_used_at": null
   },
@@ -469,7 +526,27 @@ window.HF_DATA = {
     "vinagre",
     "cider vinegar"
    ],
-   "last_used_at": "2026-06-05T20:09:47.917Z"
+   "last_used_at": "2026-08-04T20:34:12.424Z"
+  },
+  {
+   "id": 75,
+   "canonical_name": "Apple Cider Vinegar 3200mg",
+   "aliases": [
+    "HF-APPL-3200",
+    "HEAFA-2043-150-FBA",
+    "HF-APPL-3200-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 76,
+   "canonical_name": "Ashwagandha 500mg",
+   "aliases": [
+    "HF-ASHW-500",
+    "HEAFA-2085-120-FBA ",
+    "HF-ASHW-500-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 21,
@@ -478,6 +555,16 @@ window.HF_DATA = {
     "banaba",
     "banaba leaf",
     "lagerstroemia"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 77,
+   "canonical_name": "Banaba Leaf 3000mg",
+   "aliases": [
+    "HF-BANA-3000",
+    "HEAFA-2053-90-FBA",
+    "HF-BANA-3000-WFS"
    ],
    "last_used_at": null
   },
@@ -494,6 +581,16 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 78,
+   "canonical_name": "Beet Root 2000mg",
+   "aliases": [
+    "HF-BEET-2000",
+    "HEAFA-2072-60-FBA",
+    "HF-BEET-2000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 2,
    "canonical_name": "Benfotiamine",
    "aliases": [
@@ -501,7 +598,37 @@ window.HF_DATA = {
     "benfo",
     "benfotiamine"
    ],
-   "last_used_at": "2026-06-16T17:21:26.119Z"
+   "last_used_at": "2026-08-06T20:47:24.273Z"
+  },
+  {
+   "id": 79,
+   "canonical_name": "Benfotiamine 300mg",
+   "aliases": [
+    "HF-BENF-300",
+    "HEAFA-2002-200-FBA",
+    "HF-BENF-300-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 80,
+   "canonical_name": "Benfotiamine 300mg - C2",
+   "aliases": [
+    "HF-BENF-300-C2",
+    "HEAFA-2002-200-FBA-C2",
+    "HF-BENF-300-C2-WFS"
+   ],
+   "last_used_at": "2026-08-06T21:53:21.838Z"
+  },
+  {
+   "id": 81,
+   "canonical_name": "Benfotiamine 600mg",
+   "aliases": [
+    "HF-BENF-600",
+    "HEAFA-2002-600-FBA",
+    "HF-BENF-600-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 23,
@@ -514,7 +641,47 @@ window.HF_DATA = {
     "berberin",
     "berberine cinnamon ceylon"
    ],
-   "last_used_at": "2026-06-18T21:15:15.287Z"
+   "last_used_at": "2026-07-29T21:08:01.988Z"
+  },
+  {
+   "id": 82,
+   "canonical_name": "Berberine 2500mg",
+   "aliases": [
+    "HF-BERB-1500",
+    " HEAFA-2039-60-FBA",
+    "HF-BERB-1500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 83,
+   "canonical_name": "Berberine 6000mg",
+   "aliases": [
+    "HF-BERB-6000",
+    " HEAFA-2038-150-FBA",
+    "HF-BERB-5000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 84,
+   "canonical_name": "Berberine Ceylon Cinnamon 6000mg",
+   "aliases": [
+    "HF-BERB-5000",
+    "HEAFA-2038-150-FBA",
+    "HF-BERB-5000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 85,
+   "canonical_name": "Berberine Hcl 5000mg",
+   "aliases": [
+    "HF-HCL-5000",
+    "HEAFA-2076-120-FBA",
+    "HF-HCL-5000-WFS"
+   ],
+   "last_used_at": "2026-07-09T19:13:56.114Z"
   },
   {
    "id": 3,
@@ -523,6 +690,16 @@ window.HF_DATA = {
     "bilberry",
     "bilbery",
     "bilberry extract"
+   ],
+   "last_used_at": "2026-07-24T19:40:58.019Z"
+  },
+  {
+   "id": 86,
+   "canonical_name": "Bilberry 5000mg",
+   "aliases": [
+    "HF-BILB-5000",
+    "HEAFA-2024-200-FBA",
+    "HF-BILB-5000-WFS"
    ],
    "last_used_at": null
   },
@@ -535,6 +712,52 @@ window.HF_DATA = {
     "karela",
     "bitter melon extract"
    ],
+   "last_used_at": "2026-07-15T17:31:14.950Z"
+  },
+  {
+   "id": 87,
+   "canonical_name": "Bitter Melon 9500mg",
+   "aliases": [
+    "HF-BITT-9500",
+    "HEAFA-2021-200-FBA",
+    "HF-BITT-9500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 88,
+   "canonical_name": "Black Garlic 2000mg",
+   "aliases": [
+    "HF-BLAC-2000",
+    "HEAFA-2011-90-FBA",
+    "HF-BLAC-2000-WFS"
+   ],
+   "last_used_at": "2026-07-29T17:24:35.595Z"
+  },
+  {
+   "id": 89,
+   "canonical_name": "Black Garlic 2000mg - C2",
+   "aliases": [
+    "HF-BLAC-2000-C2",
+    "HEAFA-2011-90-FBA-C2",
+    "HF-BLAC-2000-C2-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 163,
+   "canonical_name": "Bloom",
+   "aliases": [
+    "HFC-BLOOM-HAIR-GROWTH"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 164,
+   "canonical_name": "Burn XLR8 (Fat Burner) Supplement - 30 Capsules",
+   "aliases": [
+    "HF-BURN"
+   ],
    "last_used_at": null
   },
   {
@@ -546,7 +769,17 @@ window.HF_DATA = {
     "ruscus",
     "butcher broom"
    ],
-   "last_used_at": "2026-06-23T12:49:16.100Z"
+   "last_used_at": null
+  },
+  {
+   "id": 90,
+   "canonical_name": "Butcher's Broom 2400mg",
+   "aliases": [
+    "HF-BUTC-2400",
+    "HEAFA-2026-120-FBA",
+    "HF-BUTC-2400-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 26,
@@ -558,7 +791,35 @@ window.HF_DATA = {
     "capsaicina",
     "capsaicin"
    ],
-   "last_used_at": "2026-06-12T20:06:34.136Z"
+   "last_used_at": null
+  },
+  {
+   "id": 165,
+   "canonical_name": "Cayenne Pepper 45,000 HU - 600mg 200 Capsules",
+   "aliases": [
+    "HEAFA-2055-200"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 91,
+   "canonical_name": "Cayenne Pepper 600mg",
+   "aliases": [
+    "HF-CAYE-600",
+    "HEAFA-2055-200-FBA",
+    "HF-CAYE-600-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 92,
+   "canonical_name": "Chinese Skullcap 1000mg",
+   "aliases": [
+    "HF-SKUL-1000",
+    " HEAFA-2025-200-FBA",
+    "HF-SKUL-1000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 27,
@@ -569,7 +830,17 @@ window.HF_DATA = {
     "chlorophyl",
     "clorofill"
    ],
-   "last_used_at": "2026-06-23T16:56:47.259Z"
+   "last_used_at": "2026-07-27T16:00:45.799Z"
+  },
+  {
+   "id": 93,
+   "canonical_name": "Chlorophyll 600mg",
+   "aliases": [
+    "HF-CHLO-600",
+    "HEAFA-2061-150-FBA",
+    "HF-CHLO-600-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 28,
@@ -581,7 +852,26 @@ window.HF_DATA = {
     "chromium picolinate",
     "picolinato de cromo"
    ],
-   "last_used_at": "2026-06-17T18:34:56.976Z"
+   "last_used_at": "2026-07-28T18:47:10.432Z"
+  },
+  {
+   "id": 94,
+   "canonical_name": "Chromium Picolinate 1000mcg",
+   "aliases": [
+    "HF-CHRO-1000",
+    "HEAFA-2031-400-FBA",
+    "HF-CHRO-1000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 95,
+   "canonical_name": "Chromium Picolinate 1000mcg - C2",
+   "aliases": [
+    "HF-CHRO-1000-C2",
+    "HEAFA-2031-400-FBA-C2"
+   ],
+   "last_used_at": null
   },
   {
    "id": 29,
@@ -592,6 +882,16 @@ window.HF_DATA = {
     "bergamot",
     "bergamota",
     "bergamotto"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 96,
+   "canonical_name": "Citrus Bergamot 1200mg",
+   "aliases": [
+    "HF-BERG-1200",
+    "HEAFA-2082-150-FBA",
+    "HF-BERG-1200-WFS"
    ],
    "last_used_at": null
   },
@@ -608,6 +908,24 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 97,
+   "canonical_name": "D-Aspartic Acid 3000mg",
+   "aliases": [
+    "HF-DASP-3000",
+    "HEAFA-2022-200-FBA",
+    "HF-DASP-3000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 166,
+   "canonical_name": "Detox+",
+   "aliases": [
+    "HFC-DETOX-PLUS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 31,
    "canonical_name": "Devils Claw",
    "aliases": [
@@ -616,7 +934,25 @@ window.HF_DATA = {
     "harpagophytum",
     "devil claw"
    ],
-   "last_used_at": "2026-06-18T11:54:47.153Z"
+   "last_used_at": null
+  },
+  {
+   "id": 98,
+   "canonical_name": "Devil's Claw 2600mg",
+   "aliases": [
+    "HF-DEVI-2600",
+    "HEAFA-2027-120-FBA",
+    "HF-DEVI-2600-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 167,
+   "canonical_name": "Digestive+ Cleanse",
+   "aliases": [
+    "HFC-DIGESTIVE-PLUS-CLEANSE"
+   ],
+   "last_used_at": null
   },
   {
    "id": 32,
@@ -625,7 +961,17 @@ window.HF_DATA = {
     "fadogia",
     "fadogia agrestis"
    ],
-   "last_used_at": "2026-06-23T15:20:59.596Z"
+   "last_used_at": null
+  },
+  {
+   "id": 99,
+   "canonical_name": "Fadogia Agrestis 600mg",
+   "aliases": [
+    "HF-FADO-600",
+    "HEAFA-2056-200-FBA",
+    "HF-FADO-600-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 33,
@@ -633,7 +979,27 @@ window.HF_DATA = {
    "aliases": [
     "feminiva"
    ],
-   "last_used_at": "2026-06-20T16:26:13.331Z"
+   "last_used_at": null
+  },
+  {
+   "id": 100,
+   "canonical_name": "Feminiva Boric Acid 600mg",
+   "aliases": [
+    "HF-FEM-600",
+    "HEAFA-1000-FBA",
+    "HF-FEM-600-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 101,
+   "canonical_name": "Feminiva Boric Acid 600mg - C2",
+   "aliases": [
+    "HF-FEM-600-C2",
+    "HEAFA-1000-FBA-C2",
+    "HF-FEM-600-C2-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 34,
@@ -650,6 +1016,16 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 102,
+   "canonical_name": "Fenugreek 6000mg",
+   "aliases": [
+    "HF-FENU-6000",
+    "HEAFA-2052-150-FBA",
+    "HF-FENU-6000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 35,
    "canonical_name": "Folic Acid",
    "aliases": [
@@ -659,7 +1035,47 @@ window.HF_DATA = {
     "folate",
     "folic"
    ],
-   "last_used_at": "2026-06-23T15:35:50.116Z"
+   "last_used_at": "2026-07-08T20:15:38.989Z"
+  },
+  {
+   "id": 104,
+   "canonical_name": "Folic Acid 1000mcg",
+   "aliases": [
+    "HF-FOLI-1000",
+    "HEAFA-2044-300-FBA",
+    "HF-FOLI-1000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 105,
+   "canonical_name": "Folic Acid 400mcg",
+   "aliases": [
+    "HF-FOLI-400",
+    "HEAFA-2045-300-FBA",
+    "HF-FOLI-400-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 103,
+   "canonical_name": "Fo-Ti 1000mg",
+   "aliases": [
+    "HF-FOTI-1000",
+    "HEAFA-2030-200-FBA",
+    "HF-FOTI-1000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 106,
+   "canonical_name": "French Maritime Pine Bark 6000mg",
+   "aliases": [
+    "HF-PINE-6000",
+    "HEAFA-2018-200-FBA",
+    "HF-PINE-6000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 5,
@@ -670,7 +1086,17 @@ window.HF_DATA = {
     "ginger root",
     "gengibre root"
    ],
-   "last_used_at": "2026-06-12T13:56:49.086Z"
+   "last_used_at": "2026-07-25T15:15:10.751Z"
+  },
+  {
+   "id": 107,
+   "canonical_name": "Ginger Root 4000mg",
+   "aliases": [
+    "HF-GING-4000",
+    "HEAFA-2007-200-FBA",
+    "HF-GING-4000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 36,
@@ -680,6 +1106,16 @@ window.HF_DATA = {
     "ginkgo biloba",
     "biloba",
     "ginko"
+   ],
+   "last_used_at": "2026-07-25T20:22:17.978Z"
+  },
+  {
+   "id": 108,
+   "canonical_name": "Ginkgo Biloba 7500mg",
+   "aliases": [
+    "HF-GINK-7500",
+    "HEAFA-2047-200-FBA",
+    "HF-GINK-7500-WFS"
    ],
    "last_used_at": null
   },
@@ -703,7 +1139,17 @@ window.HF_DATA = {
     "glutation",
     "glutathione"
    ],
-   "last_used_at": "2026-06-19T20:16:59.026Z"
+   "last_used_at": null
+  },
+  {
+   "id": 109,
+   "canonical_name": "Glutathione 1000mg",
+   "aliases": [
+    "HF-GLTH-1000",
+    "HEAFA-2046-150-FBA",
+    "HF-GLTH-1000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 6,
@@ -715,7 +1161,26 @@ window.HF_DATA = {
     "graviol",
     "graviola soursop"
    ],
-   "last_used_at": "2026-05-26T18:25:34.961Z"
+   "last_used_at": null
+  },
+  {
+   "id": 110,
+   "canonical_name": "Graviola Soursop 5000mg",
+   "aliases": [
+    "HF-GRAV-5000",
+    "HEAFA-2015-200-FBA",
+    "HF-GRAV-5000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 111,
+   "canonical_name": "Graviola Soursop 5000mg - C2",
+   "aliases": [
+    "HF-GRAV-5000-C2",
+    "HEAFA-2015-200-FBA-C2"
+   ],
+   "last_used_at": null
   },
   {
    "id": 39,
@@ -730,12 +1195,42 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 112,
+   "canonical_name": "Green Tea 2100mg",
+   "aliases": [
+    "HF-GREE-2100",
+    "HEAFA-2023-200-FBA",
+    "HF-GREE-2100-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 40,
    "canonical_name": "Gymnema Sylvestre",
    "aliases": [
     "gymnema",
     "gymnema sylvestre",
     "gurmar"
+   ],
+   "last_used_at": "2026-08-04T15:35:32.091Z"
+  },
+  {
+   "id": 113,
+   "canonical_name": "Gymnema Sylvestre 4000mg",
+   "aliases": [
+    "HF-GYSY-4000",
+    "HEAFA-2058-200-FBA",
+    "HF-GYNM-4000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 114,
+   "canonical_name": "Hawthorn 3000mg",
+   "aliases": [
+    "HF-HAWT-3000",
+    "HEAFA-2059-200-FBA",
+    "HF-HAWT-3000-WFS"
    ],
    "last_used_at": null
   },
@@ -748,6 +1243,14 @@ window.HF_DATA = {
     "espinheiro",
     "cratego",
     "crataegus"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 168,
+   "canonical_name": "HealthFare Clinic Services (YNL)",
+   "aliases": [
+    "70"
    ],
    "last_used_at": null
   },
@@ -765,6 +1268,16 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 115,
+   "canonical_name": "HF-BERB-1500-WFS",
+   "aliases": [
+    "HF-BERB-1500",
+    "HEAFA-2039-60-FBA",
+    "HF-BERB-1500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 43,
    "canonical_name": "Hyaluronic Acid",
    "aliases": [
@@ -773,7 +1286,27 @@ window.HF_DATA = {
     "acido hialuronico",
     "hyaluronic acid"
    ],
-   "last_used_at": "2026-06-05T16:39:52.881Z"
+   "last_used_at": "2026-08-04T14:54:23.680Z"
+  },
+  {
+   "id": 116,
+   "canonical_name": "Hyaluronic Acid With Vitamin C 250mg",
+   "aliases": [
+    "HF-HYAL-250",
+    "HEAFA-2005-210-FBA",
+    "HF-HYAL-250-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 117,
+   "canonical_name": "L-Carnitine 1500mg",
+   "aliases": [
+    "HF-LCAR-1500",
+    "HEAFA-2077-120-FBA",
+    "HF-LCAR-1500-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 44,
@@ -783,6 +1316,16 @@ window.HF_DATA = {
     "l-glutamine",
     "glutamine",
     "l glutamine"
+   ],
+   "last_used_at": "2026-07-09T12:30:32.193Z"
+  },
+  {
+   "id": 118,
+   "canonical_name": "L-Glutamine 1000mg",
+   "aliases": [
+    "HF-LGLU-1000",
+    "HEAFA-2037-200-FBA",
+    "HF-LGLU-1000-WFS"
    ],
    "last_used_at": null
   },
@@ -799,6 +1342,24 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 119,
+   "canonical_name": "Licorice Root 600mg",
+   "aliases": [
+    "HF-LICO-900",
+    "HEAFA-2009-360-FBA",
+    "HF-LICO-900-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 169,
+   "canonical_name": "Lipobalance",
+   "aliases": [
+    "LIPOBALANCE"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 46,
    "canonical_name": "Lithium Orotate",
    "aliases": [
@@ -809,7 +1370,36 @@ window.HF_DATA = {
     "lithium orotate",
     "litio orotato"
    ],
-   "last_used_at": "2026-05-28T13:49:59.926Z"
+   "last_used_at": null
+  },
+  {
+   "id": 120,
+   "canonical_name": "Lithium Orotate 130mg 200tabs",
+   "aliases": [
+    "HF-LITH-130",
+    "HEAFA-2001-200-FBA",
+    "HF-LITH-130-WFS"
+   ],
+   "last_used_at": "2026-07-28T18:47:08.835Z"
+  },
+  {
+   "id": 121,
+   "canonical_name": "Lithium Orotate 5mg",
+   "aliases": [
+    "HF-LITH-5",
+    "HEAFA-2079-200-FBA",
+    "HF-MELA-5-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 177,
+   "canonical_name": "L-Theanine 400mg 150caps",
+   "aliases": [
+    "HF-LTHE-400",
+    "HF-LTHE-400-WFS"
+   ],
+   "last_used_at": "2026-07-17T14:58:29.182Z"
   },
   {
    "id": 47,
@@ -831,6 +1421,16 @@ window.HF_DATA = {
     "citrate",
     "citrato"
    ],
+   "last_used_at": "2026-07-28T16:09:34.326Z"
+  },
+  {
+   "id": 122,
+   "canonical_name": "Magnesium Citrate 500mg",
+   "aliases": [
+    "HF-MCIT-500",
+    "HEAFA-2060-90-FBA",
+    "HF-MCIT-500-WFS"
+   ],
    "last_used_at": null
   },
   {
@@ -846,7 +1446,27 @@ window.HF_DATA = {
     "bisglicinato",
     "bisglycinate"
    ],
-   "last_used_at": "2026-06-17T19:24:13.163Z"
+   "last_used_at": "2026-07-28T13:11:58.629Z"
+  },
+  {
+   "id": 123,
+   "canonical_name": "Magnesium Glycinate 500mg",
+   "aliases": [
+    "HF-GLYC-500",
+    "HEAFA-2062-240-FBA",
+    "HF-GLYC-500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 124,
+   "canonical_name": "Magnesium Oxide 500mg",
+   "aliases": [
+    "HF-OXID-500",
+    "HEAFA-2069-250-FBA",
+    "HF-OXID-500-WFS"
+   ],
+   "last_used_at": "2026-07-21T20:16:20.648Z"
   },
   {
    "id": 49,
@@ -855,7 +1475,73 @@ window.HF_DATA = {
     "melatonina",
     "melatonin"
    ],
-   "last_used_at": "2026-06-23T15:43:54.543Z"
+   "last_used_at": "2026-07-29T12:36:17.427Z"
+  },
+  {
+   "id": 125,
+   "canonical_name": "Melatonin Berry Flavor 10mg",
+   "aliases": [
+    "HF-MELA-10",
+    "HEAFA-2078-300-FBA",
+    "HF-MELA-CH-10-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 126,
+   "canonical_name": "Melatonin Berry Flavor 5mg - Amazon",
+   "aliases": [
+    "HF-MELA-5",
+    "HEAFA-2080-300-FBA"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 178,
+   "canonical_name": "Melatonin Berry Flavor 5mg - Older",
+   "aliases": [
+    "HF-MELA-5",
+    "HF-MELA-CH-5-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 170,
+   "canonical_name": "Melatonin Berry Flavor 5mg - Wallmart",
+   "aliases": [
+    "HF-MELA-5",
+    "HF-MELA-CH-5-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 127,
+   "canonical_name": "Melatonin Complex 20mg",
+   "aliases": [
+    "HF-MELA-20",
+    "HEAFA-2033-120-FBA",
+    "HF-MELA-20-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 128,
+   "canonical_name": "Melatonin Fast Absorption 60mg",
+   "aliases": [
+    "HF-MELA-60",
+    "HEAFA-2034-90-FBA",
+    "HF-MELA-60-WFS"
+   ],
+   "last_used_at": "2026-07-27T19:44:02.302Z"
+  },
+  {
+   "id": 129,
+   "canonical_name": "Melatonin Fast Absorption 60mg - C2",
+   "aliases": [
+    "HF-MELA-60-C2",
+    "HEAFA-2034-90-FBA-C2"
+   ],
+   "last_used_at": null
   },
   {
    "id": 50,
@@ -866,6 +1552,16 @@ window.HF_DATA = {
     "verbasco",
     "mullein leaf",
     "mullein extract"
+   ],
+   "last_used_at": "2026-07-23T19:55:18.836Z"
+  },
+  {
+   "id": 130,
+   "canonical_name": "Mullein Leaf 3000mg",
+   "aliases": [
+    "HF-MULL-3000",
+    "HEAFA-2028-200-FBA",
+    "HF-MULL-3000-WFS"
    ],
    "last_used_at": null
   },
@@ -882,6 +1578,34 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 131,
+   "canonical_name": "Multi Collagen 1600mg",
+   "aliases": [
+    "HF-COLL-1600",
+    "HEAFA-2050-90-FBA",
+    "HF-COLL-1600-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 171,
+   "canonical_name": "Multi Collagen Peptides - 90 Capsules",
+   "aliases": [
+    "HEAFA-2050-90"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 132,
+   "canonical_name": "Multi Collagen Protein",
+   "aliases": [
+    "HF-MCOL-2000",
+    "HEAFA-2083-180-FBA",
+    "HF-MCOL-2000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 10,
    "canonical_name": "Myo Inositol",
    "aliases": [
@@ -890,7 +1614,17 @@ window.HF_DATA = {
     "mioinositol",
     "myo inositol"
    ],
-   "last_used_at": "2026-06-22T17:18:00.616Z"
+   "last_used_at": null
+  },
+  {
+   "id": 133,
+   "canonical_name": "Myo Inositol 2600mg",
+   "aliases": [
+    "HF-MYOI-2000",
+    "HEAFA-2017-200-FBA",
+    "HF-MYOI-2600-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 52,
@@ -905,6 +1639,36 @@ window.HF_DATA = {
     "n-acetylcysteine",
     "acetyl cysteine"
    ],
+   "last_used_at": "2026-07-31T15:56:22.135Z"
+  },
+  {
+   "id": 134,
+   "canonical_name": "Nac 1000mg",
+   "aliases": [
+    "HF-NAC-1000",
+    "HEAFA-2075-240-FBA",
+    "HF-NAC-1000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 135,
+   "canonical_name": "Nac 1300mg",
+   "aliases": [
+    "HF-NAC-1300",
+    "HEAFA-2036-240-FBA",
+    "HF-NAC-1300-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 136,
+   "canonical_name": "Nac 600mg",
+   "aliases": [
+    "HF-NAC-600",
+    "HEAFA-2074-200-FBA",
+    "HF-NAC-600-WFS"
+   ],
    "last_used_at": null
   },
   {
@@ -916,6 +1680,59 @@ window.HF_DATA = {
     "nmn",
     "nicotinamide",
     "nad supplement"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 172,
+   "canonical_name": "NAD+ Celluvance",
+   "aliases": [
+    "HFC-NAD-CELLUVANCE"
+   ],
+   "last_used_at": "2026-07-31T20:41:23.721Z"
+  },
+  {
+   "id": 137,
+   "canonical_name": "Nad+ Celluvance 10,573mg 120 Caps",
+   "aliases": [
+    "HF-CELL-10573",
+    "HEAFA-2070-120-FBA",
+    "HF-CELL-10573-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 139,
+   "canonical_name": "Naturwell Libidor",
+   "aliases": [
+    "NATURWELL-LIBIDOR",
+    " NATUR-3005-FBA"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 140,
+   "canonical_name": "Naturwell Mushrooms",
+   "aliases": [
+    "NATURWELL-MUSHROOMS",
+    "NATUR-3020-FBA"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 138,
+   "canonical_name": "Naturwel (Rosa) Elixir",
+   "aliases": [
+    "NATURWEL-ROSA-ELIXIR",
+    "NATUR-3015-FBA"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 173,
+   "canonical_name": "NeuroCalm",
+   "aliases": [
+    "NEUROCALM"
    ],
    "last_used_at": null
   },
@@ -933,6 +1750,16 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 141,
+   "canonical_name": "Panax Ginseng & Ginkgo Biloba 7500mg",
+   "aliases": [
+    "HF-GSEG-7500",
+    "HEAFA-2051-150-FBA",
+    "HF-GSEG-7500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 54,
    "canonical_name": "Pantothenic Acid",
    "aliases": [
@@ -943,6 +1770,24 @@ window.HF_DATA = {
     "vit b5",
     "vitamina b5",
     "acido pantotenico"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 142,
+   "canonical_name": "Pantothenic Acid 500mg",
+   "aliases": [
+    "HF-PTHO-500",
+    "HEAFA-2003-200-FBA",
+    "HF-PANT-500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 174,
+   "canonical_name": "Pantothenic Acid (Vitamin B5) - 500mg 200 Capsules",
+   "aliases": [
+    "HF-PANT-500"
    ],
    "last_used_at": null
   },
@@ -970,7 +1815,17 @@ window.HF_DATA = {
     "phytosterols",
     "plant"
    ],
-   "last_used_at": "2026-06-23T17:46:31.225Z"
+   "last_used_at": "2026-08-06T20:01:26.463Z"
+  },
+  {
+   "id": 143,
+   "canonical_name": "Plant Sterols 2000mg",
+   "aliases": [
+    "HF-PLAN-2000",
+    "HEAFA-2020-240-FBA",
+    "HF-PLAN-2000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 57,
@@ -984,7 +1839,27 @@ window.HF_DATA = {
     "iodo de potassio",
     "potassium iodide 130"
    ],
-   "last_used_at": "2026-05-30T00:00:23.974Z"
+   "last_used_at": null
+  },
+  {
+   "id": 144,
+   "canonical_name": "Potassium Iodide 130mg - C2",
+   "aliases": [
+    "HF-POTA-130-C2",
+    "HEAFA-2000-130-60-2-FBA",
+    "HF-POTA-130-C2-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 145,
+   "canonical_name": "Potassium Iodide 130mg - C6",
+   "aliases": [
+    "HF-POTA-130-C6",
+    "HEAFA-2000-130-60-6-FBA",
+    "HF-POTA-130-C6-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 58,
@@ -996,7 +1871,17 @@ window.HF_DATA = {
     "psilio",
     "ispagula"
    ],
-   "last_used_at": "2026-06-16T19:44:03.029Z"
+   "last_used_at": "2026-07-27T13:46:01.018Z"
+  },
+  {
+   "id": 146,
+   "canonical_name": "Psyllium Husk 1500mg",
+   "aliases": [
+    "HF-PSYL-1500",
+    "HEAFA-2054-240-FBA",
+    "HF-PSYL-1500-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 59,
@@ -1010,6 +1895,16 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 147,
+   "canonical_name": "Pygeum 4500mg",
+   "aliases": [
+    "HF-PYGE-4500",
+    "HEAFA-2012-240-FBA",
+    "HF-PYGE-4500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 13,
    "canonical_name": "Rhodiola",
    "aliases": [
@@ -1017,7 +1912,17 @@ window.HF_DATA = {
     "rodiola",
     "rhodiola rosea"
    ],
-   "last_used_at": "2026-05-28T15:37:40.592Z"
+   "last_used_at": null
+  },
+  {
+   "id": 148,
+   "canonical_name": "Rhodiola Rosea 1000mg",
+   "aliases": [
+    "HF-RHOD-1000",
+    "HEAFA-2063-90-FBA",
+    "HF-RHOD-1000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 14,
@@ -1027,7 +1932,17 @@ window.HF_DATA = {
     "rutim",
     "rutina"
    ],
-   "last_used_at": "2026-06-04T19:01:07.290Z"
+   "last_used_at": "2026-07-08T15:05:03.172Z"
+  },
+  {
+   "id": 149,
+   "canonical_name": "Rutin 500mg",
+   "aliases": [
+    "HF-RUTI-500",
+    "HEAFA-2049-200-FBA",
+    "HF-RUTI-500-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 60,
@@ -1037,7 +1952,17 @@ window.HF_DATA = {
     "palmeto",
     "sabal serrulata"
    ],
-   "last_used_at": "2026-06-09T17:44:44.266Z"
+   "last_used_at": "2026-07-23T18:08:54.835Z"
+  },
+  {
+   "id": 150,
+   "canonical_name": "Saw Palmetto 4000mg",
+   "aliases": [
+    "HF-SAWP-4000",
+    "HEAFA-2035-150-FBA",
+    "HF-SAWP-4000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 61,
@@ -1065,6 +1990,16 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 151,
+   "canonical_name": "Stinging Nettle 7500mg",
+   "aliases": [
+    "HF-STIN-7500-R",
+    "HEAFA-2071-200-FBA",
+    "HF-STING-7500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 63,
    "canonical_name": "Tribulus Terrestris",
    "aliases": [
@@ -1072,6 +2007,16 @@ window.HF_DATA = {
     "tribulo",
     "tribulus terrestris",
     "trib"
+   ],
+   "last_used_at": "2026-07-28T16:48:59.258Z"
+  },
+  {
+   "id": 152,
+   "canonical_name": "Tribulus Terrestris 32,500mg",
+   "aliases": [
+    "HF-TRIB-32500",
+    "HEAFA-2042-200-FBA",
+    "HF-TRIB-32500-WFS"
    ],
    "last_used_at": null
   },
@@ -1088,6 +2033,26 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
+   "id": 153,
+   "canonical_name": "Turkesterone With Tongkat Ali 110,000mg",
+   "aliases": [
+    "HF-TURK-110000",
+    "HEAFA-2065-150-FBA",
+    "HF-TURK-110000-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 70,
+   "canonical_name": "Urolithin A",
+   "aliases": [
+    "HF-UROL-1000",
+    "urolithin",
+    "urolithin a"
+   ],
+   "last_used_at": "2026-08-06T18:47:25.480Z"
+  },
+  {
    "id": 65,
    "canonical_name": "Valerian Root",
    "aliases": [
@@ -1095,7 +2060,17 @@ window.HF_DATA = {
     "valeriana",
     "valerian root"
    ],
-   "last_used_at": "2026-06-09T19:01:55.868Z"
+   "last_used_at": "2026-07-15T15:26:06.943Z"
+  },
+  {
+   "id": 154,
+   "canonical_name": "Valerian Root 3000mg",
+   "aliases": [
+    "HF-VALE-3000",
+    "HEAFA-2004-240-FBA",
+    "HF-VALE-3000-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 66,
@@ -1108,7 +2083,36 @@ window.HF_DATA = {
     "b1",
     "vitamin b1"
    ],
-   "last_used_at": "2026-05-25T12:25:05.685Z"
+   "last_used_at": "2026-07-30T19:13:07.583Z"
+  },
+  {
+   "id": 155,
+   "canonical_name": "Vitamin B1 100mg",
+   "aliases": [
+    "HF-VTB1-100-WFS",
+    "HEAFA-2040-60-FBA",
+    "HF-VIB1-100-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 175,
+   "canonical_name": "Vitamin B12 (Methylcobalamin)",
+   "aliases": [
+    "HF-VB12-5000 ",
+    "HF-VB12-5000-WFS "
+   ],
+   "last_used_at": "2026-07-30T19:11:04.719Z"
+  },
+  {
+   "id": 156,
+   "canonical_name": "Vitamin B1 500mg",
+   "aliases": [
+    "HF-VTB1-500",
+    "HEAFA-2041-200-FBA",
+    "HF-VTB2-180-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 67,
@@ -1123,7 +2127,27 @@ window.HF_DATA = {
     "vita b2",
     "vitab2"
    ],
-   "last_used_at": "2026-06-18T20:56:12.927Z"
+   "last_used_at": "2026-07-28T18:38:12.504Z"
+  },
+  {
+   "id": 157,
+   "canonical_name": "Vitamin B2 400mg",
+   "aliases": [
+    "HF-VTB2-400",
+    "HEAFA-2008-180-FBA",
+    "HF-VTB2-180-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 158,
+   "canonical_name": "Vitamin B2 400mg - C2",
+   "aliases": [
+    "HF-VTB2-400-C2",
+    "HEAFA-2008-180-FBA-C2",
+    "HF-VTB2-180-C2-WFS"
+   ],
+   "last_used_at": null
   },
   {
    "id": 68,
@@ -1134,6 +2158,24 @@ window.HF_DATA = {
     "feijao branco",
     "kidney",
     "white kidney"
+   ],
+   "last_used_at": "2026-08-03T14:57:26.886Z"
+  },
+  {
+   "id": 159,
+   "canonical_name": "White Kidney Bean 7500mg",
+   "aliases": [
+    "HF-WHIT-7500",
+    "HEAFA-2006-240-FBA",
+    "HF-WHIT-7500-WFS"
+   ],
+   "last_used_at": null
+  },
+  {
+   "id": 176,
+   "canonical_name": "XLR8 Burn",
+   "aliases": [
+    "HFC-XLR8-BURN"
    ],
    "last_used_at": null
   },
@@ -1147,209 +2189,229 @@ window.HF_DATA = {
     "yoimbina",
     "iombina"
    ],
-   "last_used_at": "2026-06-11T19:31:17.155Z"
+   "last_used_at": null
+  },
+  {
+   "id": 160,
+   "canonical_name": "Yohimbine 10mg",
+   "aliases": [
+    "HF-YOHI-10",
+    "HEAFA-2032-240-FBA",
+    "HF-YOHI-10-WFS"
+   ],
+   "last_used_at": "2026-07-08T22:07:37.892Z"
+  },
+  {
+   "id": 161,
+   "canonical_name": "Yohimbine 5mg",
+   "aliases": [
+    "HF-YOHI-5",
+    "HEAFA-2081-240-FBA",
+    "HF-YOHI-5-WFS"
+   ],
+   "last_used_at": null
   }
  ],
  "recent_batches": [
   {
-   "batch_number": "BR-2026-0230",
+   "batch_number": "BR-2026-0320",
+   "product_id": 80,
+   "last_used": "2026-08-06T21:53:21.838Z"
+  },
+  {
+   "batch_number": "BR-2026-0318",
+   "product_id": 2,
+   "last_used": "2026-08-06T20:47:24.273Z"
+  },
+  {
+   "batch_number": "BR-2026-0306",
    "product_id": 56,
-   "last_used": "2026-06-23T17:46:31.225Z"
+   "last_used": "2026-08-06T20:01:26.463Z"
   },
   {
-   "batch_number": "BR-2026-0199",
-   "product_id": 16,
-   "last_used": "2026-06-23T17:14:22.580Z"
-  },
-  {
-   "batch_number": "BR-2026-0225",
-   "product_id": 27,
-   "last_used": "2026-06-23T16:56:47.259Z"
-  },
-  {
-   "batch_number": "0230",
+   "batch_number": "BR-2026-0308",
    "product_id": 56,
-   "last_used": "2026-06-23T15:58:33.727Z"
+   "last_used": "2026-08-06T19:21:15.183Z"
   },
   {
-   "batch_number": "BR-2026-0219",
-   "product_id": 49,
-   "last_used": "2026-06-23T15:43:54.543Z"
+   "batch_number": "BR-2026-0316",
+   "product_id": 70,
+   "last_used": "2026-08-06T18:47:25.480Z"
   },
   {
-   "batch_number": "BR-2026-0213",
-   "product_id": 35,
-   "last_used": "2026-06-23T15:35:50.116Z"
+   "batch_number": "BR-2026-0315",
+   "product_id": 70,
+   "last_used": "2026-08-06T14:57:07.250Z"
   },
   {
-   "batch_number": "BR-2026-0198",
-   "product_id": 32,
-   "last_used": "2026-06-23T15:20:59.596Z"
+   "batch_number": "BR-2026-0319",
+   "product_id": 80,
+   "last_used": "2026-08-06T12:24:21.816Z"
   },
   {
-   "batch_number": "BR-2026-0165",
-   "product_id": 49,
-   "last_used": "2026-06-23T15:10:46.207Z"
+   "batch_number": "BR-2026-0314",
+   "product_id": 70,
+   "last_used": "2026-08-05T19:15:01.073Z"
   },
   {
-   "batch_number": "BR-2026-0220",
-   "product_id": 25,
-   "last_used": "2026-06-23T12:49:16.100Z"
+   "batch_number": "BR-2026-0303",
+   "product_id": 20,
+   "last_used": "2026-08-04T20:34:12.424Z"
   },
   {
-   "batch_number": "BR-2026-0218",
+   "batch_number": "BR-2026-0307",
    "product_id": 56,
-   "last_used": "2026-06-22T18:42:17.346Z"
-  },
-  {
-   "batch_number": "BR-2026-0224",
-   "product_id": 17,
-   "last_used": "2026-06-22T18:27:17.121Z"
-  },
-  {
-   "batch_number": "BR-2026-0221",
-   "product_id": 10,
-   "last_used": "2026-06-22T17:18:00.616Z"
-  },
-  {
-   "batch_number": "BR-2026-0222",
-   "product_id": 10,
-   "last_used": "2026-06-22T13:52:33.496Z"
-  },
-  {
-   "batch_number": "BR-2026-0204",
-   "product_id": 33,
-   "last_used": "2026-06-20T16:26:13.331Z"
-  },
-  {
-   "batch_number": "0219",
-   "product_id": 49,
-   "last_used": "2026-06-20T14:25:24.545Z"
-  },
-  {
-   "batch_number": "BR-2026-0223",
-   "product_id": 38,
-   "last_used": "2026-06-19T20:16:59.026Z"
-  },
-  {
-   "batch_number": "0220",
-   "product_id": 25,
-   "last_used": "2026-06-19T19:37:20.216Z"
-  },
-  {
-   "batch_number": "0222",
-   "product_id": 10,
-   "last_used": "2026-06-19T16:22:08.814Z"
-  },
-  {
-   "batch_number": "0217",
-   "product_id": 56,
-   "last_used": "2026-06-19T15:16:08.755Z"
-  },
-  {
-   "batch_number": "0215",
-   "product_id": 49,
-   "last_used": "2026-06-19T14:14:12.452Z"
-  },
-  {
-   "batch_number": "0213",
-   "product_id": 35,
-   "last_used": "2026-06-19T13:55:44.890Z"
-  },
-  {
-   "batch_number": "0221",
-   "product_id": 10,
-   "last_used": "2026-06-19T13:54:54.217Z"
-  },
-  {
-   "batch_number": "1234",
-   "product_id": 35,
-   "last_used": "2026-06-19T01:09:36.275Z"
-  },
-  {
-   "batch_number": "0223",
-   "product_id": 38,
-   "last_used": "2026-06-18T22:02:56.529Z"
-  },
-  {
-   "batch_number": "0203",
-   "product_id": 23,
-   "last_used": "2026-06-18T21:15:15.287Z"
-  },
-  {
-   "batch_number": "0211",
-   "product_id": 67,
-   "last_used": "2026-06-18T20:56:12.927Z"
-  },
-  {
-   "batch_number": "0218",
-   "product_id": 56,
-   "last_used": "2026-06-18T15:18:29.745Z"
-  },
-  {
-   "batch_number": "0210",
-   "product_id": 32,
-   "last_used": "2026-06-18T12:37:48.573Z"
-  },
-  {
-   "batch_number": "0206",
-   "product_id": 67,
-   "last_used": "2026-06-18T00:08:43.288Z"
-  },
-  {
-   "batch_number": "0216",
-   "product_id": 31,
-   "last_used": "2026-06-17T22:11:20.696Z"
-  },
-  {
-   "batch_number": "0191",
-   "product_id": 8,
-   "last_used": "2026-06-17T19:24:13.163Z"
-  },
-  {
-   "batch_number": "01",
-   "product_id": 18,
-   "last_used": "2026-06-17T16:25:40.933Z"
-  },
-  {
-   "batch_number": "0125",
-   "product_id": 49,
-   "last_used": "2026-06-17T14:50:25.597Z"
-  },
-  {
-   "batch_number": "0192",
-   "product_id": 8,
-   "last_used": "2026-06-17T12:58:42.928Z"
-  },
-  {
-   "batch_number": "BR-2026-0169",
-   "product_id": 58,
-   "last_used": "2026-06-16T19:44:03.029Z"
+   "last_used": "2026-08-04T19:13:58.655Z"
   },
   {
    "batch_number": "BR-2026-0212",
    "product_id": 2,
-   "last_used": "2026-06-16T17:21:26.119Z"
+   "last_used": "2026-08-04T17:05:05.196Z"
   },
   {
-   "batch_number": "0205",
-   "product_id": 67,
-   "last_used": "2026-06-16T15:04:31.838Z"
+   "batch_number": "BR-2026-0267",
+   "product_id": 40,
+   "last_used": "2026-08-04T15:35:32.091Z"
   },
   {
-   "batch_number": "0199",
-   "product_id": 16,
-   "last_used": "2026-06-15T20:14:53.147Z"
-  },
-  {
-   "batch_number": "BR-2026-0168",
-   "product_id": 28,
-   "last_used": "2026-06-15T15:16:05.221Z"
-  },
-  {
-   "batch_number": "BR-2026-0207",
+   "batch_number": "BR-2026-0304",
    "product_id": 56,
-   "last_used": "2026-06-15T14:13:35.693Z"
+   "last_used": "2026-08-04T15:24:03.092Z"
+  },
+  {
+   "batch_number": "BR-2026-0187",
+   "product_id": 43,
+   "last_used": "2026-08-04T14:54:23.680Z"
+  },
+  {
+   "batch_number": "BR-2026-0302",
+   "product_id": 20,
+   "last_used": "2026-08-04T14:33:57.961Z"
+  },
+  {
+   "batch_number": "BR-2026-0305",
+   "product_id": 56,
+   "last_used": "2026-08-03T19:05:41.907Z"
+  },
+  {
+   "batch_number": "BR-2026-0301",
+   "product_id": 20,
+   "last_used": "2026-08-03T15:11:29.155Z"
+  },
+  {
+   "batch_number": "BR-2026-0289",
+   "product_id": 68,
+   "last_used": "2026-08-03T14:57:26.886Z"
+  },
+  {
+   "batch_number": "BR-2026-0313",
+   "product_id": 70,
+   "last_used": "2026-08-01T16:13:01.018Z"
+  },
+  {
+   "batch_number": "BR-2026-0317",
+   "product_id": 172,
+   "last_used": "2026-07-31T20:41:23.721Z"
+  },
+  {
+   "batch_number": "BR-2026-0309",
+   "product_id": 52,
+   "last_used": "2026-07-31T15:56:22.135Z"
+  },
+  {
+   "batch_number": "BR-2026-0148",
+   "product_id": 66,
+   "last_used": "2026-07-30T19:13:07.583Z"
+  },
+  {
+   "batch_number": "BR-2026-0295",
+   "product_id": 175,
+   "last_used": "2026-07-30T19:11:04.719Z"
+  },
+  {
+   "batch_number": "BR-2026-0270",
+   "product_id": 23,
+   "last_used": "2026-07-29T21:08:01.988Z"
+  },
+  {
+   "batch_number": "BR-2026-0296",
+   "product_id": 88,
+   "last_used": "2026-07-29T17:24:35.595Z"
+  },
+  {
+   "batch_number": "BR-2026-0224",
+   "product_id": 17,
+   "last_used": "2026-07-29T14:01:33.328Z"
+  },
+  {
+   "batch_number": "BR-2026-0293",
+   "product_id": 49,
+   "last_used": "2026-07-29T12:36:17.427Z"
+  },
+  {
+   "batch_number": "BR-2026-0294",
+   "product_id": 49,
+   "last_used": "2026-07-28T21:22:33.960Z"
+  },
+  {
+   "batch_number": "BR-2026-0292",
+   "product_id": 28,
+   "last_used": "2026-07-28T18:47:10.432Z"
+  },
+  {
+   "batch_number": "BR-2026-0311",
+   "product_id": 120,
+   "last_used": "2026-07-28T18:47:08.835Z"
+  },
+  {
+   "batch_number": "0211",
+   "product_id": 67,
+   "last_used": "2026-07-28T18:38:12.504Z"
+  },
+  {
+   "batch_number": "BR-2026-0145",
+   "product_id": 63,
+   "last_used": "2026-07-28T16:48:59.258Z"
+  },
+  {
+   "batch_number": "BR-2026-0310",
+   "product_id": 48,
+   "last_used": "2026-07-28T16:09:34.326Z"
+  },
+  {
+   "batch_number": "BR-2026-0254",
+   "product_id": 8,
+   "last_used": "2026-07-28T13:11:58.629Z"
+  },
+  {
+   "batch_number": "BR-2026-0266",
+   "product_id": 128,
+   "last_used": "2026-07-27T19:44:02.302Z"
+  },
+  {
+   "batch_number": "BR-2026-0225",
+   "product_id": 27,
+   "last_used": "2026-07-27T16:00:45.799Z"
+  },
+  {
+   "batch_number": "BR-2026-0287",
+   "product_id": 58,
+   "last_used": "2026-07-27T13:46:01.018Z"
+  },
+  {
+   "batch_number": "BR-2026-0268",
+   "product_id": 36,
+   "last_used": "2026-07-25T20:22:17.978Z"
+  },
+  {
+   "batch_number": "BR-2026-0290",
+   "product_id": 5,
+   "last_used": "2026-07-25T15:15:10.751Z"
+  },
+  {
+   "batch_number": "BR-2026-0286",
+   "product_id": 3,
+   "last_used": "2026-07-24T19:40:58.019Z"
   }
  ]
 };

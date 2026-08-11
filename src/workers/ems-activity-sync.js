@@ -8,6 +8,8 @@
  * duration). Mapeia o operador do EMS pro person do tracker por nome. EMS down =
  * no-op (não quebra nada — REGRA #0).
  */
+const presence = require('../v3/presence');   // presença REAL (Bruno 07-18)
+const emsConfirm = require('../v3/ems-confirm'); // confirmação de auto-task (Bruno 07-18)
 const STAGE_TO_PROCESS = {
   weighing: 'formulation', weighed: 'formulation', blending: 'mixing', blended: 'mixing',
   encapsulating: 'encapsulation', encapsulated: 'encapsulation',
@@ -72,6 +74,9 @@ class EmsActivitySync {
     this.db = deps.db;
     this.ems = deps.ems;
     this.heartbeat = deps.heartbeat || null; // vigia (wire.js) — prova que o tick roda
+    this.slack = deps.slack || null;          // pra gritar no admin-orin (Bruno 07-18)
+    this.adminChannelId = deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+    this._lastScream = 0;                     // throttle do grito no admin-orin
     this._timer = null;
     this._ticking = false;
     // auto check-in: cria task automática quando um STAGE inicia. Gate por env +
@@ -147,19 +152,37 @@ class EmsActivitySync {
     return out;
   }
 
+  // Listas com cache curto (30s): ANTES cada atividade fazia 1 full-scan de
+  // persons E products (N+1 no tick de 45s). Agora escaneia no máx. 1×/30s.
+  // (perf 07-28)
+  async _personsList() {
+    const now = Date.now();
+    if (this.__persons && (now - this.__persons.at) < 30000) return this.__persons.rows;
+    const r = await this.db.query('SELECT id, display_name, ems_user_id FROM v3.persons WHERE active = true AND deleted_at IS NULL');
+    this.__persons = { at: now, rows: r.rows };
+    return r.rows;
+  }
+  async _productsList() {
+    const now = Date.now();
+    if (this.__products && (now - this.__products.at) < 30000) return this.__products.rows;
+    const r = await this.db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true');
+    this.__products = { at: now, rows: r.rows };
+    return r.rows;
+  }
+
   async _resolvePersonId(name, emsUserId) {
     // UUID (ems_user_id) primeiro — robusto (estudo: nome é frágil). Nome é fallback.
     if (emsUserId) {
       try { const u = await this.db.query('SELECT id FROM v3.persons WHERE ems_user_id = $1 AND deleted_at IS NULL LIMIT 1', [emsUserId]); if (u.rows[0]) return u.rows[0].id; } catch (e) {}
     }
     if (!name) return null;
-    const r = await this.db.query('SELECT id, display_name, ems_user_id FROM v3.persons WHERE active = true AND deleted_at IS NULL');
+    const rows = await this._personsList();
     const lc = String(name).toLowerCase();
-    let hit = r.rows.find((p) => p.display_name.toLowerCase() === lc);
-    if (!hit) hit = r.rows.find((p) => lc.indexOf(p.display_name.toLowerCase()) >= 0 || p.display_name.toLowerCase().indexOf(lc) >= 0);
+    let hit = rows.find((p) => p.display_name.toLowerCase() === lc);
+    if (!hit) hit = rows.find((p) => lc.indexOf(p.display_name.toLowerCase()) >= 0 || p.display_name.toLowerCase().indexOf(lc) >= 0);
     if (!hit) { // match por primeiro nome SE único
       const first = lc.split(/\s+/)[0];
-      const matches = r.rows.filter((p) => p.display_name.toLowerCase().split(/\s+/)[0] === first);
+      const matches = rows.filter((p) => p.display_name.toLowerCase().split(/\s+/)[0] === first);
       if (matches.length === 1) hit = matches[0];
     }
     // backfill: casou por nome e ainda não tem UUID → grava (próximas vezes casa por UUID)
@@ -239,12 +262,12 @@ class EmsActivitySync {
   async _resolveProductId(name) {
     if (!name) return null;
     try {
-      const r = await this.db.query('SELECT id, canonical_name, aliases FROM v3.products WHERE active = true');
+      const rows = await this._productsList();
       const norm = (sx) => String(sx || '').toLowerCase().replace(/\b\d+(\.\d+)?\s*(mg|mcg|g|iu|ml|ct|count|caps?|capsules?|softgels?|tablets?|servings?)\b/g, '').replace(/[^a-z0-9]+/g, '');
       const t = norm(name); if (!t) return null;
-      let hit = r.rows.find((p) => norm(p.canonical_name) === t);
-      if (!hit) hit = r.rows.find((p) => [p.canonical_name].concat(p.aliases || []).some((a) => norm(a) === t));
-      if (!hit) hit = r.rows.find((p) => { const n = norm(p.canonical_name); return n && t.length >= 5 && (n.indexOf(t) >= 0 || t.indexOf(n) >= 0); });
+      let hit = rows.find((p) => norm(p.canonical_name) === t);
+      if (!hit) hit = rows.find((p) => [p.canonical_name].concat(p.aliases || []).some((a) => norm(a) === t));
+      if (!hit) hit = rows.find((p) => { const n = norm(p.canonical_name); return n && t.length >= 5 && (n.indexOf(t) >= 0 || t.indexOf(n) >= 0); });
       return hit ? hit.id : null;
     } catch (e) { return null; }
   }
@@ -293,18 +316,65 @@ class EmsActivitySync {
             [slug, a.tracker_person_id]);
           if (dupSlug.rowCount) continue;
         }
+        // SEMPRE DESCONFIAR de auto-task (Bruno 07-18): se a pessoa que o EMS
+        // atribuiu NÃO fez check-in MANUAL hoje, a task nasce mas fica UNCONFIRMED —
+        // não prova presença até alguém confirmar. `confidence` reflete isso.
+        const manual = await presence.hasManualCheckinToday(this.db, a.tracker_person_id);
+        const conf = manual ? 'high' : 'low';
+        const descExtra = manual ? '' : ' [não confirmado: sem check-in manual hoje]';
         const ins = await this.db.query(
           `INSERT INTO v3.events (person_id, activity_type_id, product_batch_id, started_at, description, confidence, source, is_long_running)
-           VALUES ($1, $2, $3, $4::timestamptz, $5, 'high', 'ems_auto', $6) RETURNING id`,
-          [a.tracker_person_id, act.rows[0].id, batchId, safeStart, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']', !!act.rows[0].is_background]);
+           VALUES ($1, $2, $3, $4::timestamptz, $5, $7, 'ems_auto', $6) RETURNING id`,
+          [a.tracker_person_id, act.rows[0].id, batchId, safeStart, '[check-in automático EMS: ' + (a.machine || a.stage || '?') + ']' + descExtra, !!act.rows[0].is_background, conf]);
         const evId = ins.rows[0].id;
         await this.db.query('UPDATE v3.ems_activity_cache SET auto_event_id = $1 WHERE ems_key = $2', [evId, a.ems_key]);
-        try { await this.db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'event.ems_auto_checkin', 'event', $1, $2::jsonb)", [evId, JSON.stringify({ ems_key: a.ems_key, slug, batch: a.batch_number, person_id: a.tracker_person_id, machine: a.machine })]); } catch (e) {}
+        try { await this.db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'event.ems_auto_checkin', 'event', $1, $2::jsonb)", [evId, JSON.stringify({ ems_key: a.ems_key, slug, batch: a.batch_number, person_id: a.tracker_person_id, machine: a.machine, unconfirmed: !manual })]); } catch (e) {}
+        // registra pra confirmação humana ("foi você ou fulano?" / "fulano trabalha hoje?")
+        if (!manual) {
+          try {
+            await this.db.query(
+              `INSERT INTO v3.ems_unconfirmed (event_id, subject_person_id, ems_key, batch_number, product_name, stage, slug, since, status)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamptz,'pending')
+               ON CONFLICT (event_id) DO NOTHING`,
+              [evId, a.tracker_person_id, a.ems_key, a.batch_number || null, a.supplement_name || null, a.stage || null, slug, safeStart]);
+          } catch (e) { console.error('[ems-sync] unconfirmed insert falhou:', e.message); }
+        }
         created++;
       } catch (e) { console.error('[ems-sync] auto check-in falhou:', e.message); }
     }
     if (created) console.log('[ems-sync] auto check-in criou ' + created + ' task(s)');
     return created;
+  }
+
+  // Bruno 07-18: escala incidentes de auto-task não-confirmada (1h30 → questionable)
+  // e, se há incidente questionável mas NINGUÉM está trabalhando pra responder, grita
+  // no #admin-orin (throttle 30min). Quem responde é perguntado na página de check-in.
+  async _escalateConfirmations() {
+    try {
+      const escalated = await emsConfirm.escalate(this.db);
+      // há questionáveis abertos?
+      const openQ = (await this.db.query(`SELECT COUNT(*)::int n FROM v3.ems_unconfirmed WHERE status='questionable'`)).rows[0].n;
+      if (!openQ) return;
+      // alguém trabalhando (presença real) pra responder na página?
+      const anyone = (await this.db.query(
+        `SELECT EXISTS(
+           SELECT 1 FROM v3.persons p
+            WHERE p.role='operator' AND p.active=true AND COALESCE(p.is_sandbox,false)=false
+              AND ${presence.confirmedPresenceSQL('p')}
+         ) AS present`)).rows[0].present;
+      if (!anyone && this.slack && (Date.now() - this._lastScream > 30 * 60000)) {
+        this._lastScream = Date.now();
+        const rows = (await this.db.query(
+          `SELECT u.subject_person_id, pe.display_name, u.batch_number, u.stage
+             FROM v3.ems_unconfirmed u LEFT JOIN v3.persons pe ON pe.id=u.subject_person_id
+            WHERE u.status='questionable' ORDER BY u.since LIMIT 5`)).rows;
+        const list = rows.map((r) => `• *${r.display_name || 'alguém'}* — ${r.stage || 'formulação'}${r.batch_number ? ' (lote ' + r.batch_number + ')' : ''}`).join('\n');
+        try {
+          await this.slack.postAs({ channel: this.adminChannelId, sender: { name: 'HealthFare Tracker', icon: ':rotating_light:' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
+            text: `:warning: O EMS atribuiu formulação a quem não bateu ponto hoje e não tem ninguém na página pra confirmar. Quem fez de verdade?\n${list}` });
+        } catch (_) {}
+      }
+    } catch (e) { console.error('[ems-sync] escalate:', e.message); }
   }
 
   async tick() {
@@ -320,6 +390,7 @@ class EmsActivitySync {
       if (!line && !pipeline) return { ems: false }; // EMS down → no-op
       const acts = this.extract(line, pipeline);
       const n = await this._sync(acts);
+      await this._escalateConfirmations(); // Bruno 07-18: 1h30 → questionable / grito
       const cleaned = await this._syncCleaning(line); // ITEM 3 — limpeza das máquinas
       // CATÁLOGO (Bruno 06-26): o EMS tinha Urolithin A (e outros) que NUNCA
       // entravam no catálogo local → metas/tarefas viravam "(?)". Agora importamos

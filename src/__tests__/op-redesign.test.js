@@ -20,6 +20,7 @@ const REAL = [
   '/api/v3/op/orders/adjust', // ajuste de ordens (Embalagem/Outro)
   '/api/v3/op/lots/available', // FASE 4 (lista lote+produto)
   '/api/v3/op/ems/my-activity', '/api/v3/op/ems/register-detected', // FASE FORM (detecção passiva)
+  '/api/v3/op/pending-confirmations', // Bruno 07-18: confirmar auto-task do EMS (+ /answer)
   '/api/v3/op/machine/confirm-return', // custódia (Bruno 07-08): dono confirma no retorno
   '/api/v3/architect/person/',
 ];
@@ -116,8 +117,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v37 network-first', () => {
-    expect(SW).toContain("'hf-op-v37'");
+  test('sw é hf-op-v39 network-first', () => {
+    expect(SW).toContain("'hf-op-v39'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

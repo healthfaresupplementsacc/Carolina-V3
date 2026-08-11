@@ -18,7 +18,7 @@ import './helpers.js';
 import { V4_ALLOW_WRITES } from './flags.js';
 
 // adapter API → HFData
-import { useSnapshotAsHFData, getPin, clearPin, useFetch, nyToday } from './adapters/from-api.js';
+import { useSnapshotAsHFData, getPin, clearPin, useFetch, nyToday, can } from './adapters/from-api.js';
 // E5 — wrapper de writes (PATCH/POST/DELETE) auditados via PIN
 import * as writes from './adapters/writes.js';
 
@@ -35,6 +35,16 @@ import { CommandCenter } from './pages/CommandCenter.jsx';
 import { FloorDisplay } from './pages/FloorDisplay.jsx';
 import { AdminPanel } from './pages/AdminPanel.jsx';
 import { CamerasPage } from './pages/CamerasPage.jsx';
+import { PrintingPage } from './pages/PrintingPage.jsx';
+import { InventoryPage } from './pages/InventoryPage.jsx';
+import { ProductSetupPage } from './pages/ProductSetupPage.jsx';
+import { UsersPage } from './pages/UsersPage.jsx';
+import { OperatorsPage } from './pages/OperatorsTab.jsx';
+import { StockOverviewPage } from './pages/StockOverviewPage.jsx';
+import { InventorySettingsPage } from './pages/InventorySettingsPage.jsx';
+import { PicklistPage } from './pages/PicklistPage.jsx';
+import { RoadmapPage } from './pages/RoadmapPage.jsx';
+import { SystemHealthPage } from './pages/SystemHealthPage.jsx';
 import {
   ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage,
   ProductPage, FalarPage, PlanPage, ConfigPage,
@@ -91,6 +101,7 @@ function WorkerPill() {
         padding: '4px 10px', borderRadius: 999,
         background: 'var(--surface-2)', border: '1px solid var(--border)',
         fontSize: 11, fontWeight: 600, color: 'var(--text-2)',
+        whiteSpace: 'nowrap', flex: '0 0 auto',
       }}>
         <span style={{
           width: 6, height: 6, borderRadius: '50%',
@@ -418,6 +429,13 @@ function AuthedApp({ onLogout }) {
     case "pessoas":       pageNode = <PeoplePage {...pageProps}/>; break;
     case "floor":         pageNode = <FloorDisplay {...pageProps}/>; break;
     case "cameras":       pageNode = <CamerasPage/>; break;
+    case "impressao":     pageNode = <PrintingPage date={date}/>; break;
+    case "picklist":      pageNode = <PicklistPage/>; break;
+    case "roadmap":       pageNode = <RoadmapPage/>; break;
+    case "estoque-geral": pageNode = <StockOverviewPage/>; break;
+    case "config-estoque": pageNode = <InventorySettingsPage/>; break;
+    case "inventory":     pageNode = <InventoryPage/>; break;
+    case "produto-setup": pageNode = <ProductSetupPage/>; break;
     case "pp":            pageNode = <PickPackPage {...pageProps}/>; break;
     case "suporte":       pageNode = <SupportPage {...pageProps}/>; break;
     case "produto":       pageNode = <ProductPage {...pageProps}/>; break;
@@ -426,7 +444,22 @@ function AuthedApp({ onLogout }) {
     case "carolina":      pageNode = <CarolinaPage/>; break;
     case "config":        pageNode = <ConfigPage {...pageProps}/>; break;
     case "admin":         pageNode = <AdminPanel/>; break;
+    case "operadores":    pageNode = <OperatorsPage/>; break;
+    case "usuarios":      pageNode = <UsersPage/>; break;
+    case "sistema":       pageNode = <SystemHealthPage/>; break;
     default:              pageNode = <CommandCenter {...pageProps}/>;
+  }
+  // Gate RBAC (Bruno 08-03): páginas de admin exigem a função; manager não entra
+  // nem digitando o hash. Sem a função → bloqueio explícito.
+  const ROUTE_FN = { admin: 'admin_page', operadores: 'admin_page', config: 'config_page', sistema: 'manage_system', usuarios: 'manage_users' };
+  if (ROUTE_FN[route] && !can(ROUTE_FN[route])) {
+    pageNode = (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>
+        <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+        <h2 style={{ margin: '0 0 6px' }}>Sem acesso</h2>
+        <p>Essa página é só do Admin. Fale com o Admin se precisar de acesso.</p>
+      </div>
+    );
   }
 
   return (

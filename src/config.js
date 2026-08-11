@@ -6,6 +6,9 @@ module.exports = {
     token: process.env.SLACK_BOT_TOKEN,
     channelId: process.env.SLACK_CHANNEL_ID || 'C09UNBXFRKK',
     bryceUserId: process.env.BRYCE_USER_ID || 'U09DQGJ1ES3',          // Carolina bot
+    // Carolina como INTERLOCUTOR admin (mensagens @Carolina que representam o admin).
+    // Bruno 08-03: era hardcoded sem fallback em Observer.js/CommandHandler.js.
+    carolinaAdminUserId: process.env.CAROLINA_ADMIN_USER_ID || 'U0B3EQLPEPL',
     henriqueUserId: process.env.HENRIQUE_USER_ID || 'U085SDY3F4Z',     // Henrique (logistics)
     brunoUserId: process.env.BRUNO_USER_ID || 'U03URLL1D4L',           // Bruno Camp (owner)
     thassioUserId: process.env.THASSIO_USER_ID || 'U03S46L2EUA',       // Thassio (owner)
@@ -22,6 +25,12 @@ module.exports = {
     apiKey: process.env.EMS_PRODUCTION_API_KEY || null,
     baseUrl: process.env.EMS_PRODUCTION_API_BASE
       || 'https://kxhlickgghqnuykdjgsr.supabase.co/functions/v1/production-api',
+  },
+  // Veeqo (P&P direto-ao-cliente) — read-only. Chave SÓ no servidor (segredo do
+  // Railway VEEQO_API_KEY); base é pública (o gate é a chave). Mesmo padrão do EMS.
+  veeqo: {
+    apiKey: process.env.VEEQO_API_KEY || null,
+    baseUrl: process.env.VEEQO_API_BASE || 'https://api.veeqo.com',
   },
   app: {
     port: parseInt(process.env.PORT) || 3000,

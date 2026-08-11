@@ -242,18 +242,37 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
             {/* BOTTLES (Bruno 06-22): estimado do EMS + quanto foi produzido NESTE
                 evento (quem/quando/quanto). Surface o controle — dá pra ver, p.ex.,
                 2 pessoas contando o mesmo lote (cowork) = contagem dobrada. */}
-            {(event._estimated_bottles != null || (event._bottle_counts && event._bottle_counts.length > 0)) && (() => {
+            {(event._estimated_bottles != null || (event._bottle_counts && event._bottle_counts.length > 0) || event._batch_bottles_total != null) && (() => {
               const counts = event._bottle_counts || [];
               const total = counts.reduce((s, c) => s + (Number(c.qty) || 0), 0);
+              const batchTotal = event._batch_bottles_total;   // produção do LOTE (qualquer evento)
+              const reporters = event._batch_reporters || [];  // quem participou do lote
+              const thisEventHasCount = counts.length > 0;
               return (
                 <Field label="Bottles" en="Bottles">
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {event._estimated_bottles != null && (
                       <div style={{ fontSize: 12, color: "var(--text-3)" }}>Estimado total (EMS): <b className="mono" style={{ color: "var(--text-2)" }}>{event._estimated_bottles}</b></div>
                     )}
-                    {counts.length > 0 ? (
+                    {/* ROLLUP DO LOTE (Bruno 07-23): produção do lote + quem participou —
+                        aparece em TODOS os cards do cowork, sincronizado. */}
+                    {batchTotal != null && batchTotal > 0 && (
+                      <div style={{ fontSize: 12.5, padding: "5px 8px", borderRadius: 7,
+                                    background: "color-mix(in srgb, var(--hf-leaf-500) 10%, transparent)",
+                                    border: "1px solid color-mix(in srgb, var(--hf-leaf-500) 28%, transparent)" }}>
+                        <b className="mono" style={{ color: "var(--hf-leaf-700)", fontSize: 14 }}>{batchTotal}</b>
+                        <span style={{ color: "var(--text-2)" }}> bottles · produção do lote</span>
+                        {reporters.length > 0 && (
+                          <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1 }}>
+                            {reporters.length > 1 ? "feito por " : "por "}{reporters.join(" + ")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* detalhe deste evento (só quando ESTE evento registrou algo) */}
+                    {thisEventHasCount ? (
                       <div>
-                        <div><b className="mono">{total}</b> <span style={{ color: "var(--text-3)" }}>produzidos neste evento</span></div>
+                        <div style={{ fontSize: 11.5, color: "var(--text-3)" }}><b className="mono" style={{ color: "var(--text-2)" }}>{total}</b> registrados neste evento:</div>
                         <div style={{ paddingLeft: 2, borderLeft: "2px solid var(--border)", marginTop: 2 }}>
                           {counts.map((c, i) => (
                             <div key={i} style={{ fontSize: 11.5 }}>
@@ -265,6 +284,8 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
                           )}
                         </div>
                       </div>
+                    ) : batchTotal != null && batchTotal > 0 ? (
+                      <span style={{ fontSize: 10.5, color: "var(--text-3)", fontStyle: "italic" }}>este operador participou do lote (contagem registrada em outro evento)</span>
                     ) : (
                       <span style={{ fontSize: 10.5, color: "var(--text-3)" }}>nenhuma contagem de bottles registrada ainda neste evento</span>
                     )}

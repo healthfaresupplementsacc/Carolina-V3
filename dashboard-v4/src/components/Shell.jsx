@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from './Icons.jsx';
 import nyTime from '../utils/ny-time.cjs';
 import { FalarCarolinaButton } from '../pages/CarolinaFalar.jsx';
+import { can } from '../adapters/from-api.js';
 // E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
 // wordmark). Substitui o SVG inline `BrandH` que era um esboço.
 // Vite resolve a URL no build (com base /dashboard-v4/...).
@@ -11,30 +12,46 @@ import healthFareLogo from '../../assets/healthfare-logo.png';
    Routing via simple hash. Theme from <html data-theme>.
 */
 
+// Nav REAGRUPADA (Bruno 08-03): menus principais colapsáveis com submenus.
+// "Coisas conectadas ficam sob um menu principal; clica → submenu aparece."
+// Estoque, Suprimentos e Product Setup agora juntos em "Estoque & Produtos".
 const NAV = [
-  { section: "Operação", en: "Operations", items: [
+  { section: "Operação", en: "Operations", icon: "home", items: [
     { id: "hoje",      pt: "Hoje",          en: "Today",          icon: "home" },
+    { id: "roadmap",   pt: "Roadmap",       en: "Roadmap",        icon: "plan" },
     { id: "producao",  pt: "Produção",      en: "Production",     icon: "factory" },
     { id: "metas",     pt: "Metas",         en: "Goals",          icon: "target" },
     { id: "pessoas",   pt: "Pessoas",       en: "People",         icon: "people" },
+    { id: "pp",        pt: "P&P",           en: "Pick & Pack",    icon: "pp" },
+    { id: "picklist",  pt: "Picklist",      en: "Picklist",       icon: "product" },
   ]},
-  { section: "Display", en: "Floor Display", items: [
+  { section: "Estoque & Produtos", en: "Inventory & Products", icon: "product", items: [
+    { id: "estoque-geral", pt: "Ver estoque",       en: "Stock",             icon: "product" },
+    { id: "inventory",     pt: "Estoque detalhado", en: "Stock (detailed)",  icon: "product" },
+    { id: "produto-setup", pt: "Product Setup",     en: "Product Setup",     icon: "config" },
+    { id: "config-estoque", pt: "Configurações",    en: "Inventory Settings", icon: "config" },
+    { id: "planejamento",  pt: "Planejamento",      en: "Planning",          icon: "plan" },
+    { id: "produto",       pt: "Produto",           en: "Product",           icon: "product" },
+  ]},
+  { section: "Impressão", en: "Printing", icon: "factory", items: [
+    { id: "impressao",    pt: "Impressão",      en: "Printing",        icon: "factory" },
+  ]},
+  { section: "Fábrica", en: "Floor", icon: "tv", items: [
     { id: "floor",     pt: "Painel da Fábrica", en: "Floor Display", icon: "tv" },
     { id: "cameras",   pt: "Câmeras",           en: "Cameras",       icon: "live" },
   ]},
-  { section: "Outros", en: "Other", items: [
-    { id: "pp",           pt: "P&P",            en: "Pick & Pack",     icon: "pp" },
-    { id: "suporte",      pt: "Suporte",        en: "Support",         icon: "support" },
-    { id: "produto",      pt: "Produto",        en: "Product",         icon: "product" },
-    { id: "falar",        pt: "Falar",          en: "Speak",           icon: "chat" },
-    { id: "planejamento", pt: "Planejamento",   en: "Planning",        icon: "plan" },
-    // E0 ajuste: Carolina volta na nav como placeholder Bloco 5 (chat de aprendizado).
+  { section: "Assistente", en: "Assistant", icon: "chat", items: [
     { id: "carolina",     pt: "Carolina",       en: "Carolina",        icon: "chat" },
-    { id: "config",       pt: "Config",         en: "Settings",        icon: "config" },
+    { id: "falar",        pt: "Falar",          en: "Speak",           icon: "chat" },
+    { id: "suporte",      pt: "Suporte",        en: "Support",         icon: "support" },
   ]},
-  // FASE 2 — admin unificado no dashboard (seção própria, login admin/RBAC).
-  { section: "Admin", en: "Admin", items: [
-    { id: "admin",        pt: "Admin",          en: "Admin panel",     icon: "config" },
+  // Admin: só quem tem a função aparece (manager NÃO vê — Bruno 08-03).
+  { section: "Admin", en: "Admin", icon: "config", items: [
+    { id: "admin",        pt: "Admin",              en: "Admin panel",     icon: "config", fn: "admin_page" },
+    { id: "operadores",   pt: "Operadores",         en: "Operators",       icon: "people", fn: "admin_page" },
+    { id: "usuarios",     pt: "Usuários & Acessos", en: "Users & Access",  icon: "people", fn: "manage_users" },
+    { id: "config",       pt: "Config",             en: "Settings",        icon: "config", fn: "config_page" },
+    { id: "sistema",      pt: "Sistema",            en: "System health",   icon: "config", fn: "manage_system" },
   ]},
 ];
 
@@ -44,12 +61,19 @@ function findPage(id) {
   return ALL_PAGES.find(p => p.id === id) || ALL_PAGES[0];
 }
 
+const sectionOf = (id) => (NAV.find((s) => s.items.some((it) => it.id === id)) || NAV[0]).section;
+
 const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
+  // Menus colapsáveis (Bruno 08-03). Começa com só o grupo da página atual aberto.
+  const [openSecs, setOpenSecs] = React.useState(() => ({ [sectionOf(route)]: true }));
+  // sempre garante que o grupo da rota ativa esteja aberto quando a rota muda
+  React.useEffect(() => { setOpenSecs((o) => ({ ...o, [sectionOf(route)]: true })); }, [route]);
+  const toggle = (sec) => setOpenSecs((o) => ({ ...o, [sec]: !o[sec] }));
+
   return (
     <aside className={`sidebar ${open ? "sidebar--open" : ""}`}>
       <div className="brand brand-with-logo">
         {collapsed ? (
-          // Sidebar colapsada: só o H+leaf cortado da extremidade esquerda
           <div className="brand-mark"><img src={healthFareLogo} alt="HealthFare" className="brand-logo-mini"/></div>
         ) : (
           <>
@@ -59,25 +83,45 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
         )}
       </div>
       <nav className="nav">
-        {NAV.map(sec => (
-          <React.Fragment key={sec.section}>
-            {!collapsed && <div className="nav-section">{sec.section}<span style={{ opacity: 0.55, marginLeft: 6 }}>· {sec.en}</span></div>}
-            {collapsed && <div style={{ height: 8 }}/>}
-            {sec.items.map(it => (
-              <a key={it.id} href={`#${it.id}`}
-                 className={`nav-item ${route === it.id ? "active" : ""}`}
-                 onClick={e => { e.preventDefault(); onRoute(it.id); if (onClose) onClose(); }}>
-                <span className="nav-ico"><Icon name={it.icon} size={17}/></span>
-                {!collapsed && (
-                  <>
-                    <span className="nav-label">{it.pt}</span>
-                    <span className="nav-sub-en">{it.en}</span>
-                  </>
-                )}
-              </a>
-            ))}
-          </React.Fragment>
-        ))}
+        {NAV.map(sec => {
+          // filtra itens por função (RBAC): item com `fn` só aparece se o login tiver.
+          const items = sec.items.filter((it) => !it.fn || can(it.fn));
+          if (items.length === 0) return null;      // grupo sem itens visíveis → some
+          const hasActive = items.some((it) => it.id === route);
+          // aberto se: colapsado (mostra tudo), OU o usuário abriu, OU tem a página ativa
+          // e o usuário não fechou explicitamente.
+          const explicit = openSecs[sec.section];
+          const isOpen = collapsed ? true : (explicit === true || (explicit !== false && hasActive));
+          return (
+            <div key={sec.section} className={`nav-group ${isOpen ? 'open' : ''}`}>
+              {!collapsed && (
+                <button type="button"
+                  className={`nav-section nav-section-btn ${hasActive ? 'has-active' : ''}`}
+                  onClick={() => toggle(sec.section)}
+                  aria-expanded={isOpen}>
+                  <span className="nav-ico" style={{ marginRight: 8, opacity: 0.8 }}><Icon name={sec.icon} size={15}/></span>
+                  <span className="nav-section-label">{sec.section}</span>
+                  <span className="nav-section-en">· {sec.en}</span>
+                  <span className={`nav-caret ${isOpen ? 'up' : ''}`} aria-hidden="true">▾</span>
+                </button>
+              )}
+              {collapsed && <div style={{ height: 8 }}/>}
+              {isOpen && items.map(it => (
+                <a key={it.id} href={`#${it.id}`}
+                   className={`nav-item ${route === it.id ? "active" : ""}`}
+                   onClick={e => { e.preventDefault(); onRoute(it.id); if (onClose) onClose(); }}>
+                  <span className="nav-ico"><Icon name={it.icon} size={17}/></span>
+                  {!collapsed && (
+                    <>
+                      <span className="nav-label">{it.pt}</span>
+                      <span className="nav-sub-en">{it.en}</span>
+                    </>
+                  )}
+                </a>
+              ))}
+            </div>
+          );
+        })}
       </nav>
       {!collapsed && opLink ? <div className="sidebar-oplink">{opLink}</div> : null}
       <div className="sidebar-foot">
@@ -119,7 +163,7 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
             <span className="dot" style={{ background: "var(--text-3)" }}/>leitura · read-only
           </span>
         ) : (
-          <span className="pill" style={{ marginLeft: 8, background: "rgba(34,179,93,0.12)", color: "var(--hf-leaf-700)", borderColor: "rgba(34,179,93,0.32)" }}
+          <span className="pill pill-write" style={{ marginLeft: 8 }}
                 title="V4_ALLOW_WRITES=1 — edits/drag/criar persistem em prod via PIN (auditados em v3.audit_log)">
             <span className="dot" style={{ background: "var(--hf-leaf-500)" }}/>edição ativa · write
           </span>

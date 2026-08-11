@@ -545,29 +545,23 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_orders_active ON orders_sessions(deleted_at) WHERE deleted_at IS NULL;
     CREATE INDEX IF NOT EXISTS idx_counts_active ON production_counts(deleted_at) WHERE deleted_at IS NULL;
 
-    -- Default operators
-    INSERT INTO operators (name, slack_user_id, is_shared_account) VALUES
-      ('Ana', NULL, FALSE),
-      ('Bruno', 'U03URLL1D4L', FALSE),
-      ('Vitor', 'U08JC85HMNE', FALSE),
-      ('Simone', 'U07FG34TMPF', FALSE)
+    -- Seed inicial de operadores — SÓ na primeira subida (tabela vazia).
+    -- (Bruno 08-03) Antes isto RE-CRAVAVA o roster + roles a cada boot (o
+    -- DO UPDATE de Thassio/Henrique), então mudar/reatribuir alguém era
+    -- desfeito no próximo deploy. Agora é seed de bootstrap: se já existe
+    -- QUALQUER operador, não mexe em nada — a fonte da verdade vira o banco
+    -- (editável pela página de admin), não este arquivo. Ver [[rbac-roles-not-names]].
+    INSERT INTO operators (name, slack_user_id, is_shared_account, role)
+    SELECT * FROM (VALUES
+      ('Ana',               CAST(NULL AS TEXT), FALSE, 'operator'),
+      ('Bruno',             'U03URLL1D4L',      FALSE, 'owner'),
+      ('Vitor',             'U08JC85HMNE',      FALSE, 'operator'),
+      ('Simone',            'U07FG34TMPF',      FALSE, 'operator'),
+      ('Thassio',           'U03S46L2EUA',      FALSE, 'owner'),
+      ('Henrique Monteiro', 'U085SDY3F4Z',      FALSE, 'manager')
+    ) AS seed(name, slack_user_id, is_shared_account, role)
+    WHERE NOT EXISTS (SELECT 1 FROM operators)   -- só bootstrap; nunca re-crava
     ON CONFLICT (name) DO NOTHING;
-
-    -- BUG IDENTIDADE — team hierarchy. role ∈ {'owner','manager',
-    -- 'operator'} (app-validated; column already exists). Owners
-    -- (Bruno Camp, Thassio) and the manager (Henrique) give orders
-    -- Carolina obeys without extra confirmation. Bruno Camp is the
-    -- existing U03URLL1D4L row (avoids a duplicate slack id).
-    UPDATE operators SET role = 'owner', updated_at = NOW()
-      WHERE slack_user_id = 'U03URLL1D4L';
-    INSERT INTO operators (name, slack_user_id, is_shared_account, role) VALUES
-      ('Thassio',           'U03S46L2EUA', FALSE, 'owner'),
-      ('Henrique Monteiro', 'U085SDY3F4Z', FALSE, 'manager')
-    ON CONFLICT (name) DO UPDATE
-      SET slack_user_id = EXCLUDED.slack_user_id,
-          role = EXCLUDED.role, updated_at = NOW();
-    UPDATE operators SET role = 'operator', updated_at = NOW()
-      WHERE role IS NULL OR btrim(role) = '';
 
     -- BLOCO C / P4: Carolina autonomous proposals (multi-row, expiring)
     CREATE TABLE IF NOT EXISTS carolina_proposals (

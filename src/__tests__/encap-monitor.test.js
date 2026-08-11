@@ -14,7 +14,14 @@ function makeDb(opts = {}) {
       if (/SELECT value FROM v3\.settings WHERE key = \$1/.test(s)) {
         return opts.muted ? { rows: [{ value: { until: new Date(Date.now() + 3600e3).toISOString() } }] } : { rows: [] };
       }
-      if (/AS present/.test(s)) return { rows: [{ present: opts.present !== false }] };
+      if (/AS working/.test(s)) return { rows: [{ working: opts.present !== false }] }; // operador de máquina trabalhando
+      // ── modo sob demanda (workday.js) ──
+      if (/::date::text AS d/.test(s)) return { rows: [{ d: '2026-07-11', dow: 6 }] };
+      if (/AS unscheduled/.test(s)) return { rows: [{ unscheduled: !!opts.unscheduled }] };
+      if (/AS active/.test(s)) return { rows: [{ active: !!opts.weekendActivity }] };
+      if (/SELECT value FROM v3\.settings WHERE key=\$1/.test(s)) {
+        return opts.plan ? { rows: [{ value: { date: '2026-07-11', end: opts.plan.end || null } }] } : { rows: [] };
+      }
       if (/factory_active/.test(s)) return { rows: [{
         h: 15, now_t: '15:00', now_time: opts.nowTime || '15:00:00',
         sched_total: sched.total, sched_start: sched.start, sched_end: sched.end,
@@ -39,14 +46,14 @@ describe('EncapMonitor — alarme grande, mas gated', () => {
     const r = await w.tick();
     expect(r.alerted).toBe(true);
     expect(slack.calls[0].sender.icon).toBe(':rotating_light:');            // alarme grande, de propósito
-    expect(slack.calls[0].text).toContain('MÁQUINA DE ENCAPSULAÇÃO PARADA');
+    expect(slack.calls[0].text).toMatch(/Encapsula[çc][ãa]o parada/i);
     expect(slack.calls[0].text).toContain('já ficou');                      // total acumulado importante
-    expect(slack.calls[0].text).toContain('urgentemente');                  // firme mas não rude (Bruno 07-07)
+    expect(slack.calls[0].text).toMatch(/registrem/i);                      // firme mas não rude (Bruno 07-07)
   });
-  test('NINGUÉM presente → silêncio (Saturday 8pm: não grita com a parede)', async () => {
+  test('NENHUM operador de máquina trabalhando → silêncio (ocioso/limpeza/só não-operador)', async () => {
     const slack = mkSlack();
     const w = new EncapMonitor({ db: makeDb({ present: false }), slack, channelId: 'C_OPS', enabled: true });
-    expect((await w.tick()).nobody_present).toBe(true);
+    expect((await w.tick()).no_operator_working).toBe(true);
     expect(slack.calls.length).toBe(0);
   });
   test('MUTADO pelo admin → silêncio', async () => {
@@ -69,11 +76,37 @@ describe('EncapMonitor — janela da ESCALA (segue o horário de trabalho)', () 
     expect((await w.tick()).off).toBe(false);
     expect(slack.calls.length).toBe(0);
   });
+  test('DEPOIS DAS 8pm mesmo com escala até 20:30 → silêncio (Bruno 07-10: teto 8pm)', async () => {
+    // A máquina para ~16h (todo mundo vai pra limpeza/fim de dia). Antes o alarme
+    // seguia o MAX(fim)=20:30 do Bruno Sarmento e gritava às 20:13. Agora o teto
+    // é endHour (20h): a escala só ESTREITA a janela, nunca passa das 8pm.
+    const slack = mkSlack();
+    const w = new EncapMonitor({ db: makeDb({ present: true, nowTime: '20:13:00', sched: { total: 28, start: '08:00:00', end: '20:30:00' } }), slack, channelId: 'C_OPS', enabled: true });
+    expect((await w.tick()).off).toBe(false);
+    expect(slack.calls.length).toBe(0);
+  });
+  test('escala que TERMINA ANTES do teto (sáb até 13:00) → estreita a janela (agora 15:00 silêncio)', async () => {
+    const slack = mkSlack();
+    const w = new EncapMonitor({ db: makeDb({ present: true, nowTime: '15:00:00', sched: { total: 28, start: '08:00:00', end: '13:00:00' } }), slack, channelId: 'C_OPS', enabled: true });
+    expect((await w.tick()).off).toBe(false);
+    expect(slack.calls.length).toBe(0);
+  });
   test('DIA DE FOLGA (há escalas, mas nenhuma pra hoje) → silêncio', async () => {
     const slack = mkSlack();
     const w = new EncapMonitor({ db: makeDb({ present: true, sched: { total: 28, start: null, end: null } }), slack, channelId: 'C_OPS', enabled: true });
     expect((await w.tick()).off).toBe(false);
     expect(slack.calls.length).toBe(0);
+  });
+  test('FDS/folga SEM modo sob demanda → silêncio (dorme)', async () => {
+    const slack = mkSlack();
+    const w = new EncapMonitor({ db: makeDb({ present: true, sched: { total: 28, start: null, end: null }, unscheduled: true, weekendActivity: false }), slack, channelId: 'C_OPS', enabled: true });
+    expect((await w.tick()).off).toBe(false);
+    expect(slack.calls.length).toBe(0);
+  });
+  test('FDS com trabalho (sob demanda LIGADO) + operador trabalhando → alerta', async () => {
+    const slack = mkSlack();
+    const w = new EncapMonitor({ db: makeDb({ present: true, sched: { total: 28, start: null, end: null }, unscheduled: true, weekendActivity: true }), slack, channelId: 'C_OPS', enabled: true });
+    expect((await w.tick()).alerted).toBe(true);
   });
   test('sem escala cadastrada → fallback janela fixa (h=15 ∈ 8–20) alerta', async () => {
     const slack = mkSlack();

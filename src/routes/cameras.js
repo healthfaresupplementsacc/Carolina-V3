@@ -29,6 +29,8 @@ const express = require('express');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 const { makeRateLimit, makeBruteForceGuard } = require('../middleware/security');
+const { isCamerasOn, scheduleInfo, nyClock } = require('../cameras-schedule');
+const { onDemandActive } = require('../v3/workday');
 
 const router = express.Router();
 
@@ -49,6 +51,27 @@ const lazyDb = {
 };
 let slack = null;
 try { const s = require('../v3/slack/sender'); slack = { postAs: s.postAs }; } catch (_) { /* sem slack em teste */ }
+
+// ── CÂMERAS LIGADAS AGORA? (Bruno 07-10/11) ──────────────────────────────
+// Seg–Sex: janela fixa 7:00–20:30 (cameras-schedule). Sáb/Dom: DESLIGADAS por
+// padrão; LIGAM sob demanda se alguém está trabalhando / o admin anunciou
+// (onDemandActive). Cache de 60s pra não bater no DB a cada frame/health.
+let _wkCache = { at: 0, on: false };
+async function weekendCamsOn() {
+  const now = Date.now();
+  if (now - _wkCache.at < 60000) return _wkCache.on;
+  let on = false;
+  try { on = await onDemandActive(lazyDb); } catch (_) { on = false; }
+  _wkCache = { at: now, on };
+  return on;
+}
+async function camerasAllowedNow() {
+  if (isCamerasOn()) return true;                            // dia de semana dentro da janela
+  const { weekday, minutes } = nyClock();
+  if (weekday !== 'Saturday' && weekday !== 'Sunday') return false; // dia de semana fora da janela = off
+  if (minutes < 6 * 60 || minutes >= 22 * 60) return false;        // nunca de madrugada no fds
+  return await weekendCamsOn();                             // fds: só se tem trabalho / admin avisou
+}
 
 const guard = makeBruteForceGuard({ db: lazyDb, slack, threshold: 10, windowMs: 60 * 60 * 1000, banMs: 24 * 60 * 60 * 1000 });
 let hydrated = false;
@@ -95,10 +118,58 @@ router.post('/api/cam/session', express.json(), async (req, res) => {
   res.json({ token: signToken(exp), expires_at: exp });
 });
 
+// ── ZONAS FIXAS (Bruno 08-01): máquinas/áreas que NÃO se movem, marcadas 1× pelo
+// Bruno na página /cameras/tag → o Claude sabe pra sempre onde olhar. Coordenadas
+// em fração 0..1. PIN-gated pelo mesmo token das câmeras. ────────────────────
+router.get('/api/cam/zones', async (req, res) => {
+  if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+  try {
+    const r = await lazyDb.query(
+      `SELECT id, cam, name, kind, x0, y0, x1, y1, points, notes FROM v3.camera_zones
+       WHERE active = TRUE ${req.query.cam ? 'AND cam = $1' : ''} ORDER BY cam, id`,
+      req.query.cam ? [String(req.query.cam)] : []);
+    res.json({ zones: r.rows || [] });
+  } catch (e) { res.status(500).json({ error: 'db', detail: e.message }); }
+});
+router.post('/api/cam/zones', express.json(), async (req, res) => {
+  if (!tokenOk(req.body && req.body.t)) return res.status(403).json({ error: 'bad_token' });
+  const b = req.body || {};
+  if (!CAMS.has(String(b.cam))) return res.status(400).json({ error: 'bad_cam' });
+  const name = String(b.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name_required' });
+  const f = (v) => Math.max(0, Math.min(1, Number(v)));
+  // POLÍGONO (Bruno 08-01): pontos {x,y} em fração; >=3. bbox derivada dos pontos.
+  const pts = Array.isArray(b.points) ? b.points.map((p) => ({ x: f(p.x), y: f(p.y) })).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) : [];
+  if (pts.length < 3) return res.status(400).json({ error: 'need_3_points' });
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), x1 = Math.max(...xs), y1 = Math.max(...ys);
+  if (!(x1 > x0 && y1 > y0)) return res.status(400).json({ error: 'bad_shape' });
+  try {
+    const r = await lazyDb.query(
+      `INSERT INTO v3.camera_zones (cam, name, kind, x0, y0, x1, y1, points, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) RETURNING id`,
+      [String(b.cam), name.slice(0, 80), String(b.kind || 'machine').slice(0, 20), x0, y0, x1, y1, JSON.stringify(pts), b.notes ? String(b.notes).slice(0, 300) : null]);
+    res.json({ ok: true, id: r.rows[0].id });
+  } catch (e) { res.status(500).json({ error: 'db', detail: e.message }); }
+});
+router.delete('/api/cam/zones/:id', express.json(), async (req, res) => {
+  const tok = (req.body && req.body.t) || req.query.t;
+  if (!tokenOk(tok)) return res.status(403).json({ error: 'bad_token' });
+  try {
+    await lazyDb.query('UPDATE v3.camera_zones SET active = FALSE, updated_at = NOW() WHERE id = $1', [parseInt(req.params.id, 10)]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'db', detail: e.message }); }
+});
+
 // ── health: o PC das câmeras está alcançável AGORA? (a página usa pra
 // reconectar sozinha quando o gateway volta — ele flapa na prática) ─────────
 router.get('/api/cam/health', async (req, res) => {
   if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+  // FORA DO HORÁRIO (Bruno 07-10): câmeras de supervisão seguem o horário de
+  // trabalho (7:00–20:30 seg–sáb; domingo o dia todo desligadas). Fora disso o
+  // gateway responde "fora do ar" → a página mostra o "reconectando" normal, sem
+  // ficar sondando as câmeras desligadas. Ver src/cameras-schedule.js.
+  if (!(await camerasAllowedNow())) return res.json({ reachable: false, reason: 'scheduled_off', scheduled_off: true, schedule: scheduleInfo() });
   const base = process.env.CAM_TUNNEL_URL;
   if (!base || !process.env.CAM_TOKEN) return res.json({ reachable: false, reason: 'not_configured' });
   const ctrl = new AbortController();
@@ -232,6 +303,7 @@ router.get('/api/cam/:name/mp4', async (req, res) => {
   const { name } = req.params;
   if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
   if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+  if (!(await camerasAllowedNow())) return res.status(503).json({ error: 'scheduled_off' }); // fora do horário/fds sem trabalho → reconectando
   const base = process.env.CAM_TUNNEL_URL;
   const token = process.env.CAM_TOKEN;
   if (!base || !token) return res.status(503).json({ error: 'cameras_offline' });
@@ -262,6 +334,7 @@ router.get('/api/cam/:name', async (req, res) => {
   const { name } = req.params;
   if (!CAMS.has(name)) return res.status(404).json({ error: 'unknown_camera' });
   if (!tokenOk(req.query.t)) return res.status(403).json({ error: 'bad_token' });
+  if (!(await camerasAllowedNow())) return res.status(503).json({ error: 'scheduled_off' }); // fora do horário/fds sem trabalho → reconectando
   if (!process.env.CAM_TUNNEL_URL || !process.env.CAM_TOKEN) {
     return res.status(503).json({ error: 'cameras_offline' }); // migração/PC desligado — V4 segue intacto
   }
@@ -328,6 +401,134 @@ router.get('/cameras/pip', (req, res) => {
   startMp4();
   // (Janela simples só-vídeo. O "sempre no topo" foi removido — Chrome só
   // permite 1 PIP no total; pra as 2 câmeras no topo use "PIP tudo" no dashboard.)
+})();
+</script></body></html>`);
+});
+
+// ── PÁGINA DE TAGGING (Bruno 08-01): o Bruno desenha retângulos numa foto ao vivo
+// de cada câmera e NOMEIA cada máquina/área (máquina de cápsulas, mixer, saída das
+// cápsulas, mesa de P&P, computador, etc). Salva em v3.camera_zones. Como as
+// máquinas não se movem, marca 1× e o Claude sabe pra sempre onde olhar. ─────
+router.get('/cameras/tag', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.type('html').send(`<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Marcar máquinas nas câmeras</title>
+<style>
+  body{margin:0;background:#0d1117;color:#e6edf3;font:15px system-ui,sans-serif;}
+  header{padding:12px 20px;font-weight:700;border-bottom:1px solid #21262d;}
+  header .sub{color:#8b949e;font-weight:400;font-size:13px;display:block;margin-top:3px;}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px;}
+  .cam{background:#161b22;border:1px solid #21262d;border-radius:12px;margin-bottom:22px;overflow:hidden;}
+  .cam h2{margin:0;padding:10px 14px;font-size:15px;border-bottom:1px solid #21262d;}
+  .tools{display:flex;align-items:center;gap:8px;padding:9px 14px;flex-wrap:wrap;border-bottom:1px solid #21262d;}
+  .tools button{border:1px solid #30363d;background:#0d1117;color:#c9d1d9;border-radius:8px;padding:5px 11px;font-size:12.5px;cursor:pointer;}
+  .tools button:hover{background:#1f242c;} .tools .tip{color:#8b949e;font-size:12px;}
+  .stage{position:relative;line-height:0;background:#000;cursor:crosshair;touch-action:none;}
+  .stage img{width:100%;display:block;}
+  .stage canvas{position:absolute;inset:0;width:100%;height:100%;}
+  .cam .list{padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:#21262d;border:1px solid #30363d;border-radius:999px;padding:4px 6px 4px 12px;font-size:13px;}
+  .chip b{font-weight:600;} .chip small{color:#8b949e;}
+  .chip button{border:0;background:#3d1418;color:#f85149;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:13px;line-height:1;}
+  .hint{padding:0 14px 12px;color:#8b949e;font-size:12.5px;}
+  #pin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:20;}
+  #pin-overlay .box{background:#161b22;border:1px solid #30363d;padding:22px;border-radius:12px;min-width:270px;}
+  #pin-overlay input{width:100%;box-sizing:border-box;padding:9px;margin:10px 0;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:#e6edf3;font-size:15px;}
+  #pin-overlay button{width:100%;padding:9px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer;}
+  #dlg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:30;}
+  #dlg .box{background:#161b22;border:1px solid #30363d;padding:20px;border-radius:12px;min-width:320px;max-width:92vw;}
+  #dlg label{display:block;font-size:12.5px;color:#8b949e;margin:10px 0 4px;}
+  #dlg input,#dlg select,#dlg textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #30363d;border-radius:8px;background:#0d1117;color:#e6edf3;font-size:14px;}
+  #dlg .row{display:flex;gap:10px;margin-top:16px;} #dlg .row button{flex:1;padding:9px;border:0;border-radius:8px;font-weight:600;cursor:pointer;}
+  #dlg .ok{background:#2ea043;color:#fff;} #dlg .cancel{background:#30363d;color:#c9d1d9;}
+  #err{color:#f85149;font-size:13px;min-height:16px;}
+</style></head><body>
+<header>🏷️ Marcar máquinas & áreas nas câmeras
+  <span class="sub">Arraste um retângulo em cima de cada máquina/área e dê um nome. Como elas não se movem, você faz isso uma vez só. Isso ensina o sistema onde olhar.</span></header>
+<div class="wrap" id="wrap">
+  <div class="cam" data-cam="warehouse"><h2>🏭 Warehouse Floor</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Clique pra colocar pontos ao redor da máquina; ligue-os. Feche com ✓ ou 2 cliques no 1º ponto.</span></div><div class="stage"><img alt="warehouse"><canvas></canvas></div><div class="list"></div></div>
+  <div class="cam" data-cam="packaging"><h2>📦 Packaging Line</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Ex.: Máquina de cápsulas, Saída das cápsulas, Mesa de P&P, Computador…</span></div><div class="stage"><img alt="packaging"><canvas></canvas></div><div class="list"></div></div>
+  <div class="cam" data-cam="formulation"><h2>🧪 Formulation</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Ex.: Mixer, Área de formulação…</span></div><div class="stage"><img alt="formulation"><canvas></canvas></div><div class="list"></div></div>
+</div>
+<div id="pin-overlay"><div class="box"><strong>PIN das câmeras</strong>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••••" autofocus>
+  <div id="err"></div><button id="go">Entrar</button></div></div>
+<div id="dlg"><div class="box"><strong>Nomear zona</strong>
+  <label>Nome (o que é?)</label><input id="z-name" placeholder="Ex.: Máquina de cápsulas">
+  <label>Tipo</label><select id="z-kind">
+    <option value="machine">Máquina</option><option value="output">Saída (ex.: onde saem as cápsulas)</option>
+    <option value="area">Área (ex.: P&P, formulação)</option><option value="table">Mesa/bancada</option>
+    <option value="computer">Computador</option><option value="object">Objeto (ex.: aspirador)</option></select>
+  <label>Observação (opcional)</label><textarea id="z-notes" rows="2" placeholder="Ex.: se sair menos cápsula aqui, pode ter problema na máquina"></textarea>
+  <div class="row"><button class="cancel" id="z-cancel">Cancelar</button><button class="ok" id="z-save">Salvar</button></div></div></div>
+<script>
+(function(){
+  var K='hf_cam_tok', TOKEN=null;
+  var ov=document.getElementById('pin-overlay'), err=document.getElementById('err');
+  var CAMS=['warehouse','packaging','formulation'];
+  var state={}; // cam -> {img,canvas,list,zones,pts,hover}
+  var pending=null; // {cam, points}
+
+  CAMS.forEach(function(cam){
+    var el=document.querySelector('.cam[data-cam="'+cam+'"]');
+    state[cam]={img:el.querySelector('img'),canvas:el.querySelector('canvas'),list:el.querySelector('.list'),zones:[],pts:[],hover:null};
+    var st=el.querySelector('.stage');
+    // CLICAR pra colocar ponto; 2 cliques perto do 1º ponto = fecha a forma
+    st.addEventListener('pointerdown',function(e){ addPoint(cam,e); });
+    st.addEventListener('pointermove',function(e){ state[cam].hover=frac(cam,e); draw(cam); });
+    st.addEventListener('pointerleave',function(){ state[cam].hover=null; draw(cam); });
+    el.querySelectorAll('.tools button').forEach(function(b){ b.addEventListener('click',function(){ var a=b.dataset.act; if(a==='finish')finish(cam); else if(a==='undo'){state[cam].pts.pop();draw(cam);} else if(a==='clear'){state[cam].pts=[];draw(cam);} }); });
+  });
+  function frac(cam,e){ var r=state[cam].img.getBoundingClientRect(); return {x:Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)), y:Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))}; }
+  function addPoint(cam,e){ e.preventDefault(); var s=state[cam]; var p=frac(cam,e);
+    // clicou perto do 1º ponto (com >=3) → fecha a forma
+    if(s.pts.length>=3){ var f=s.pts[0]; var r=s.img.getBoundingClientRect(); var dx=(p.x-f.x)*r.width, dy=(p.y-f.y)*r.height; if(Math.sqrt(dx*dx+dy*dy)<14){ finish(cam); return; } }
+    s.pts.push(p); draw(cam);
+  }
+  function finish(cam){ var s=state[cam]; if(s.pts.length<3){ alert('Coloque pelo menos 3 pontos ao redor da máquina.'); return; } pending={cam:cam,points:s.pts.slice()}; openDlg(); }
+  function draw(cam){ var s=state[cam],cv=s.canvas,img=s.img; cv.width=img.clientWidth; cv.height=img.clientHeight; var c=cv.getContext('2d'); c.clearRect(0,0,cv.width,cv.height); var W=cv.width,H=cv.height;
+    s.zones.forEach(function(z){ var pts=z.points||bboxPts(z); poly(c,pts,'#2ea043','rgba(46,160,67,.16)',z.name,W,H,true); });
+    if(s.pts.length){ // forma em construção
+      poly(c,s.pts,'#58a6ff','rgba(88,166,255,.14)','',W,H,false);
+      if(s.hover){ var last=s.pts[s.pts.length-1]; c.strokeStyle='rgba(88,166,255,.6)'; c.setLineDash([5,4]); c.beginPath(); c.moveTo(last.x*W,last.y*H); c.lineTo(s.hover.x*W,s.hover.y*H); c.stroke(); c.setLineDash([]); }
+      s.pts.forEach(function(p,i){ c.beginPath(); c.arc(p.x*W,p.y*H,i===0?6:4,0,7); c.fillStyle=i===0?'#f0c040':'#58a6ff'; c.fill(); });
+    }
+  }
+  function bboxPts(z){ return [{x:z.x0,y:z.y0},{x:z.x1,y:z.y0},{x:z.x1,y:z.y1},{x:z.x0,y:z.y1}]; }
+  function poly(c,pts,stroke,fill,label,W,H,closed){ if(!pts.length)return; c.beginPath(); c.moveTo(pts[0].x*W,pts[0].y*H); for(var i=1;i<pts.length;i++)c.lineTo(pts[i].x*W,pts[i].y*H); if(closed)c.closePath(); c.fillStyle=fill; if(closed)c.fill(); c.strokeStyle=stroke; c.lineWidth=2; c.stroke();
+    if(label){ var cx=0,cy=0; pts.forEach(function(p){cx+=p.x;cy+=p.y;}); cx=cx/pts.length*W; cy=cy/pts.length*H; c.fillStyle='rgba(0,0,0,.55)'; var tw=c.measureText(label).width; c.fillRect(cx-tw/2-4,cy-9,tw+8,17); c.fillStyle='#fff'; c.font='bold 13px system-ui'; c.textAlign='center'; c.fillText(label,cx,cy+4); c.textAlign='left'; } }
+
+  function openDlg(){ document.getElementById('z-name').value=''; document.getElementById('z-notes').value=''; document.getElementById('dlg').style.display='flex'; document.getElementById('z-name').focus(); }
+  document.getElementById('z-cancel').onclick=function(){ document.getElementById('dlg').style.display='none'; pending=null; };
+  document.getElementById('z-save').onclick=function(){
+    if(!pending)return; var name=document.getElementById('z-name').value.trim(); if(!name){document.getElementById('z-name').focus();return;}
+    var body={t:TOKEN,cam:pending.cam,name:name,kind:document.getElementById('z-kind').value,notes:document.getElementById('z-notes').value.trim(),points:pending.points};
+    fetch('/api/cam/zones',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){
+      document.getElementById('dlg').style.display='none';
+      if(j.ok){ state[pending.cam].zones.push({id:j.id,name:name,kind:body.kind,points:pending.points}); state[pending.cam].pts=[]; render(pending.cam); }
+      else alert('Erro: '+(j.error||'?'));
+      pending=null;
+    }).catch(function(){alert('sem conexão');});
+  };
+  function render(cam){ var s=state[cam]; draw(cam);
+    s.list.innerHTML=''; s.zones.forEach(function(z){ var chip=document.createElement('span'); chip.className='chip'; chip.innerHTML='<b>'+esc(z.name)+'</b> <small>'+esc(z.kind||'')+'</small>'; var b=document.createElement('button'); b.textContent='×'; b.title='apagar'; b.onclick=function(){ del(cam,z.id); }; chip.appendChild(b); s.list.appendChild(chip); });
+  }
+  function del(cam,id){ if(!confirm('Apagar essa marcação?'))return; fetch('/api/cam/zones/'+id,{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({t:TOKEN})}).then(function(){ state[cam].zones=state[cam].zones.filter(function(z){return z.id!==id;}); render(cam); }); }
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(m){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];}); }
+
+  function loadZones(){ fetch('/api/cam/zones?t='+encodeURIComponent(TOKEN)).then(function(r){return r.json();}).then(function(j){ (j.zones||[]).forEach(function(z){ if(state[z.cam]) state[z.cam].zones.push(z); }); CAMS.forEach(render); }); }
+  function startAll(){ CAMS.forEach(function(cam){ var img=state[cam].img; img.onload=function(){ draw(cam); }; img.src='/api/cam/'+cam+'?t='+encodeURIComponent(TOKEN)+'&r='+Date.now(); }); loadZones(); }
+  window.addEventListener('resize',function(){ CAMS.forEach(draw); });
+
+  function auth(tok){ TOKEN=tok; try{localStorage.setItem(K,tok);}catch(e){} ov.style.display='none'; startAll(); }
+  function tryTok(t){ if(!t)return false; var i=(''+t).indexOf('.'); var exp=i>0?Number((''+t).slice(0,i)):0; return exp&&Date.now()<exp-60000; }
+  document.getElementById('go').onclick=doPin;
+  document.getElementById('pin').addEventListener('keydown',function(e){ if(e.key==='Enter')doPin(); });
+  function doPin(){ var pin=document.getElementById('pin').value.trim(); if(!pin)return; err.textContent='';
+    fetch('/api/cam/session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pin:pin})}).then(function(r){ if(r.status===200)return r.json(); if(r.status===403)throw'PIN incorreto'; if(r.status===429)throw'Muitas tentativas'; throw'Câmeras offline'; }).then(function(j){ auth(j.token); }).catch(function(m){ err.textContent=(typeof m==='string'?m:'erro'); }); }
+  var saved=null; try{saved=localStorage.getItem(K);}catch(e){}
+  if(tryTok(saved)) auth(saved); else document.getElementById('pin').focus();
 })();
 </script></body></html>`);
 });

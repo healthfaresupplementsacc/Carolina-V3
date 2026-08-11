@@ -736,14 +736,15 @@ describe('op API — production_line bottles/exceção', () => {
     const ev = mem.events.find((e) => e.id === id);
     expect(ev.exception_no_count).toBe(true);
     expect(ev.exception_reason).toContain('balança');
+    // production_line fechada sem total → abre CONVERSA (followup), não warning seco.
     expect(slack.postAs).toHaveBeenCalledTimes(1);
     const call = slack.postAs.mock.calls[0][0];
     expect(call.channel).toBe('C09UNBXFRKK'); // orders-and-inventory (não admin)
-    expect(call.sender).toMatchObject({ name: 'HealthFare Tracker (Sistema)', icon: ':package:' }); // NÃO é Carolina
-    expect(call.text).toContain('sem contagem');
+    expect(call.sender).toMatchObject({ icon: ':package:' }); // sistema, não Carolina
+    expect(call.text).toMatch(/total|sem/i);           // pede o total que faltou
     expect(call.text).toContain('Magnesium Glycinate');
     expect(mem.audits.some((a) => a.action === 'event.end_with_exception')).toBe(true);
-    expect(mem.audits.some((a) => a.action === 'slack.notification.production_exception')).toBe(true);
+    expect(mem.audits.some((a) => a.action === 'production.total_followup.opened')).toBe(true);
   });
   test('end normal com bottles → 200, count criado, sem exceção, SEM Slack', async () => {
     const s = await login(4); const id = await startProd(s);

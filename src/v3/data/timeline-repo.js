@@ -42,6 +42,10 @@ function shapeEvent(e) {
     estimated_bottles: e.estimated_bottles != null ? Number(e.estimated_bottles) : null,
     bottle_counts: Array.isArray(e.bottle_counts) ? e.bottle_counts : [],
     fnsku_counts: Array.isArray(e.fnsku_counts) ? e.fnsku_counts : [], // FNSKU labels deste evento — Bruno 06-23
+    // ROLLUP DO LOTE (Bruno 07-23): produção TOTAL do lote (qualquer evento) + quem
+    // participou. Todo card do cowork mostra "produção do lote: X (Simone + Vitor)".
+    batch_bottles_total: e.batch_bottles_total != null ? Number(e.batch_bottles_total) : null,
+    batch_reporters: Array.isArray(e.batch_reporters) ? e.batch_reporters : [],
   };
 }
 
@@ -68,6 +72,16 @@ const EVENT_COLUMNS = `e.id, e.person_id, e.activity_type_id, e.product_batch_id
              LEFT JOIN v3.persons pcp ON pcp.id = pc.reported_by_person_id
              WHERE pc.source_event_id = e.id AND pc.kind = 'fnsku'
                AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL) AS fnsku_counts,
+            -- ROLLUP DO LOTE (Bruno 07-23): total de bottles do LOTE (qualquer evento)
+            (SELECT SUM(pc.bottles)::int FROM v3.production_counts pc
+              WHERE pc.product_batch_id = e.product_batch_id AND pc.kind = 'bottles'
+                AND pc.deleted_at IS NULL AND pc.superseded_by IS NULL) AS batch_bottles_total,
+            -- quem trabalhou/contou nesse lote (produção): pessoas dos eventos do lote
+            (SELECT array_agg(DISTINCT pp.display_name)
+              FROM v3.events ee JOIN v3.persons pp ON pp.id = ee.person_id
+              JOIN v3.activity_types aat ON aat.id = ee.activity_type_id
+             WHERE ee.product_batch_id = e.product_batch_id AND ee.deleted_at IS NULL
+               AND aat.flow = 'production') AS batch_reporters,
             p.display_name AS person_name, p.role AS person_role,
             at.slug AS activity_slug, at.display_name AS activity_name,
             at.category AS activity_category, at.flow AS activity_flow,

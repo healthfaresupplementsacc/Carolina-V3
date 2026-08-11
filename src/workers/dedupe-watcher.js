@@ -126,7 +126,7 @@ class DedupeWatcher {
             const r = await this.slack.postAs({
               channel: this.adminChannelId, sender: { name: 'Carolina' }, thread_ts: null,
               text: `🔔 *${ev.display_name}* postou no Slack:\n> ${(ev.description || ev.slug || '').slice(0, 180)}\n`
-                + `(${ev.slug || '?'}${ev.batch_number ? ' · ' + ev.batch_number : ''}) — sem task correspondente na página.\n\n`
+                + `(${ev.slug || '?'}${ev.batch_number ? ' · ' + ev.batch_number : ''}) , sem task correspondente na página.\n\n`
                 + `✅ Aceita (mantém o registro)   ❌ Ignora (apaga)   📝 Editar`,
             });
             carolinaTs = r && r.ts;

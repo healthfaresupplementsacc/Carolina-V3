@@ -18,7 +18,7 @@ const HOUR_PX_DEFAULT = 140; // px per hour on desktop
 
 function snap(min) { return Math.round(min / 5) * 5; } // 5-min snap during drag
 
-function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filterFlows,
+function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHourPx, filterOps, filterFlows,
                     onUpdateEvent, onMergeRequest, onSelectEvent, selectedId,
                     expandedOpIds, onToggleExpand,
                     gaps,
@@ -31,13 +31,51 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
                     fmtClock: fmtClockProp,
                     invalidIds,         // Bug #1 bloco 29/mai: Set<eventId> com duração ruim
 }) {
-  const { DAY_START, DAY_END, DEADLINE_MIN, activities, FLOWS } = window.HFData;
+  const { DAY_START, DAY_END: DAY_END_BASE, DEADLINE_MIN, activities, FLOWS } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
+
+  // PONTO (Bruno 07-23): converte a hora ISO de um marcador em minutos-do-dia (NY)
+  // pra posicionar o ícone na régua de horas, igual aos blocos.
+  const isoToDayMin = (iso) => {
+    if (!iso) return null;
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(iso));
+    const h = parseInt((parts.find((p) => p.type === 'hour') || {}).value, 10);
+    const m = parseInt((parts.find((p) => p.type === 'minute') || {}).value, 10);
+    return h * 60 + m;
+  };
+  // DAY_END EFETIVO (Bruno 07-23): estende a régua pra caber os checkouts DE NOITE
+  // (18:53, 20:14...) que passavam de 18:00 e sumiam. Olha o marker mais tardio de
+  // todos + o now. Arredonda pra hora cheia acima.
+  let latestPunchMin = 0;
+  if (attMarkers) {
+    for (const k of Object.keys(attMarkers)) {
+      for (const mk of (attMarkers[k] || [])) { const mm = isoToDayMin(mk.at); if (mm != null && mm > latestPunchMin) latestPunchMin = mm; }
+    }
+  }
+  const DAY_END = Math.max(DAY_END_BASE, latestPunchMin > 0 ? Math.ceil((latestPunchMin + 10) / 60) * 60 : 0);
   const dayMin = DAY_END - DAY_START;
+  // ícone/cor por tipo de marcador de ponto
+  const MARKER_STYLE = {
+    checkin:   { icon: '▸', color: 'var(--hf-leaf-600, #1a8c4a)', bg: 'var(--hf-leaf-500, #22b35d)' },
+    checkout:  { icon: '◼', color: 'var(--text-2)', bg: 'var(--text-3)' },
+    lunch_out: { icon: '🍽', color: 'var(--hf-navy-600, #2f6fd0)', bg: 'var(--hf-navy-500, #3b82f6)' },
+    lunch_in:  { icon: '🍽', color: 'var(--hf-navy-600, #2f6fd0)', bg: 'var(--hf-navy-500, #3b82f6)' },
+    break_out: { icon: '⏸', color: 'var(--warn, #d97706)', bg: 'var(--warn, #d97706)' },
+    break_in:  { icon: '⏵', color: 'var(--warn, #d97706)', bg: 'var(--warn, #d97706)' },
+  };
   const trackW = (dayMin / 60) * hourPx;
 
   // Drag state
   const [drag, setDrag] = React.useState(null);
+  // popover do marcador de ponto clicado (Bruno 07-23): {mk, opName, x, y}
+  const [punchPop, setPunchPop] = React.useState(null);
+  React.useEffect(() => {
+    if (!punchPop) return undefined;
+    const close = (e) => { if (!e.target.closest('.tl-punch-pop') && !e.target.closest('.tl-punch-mark')) setPunchPop(null); };
+    const esc = (e) => { if (e.key === 'Escape') setPunchPop(null); };
+    document.addEventListener('mousedown', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [punchPop]);
   // drag = { id, mode: 'body'|'left'|'right', startX, startY, origStart, origEnd, origOpIdx,
   //          newStart, newEnd, newOpIdx, hoveredEventId, tooltipX, tooltipY }
 
@@ -291,6 +329,10 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
           {/* Rows */}
           {operators.map((op, opIdx) => {
             const opEvents = byOp[op.id] || [];
+            // PONTO (Bruno 07-23): attMarkers/attState são indexados por person_id
+            // NUMÉRICO (4), mas op.id é string ("p4"). Usa o _person_id (número) OU
+            // tira o 'p' do id pra casar a chave.
+            const opPid = op._person_id != null ? op._person_id : (typeof op.id === 'string' ? parseInt(op.id.replace(/^p/, ''), 10) : op.id);
             const dimmed = filterOps && filterOps.size > 0 && !filterOps.has(op.id);
             const isDropActive = dragHoveredRowIdx === opIdx && drag && drag.mode === "body";
             // Separa foreground vs background (E7 #2)
@@ -336,7 +378,24 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
             // Compute idle / sem registro (só sobre foreground)
             const last = fgEvents.length ? fgEvents[fgEvents.length - 1] : null;
             const isLive = last && last.ended_min == null;
-            const idleSince = !isLive && last ? Math.max(0, now - last.ended_min) : 0;
+            // PONTO (Bruno 07-23): se a pessoa BATEU SAÍDA no relógio, ela NÃO está
+            // idle — foi embora. Suprime o "idle" e mostra "saiu HH:MM".
+            const att = attState && (attState[opPid] || attState[op.id]);
+            const clockedOut = att && att.state === 'out' && att.checkout_at;
+            const checkoutMin = clockedOut ? isoToDayMin(att.checkout_at) : null;
+            // idle "clássico": teve tarefa e ela fechou → conta desde o fim.
+            let idleSince = (!isLive && last && !clockedOut) ? Math.max(0, now - last.ended_min) : 0;
+            // NOVO (Bruno 07-23): BATEU O PONTO e está "in" mas NÃO tem tarefa aberta
+            // → está ocioso desde a última entrada no relógio (chegada OU volta).
+            // "bateu o dedo tem que tar fazendo algo". Só quando não há tarefa viva.
+            const clockedInIdle = att && att.state === 'in' && !isLive && att.last_in_at;
+            if (clockedInIdle) {
+              const inMin = isoToDayMin(att.last_in_at);
+              const fromClock = inMin != null ? Math.max(0, now - inMin) : 0;
+              // usa o MAIOR entre "desde o fim da última tarefa" e "desde o check-in"
+              // (se nunca teve tarefa, last é null → vale o do relógio)
+              idleSince = Math.max(idleSince, fromClock);
+            }
             const expanded = expandedOpIds && expandedOpIds.has(op.id);
             const personGap = gaps && gaps[op.id];
 
@@ -358,14 +417,46 @@ function Timeline({ operators, events, now, hourPx, setHourPx, filterOps, filter
                       }}>▶</span>
                     </div>
                     <div className="ro">{op.role}</div>
-                    {isLive
-                      ? <div className="meta" style={{ color: "var(--hf-leaf-600)" }}>● ao vivo · {fmtCron((now - last.started_min))}</div>
-                      : idleSince > 30
-                        ? <div className="meta">⏱ idle {fmtDur(idleSince)}</div>
-                        : <div className="meta" style={{ color: "var(--text-3)" }}>{opEvents.length} eventos</div>}
+                    {clockedOut
+                      ? <div className="meta" style={{ color: "var(--text-3)" }}>🏁 saiu {fmtClock(checkoutMin)}</div>
+                      : isLive
+                        ? <div className="meta" style={{ color: "var(--hf-leaf-600)" }}>● ao vivo · {fmtCron((now - last.started_min))}</div>
+                        : (clockedInIdle && !last && idleSince > 10)
+                          ? <div className="meta" style={{ color: "var(--bad)" }}>⏱ bateu o ponto e não iniciou tarefa · {fmtDur(idleSince)}</div>
+                          : idleSince > 30
+                            ? <div className="meta">⏱ idle {fmtDur(idleSince)}</div>
+                            : <div className="meta" style={{ color: "var(--text-3)" }}>{opEvents.length} eventos</div>}
                   </div>
                 </div>
                 <div className="tl-track" style={{ width: trackW }}>
+                  {/* PONTO (Bruno 07-23): ícones das batidas do relógio — check-in,
+                      lunch out/in, check-out, breaks — na hora exata, no topo da row. */}
+                  {(attMarkers && (attMarkers[opPid] || attMarkers[op.id]) ? (attMarkers[opPid] || attMarkers[op.id]) : []).map((mk, mi) => {
+                    const min = isoToDayMin(mk.at);
+                    if (min == null) return null;
+                    // DAY_END agora estende pra caber checkouts de noite (ver acima).
+                    const clampMin = Math.max(DAY_START, Math.min(DAY_END, min));
+                    const st = MARKER_STYLE[mk.kind] || MARKER_STYLE.checkin;
+                    const left = ((clampMin - DAY_START) / 60) * hourPx;
+                    const isUnjust = mk.type === 'unjustified';
+                    return (
+                      <div key={'mk' + mi} className="tl-punch-mark"
+                           onClick={(e) => { e.stopPropagation(); setPunchPop({ mk, min, opName: op.name, x: e.clientX, y: e.clientY }); }}
+                           style={{ position: 'absolute', left, top: 1, zIndex: 7, transform: 'translateX(-50%)', cursor: 'pointer',
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'auto' }}
+                           title={`${mk.label}: ${fmtClock(min)} — clique pra detalhes`}>
+                        {/* quadradinho com ícone (formato distinto das tarefas) */}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10.5, lineHeight: 1,
+                                       padding: '2px 5px', borderRadius: 4, border: '1.5px solid #fff',
+                                       background: mk.incomplete ? 'var(--warn, #d97706)' : (isUnjust ? 'var(--bad, #dc2626)' : st.bg), color: '#fff',
+                                       fontWeight: 800, whiteSpace: 'nowrap', boxShadow: '0 1px 4px rgba(0,0,0,.35)' }}>
+                          <span style={{ fontSize: 9 }}>{mk.incomplete ? '⚠' : st.icon}</span>
+                          <span>{mk.label}: {fmtClock(min)}</span>
+                        </span>
+                        <span style={{ width: 2, height: 6, background: mk.incomplete ? 'var(--warn,#d97706)' : (isUnjust ? 'var(--bad,#dc2626)' : st.bg) }}/>
+                      </div>
+                    );
+                  })}
                   {/* half-hour subdivisions */}
                   {hoursMarks.slice(0, -1).map(h => (
                     <div key={h} className="halfhour" style={{ left: ((h - DAY_START + 30) / 60) * hourPx }}/>
@@ -636,6 +727,51 @@ function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, acti
             </div>
           ))}
       </div>
+
+      {/* POPOVER do marcador de ponto clicado (Bruno 07-23) */}
+      {punchPop && (() => {
+        const mk = punchPop.mk;
+        const st = MARKER_STYLE[mk.kind] || MARKER_STYLE.checkin;
+        const desc = mk.kind === 'checkin' ? 'Bateu o ponto de ENTRADA no relógio.'
+          : mk.kind === 'checkout' ? 'Bateu o ponto de SAÍDA no relógio (fim do dia).'
+          : mk.kind === 'lunch_out' ? 'Saiu para o almoço.'
+          : mk.kind === 'lunch_in' ? 'Voltou do almoço.'
+          : mk.incomplete ? 'Bateu o ponto mas NÃO registrou a volta (par incompleto — confira).'
+          : mk.kind === 'break_out' ? 'Saiu para um break.'
+          : mk.kind === 'break_in' ? 'Voltou do break.' : '';
+        return (
+          <div className="tl-punch-pop" style={{ position: 'fixed', left: Math.min(punchPop.x, window.innerWidth - 260), top: punchPop.y + 12,
+                 zIndex: 100, width: 240, background: 'var(--surface)', border: '1px solid var(--border)',
+                 borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 10px 40px rgba(0,0,0,.3))', padding: 12 }}
+               onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ width: 24, height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                             background: mk.incomplete ? 'var(--warn)' : (mk.type === 'unjustified' ? 'var(--bad)' : st.bg), color: '#fff', fontSize: 13 }}>
+                {mk.incomplete ? '⚠' : st.icon}
+              </span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{mk.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{punchPop.opName}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{desc}</div>
+            <div style={{ marginTop: 6, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-3)' }}>Horário do relógio</span>
+              <b className="mono">{fmtClock(punchPop.min)}</b>
+            </div>
+            {mk.minutes != null && (mk.kind === 'lunch_in' || mk.kind === 'break_in' || mk.kind === 'lunch_out' || mk.kind === 'break_out') && (
+              <div style={{ marginTop: 2, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-3)' }}>Duração do break</span>
+                <b className="mono">{mk.minutes}min{mk.type === 'lunch' && mk.minutes > 45 ? ` (+${mk.minutes - 45} do almoço)` : ''}</b>
+              </div>
+            )}
+            {mk.type === 'unjustified' && (
+              <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--bad)', fontWeight: 600 }}>⚠ Break extra sem justificativa no sistema.</div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic' }}>Horário do relógio de ponto (interno · admin).</div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

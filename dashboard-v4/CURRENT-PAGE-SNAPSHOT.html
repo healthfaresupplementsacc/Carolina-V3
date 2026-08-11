@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HealthFare — Current Page Snapshot (for redesign)</title>
+<style>
+  /* ===== HealthFare current theme (LIGHT + DARK) — this is the CURRENT look to redesign ===== */
+  :root{
+    --hf-navy-600:#1e3f8c; --hf-navy-400:#4a74c2; --hf-leaf-500:#22b35d; --hf-leaf-700:#14773f;
+    --flow-prod:#1e3f8c; --flow-pnp:#d97706; --flow-support:#7c5cd6;
+    --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --info:#2563eb;
+    --bg:#f4f6fb; --surface:#ffffff; --surface-2:#eef2f7; --border:#dce3ee;
+    --text:#0c193b; --text-2:#3a4a68; --text-3:#7385a3;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0a1124; --surface:#131c36; --surface-2:#0f1730; --border:rgba(255,255,255,0.08);
+    --text:#e7ecf6; --text-2:#a9b6d1; --text-3:#6b7ba0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:18px;transition:background .2s}
+  .topbar{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .logo{font-weight:800;font-size:18px}.logo .h{color:var(--hf-navy-600)}.logo .f{color:var(--hf-leaf-500)}
+  .spacer{flex:1}
+  .themebtn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
+  .datepick{border:1px solid var(--border);background:var(--surface);color:var(--text-2);border-radius:8px;padding:6px 12px;font-size:13px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+  .section-label{font-size:10.5px;font-weight:800;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:18px 0 8px;display:flex;align-items:center;gap:6px}
+
+  /* alert boxes */
+  .alert{border:1.5px solid var(--bad);background:color-mix(in srgb,var(--bad) 7%,var(--surface));border-radius:12px;padding:12px 14px;margin-bottom:8px}
+  .alert .t{font-weight:800;color:var(--bad);font-size:13.5px}
+  .alert .d{font-size:12.5px;color:var(--text-2);margin-top:3px}
+  .alert.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 7%,var(--surface))}
+  .alert.warn .t{color:var(--warn)}
+  .btn{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;font-weight:700}
+
+  /* attendance strip */
+  .ponto{display:flex;gap:8px;flex-wrap:wrap}
+  .pcard{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;display:flex;align-items:center;gap:8px;min-width:160px}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .dot.in{background:var(--ok)}.dot.brk{background:var(--warn)}.dot.out{background:var(--text-3)}
+  .pname{font-size:12.5px;font-weight:700}.pstate{font-size:11px;color:var(--text-3)}
+
+  /* KPI grid */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--accent,var(--hf-navy-600));border-radius:12px;padding:12px 14px}
+  .kpi .l{font-size:11px;color:var(--text-3);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .kpi .v{font-size:26px;font-weight:800;margin-top:4px}
+  .kpi .s{font-size:11.5px;color:var(--text-3);margin-top:2px}
+
+  /* timeline */
+  .tl{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px}
+  .tlrow{display:flex;align-items:center;gap:10px;margin:8px 0}
+  .tlname{width:110px;font-size:12px;font-weight:700;flex:0 0 110px}
+  .tltrack{flex:1;height:22px;background:var(--surface-2);border-radius:6px;position:relative;overflow:hidden}
+  .bar{position:absolute;top:3px;height:16px;border-radius:4px;opacity:.9}
+  .bar.prod{background:var(--flow-prod)}.bar.pnp{background:var(--flow-pnp)}.bar.sup{background:var(--flow-support)}
+
+  /* cameras */
+  .cams{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+  .cam{aspect-ratio:16/9;background:linear-gradient(135deg,#1a2540,#0d1730);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text-3);font-size:11px;position:relative}
+  .cam::after{content:'● LIVE';position:absolute;top:6px;left:8px;font-size:9px;color:#ff5c5c;font-weight:700}
+
+  /* notifications */
+  .notif{font-size:12px;color:var(--text-2);padding:6px 0;border-bottom:1px solid var(--border);display:flex;gap:8px}
+  .redesign-note{background:color-mix(in srgb,var(--info) 8%,var(--surface));border:1px dashed var(--info);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:var(--text-2)}
+</style>
+</head>
+<body>
+  <div class="redesign-note">
+    📐 <b>This is a SNAPSHOT of the CURRENT HealthFare dashboard ("Hoje" page) with real data from 2026-08-06.</b>
+    Redesign the whole layout — light + dark — keeping all sections below. Toggle theme with the button (top right) to see both.
+    Data shown is real: production 278 bottles, 144 P&P orders, 4 operators.
+  </div>
+
+  <div class="topbar">
+    <span class="logo"><span class="h">Health</span><span class="f">Fare</span></span>
+    <span style="color:var(--text-3);font-size:13px">· Command Center · Hoje</span>
+    <div class="spacer"></div>
+    <span class="datepick">📅 06/08/2026</span>
+    <button class="themebtn" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark')">☀️ / 🌙 tema</button>
+  </div>
+
+  <!-- 1. ALERT BOXES (only appear when there's a problem) -->
+  <div class="alert">
+    <div class="t">🚨 Incidente de dados — contagem duplicada</div>
+    <div class="d"><b>Ana</b> registrou <b>574 bottles</b> de Urolithin A (lote BR-2026-0313) <b>duas vezes</b> (double-click). Uma foi removida.</div>
+    <div style="margin-top:6px"><button class="btn">resolver</button></div>
+  </div>
+  <div class="alert warn">
+    <div class="t">⏳ Total de produção pendente — precisa investigar</div>
+    <div class="d"><b>Vitor</b> fechou a linha de NAC (lote BR-2026-0313) sem informar a quantidade final. Motivo: "abertura errada da tarefa".</div>
+    <div style="margin-top:6px;display:flex;gap:8px;align-items:center">
+      <input placeholder="total de unidades" style="width:130px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+      <button class="btn">Registrar total</button><button class="btn">foi engano</button>
+    </div>
+  </div>
+
+  <!-- 2. PONTO (attendance) -->
+  <div class="section-label">🕐 Ponto</div>
+  <div class="ponto">
+    <div class="pcard"><span class="dot in"></span><div><div class="pname">Ana</div><div class="pstate">entrou 08:13</div></div></div>
+    <div class="pcard"><span class="dot in"></span><div><div class="pname">Vitor</div><div class="pstate">entrou 08:14</div></div></div>
+    <div class="pcard"><span class="dot brk"></span><div><div class="pname">Simone</div><div class="pstate">EM PAUSA 29min</div></div></div>
+    <div class="pcard"><span class="dot in"></span><div><div class="pname">Bruno Sarmento</div><div class="pstate">entrou 11:12</div></div></div>
+  </div>
+
+  <!-- 3. KPIs -->
+  <div class="section-label">📊 Números do dia</div>
+  <div class="kpis">
+    <div class="kpi" style="--accent:var(--flow-prod)"><div class="l">Produção hoje</div><div class="v">278</div><div class="s">bottles · vs média 1.493/dia</div></div>
+    <div class="kpi" style="--accent:var(--hf-leaf-500)"><div class="l">Revisão (dia)</div><div class="v">94%</div><div class="s">aprovado</div></div>
+    <div class="kpi" style="--accent:var(--flow-support)"><div class="l">Metas em curso</div><div class="v">2</div><div class="s">500x Vitamin D · 300x NAC</div></div>
+    <div class="kpi" style="--accent:var(--flow-pnp)"><div class="l">P&P do dia</div><div class="v">144</div><div class="s">ordens · 66s/ordem</div></div>
+    <div class="kpi" style="--accent:var(--flow-pnp)"><div class="l">Pedidos hoje (Veeqo)</div><div class="v">144</div><div class="s">shipped</div></div>
+    <div class="kpi" style="--accent:var(--hf-navy-400)"><div class="l">FNSKU hoje</div><div class="v">340</div><div class="s">labels</div></div>
+  </div>
+
+  <!-- 4. TIMELINE -->
+  <div class="section-label">📈 Timeline do dia (por pessoa)</div>
+  <div class="tl">
+    <div class="tlrow"><div class="tlname">Ana</div><div class="tltrack"><div class="bar prod" style="left:5%;width:30%"></div><div class="bar pnp" style="left:40%;width:20%"></div><div class="bar prod" style="left:65%;width:25%"></div></div></div>
+    <div class="tlrow"><div class="tlname">Vitor</div><div class="tltrack"><div class="bar prod" style="left:5%;width:45%"></div><div class="bar sup" style="left:55%;width:15%"></div><div class="bar prod" style="left:72%;width:20%"></div></div></div>
+    <div class="tlrow"><div class="tlname">Simone</div><div class="tltrack"><div class="bar pnp" style="left:15%;width:35%"></div><div class="bar pnp" style="left:55%;width:30%"></div></div></div>
+    <div class="tlrow"><div class="tlname">Bruno S.</div><div class="tltrack"><div class="bar prod" style="left:35%;width:50%"></div></div></div>
+    <div style="font-size:10.5px;color:var(--text-3);margin-top:8px">
+      <span style="color:var(--flow-prod)">■</span> Produção
+      <span style="color:var(--flow-pnp);margin-left:10px">■</span> P&P
+      <span style="color:var(--flow-support);margin-left:10px">■</span> Suporte ·
+      barras = tarefas · clicáveis → detalhe (produto/lote/duração/quem)
+    </div>
+  </div>
+
+  <!-- 5. CAMERAS -->
+  <div class="section-label">📹 Câmeras</div>
+  <div class="cams">
+    <div class="cam">Formulação Cam 1</div><div class="cam">Encapsulação</div>
+    <div class="cam">Linha de Produção</div><div class="cam">P&P / Embalagem</div>
+  </div>
+
+  <!-- 6. NOTIFICATIONS -->
+  <div class="section-label">🔔 Notificações</div>
+  <div class="card">
+    <div class="notif">🕐 Vitor bateu o ponto de saída às 18:36.</div>
+    <div class="notif">✅ Simone concluiu a operação de máquina (BR-2026-0315).</div>
+    <div class="notif">📦 Impressão pronta — Urolithin A · 574 labels.</div>
+  </div>
+</body>
+</html>

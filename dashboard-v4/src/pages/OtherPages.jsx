@@ -729,10 +729,11 @@ function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES, writes, refresh }) {
                   <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
                     {d.flow ? <span className={`pill ${d.flow}`} style={{ marginRight: 6, fontSize: 10 }}><span className="dot"/>{d.flow}</span> : null}
                     <span className="mono">{d.time_of_day || d.due_date || '—'}</span>
-                    {' · '}{d.kind} · {wd}
+                    {[d.kind, wd].filter(Boolean).map((s) => ` · ${s}`).join('')}
                     {!d.active && <span style={{ color: 'var(--bad)', marginLeft: 6 }}>(inativo)</span>}
                   </div>
                 </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: '0 0 auto' }}>
                 <button className="icon-btn" onClick={async () => {
                   const time = window.prompt(`Novo horário HH:MM (24h NY) pra "${d.label}":`, (d.time_of_day || '').slice(0, 5));
                   if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return;
@@ -754,6 +755,7 @@ function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES, writes, refresh }) {
                 }} title="Apagar">
                   <Icon name="trash" size={12}/>
                 </button>
+                </div>
               </div>
             );
           })}

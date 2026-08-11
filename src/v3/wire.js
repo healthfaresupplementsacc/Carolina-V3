@@ -57,9 +57,28 @@ function _init() {
     slack: { postAs: slackSender.postAs, updateMessage: slackSender.updateMessage },
     adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
   });
+  // avisa o admin-orin quando um incidente de dados (duplicata) é detectado (Bruno 07-23)
+  const _incidentAdminChannel = process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+  const _onDataIncident = async (incidentId) => {
+    try {
+      const r = await _pool.query('SELECT * FROM v3.data_incidents WHERE id=$1', [incidentId]);
+      const inc = r.rows[0]; if (!inc) return;
+      const w = inc.where_json || {};
+      await slackSender.postAs({
+        channel: _incidentAdminChannel, sender: { name: 'HealthFare Tracker', icon: ':rotating_light:' },
+        thread_ts: null, unfurl_links: false, unfurl_media: false,
+        text: `:rotating_light: *INCIDENTE DE DADOS — ${inc.title}*\n`
+          + `${inc.explanation}\n\n`
+          + `*Diagnóstico:* ${inc.diagnosis}\n`
+          + `_1ª (mantida): ${w.original ? w.original.channel + ' · ' + w.original.person : '?'}_\n`
+          + `_2ª (duplicata): ${w.duplicate ? w.duplicate.channel + ' · ' + w.duplicate.person : '?'}_\n`
+          + `Já corrigi automaticamente (a 2ª não soma mais). Detalhes na caixa de incidentes do dashboard.`,
+      });
+    } catch (e) { console.error('[incident] slack:', e.message); }
+  };
   _svc = {
     provider, eventService, batchService, commandHandler, notificationHandler,
-    productionCountService: new ProductionCountService({ db: _pool }),
+    productionCountService: new ProductionCountService({ db: _pool, onIncident: _onDataIncident }),
     goalService: new GoalService({ db: _pool }),
     personResolver: new PersonResolver({ db: _pool, provider }),
     promptBuilder: new PromptBuilder({ db: _pool }),
@@ -140,6 +159,8 @@ function mount(app) {
     // Redesign: design system compartilhado (/op, /admin, /admin/metrics, /dashboard-v4).
     app.use('/shared', express2.static(path2.join(process.cwd(), 'src', 'shared')));
     app.use('/op', express2.static(path2.join(process.cwd(), 'src', 'op')));
+    // Estação de Impressão (.28) — "User Screen" kiosk (login PIN igual /op). Bruno 07-16.
+    app.use('/print', express2.static(path2.join(process.cwd(), 'src', 'print')));
     // Fases B+C — Admin Panel (path NOVO; dashboard V4 intocado).
     const adminPanel = require('../routes/admin');
     app.use('/', adminPanel.createAdminRouter({
@@ -154,8 +175,30 @@ function mount(app) {
       res.sendFile(path2.join(adminDir, 'index.html'));
     });
   }
+  // recordTotal — grava o total de produção na contagem canônica (com dedup do
+  // ProductionCountService). COMPARTILHADO pelo worker conversacional E pela caixa
+  // admin do dashboard (Bruno 07-27). Um só caminho de gravação = sem divergência.
+  const _totalCountSvc = new ProductionCountService({ db: _pool });
+  const recordTotal = async ({ followup, bottles, via, byPersonId }) => {
+    if (!followup.product_id) return;   // sem produto → o admin resolve manualmente
+    const prodDate = (await _pool.query(
+      `SELECT (started_at AT TIME ZONE 'America/New_York')::date::text d FROM v3.events WHERE id=$1`, [followup.event_id])).rows[0];
+    await _totalCountSvc.record({
+      product_id: followup.product_id,
+      product_batch_id: null,
+      bottles,
+      reported_by_person_id: byPersonId || followup.person_id,
+      production_date: (prodDate && prodDate.d) || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
+      source_event_id: followup.event_id,
+      actor_type: via === 'admin_dashboard' ? 'admin' : 'operator',
+      confidence: 'high',
+      notes: 'total via followup (' + (via || '?') + ')',
+    });
+  };
+
   // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
-  app.use('/', dataApi.createDataRouter({ db: _pool }));
+  app.use('/', dataApi.createDataRouter({ db: _pool, recordTotal,
+    slack: { postAs: slackSender.postAs }, adminChannelId }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
   // buildada em public/dashboard/. Aditivo — não toca nada.
   const express = require('express');
@@ -164,7 +207,23 @@ function mount(app) {
   // V4 (redesign, E4) — SPA paralela em /dashboard-v4. Cliente puro do
   // mesmo /api/v3/data/* (PIN-authed). dashboard/ atual segue intacto.
   // Switch de URL (E8) só rola quando a lista de paridade estiver verde.
-  app.use('/dashboard-v4', express.static(path.join(process.cwd(), 'public', 'dashboard-v4')));
+  // PERF (Bruno 08-04): assets com hash no nome (/assets/index-XXXX.js/.css) NUNCA
+  // mudam sem rebuild → cache imutável de 1 ano (o browser nem revalida, carrega da
+  // cache local instantâneo). Antes vinha max-age=0 → o bundle de 146KB era baixado/
+  // revalidado a CADA abertura, o que fazia o dashboard "demorar toda vez". O
+  // index.html (sem hash) fica no-cache pra que deploy novo apareça na hora.
+  const V4_DIR = path.join(process.cwd(), 'public', 'dashboard-v4');
+  app.use('/dashboard-v4', express.static(V4_DIR, {
+    etag: true, lastModified: true,
+    setHeaders(res, filePath) {
+      // tudo em /assets/ tem hash no nome → imutável 1 ano. index.html → no-cache.
+      if (/[\\/]assets[\\/]/.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (/index\.html$/.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   // FOTO — page standalone pra Simone subir foto pro #images (C0B6AQX6LJV).
   // SLACK_BOT_TOKEN no backend; cliente envia base64 com token leve `?k=`.
   // 503 enquanto IMAGES_UPLOAD_TOKEN não tiver no env (Bruno seta no Railway).
@@ -194,19 +253,24 @@ async function startWorker() {
     `INSERT INTO v3.settings (key, value, description) VALUES ($1, to_jsonb(NOW()), 'heartbeat do worker')
      ON CONFLICT (key) DO UPDATE SET value = to_jsonb(NOW()), updated_at = NOW()`,
     ['worker_tick_' + name]).catch(() => {});
-  const EXPECTED_WORKERS = [];
-  if (process.env.ABSENCE_ALERT_ENABLED !== 'false') EXPECTED_WORKERS.push({ name: 'absence', staleMin: 20 });
-  if (process.env.WORKER_FORGOTTEN_DM_ENABLED === 'true') EXPECTED_WORKERS.push({ name: 'forgotten_dm', staleMin: 40 });
-  if (process.env.WORKER_EMS_SYNC_ENABLED !== 'false') EXPECTED_WORKERS.push({ name: 'ems_sync', staleMin: 10 });
-  if (process.env.ENCAP_MONITOR_ENABLED !== 'false') EXPECTED_WORKERS.push({ name: 'encap', staleMin: 40 });
+  // FONTE ÚNICA (Bruno 07-28): o watchdog deriva a lista do REGISTRO de processos.
+  // Vigia todo processo do Railway que está LIGADO e tem heartbeat. Adicionar um
+  // worker novo no registro = ele passa a ser vigiado automaticamente. O observer
+  // bate numa chave própria (observer_last_tick_at) — mapeado aqui.
+  const _registry = require('./process-registry');
+  const EXPECTED_WORKERS = _registry.watchedProcesses().map((p) => ({
+    name: p.key,
+    tickKey: p.heartbeatKey === 'observer_last_tick_at' ? 'observer_last_tick_at' : p.key,
+    staleMin: p.staleMin || 10,
+  }));
   const _wdLastAlert = new Map(); // name -> ts (não spamma: 1 alerta/60min por worker)
   setInterval(async () => {
     try {
       if (Date.now() - bootAt < 12 * 60 * 1000) return; // graça pós-boot
-      const r = await _pool.query("SELECT key, value FROM v3.settings WHERE key LIKE 'worker_tick_%'");
-      const ticks = new Map(r.rows.map((x) => [x.key.replace('worker_tick_', ''), new Date(JSON.parse(JSON.stringify(x.value))).getTime()]));
+      const r = await _pool.query("SELECT key, value FROM v3.settings WHERE key LIKE 'worker_tick_%' OR key='observer_last_tick_at'");
+      const ticks = new Map(r.rows.map((x) => [x.key.startsWith('worker_tick_') ? x.key.replace('worker_tick_', '') : x.key, new Date(JSON.parse(JSON.stringify(x.value))).getTime()]));
       for (const w of EXPECTED_WORKERS) {
-        const last = ticks.get(w.name) || 0;
+        const last = ticks.get(w.tickKey) || 0;
         const staleFor = Math.round((Date.now() - last) / 60000);
         if (staleFor < w.staleMin) continue;
         const lastAlert = _wdLastAlert.get(w.name) || 0;
@@ -313,6 +377,8 @@ async function startWorker() {
   if (process.env.WORKER_SANDBOX_CLEANUP_ENABLED !== 'false') {
     const { SandboxCleanup } = require('../workers/sandbox-cleanup');
     new SandboxCleanup({ db: _pool }).start(5000);
+    // heartbeat leve (Bruno 07-28): o painel de saúde precisa saber que está vivo.
+    setInterval(() => beat('sandbox_cleanup'), 30000); beat('sandbox_cleanup');
   }
 
   // FASE 2 — EMS activity sync: espelha /line + /pipeline em v3.ems_activity_cache
@@ -321,8 +387,176 @@ async function startWorker() {
     try {
       const { EmsActivitySync } = require('../workers/ems-activity-sync');
       const { ems } = require('./services/ems-api');
-      new EmsActivitySync({ db: _pool, ems, heartbeat: () => beat('ems_sync') }).start(45000);
+      new EmsActivitySync({ db: _pool, ems, heartbeat: () => beat('ems_sync'),
+        slack: { postAs: slackSender.postAs },
+        adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1' }).start(45000);
     } catch (e) { console.error('[V3] ems-activity-sync não iniciou:', e.message); }
+  }
+
+  // CENTRO DE ESTOQUE (Bruno 08-01) — Fase A, OPT-IN (só liga com env=true;
+  // as tabelas 058/059/060 precisam existir antes). Zero-disrupção: nada aqui
+  // toca operador; alertas vão pro canal do env (sandbox em teste, admin-orin
+  // em produção). Dedução default 'dry' (shadow) até o launch.
+  if (process.env.WORKER_VEEQO_ORDERS_ENABLED === 'true') {
+    try {
+      const { VeeqoOrderSync } = require('../workers/veeqo-order-sync');
+      const { veeqo } = require('./services/veeqo-api');
+      const { StockService } = require('./services/StockService');
+      const stockSvc = new StockService({
+        db: _pool,
+        onDiscrepancy: async (d) => {
+          try {
+            await _pool.query(
+              `INSERT INTO v3.data_incidents (kind, severity, title, explanation, product_id, amount, where_json)
+               VALUES ($1, 'warning', $2, $3, $4, $5, $6::jsonb)`,
+              ['stock_' + (d.kind || 'desync'), 'Estoque: ' + (d.kind || 'divergência'),
+                d.note || 'divergência de estoque', d.product_id || null,
+                d.wanted != null ? d.wanted : null,
+                JSON.stringify({ bin_id: d.bin_id || null, box_id: d.box_id || null, applied: d.applied != null ? d.applied : null })]);
+          } catch (e) { console.error('[stock] incidente falhou:', e.message); }
+        },
+      });
+      new VeeqoOrderSync({ db: _pool, veeqo, stock: stockSvc,
+        heartbeat: () => beat('veeqo_orders') }).start(5 * 60 * 1000);
+    } catch (e) { console.error('[V3] veeqo-order-sync não iniciou:', e.message); }
+  }
+  if (process.env.WORKER_STOCK_ALERTS_ENABLED === 'true') {
+    try {
+      const { StockAlerts } = require('../workers/stock-alerts');
+      const { veeqo } = require('./services/veeqo-api');
+      new StockAlerts({ db: _pool, veeqo, slack: { postAs: slackSender.postAs },
+        channelId: process.env.STOCK_ALERTS_CHANNEL || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        heartbeat: () => beat('stock_alerts') }).start(30 * 60 * 1000);
+    } catch (e) { console.error('[V3] stock-alerts não iniciou:', e.message); }
+  }
+  // Mergeable orders (Bruno 08-02): de manhã, lista no admin-orin os pedidos da
+  // Veeqo que precisam ser mergeados (mesmo comprador+endereço via mergeable_id
+  // nativo). READ-ONLY. OPT-IN: WORKER_MERGEABLE_ALERT_ENABLED=true.
+  if (process.env.WORKER_MERGEABLE_ALERT_ENABLED === 'true') {
+    try {
+      const { VeeqoMergeableAlert } = require('../workers/veeqo-mergeable-alert');
+      const { veeqo } = require('./services/veeqo-api');
+      new VeeqoMergeableAlert({ db: _pool, veeqo, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        heartbeat: () => beat('mergeable_alert') }).start(30 * 60 * 1000);
+    } catch (e) { console.error('[V3] veeqo-mergeable-alert não iniciou:', e.message); }
+  }
+
+  // Divergência de impressão (Bruno 08-06): 12pm NY compara (1ª+2ª impressão
+  // digitadas) vs Veeqo impresso; divergiu → pergunta pra Simone no
+  // #orders-and-inventory citando SÓ a diferença; grava a resposta da thread.
+  if (process.env.WORKER_PRINT_DIVERGENCE_ENABLED === 'true') {
+    try {
+      const { PrintDivergenceWatchdog } = require('../workers/print-divergence-watchdog');
+      const { veeqo } = require('./services/veeqo-api');
+      const { WebClient: _WC } = require('@slack/web-api');
+      new PrintDivergenceWatchdog({
+        db: _pool, veeqo, slack: { postAs: slackSender.postAs },
+        slackWeb: process.env.SLACK_BOT_TOKEN ? new _WC(process.env.SLACK_BOT_TOKEN) : null,
+        channelId: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
+        heartbeat: () => beat('print_divergence'),
+      }).start(15 * 60 * 1000);
+    } catch (e) { console.error('[V3] print-divergence-watchdog não iniciou:', e.message); }
+  }
+
+  // Falta de estoque pro P&P (Bruno 08-06): 10min após iniciar a impressão avisa
+  // admin-orin + orders-and-inventory; e todo dia 8h NY manda o resumo no admin-orin.
+  if (process.env.WORKER_STOCK_GAP_ALERT_ENABLED === 'true') {
+    try {
+      const { StockGapAlert } = require('../workers/stock-gap-alert');
+      new StockGapAlert({
+        db: _pool, slack: { postAs: slackSender.postAs },
+        adminChannel: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        opsChannel: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK',
+        getGaps: async () => {
+          const { ENDPOINTS, buildServices } = require('./data/router');
+          const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/stock-gaps');
+          const out = await ep.handler({ query: {}, params: {} }, {}, buildServices(_pool));
+          return out.data;
+        },
+        heartbeat: () => beat('stock_gap_alert'),
+      }).start(5 * 60 * 1000);
+    } catch (e) { console.error('[V3] stock-gap-alert não iniciou:', e.message); }
+  }
+
+  // SKU incomum na fila de P&P (Bruno 08-06): FBA/WFS ou sem mapa → avisa admin-orin
+  // (SEM tirar da picklist — regra: imprimimos TUDO do HealthFare Warehouse).
+  if (process.env.WORKER_UNUSUAL_SKU_ENABLED === 'true') {
+    try {
+      const { UnusualSkuWatch } = require('../workers/unusual-sku-watch');
+      new UnusualSkuWatch({ db: _pool, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        heartbeat: () => beat('unusual_sku') }).start(15 * 60 * 1000);
+    } catch (e) { console.error('[V3] unusual-sku-watch não iniciou:', e.message); }
+  }
+
+  // Duplicatas de envio (Bruno 08-03): rede de segurança PÓS-envio. À tarde, detecta
+  // no admin-orin clientes (MESMO nome+endereço+dia) que saíram em CAIXAS SEPARADAS
+  // (2+ trackings, sem merge) — base pra claim de reembolso. Mesmo gate anti-despachante
+  // do merge-alert (nome exato; nunca mergeable_id). OPT-IN: WORKER_DUP_SHIPMENT_ENABLED=true.
+  if (process.env.WORKER_DUP_SHIPMENT_ENABLED === 'true') {
+    try {
+      const { VeeqoDupShipmentDetector } = require('../workers/veeqo-dup-shipment-detector');
+      const { veeqo } = require('./services/veeqo-api');
+      new VeeqoDupShipmentDetector({ db: _pool, veeqo, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        heartbeat: () => beat('dup_shipment') }).start(60 * 60 * 1000);
+    } catch (e) { console.error('[V3] veeqo-dup-shipment-detector não iniciou:', e.message); }
+  }
+
+  // Relógio de ponto NGTeco (Bruno 07-22): punches → att_punch/att_state; chegada/
+  // saída → admin-orin; volta do almoço fecha o almoço; nudges. No-op sem creds
+  // (NGTECO_USER/PASS). Off via WORKER_ATTENDANCE_ENABLED=false.
+  if (process.env.WORKER_ATTENDANCE_ENABLED !== 'false') {
+    try {
+      const { AttendanceSync } = require('../workers/attendance-sync');
+      const ngteco = require('./services/ngteco');
+      const attAlertGate = require('./alert-gate');
+      new AttendanceSync({ db: _pool, ngteco, heartbeat: () => beat('attendance'),
+        slack: { postAs: slackSender.postAs }, alertGate: { isMuted: (db) => attAlertGate.isMuted(db) },
+        adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        operatorChannelId: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK' }).start(60000);
+    } catch (e) { console.error('[V3] attendance-sync não iniciou:', e.message); }
+  }
+
+  // PRODUCTION TOTAL WORKER (Bruno 07-27): a linha de produção SEMPRE tem que
+  // terminar com um total. Fechou sem número → o sistema conversa com o operador
+  // no Slack até ter o total OU escalar pro admin. Off via WORKER_TOTAL_ENABLED=false.
+  if (process.env.WORKER_TOTAL_ENABLED !== 'false') {
+    try {
+      const { ProductionTotalWorker } = require('../workers/production-total-worker');
+      const totalAlertGate = require('./alert-gate');
+      // provider + recordTotal são criados AQUI (escopo do startWorker): o `provider`
+      // do _init() e o `recordTotal` do mount() NÃO alcançam este escopo.
+      const GeminiProvider = require('./llm/providers/GeminiProvider');
+      const totalProvider = new GeminiProvider({});
+      const totalCountSvc = new ProductionCountService({ db: _pool });
+      const recordTotalWk = async ({ followup, bottles, via, byPersonId }) => {
+        if (!followup.product_id) return;
+        const pd = (await _pool.query(
+          `SELECT (started_at AT TIME ZONE 'America/New_York')::date::text d FROM v3.events WHERE id=$1`, [followup.event_id])).rows[0];
+        await totalCountSvc.record({
+          product_id: followup.product_id, product_batch_id: null, bottles,
+          reported_by_person_id: byPersonId || followup.person_id,
+          production_date: (pd && pd.d) || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }),
+          source_event_id: followup.event_id,
+          actor_type: via === 'admin_dashboard' ? 'admin' : 'operator',
+          confidence: 'high', notes: 'total via followup (' + (via || '?') + ')',
+        });
+      };
+      new ProductionTotalWorker({
+        db: _pool,
+        slack: { postAs: slackSender.postAs },
+        botToken: process.env.SLACK_BOT_TOKEN || null,
+        provider: totalProvider,
+        productionChannel: productionChannelId,
+        adminChannel: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        alertGate: { isMuted: (db) => totalAlertGate.isMuted(db) },
+        recordTotal: recordTotalWk,
+        heartbeat: () => beat('total'),
+      }).start(30000);
+      console.log('[V3] production-total-worker ligado (tick 30s)');
+    } catch (e) { console.error('[V3] production-total-worker não iniciou:', e.message); }
   }
 
   // Absence alert: operador logado sem função (foreground) há > 15min → avisa no
@@ -337,7 +571,7 @@ async function startWorker() {
   // É emergência operacional → sempre ON (desliga só via ENCAP_MONITOR_ENABLED=false).
   try {
     const { EncapMonitor } = require('../workers/encap-monitor');
-    new EncapMonitor({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId, heartbeat: () => beat('encap') }).start(10 * 60 * 1000);
+    new EncapMonitor({ db: _pool, slack: { postAs: slackSender.postAs }, channelId: productionChannelId, adminChannelId: (process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1'), heartbeat: () => beat('encap') }).start(10 * 60 * 1000);
   } catch (e) { console.error('[V3] encap-monitor não iniciou:', e.message); }
 
   // Fase 5 — refresh da matview de métricas a cada 10min (best-effort).
@@ -379,11 +613,13 @@ async function startWorker() {
       silentMode: carolinaSilent || (process.env.WORKER_DEDUPE_NOTIFICATIONS_SILENT_MODE === 'true'),
     });
     watcher.start(60 * 1000);
+    setInterval(() => beat('dedupe'), 60000); beat('dedupe');   // heartbeat (Bruno 07-28)
   }
 
   if (process.env.V3_PENDING_COMMANDS_CRON_DISABLED !== '1') {
     setInterval(async () => {
       try {
+        beat('pending_commands');   // heartbeat (Bruno 07-28)
         const n = await _svc.commandHandler.expireOldPending();
         if (n > 0) console.log(`[V3] pending_commands cron: ${n} comandos expirados`);
       } catch (e) {

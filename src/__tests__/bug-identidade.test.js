@@ -43,12 +43,19 @@ describe('BUG IDENTIDADE — role lookup', () => {
 });
 
 describe('BUG IDENTIDADE — hierarchy seed migration', () => {
-  test('db migrate seeds Thassio/Henrique + sets owner by Bruno slack id', () => {
+  // Bruno 08-03: o seed virou BOOTSTRAP-ONLY (só roda com a tabela vazia). Não
+  // re-crava mais o roster/roles a cada boot — o banco (editável pela página de
+  // admin) é a fonte da verdade. Ver [[rbac-roles-not-names]].
+  test('db seeds Thassio/Henrique/Bruno com roles APENAS no bootstrap (tabela vazia)', () => {
     const dbsrc = fs.readFileSync(path.join(__dirname, '..', 'db', 'index.js'), 'utf8');
-    expect(dbsrc).toMatch(/UPDATE operators SET role = 'owner'[\s\S]*slack_user_id = 'U03URLL1D4L'/);
+    // ainda semeia os papéis certos no primeiro boot
+    expect(dbsrc).toMatch(/'Bruno', *'U03URLL1D4L', *FALSE, *'owner'/);
     expect(dbsrc).toMatch(/'Thassio', *'U03S46L2EUA', *FALSE, *'owner'/);
     expect(dbsrc).toMatch(/'Henrique Monteiro', *'U085SDY3F4Z', *FALSE, *'manager'/);
-    expect(dbsrc).toMatch(/SET role = 'operator'[\s\S]*role IS NULL OR btrim\(role\) = ''/);
+    // guarda de bootstrap: só insere se NÃO existe nenhum operador
+    expect(dbsrc).toMatch(/WHERE NOT EXISTS \(SELECT 1 FROM operators\)/);
+    // e NÃO re-crava mais via UPDATE de role a cada boot (o padrão antigo sumiu)
+    expect(dbsrc).not.toMatch(/UPDATE operators SET role = 'owner'[\s\S]*slack_user_id = 'U03URLL1D4L'/);
   });
 });
 

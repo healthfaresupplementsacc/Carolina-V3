@@ -4,7 +4,7 @@
    lockout após 10 PINs errados, 503 quando envs faltam / upstream off. */
 const express = require('express');
 
-const ENV_KEYS = ['CAM_TUNNEL_URL', 'CAM_TOKEN', 'CAM_VIEW_PIN'];
+const ENV_KEYS = ['CAM_TUNNEL_URL', 'CAM_TOKEN', 'CAM_VIEW_PIN', 'CAM_ON_HHMM', 'CAM_OFF_HHMM', 'CAM_OFF_DAYS'];
 const saved = {};
 
 describe('câmeras — /api/cam', () => {
@@ -14,6 +14,12 @@ describe('câmeras — /api/cam', () => {
     process.env.CAM_TUNNEL_URL = 'http://127.0.0.1:1'; // porta 1 → ECONNREFUSED → 503
     process.env.CAM_TOKEN = 'test-cam-secret';
     process.env.CAM_VIEW_PIN = '510510';
+    // Força câmeras SEMPRE ligadas neste teste (o schedule é testado à parte em
+    // cameras-schedule.test.js) — senão o gate 07:00–20:30 quebra os testes de proxy
+    // conforme a hora que o CI roda.
+    process.env.CAM_ON_HHMM = '00:00';
+    process.env.CAM_OFF_HHMM = '23:59';
+    process.env.CAM_OFF_DAYS = '';
     const app = express();
     app.use('/', require('../routes/cameras'));
     server = await new Promise((res) => { const s = app.listen(0, '127.0.0.1', () => res(s)); });

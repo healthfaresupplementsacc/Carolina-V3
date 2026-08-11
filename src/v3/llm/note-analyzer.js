@@ -53,7 +53,7 @@ class NoteAnalyzer {
       try {
         await this.slack.postAs({
           channel: this.adminChannel, sender: { name: 'Carolina' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
-          text: `:brain: *Nota de ${input.personName || 'operador'}* (${input.slug || '—'}): _"${text.slice(0, 220)}"_\n→ ${j.motivo_admin || j.resumo || 'merece atenção'}`,
+          text: `Nota de ${input.personName || 'operador'} (${input.slug || '?'}): _"${text.slice(0, 220)}"_\n→ ${j.motivo_admin || j.resumo || 'merece atenção'}`,
         });
       } catch (e) { console.error('[note-llm] admin post:', e.message); }
     }
@@ -75,7 +75,7 @@ class NoteAnalyzer {
           // liberar no grupo normal. Quando 100%, trocar p/ 'production'.
           await this.slack.postAs({
             channel: this.adminChannel, sender: { name: 'HealthFare Tracker (revisão)', icon: ':memo:' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
-            text: `:memo: *${input.personName || 'Operador'}* mencionou *${qty}* na nota (_"${text.slice(0, 160)}"_) mas não registrou essa contagem no sistema. Confiram / registrem no aplicativo da linha de produção.`,
+            text: `${input.personName || 'Operador'} citou *${qty}* na nota mas não registrou a contagem. Confiram e registrem. _"${text.slice(0, 120)}"_`,
           });
         } catch (e) { console.error('[note-llm] qty post:', e.message); }
       }

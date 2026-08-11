@@ -51,9 +51,9 @@ const KPI = ({ label, en, value, suffix, foot, attn, children, headRight, onValu
     <div style={{ position: "relative", zIndex: 1 }}>
       <div className="label">
         <Leaf size={11} color="var(--hf-leaf-500)"/>
-        <span>{label}</span>
-        {en && <span style={{ color: "var(--text-3)", fontWeight: 500, letterSpacing: 0.04, marginLeft: 4 }}>· {en}</span>}
-        <span style={{ flex: 1 }}/>
+        <span style={{ whiteSpace: "nowrap" }}>{label}</span>
+        {en && <span style={{ color: "var(--text-3)", fontWeight: 500, letterSpacing: 0.04, marginLeft: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>· {en}</span>}
+        <span style={{ flex: 1, minWidth: 4 }}/>
         {headRight}
       </div>
       {onValueClick ? (
@@ -107,18 +107,19 @@ const CountdownCard = ({ deadlineMin, now, label, en, title }) => {
   if (remaining <= 30) urgency = "red";
   else if (remaining <= 90) urgency = "amber";
   const cls = urgency === "ok" ? "" : urgency === "amber" ? "amber" : "red";
+  const passed = remaining < 0; // deadline já passou → estado VENCIDO (vermelho)
   const h = Math.max(0, Math.floor(remaining / 60));
   const m = Math.max(0, Math.floor(remaining % 60));
   const s = Math.max(0, Math.floor((remaining - Math.floor(remaining)) * 60));
   return (
-    <div className={`countdown ${cls}`}>
+    <div className={`countdown ${passed ? 'red' : cls}`}>
       <div className="cd-ico"><Icon name="clock" size={22}/></div>
       <div className="cd-text">
         <div className="cd-label">{label}{en && <span style={{ opacity: 0.6, marginLeft: 6 }}>· {en}</span>}</div>
         <div className="cd-title">{title} · {window.HFH.fmtClock(deadlineMin)}</div>
       </div>
       <div className="cd-clock mono tabnum">
-        {h > 0 && <>{h}<small>h </small></>}{window.HFH.pad(m)}<small>m </small>{window.HFH.pad(s)}<small>s</small>
+        {passed ? <span>vencido</span> : <>{h > 0 && <>{h}<small>h </small></>}{window.HFH.pad(m)}<small>m </small>{window.HFH.pad(s)}<small>s</small></>}
       </div>
     </div>
   );

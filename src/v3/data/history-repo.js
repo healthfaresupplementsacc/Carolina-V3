@@ -168,7 +168,7 @@ class HistoryRepo {
     const id = parseInt(batchId, 10);
     if (!Number.isFinite(id)) return null;
     const WORK = `GREATEST(0, EXTRACT(EPOCH FROM (COALESCE(e.ended_at, NOW()) - e.started_at)) - COALESCE(e.total_paused_seconds, 0))::int`;
-    const [batchR, evR, countsR] = await Promise.all([
+    const [batchR, evR, countsR, printsR] = await Promise.all([
       this.db.query(
         `SELECT pb.id, pb.batch_number, pb.status, pb.started_at, pb.finished_at, pb.origin,
                 pr.id AS product_id, pr.canonical_name AS product, pb.target_bottles, pb.units_per_bottle
@@ -188,6 +188,16 @@ class HistoryRepo {
         `SELECT kind, SUM(bottles)::int AS total, MAX(reported_at) AS last_at
          FROM v3.production_counts WHERE product_batch_id = $1 AND deleted_at IS NULL AND superseded_by IS NULL
          GROUP BY kind`, [id]),
+      // Impressões de label VINCULADAS a este batch (Bruno 07-17): quem imprimiu,
+      // quantos labels, quando, tempo físico/ativo. É o elo permanente batch↔impressão.
+      this.db.query(
+        `SELECT pj.id, pj.document, pj.printer, pj.sheets, pj.pages, pj.copies,
+                pj.duration_sec, pj.print_seconds, pj.session_active_sec, pj.status, pj.has_batch,
+                pj.submitted_at, pj.completed_at, pj.created_at,
+                pj.person_id, COALESCE(pe.display_name, pj.operator) AS operator
+         FROM v3.print_jobs pj LEFT JOIN v3.persons pe ON pe.id = pj.person_id
+         WHERE pj.product_batch_id = $1
+         ORDER BY pj.created_at`, [id]),
     ]);
     if (!batchR.rows[0]) return null;
     const b = batchR.rows[0];
@@ -217,6 +227,32 @@ class HistoryRepo {
     }
     const counts = {};
     for (const c of (countsR.rows || [])) counts[c.kind] = { total: c.total, last_at: toNyIso(c.last_at) };
+    // Impressões vinculadas a este batch — normaliza + agrega (Bruno 07-17).
+    const prints = (printsR.rows || []).map((pj) => ({
+      id: pj.id, document: pj.document || null, printer: pj.printer || null,
+      sheets: pj.sheets != null ? Number(pj.sheets) : null,
+      pages: pj.pages != null ? Number(pj.pages) : null, copies: pj.copies != null ? Number(pj.copies) : null,
+      spool_seconds: pj.duration_sec != null ? Number(pj.duration_sec) : null,
+      print_seconds: pj.print_seconds != null ? Number(pj.print_seconds) : null,   // FÍSICO real (PR→IL)
+      active_seconds: pj.session_active_sec != null ? Number(pj.session_active_sec) : null,
+      status: pj.status || null, has_batch: pj.has_batch,
+      submitted_at: toNyIso(pj.submitted_at), completed_at: toNyIso(pj.completed_at), at: toNyIso(pj.created_at),
+      person_id: pj.person_id || null, operator: pj.operator || null,
+    }));
+    const printSummary = {
+      jobs: prints.length,
+      labels: prints.reduce((s, p) => s + (p.sheets || 0), 0),
+      print_seconds: prints.reduce((s, p) => s + (p.print_seconds || 0), 0),   // tempo físico somado
+      active_seconds: prints.reduce((s, p) => s + (p.active_seconds || 0), 0), // tempo ativo no PC
+      operators: [...new Set(prints.map((p) => p.operator).filter(Boolean))],
+    };
+    // Impressão entra no by_stage como uma "fase" própria (usa tempo FÍSICO, senão ativo).
+    const stageList = [...byStage.values()].map((g) => ({ activity: g.activity, flow: g.flow, phase_order: g.phase_order, seconds: Math.round(g.seconds), events: g.events, people: [...g.people] }));
+    if (prints.length > 0) {
+      const printStageSec = printSummary.print_seconds || printSummary.active_seconds || 0;
+      stageList.push({ activity: 'Impressão de Labels', flow: 'production', phase_order: 90,
+        seconds: Math.round(printStageSec), events: prints.length, people: printSummary.operators });
+    }
     return {
       batch: { id: b.id, batch_number: b.batch_number, status: b.status, origin: b.origin,
         product: b.product || null, product_id: b.product_id || null,
@@ -227,11 +263,12 @@ class HistoryRepo {
       span_start: spanStart != null ? toNyIso(new Date(spanStart)) : null,
       span_end: spanEnd != null ? toNyIso(new Date(spanEnd)) : null,
       total_work_seconds: Math.round(totalWork),
-      people: [...people],
+      people: [...new Set([...people, ...printSummary.operators])],
       event_count: events.length,
       counts,
-      by_stage: [...byStage.values()].map((g) => ({ activity: g.activity, flow: g.flow, phase_order: g.phase_order, seconds: Math.round(g.seconds), events: g.events, people: [...g.people] }))
-        .sort((a, b2) => (a.phase_order || 99) - (b2.phase_order || 99) || b2.seconds - a.seconds),
+      prints,
+      print_summary: printSummary,
+      by_stage: stageList.sort((a, b2) => (a.phase_order || 99) - (b2.phase_order || 99) || b2.seconds - a.seconds),
       events,
     };
   }
@@ -239,7 +276,7 @@ class HistoryRepo {
   /** Contagens e lotes de um produto no intervalo (por production_date NY). */
   async productHistory(productId, opts = {}) {
     const { from, to } = resolveRange(opts);
-    const [counts, batches, product] = await Promise.all([
+    const [counts, batches, product, prints] = await Promise.all([
       this.db.query(
         `SELECT pc.id, pc.bottles, pc.production_date, pc.reported_at, pc.confidence,
                 pc.product_batch_id, pb.batch_number,
@@ -256,7 +293,33 @@ class HistoryRepo {
          WHERE product_id = $1 AND deleted_at IS NULL
          ORDER BY started_at DESC`, [productId]),
       this.db.query('SELECT id, canonical_name FROM v3.products WHERE id = $1', [productId]),
+      // Impressões do produto (todos os batches) — resumo + últimas (Bruno 07-17).
+      this.db.query(
+        `SELECT pj.id, pj.document, pj.sheets, pj.printer, pj.print_seconds, pj.session_active_sec,
+                pj.created_at, pj.product_batch_id, pb.batch_number,
+                COALESCE(pe.display_name, pj.operator) AS operator
+         FROM v3.print_jobs pj
+         LEFT JOIN v3.persons pe ON pe.id = pj.person_id
+         LEFT JOIN v3.product_batches pb ON pb.id = pj.product_batch_id
+         WHERE pj.product_id = $1
+         ORDER BY pj.created_at DESC LIMIT 100`, [productId]),
     ]);
+
+    const printRows = (prints.rows || []);
+    const printSummary = {
+      jobs: printRows.length,
+      labels: printRows.reduce((s, p) => s + (Number(p.sheets) || 0), 0),
+      print_seconds: printRows.reduce((s, p) => s + (Number(p.print_seconds) || 0), 0),
+      operators: [...new Set(printRows.map((p) => p.operator).filter(Boolean))],
+      recent: printRows.slice(0, 20).map((p) => ({
+        id: p.id, document: p.document || null, printer: p.printer || null,
+        sheets: p.sheets != null ? Number(p.sheets) : null,
+        print_seconds: p.print_seconds != null ? Number(p.print_seconds) : null,
+        active_seconds: p.session_active_sec != null ? Number(p.session_active_sec) : null,
+        at: toNyIso(p.created_at), operator: p.operator || null,
+        batch: p.product_batch_id ? { id: p.product_batch_id, batch_number: p.batch_number || null } : null,
+      })),
+    };
 
     return {
       product: product.rows[0]
@@ -264,6 +327,7 @@ class HistoryRepo {
         : { id: productId, canonical_name: null },
       from,
       to,
+      print_summary: printSummary,
       counts: (counts.rows || []).map((c) => ({
         id: c.id,
         bottles: Number(c.bottles || 0),

@@ -9,12 +9,15 @@
  */
 const EDT = 'America/New_York';
 const { isMuted } = require('../v3/alert-gate');
+const presence = require('../v3/presence');   // presença REAL (Bruno 07-18: ignora phantom do EMS)
+const { onDemandActive, getPlan, setPlan, nyToday } = require('../v3/workday');
 
 class AbsenceAlert {
   constructor(deps = {}) {
     this.db = deps.db;
     this.slack = deps.slack;
     this.channelId = deps.channelId;
+    this.adminChannelId = deps.adminChannelId || 'C0B36DR5MP1'; // supervisão sensível vai pro chat do admin
     // ON por padrão (Bruno: regra combinada — >15min sem função → avisa no grupo).
     // Desliga só com ABSENCE_ALERT_ENABLED=false.
     this.enabled = deps.enabled !== undefined ? deps.enabled : (process.env.ABSENCE_ALERT_ENABLED !== 'false');
@@ -35,7 +38,7 @@ class AbsenceAlert {
 
   // operadores LOGADOS, SEM nenhuma task aberta (fg OU bg), ociosos > threshold (testável).
   // Referência do ocioso = último fim de QUALQUER task hoje (bg conta como ocupado) ou login.
-  async findAbsent() {
+  async findAbsent(thresholdMin = this.thresholdMin) {
     // Idle medido a partir do FIM DA ÚLTIMA TASK (qualquer tipo) — re-login NÃO
     // zera o relógio (kiosk compartilhado: logar de novo não é "estar em função").
     // O login serve só de PISO p/ quem ainda não fez nenhuma task hoje → usa o
@@ -61,23 +64,45 @@ class AbsenceAlert {
                   AND sc.expected_end_time IS NOT NULL LIMIT 1) AS sched_end
        FROM v3.persons p
        WHERE p.role = 'operator' AND p.active = true AND p.deleted_at IS NULL AND COALESCE(p.is_sandbox,false) = false
-         -- PRESENTE HOJE (Bruno 07-02): TRABALHOU hoje (qualquer evento) OU logou hoje
-         -- OU tem sessão viva (mesmo criada dias atrás — o PWA do kiosk mantém a sessão
-         -- viva sem criar linha nova, e "sessão criada hoje" sozinho deixava TODO MUNDO
-         -- invisível → nenhum alerta de ocioso saía, caso da Ana 12:40→13:05).
+         -- PRESENTE HOJE (Bruno 07-02): TRABALHOU hoje OU logou hoje OU tem sessão viva
+         -- (o PWA do kiosk mantém a sessão viva sem criar linha nova; "sessão criada
+         -- hoje" sozinho deixava todo mundo invisível — caso Ana 12:40→13:05).
+         -- Bruno 07-18: presença REAL ignora ems_auto — uma task automática do EMS
+         -- NÃO conta como presença (senão cobra "ocioso" de quem nem está aqui, caso
+         -- Bruno 18/07: o EMS o reportou, ev fantasma, e o alarme de ausência disparou).
          AND (
-           EXISTS (SELECT 1 FROM v3.events e WHERE e.person_id = p.id AND e.deleted_at IS NULL
-                   AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+           ${presence.confirmedPresenceSQL('p')}
            OR EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id
-                      AND ((s.created_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
-                           OR s.logged_out_at IS NULL))
+                      AND s.logged_out_at IS NULL)
+         )
+         -- LOGIN POR ENGANO (Bruno 08-01): se a ÚNICA prova de presença é uma sessão
+         -- de kiosk mas a pessoa (a) NÃO bateu ponto no NGTeco hoje E (b) NÃO tem
+         -- NENHUMA task hoje E (c) não tem sessão viva agora → foi login por engano,
+         -- NÃO cobra ociosidade. (caso Ana 08-01: Bruno logou na conta dela por engano,
+         -- ela não trabalha hoje, e o sistema ficou spammando "ociosa há 30min".)
+         AND NOT (
+           NOT EXISTS (SELECT 1 FROM v3.att_punch ap WHERE ap.person_id = p.id
+                       AND ap.att_date = (NOW() AT TIME ZONE '${EDT}')::date)
+           AND NOT EXISTS (SELECT 1 FROM v3.events e WHERE e.person_id = p.id AND e.deleted_at IS NULL
+                       AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+                       AND e.source <> 'ems_auto')
+           AND NOT EXISTS (SELECT 1 FROM v3.operator_sessions s WHERE s.person_id = p.id
+                       AND s.logged_out_at IS NULL)
          )
          -- nenhuma task aberta agora (lunch/pausa abertos = ocupado, não ocioso)
          AND NOT EXISTS (SELECT 1 FROM v3.events e WHERE e.person_id = p.id AND e.ended_at IS NULL AND e.deleted_at IS NULL)
          -- não encerrou o dia (end_of_day) — aí foi embora, não está "ocioso"
          AND NOT EXISTS (SELECT 1 FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
                          WHERE e.person_id = p.id AND e.deleted_at IS NULL AND at.slug = 'end_of_day'
-                           AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)`);
+                           AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date)
+         -- entrou em LIMPEZA (fim de dia) e ficou ocioso → provavelmente foi embora
+         -- sem bater a saída: NÃO cobra "ocioso" (o aviso de check-out esquecido cobre
+         -- isso no dia seguinte). Se voltar a trabalhar, a última atividade deixa de
+         -- ser limpeza e ele volta ao radar normal. (Bruno 07-11)
+         AND COALESCE((SELECT at.slug FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+                        WHERE e.person_id = p.id AND e.deleted_at IS NULL AND e.ended_at IS NOT NULL
+                          AND (e.started_at AT TIME ZONE '${EDT}')::date = (NOW() AT TIME ZONE '${EDT}')::date
+                        ORDER BY e.ended_at DESC LIMIT 1), '') NOT IN ('cleaning','cleaning_other')`);
     // só os realmente ociosos (entre threshold e 3h — acima disso provavelmente foi
     // embora sem marcar end_of_day) e com ref de hoje (não 1º login epoch).
     // ── JANELA DE EXPEDIENTE (Bruno 07-04 — fim do flood pós-horário) ──
@@ -87,7 +112,7 @@ class AbsenceAlert {
     const now = this._now();
     const nyHour = parseInt(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/New_York', hour12: false, hour: '2-digit' }).format(new Date(now)), 10);
     return r.rows.filter((x) => {
-      if (!(x.idle_min >= this.thresholdMin) || !x.ref || new Date(x.ref).getUTCFullYear() <= 2000) return false;
+      if (!(x.idle_min >= thresholdMin) || !x.ref || new Date(x.ref).getUTCFullYear() <= 2000) return false;
       if (nyHour < 6 || nyHour >= 21) return false;                    // guarda-chuva: nunca de madrugada
       const first = x.first_checkin ? new Date(x.first_checkin).getTime() : null;
       if (!first || !Number.isFinite(first)) return false;             // sem check-in hoje → não é "ausente"
@@ -126,7 +151,7 @@ class AbsenceAlert {
           channel: this.channelId,
           sender: { name: 'HealthFare Tracker', icon: ':door:' },
           thread_ts: null, unfurl_links: false, unfurl_media: false,
-          text: `:door: *${a.display_name}* está sem função há *${a.idle_min} min* — considerei que saiu e fiz o *checkout automático*. (Se ainda estiver aí, é só entrar numa tarefa no aplicativo.)`,
+          text: `${a.display_name} ficou sem tarefa *${a.idle_min}min*, considerei que saiu e fiz o checkout. Se ainda tá aí, é só entrar numa tarefa.`,
         });
       } catch (e) { console.error('[absence] post logoff falhou:', e.message); }
     }
@@ -149,8 +174,7 @@ class AbsenceAlert {
         channel: this.channelId,
         sender: { name: 'HealthFare Tracker', icon: ':question:' },
         thread_ts: null, unfurl_links: false, unfurl_media: false,
-        text: `:question: *${a.display_name}* está sem função há *${a.idle_min} min*. *Foi embora?*\n`
-          + `Reaja ✅ = sim (faço o checkout) · ❌ = não (peço pra registrar a tarefa)`,
+        text: `${a.display_name} sem tarefa há *${a.idle_min}min*. Foi embora? Reaja ✅ sim (faço checkout) ou ❌ não (peço pra registrar).`,
       });
     } catch (e) { console.error('[absence] pergunta de sábado falhou:', e.message); return false; }
     try {
@@ -165,10 +189,58 @@ class AbsenceAlert {
     return true;
   }
 
-  async _alertedRecently(personId) {
+  async _alertedRecently(personId, repeatMin = this.repeatMin) {
     const r = await this.db.query(
-      `SELECT 1 FROM v3.operator_action_log WHERE person_id = $1 AND action_type = 'absence_alert' AND created_at > NOW() - INTERVAL '${this.repeatMin} minutes' LIMIT 1`, [personId]);
+      `SELECT 1 FROM v3.operator_action_log WHERE person_id = $1 AND action_type = 'absence_alert' AND created_at > NOW() - INTERVAL '${repeatMin} minutes' LIMIT 1`, [personId]);
     return r.rowCount > 0;
+  }
+
+  /** FDS/sob demanda: heads-up SENSÍVEL vai pro CHAT DO ADMIN (nunca no canal do
+   *  operador) — "fulano parado, costumam enrolar no fim de semana". 1×/dia/pessoa. */
+  async _weekendAdminHeadsUp(a) {
+    if (await this._didToday(a.id, 'weekend_idle_headsup')) return false;
+    if (!this.slack || !this.slack.postAs || !this.adminChannelId) return false;
+    try {
+      await this.slack.postAs({
+        channel: this.adminChannelId,
+        sender: { name: 'HealthFare Tracker', icon: ':eyes:' },
+        thread_ts: null, unfurl_links: false, unfurl_media: false,
+        text: `:eyes: ${a.display_name} sem tarefa há *${a.idle_min}min* (serviço extra). Fiquem de olho. Se saiu, o checkout automático entra em 1h.`,
+      });
+      await this.db.query(
+        `INSERT INTO v3.operator_action_log (person_id, person_name, action_type, source, payload)
+         VALUES ($1, $2, 'weekend_idle_headsup', 'system', $3::jsonb)`,
+        [a.id, a.display_name, JSON.stringify({ idle_min: a.idle_min })]);
+    } catch (e) { console.error('[absence] heads-up admin falhou:', e.message); return false; }
+    return true;
+  }
+
+  /** FDS/sob demanda: NÃO pergunta o horário de saída — LÊ do relógio (NGTeco).
+   *  Bruno 08-01: "você tem o NGTeco, sabe a que horas eles saem, pare de perguntar".
+   *  A saída de cada pessoa é a batida de saída no relógio (v3.att_state.checkout_at,
+   *  populada pelo attendance-sync). Não há UM horário do dia — cada um sai na sua
+   *  batida. Aqui só registramos silenciosamente que o dia está sendo governado pelo
+   *  relógio (plano 'clock'), pra o resto do sistema saber que não precisa perguntar
+   *  nem esperar anúncio. Quem já bateu a saída sai do radar de cobrança (ver tick). */
+  async _deriveLeaveTimeFromClock(today) {
+    const plan = await getPlan(this.db);
+    if (plan && plan.note === 'clock') return false; // já marcado como governado pelo relógio
+    // Se um admin ANUNCIOU explicitamente um horário (note !== 'asked'/'clock'), respeita.
+    if (plan && plan.end && plan.note !== 'asked') return false;
+    try { await setPlan(this.db, { date: today.d, end: null, note: 'clock' }); } catch (_) {}
+    return true;
+  }
+
+  /** Quem já bateu a SAÍDA no relógio hoje (NGTeco) — set de person_id. Esses não
+   *  são cobrados por ociosidade nem recebem "foi embora?": o relógio já respondeu. */
+  async _clockedOutToday() {
+    try {
+      const r = await this.db.query(
+        `SELECT person_id FROM v3.att_state
+          WHERE att_date = (NOW() AT TIME ZONE '${EDT}')::date
+            AND checkout_at IS NOT NULL`);
+      return new Set(r.rows.map((x) => x.person_id));
+    } catch (_) { return new Set(); }
   }
 
   async tick() {
@@ -179,17 +251,28 @@ class AbsenceAlert {
       // KILL-SWITCH (Bruno 07-05): admin pausou os avisos → não posta nada no
       // canal. O logoff de 1h AINDA roda (silencioso) pra manter as sessões limpas.
       const muted = await isMuted(this.db, this._now());
-      const absent = await this.findAbsent();
-      const saturday = this._isSaturdayNy();
+      // MODO SOB DEMANDA (fds/dia sem escala fixa, alguém trabalhando): ATENÇÃO
+      // DOBRADA — idle mais curto (8min) e cobrança mais frequente (15min). Sábado
+      // eles enrolam e não marcam. Bruno 07-11.
+      const onDemand = await onDemandActive(this.db);
+      const th = onDemand ? Math.min(this.thresholdMin, 8) : this.thresholdMin;
+      const rep = onDemand ? 15 : this.repeatMin;
+      const absent = await this.findAbsent(th);
       let sent = 0;
+      // FDS: o horário de saída vem do RELÓGIO (NGTeco), não de pergunta (Bruno 08-01).
+      if (onDemand) { try { await this._deriveLeaveTimeFromClock(await nyToday(this.db)); } catch (_) {} }
+      // Quem JÁ bateu a saída no relógio hoje sai do radar (o relógio já respondeu
+      // "foi embora") — nada de cobrar ociosidade nem perguntar "foi embora?".
+      const clockedOut = await this._clockedOutToday();
       for (const a of absent) {
+        if (clockedOut.has(a.id)) continue; // bateu a saída no NGTeco → não cobra
         // 1h SEM AÇÃO = SAIU (Bruno 07-04): checkout automático, 1 aviso só,
         // e o flood morre (a pessoa sai do radar até logar/trabalhar de novo).
         if (a.idle_min >= 60) { if (await this._autoLogoff(a, muted)) sent++; continue; }
         if (muted) continue; // avisos pausados → nenhuma cobrança de ociosidade
-        // SÁBADO: em vez de cobrar, PERGUNTA (✅ checkout / ❌ pede tarefa).
-        if (saturday) { if (a.idle_min >= 30 && await this._saturdayAsk(a)) sent++; continue; }
-        if (await this._alertedRecently(a.id)) continue;
+        // FDS: heads-up SENSÍVEL vai pro chat do admin (supervisão), não pro operador.
+        if (onDemand && a.idle_min >= 30) { await this._weekendAdminHeadsUp(a); }
+        if (await this._alertedRecently(a.id, rep)) continue;
         let dmSent = false;
         if (this.slack && this.slack.postAs && this.channelId) {
           try {
@@ -200,8 +283,7 @@ class AbsenceAlert {
               channel: this.channelId,
               sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' },
               thread_ts: null, unfurl_links: false, unfurl_media: false,
-              text: `:hourglass_flowing_sand: ${who} está sem função registrada há *${a.idle_min} min*.\n`
-                + `Se estiver trabalhando, registre a tarefa no aplicativo da linha de produção (ou avise o que está fazendo).`,
+              text: `${who} sem tarefa registrada há *${a.idle_min}min*. Registra aí, ou avisa o que tá fazendo.`,
             });
           } catch (e) { console.error('[absence] post falhou:', e.message); continue; }
           // DM EM ADIÇÃO (nunca no lugar do canal; falha de DM não bloqueia nada)
@@ -210,7 +292,7 @@ class AbsenceAlert {
               await this.slack.postDm({
                 userId: a.slack_user_id,
                 sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' },
-                text: `Você está sem função registrada há *${a.idle_min} min*. Se estiver trabalhando, registre a tarefa no aplicativo da linha de produção. (Este aviso também saiu no canal.)`,
+                text: `Você está sem tarefa registrada há *${a.idle_min}min*. Registra aí, por favor. (Também avisei no canal.)`,
               });
               dmSent = true;
             } catch (e) { console.error('[absence] DM falhou (canal já saiu):', e.message); }

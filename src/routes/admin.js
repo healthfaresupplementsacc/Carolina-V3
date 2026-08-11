@@ -177,6 +177,14 @@ function createAdminRouter(deps = {}) {
     res.json({ ok: true });
   }));
 
+  // "quem sou eu" (Bruno 08-03): o SPA /admin/ e o painel embutido chamam isto no
+  // load pra pular o login se JÁ existe sessão válida (cookie hf_admin). 200 = logado.
+  router.get('/api/adminpanel/auth/me', h(async (req, res) => {
+    const sess = await lookupAdminSession(tokenFromReq(req));
+    if (sess) return res.json({ ok: true, admin: { id: sess.id, name: sess.name, role: sess.role } });
+    return res.status(401).json({ error: 'unauthorized' });
+  }));
+
   // ── gates de sessão / role ────────────────────────────────────────────
   // requireAdmin: tenta sessão DB (RBAC) → senão token de emergência.
   // Popula req.admin = { id, name, role }.

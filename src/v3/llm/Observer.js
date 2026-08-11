@@ -181,9 +181,10 @@ class Observer {
     // ou slack U0B3EQLPEPL — Bruno Camp via @Carolina) preserva o
     // horário do LLM porque admin pode estar especificando retroativamente.
     {
+      const carolinaAdminId = process.env.CAROLINA_ADMIN_USER_ID || 'U0B3EQLPEPL';
       const adminLikeForTs = !!(author && author.is_admin_context)
         || decision.categorization === 'admin_intervention'
-        || message.slack_user_id === 'U0B3EQLPEPL';
+        || message.slack_user_id === carolinaAdminId;
       if (!adminLikeForTs) {
         await this._enforceSlackTsOnActions(decision.actions || [], message);
       }
@@ -403,21 +404,39 @@ class Observer {
 
   // ── validação da resposta do LLM ───────────────────────────
 
-  async _validate(decision) {
-    if (!decision || !Array.isArray(decision.actions)) return 'actions ausente/inválido';
-    if (decision.actions.length === 0) return null; // ex.: admin_intervention, note
+  // Sets de ids válidos com cache curto (30s). ANTES: 3 SELECT full-table por
+  // mensagem com ações, no path de 5s → caro em pico. Agora escaneia no máx.
+  // 1×/30s; num MISS (pessoa/produto recém-criado DEPOIS do cache) confirma com
+  // 1 query pontual antes de rejeitar → zero falso-negativo. (perf 07-28)
+  async _idSets() {
+    const now = Date.now();
+    if (this.__idSets && (now - this.__idSets.at) < 30000) return this.__idSets;
     const [persons, products, ats] = await Promise.all([
       this.db.query('SELECT id FROM v3.persons WHERE deleted_at IS NULL'),
       this.db.query('SELECT id FROM v3.products'),
       this.db.query('SELECT id FROM v3.activity_types'),
     ]);
-    const pSet = new Set(persons.rows.map((r) => r.id));
-    const prodSet = new Set(products.rows.map((r) => r.id));
-    const atSet = new Set(ats.rows.map((r) => r.id));
+    this.__idSets = {
+      at: now,
+      persons: new Set(persons.rows.map((r) => r.id)),
+      products: new Set(products.rows.map((r) => r.id)),
+      ats: new Set(ats.rows.map((r) => r.id)),
+    };
+    return this.__idSets;
+  }
+
+  async _validate(decision) {
+    if (!decision || !Array.isArray(decision.actions)) return 'actions ausente/inválido';
+    if (decision.actions.length === 0) return null; // ex.: admin_intervention, note
+    const sets = await this._idSets();
+    const exists = async (kind, tbl, id) => {
+      if (sets[kind].has(id)) return true; // fast path (cache quente)
+      try { const r = await this.db.query(`SELECT 1 FROM v3.${tbl} WHERE id = $1 LIMIT 1`, [id]); return r.rows.length > 0; } catch { return false; }
+    };
     for (const a of decision.actions) {
-      if (a.person_id != null && !pSet.has(a.person_id)) return `person_id ${a.person_id} inexistente`;
-      if (a.activity_type_id != null && !atSet.has(a.activity_type_id)) return `activity_type_id ${a.activity_type_id} inexistente`;
-      if (a.product_id != null && !prodSet.has(a.product_id)) return `product_id ${a.product_id} inexistente`;
+      if (a.person_id != null && !(await exists('persons', 'persons', a.person_id))) return `person_id ${a.person_id} inexistente`;
+      if (a.activity_type_id != null && !(await exists('ats', 'activity_types', a.activity_type_id))) return `activity_type_id ${a.activity_type_id} inexistente`;
+      if (a.product_id != null && !(await exists('products', 'products', a.product_id))) return `product_id ${a.product_id} inexistente`;
     }
     return null;
   }

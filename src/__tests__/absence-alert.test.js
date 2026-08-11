@@ -19,17 +19,39 @@ function makeDb(opts = {}) {
       if (/SELECT value FROM v3\.settings WHERE key = \$1/.test(s)) {
         return opts.mutedUntilMs ? { rows: [{ value: { until: new Date(opts.mutedUntilMs).toISOString() } }] } : { rows: [] };
       }
+      // ── modo sob demanda (workday.js) — opts.onDemand liga o fds; opts.plan = plano do dia ──
+      if (/AS unscheduled/.test(s)) return { rows: [{ unscheduled: !!opts.onDemand }] };
+      if (/AS active/.test(s)) return { rows: [{ active: !!opts.onDemand }] };
+      if (/::date::text AS d/.test(s)) return { rows: [{ d: '2026-07-04', dow: 6 }] };
+      if (/SELECT value FROM v3\.settings WHERE key=\$1/.test(s)) return opts.plan ? { rows: [{ value: { date: '2026-07-04', end: opts.plan.end || null, note: opts.plan.note || null } }] } : { rows: [] };
       if (/FROM v3\.persons p WHERE p\.role = 'operator'/.test(s)) return { rows: opts.candidates || [], rowCount: (opts.candidates || []).length };
       if (/action_type = 'absence_alert' AND created_at >/.test(s)) { const hit = (opts.recent || []).includes(params[0]); return { rows: hit ? [{ x: 1 }] : [], rowCount: hit ? 1 : 0 }; }
       if (/action_type = \$2 AND \(created_at AT TIME ZONE/.test(s)) { const hit = (opts.didToday || []).some((d) => d.id === params[0] && d.type === params[1]); return { rows: hit ? [{ x: 1 }] : [], rowCount: hit ? 1 : 0 }; }
       if (/UPDATE v3\.operator_sessions SET logged_out_at/.test(s)) { logoffs.push(params[0]); return { rows: [] }; }
       if (/INSERT INTO v3\.notifications/.test(s)) { notifs.push(JSON.parse(params[0])); return { rows: [] }; }
-      if (/INSERT INTO v3\.operator_action_log/.test(s)) { logs.push({ person: params[0], type: /absence_auto_logoff/.test(s) ? 'absence_auto_logoff' : /saturday_idle_question/.test(s) ? 'saturday_idle_question' : 'absence_alert' }); return { rows: [] }; }
+      if (/INSERT INTO v3\.operator_action_log/.test(s)) { logs.push({ person: params[0], type: /absence_auto_logoff/.test(s) ? 'absence_auto_logoff' : /weekend_idle_headsup/.test(s) ? 'weekend_idle_headsup' : /saturday_idle_question/.test(s) ? 'saturday_idle_question' : 'absence_alert' }); return { rows: [] }; }
+      // quem bateu a saída no relógio hoje (NGTeco) — Bruno 08-01
+      if (/FROM v3\.att_state WHERE att_date/.test(s) && /checkout_at IS NOT NULL/.test(s)) {
+        return { rows: (opts.clockedOut || []).map((id) => ({ person_id: id })) };
+      }
       return { rows: [] };
     },
   };
 }
 const mkSlack = () => { const s = { calls: [], postAs: async (m) => { s.calls.push(m); return { ok: true, ts: '111.222' }; } }; return s; };
+
+describe('AbsenceAlert — login por engano NÃO vira alerta (Bruno 08-01)', () => {
+  test('a query de findAbsent exclui quem só tem sessão de kiosk sem batida NGTeco nem task', async () => {
+    let capturedSql = '';
+    const db = { query: async (sql) => { const s = String(sql); if (/att_punch/.test(s)) capturedSql = s; return { rows: [] }; } };
+    const w = new AbsenceAlert({ db, slack: mkSlack(), channelId: 'C_OPS', enabled: true, now: () => WED_NOON });
+    await w.findAbsent();
+    // o guard tem que estar presente: sem batida (att_punch) E sem task E sem sessão viva → não cobra
+    const flat = capturedSql.replace(/\s+/g, ' ');
+    expect(flat).toMatch(/att_punch/);                                         // lê o relógio NGTeco
+    expect(flat).toMatch(/AND NOT \( NOT EXISTS \(SELECT 1 FROM v3\.att_punch/); // guard do login-por-engano
+  });
+});
 
 describe('AbsenceAlert — janela de expediente', () => {
   test('dentro do expediente (check-in 3h atrás) → alerta; sem check-in hoje → silêncio', async () => {
@@ -77,7 +99,7 @@ describe('AbsenceAlert — 1h = checkout automático', () => {
     const r = await w.tick();
     expect(r.sent).toBe(1);
     expect(db.logoffs).toEqual([6]);
-    expect(slack.calls[0].text).toContain('checkout automático');
+    expect(slack.calls[0].text).toMatch(/fiz o checkout|checkout automático/);
     expect(db.logs.some((l) => l.type === 'absence_auto_logoff')).toBe(true);
     // 2º tick no mesmo dia: já deslogada → didToday → nada
     const db2 = makeDb({ candidates: [
@@ -88,25 +110,53 @@ describe('AbsenceAlert — 1h = checkout automático', () => {
   });
 });
 
-describe('AbsenceAlert — sábado pergunta em vez de cobrar', () => {
-  test('sáb + idle>=30 → posta pergunta ✅/❌ + registra notificação pendente', async () => {
+describe('AbsenceAlert — modo SOB DEMANDA (fds, Bruno 07-11)', () => {
+  const ADMIN = 'C0B36DR5MP1';
+  test('atenção DOBRADA: idle 10min (<15 normal) JÁ cobra o operador no fds', async () => {
     const slack = mkSlack();
-    const db = makeDb({ candidates: [
-      { id: 6, display_name: 'Ana', slack_user_id: null, idle_min: 33, ref: new Date(SAT_NOON - 33 * 60000), first_checkin: hAgo(SAT_NOON, 3), sched_end: null },
+    const db = makeDb({ onDemand: true, plan: { end: '18:00' }, candidates: [
+      { id: 6, display_name: 'Ana', slack_user_id: null, idle_min: 10, ref: new Date(SAT_NOON - 10 * 60000), first_checkin: hAgo(SAT_NOON, 2), sched_end: null },
     ] });
     const w = new AbsenceAlert({ db, slack, channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => SAT_NOON });
     const r = await w.tick();
     expect(r.sent).toBe(1);
-    expect(slack.calls[0].text).toContain('Foi embora?');
-    expect(db.notifs[0]).toMatchObject({ person_id: 6, msg_ts: '111.222' });
-    expect(db.logs.some((l) => l.type === 'saturday_idle_question')).toBe(true);
+    // cobrança vai pro canal do OPERADOR (registre a tarefa)
+    expect(slack.calls.some((c) => c.channel === 'C_OPS' && /registra|tarefa/i.test(c.text))).toBe(true);
   });
-  test('sáb + idle 15-29 → ainda não pergunta (espera 30)', async () => {
-    const db = makeDb({ candidates: [
-      { id: 6, display_name: 'Ana', idle_min: 20, ref: new Date(SAT_NOON - 20 * 60000), first_checkin: hAgo(SAT_NOON, 3), sched_end: null },
+  test('mesma pessoa (idle 10) num DIA DE SEMANA → NÃO cobra (threshold 15, sem atenção dobrada)', async () => {
+    const db = makeDb({ candidates: [ // onDemand: false → dia normal
+      { id: 6, display_name: 'Ana', idle_min: 10, ref: new Date(WED_NOON - 10 * 60000), first_checkin: hAgo(WED_NOON, 2), sched_end: null },
     ] });
-    const w = new AbsenceAlert({ db, slack: mkSlack(), channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => SAT_NOON });
+    const w = new AbsenceAlert({ db, slack: mkSlack(), channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => WED_NOON });
     expect((await w.tick()).sent).toBe(0);
+  });
+  test('idle>=30 no fds → heads-up SENSÍVEL vai pro CHAT DO ADMIN (não pro operador)', async () => {
+    const slack = mkSlack();
+    const db = makeDb({ onDemand: true, plan: { end: '18:00' }, candidates: [
+      { id: 6, display_name: 'Ana', idle_min: 33, ref: new Date(SAT_NOON - 33 * 60000), first_checkin: hAgo(SAT_NOON, 3), sched_end: null },
+    ] });
+    const w = new AbsenceAlert({ db, slack, channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => SAT_NOON });
+    await w.tick();
+    expect(slack.calls.some((c) => c.channel === ADMIN && /olho|Fica de olho/i.test(c.text))).toBe(true);
+    expect(db.logs.some((l) => l.type === 'weekend_idle_headsup')).toBe(true);
+  });
+  test('fds sem plano → NÃO pergunta horário (lê do NGTeco); marca plano como clock-governado', async () => {
+    const slack = mkSlack();
+    const db = makeDb({ onDemand: true, candidates: [] }); // sem plano; ninguém ocioso ainda
+    const w = new AbsenceAlert({ db, slack, channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => SAT_NOON });
+    await w.tick();
+    // Bruno 08-01: nunca mais pergunta "até que horas" — o relógio (NGTeco) responde.
+    expect(slack.calls.some((c) => /até que horas/i.test(c.text))).toBe(false);
+  });
+  test('fds: quem já bateu a SAÍDA no relógio não é cobrado por ociosidade', async () => {
+    const slack = mkSlack();
+    const db = makeDb({ onDemand: true, plan: { end: null, note: 'clock' }, clockedOut: [6], candidates: [
+      { id: 6, display_name: 'Ana', idle_min: 40, ref: new Date(SAT_NOON - 40 * 60000), first_checkin: hAgo(SAT_NOON, 3), sched_end: null },
+    ] });
+    const w = new AbsenceAlert({ db, slack, channelId: 'C_OPS', enabled: true, thresholdMin: 15, now: () => SAT_NOON });
+    await w.tick();
+    // Ana bateu a saída → nenhuma cobrança nem pergunta "foi embora?"
+    expect(slack.calls.some((c) => /sem tarefa|Foi embora/i.test(c.text))).toBe(false);
   });
 });
 

@@ -19,7 +19,33 @@ export const setPin = (p) => {
   try { sessionStorage.setItem('v3pin', p); } catch {}
 };
 export const clearPin = () => {
-  try { sessionStorage.removeItem('v3pin'); } catch {}
+  try { sessionStorage.removeItem('v3pin'); sessionStorage.removeItem('v3login'); } catch {}
+};
+
+// ── Identidade do login (RBAC — Bruno 08-03): { name, role, functions[] } ──
+export const getLogin = () => {
+  try { return JSON.parse(sessionStorage.getItem('v3login') || 'null'); }
+  catch { return null; }
+};
+const setLogin = (l) => { try { sessionStorage.setItem('v3login', JSON.stringify(l)); } catch {} };
+// valida o PIN no servidor e guarda identidade+funções. Lança se inválido.
+export async function login(pin) {
+  const r = await fetch(BASE + '/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  if (r.status === 401) { const e = new Error('PIN inválido'); e.unauthorized = true; throw e; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j.error && j.error.message) || ('erro ' + r.status));
+  const info = j.data || j;
+  setPin(pin); setLogin(info);
+  return info;
+}
+// tem a função X? (o front esconde páginas com base nisto)
+export const can = (fn) => {
+  const l = getLogin();
+  if (!l || !Array.isArray(l.functions)) return false;
+  return l.functions.includes('*') || l.functions.includes(fn);
 };
 
 // ── apiCall: GET/POST/PATCH/DELETE com x-admin-pin ─────
@@ -145,6 +171,10 @@ export function useSnapshotAsHFData(date, opts = {}) {
   const goals      = usePoll('/goals?date='      + date, [date, bump], pollMs);
   const counts     = usePoll('/counts?date='     + date, [date, bump], pollMs);
   const deadlines  = usePoll('/deadlines',                [bump],     pollMs);
+  // Veeqo (Fase ①, Bruno 07-08): pedidos ENVIADOS/etiquetados hoje + qty por
+  // suplemento. Read-only, standalone (não entra no shape HFData) — vai só em raw
+  // pro card do CommandCenter. Poll mais lento; a Veeqo não muda a cada 12s.
+  const veeqo      = usePoll('/veeqo-today?date=' + date, [date, bump], pollMs ? Math.max(pollMs, 60000) : 0);
 
   // Catálogo: fetch único; mudanças raras, refresh manual disponível.
   const persons    = useFetch('/catalog/persons',          [bump]);
@@ -200,7 +230,7 @@ export function useSnapshotAsHFData(date, opts = {}) {
       timeline: timeline.data, production: production.data, pp: pp.data,
       fnsku: fnsku.data,
       support: support.data, goals: goals.data, counts: counts.data,
-      deadlines: deadlines.data, review: review.data,
+      deadlines: deadlines.data, review: review.data, veeqo: veeqo.data,
       persons: persons.data, acts: acts.data, products: products.data,
     },
   };

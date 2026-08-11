@@ -38,8 +38,18 @@ class CarolinaForgottenDM {
     try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
       const due = await this.db.query(
-        `SELECT fc.id, fc.person_id, fc.last_task_description, p.display_name, p.slack_user_id
+        `SELECT fc.id, fc.person_id, fc.last_task_description, p.display_name, p.slack_user_id,
+                p.clock_code, fc.discovered_at::date AS fc_date,
+                disc.display_name AS discovered_by,
+                -- esqueceu TAMBÉM o relógio? (Bruno 07-22): tinha relógio mapeado e a
+                -- última batida do dia foi cedo (<15h) ou nem bateu → sem punch-out
+                (p.clock_code IS NOT NULL AND p.clock_code <> '' AND COALESCE(
+                   (SELECT MAX(ap.punch_time) FROM v3.att_punch ap
+                     WHERE ap.person_id = p.id AND ap.att_date = fc.discovered_at::date),
+                   'epoch'::timestamptz) < (fc.discovered_at::date + TIME '15:00') AT TIME ZONE 'America/New_York'
+                ) AS forgot_clock_too
          FROM v3.forgotten_checkouts fc JOIN v3.persons p ON p.id = fc.person_id
+         LEFT JOIN v3.persons disc ON disc.id = fc.discovered_by_person_id
          WHERE fc.carolina_dm_sent_at IS NULL
            AND fc.carolina_dm_scheduled_for IS NOT NULL
            AND fc.carolina_dm_scheduled_for <= NOW()
@@ -47,6 +57,15 @@ class CarolinaForgottenDM {
          ORDER BY fc.carolina_dm_scheduled_for LIMIT 50`);
       if (!due.rowCount) return 0;
       if (!this.slack || !this.slack.postAs) return 0;
+      // REGRA NOVA (Bruno 07-22, relógio de ponto): quem TEM relógio mapeado e BATEU
+      // a saída não leva bronca por esquecer o checkout do sistema — a batida resolve
+      // o dia. Só cobra: (a) quem esqueceu AMBOS (versão séria), (b) quem não tem relógio.
+      const skip = due.rows.filter((r) => r.clock_code && !r.forgot_clock_too);
+      for (const fc of skip) {
+        await this.db.query("UPDATE v3.forgotten_checkouts SET carolina_dm_sent_at = NOW(), resolved_at = COALESCE(resolved_at, NOW()), resolution = 'clock_out_ok' WHERE id = $1", [fc.id]).catch(() => {});
+      }
+      due.rows = due.rows.filter((r) => !(r.clock_code && !r.forgot_clock_too));
+      if (!due.rows.length) return 0;
       // UMA mensagem só, do BOT (não assinada pela Carolina), mencionando TODO
       // MUNDO que esqueceu — em vez de spamar uma por pessoa (Bruno 07-08).
       const posted = await this._postChannelBatch(due.rows);
@@ -57,8 +76,7 @@ class CarolinaForgottenDM {
           try {
             await this.slack.postDm({
               userId: fc.slack_user_id, sender: BOT,
-              text: 'Você saiu *sem fazer o checkout* no fim do expediente e o sistema teve que corrigir o seu registro. '
-                + 'Por favor, não esqueça de fazer o logout/checkout no fim do dia. (Este lembrete também saiu no canal dos operadores.)',
+              text: 'Você saiu ontem sem fazer o checkout e o sistema teve que corrigir. Não esquece de dar logout no fim do dia, por favor.',
             });
           } catch (e) { console.error('[forgotten-dm] DM adicional falhou (canal já saiu):', e.message); }
         }
@@ -73,20 +91,29 @@ class CarolinaForgottenDM {
     } finally { this._ticking = false; }
   }
 
-  /** UMA mensagem no canal dos operadores, do BOT, com TODOS os nomes. */
+  /** UMA mensagem no canal dos operadores, do BOT, com TODOS os nomes. Quem
+   *  esqueceu TAMBÉM o relógio (forgot_clock_too) recebe a versão SÉRIA em caps,
+   *  citando quem informou o horário (Bruno 07-22). */
   async _postChannelBatch(rows) {
-    const mentions = rows.map((fc) => (fc.slack_user_id ? `<@${fc.slack_user_id}>` : `*${fc.display_name}*`));
-    // "A", "A e B", "A, B e C"
-    const list = mentions.length === 1 ? mentions[0]
-      : mentions.slice(0, -1).join(', ') + ' e ' + mentions[mentions.length - 1];
-    const plural = rows.length > 1;
-    const text = plural
-      ? `:hourglass_flowing_sand: ${list} — vocês saíram *sem fazer o checkout* no fim do expediente e o sistema teve que corrigir os registros de vocês. `
-        + `Isso bagunça os horários e a contagem de produção. Por favor, *não esqueçam de fazer o logout/checkout* no fim do dia — faz parte da rotina.`
-      : `:hourglass_flowing_sand: ${list}, você saiu *sem fazer o checkout* no fim do expediente e o sistema teve que corrigir o seu registro. `
-        + `Isso bagunça os horários e a contagem de produção. Por favor, *não esqueça de fazer o logout/checkout* no fim do dia — faz parte da rotina.`;
+    const mention = (fc) => (fc.slack_user_id ? `<@${fc.slack_user_id}>` : `*${fc.display_name}*`);
+    const joinList = (arr) => arr.length === 1 ? arr[0] : arr.slice(0, -1).join(', ') + ' e ' + arr[arr.length - 1];
+    const normal = rows.filter((r) => !r.forgot_clock_too);
+    const severe = rows.filter((r) => r.forgot_clock_too);
+    const parts = [];
+    if (normal.length) {
+      const list = joinList(normal.map(mention));
+      parts.push(normal.length > 1
+        ? `${list}, vocês saíram ontem sem fazer o checkout e o sistema teve que corrigir. Isso bagunça horários e contagem. Não esqueçam de dar logout no fim do dia.`
+        : `${list}, você saiu ontem sem fazer o checkout e o sistema teve que corrigir. Isso bagunça horários e contagem. Não esquece de dar logout no fim do dia.`);
+    }
+    for (const fc of severe) {
+      const adjusted = fc.discovered_by
+        ? `Ajustei o seu horário conforme a informação que *${fc.discovered_by}* me passou sobre a hora que você saiu.`
+        : `Ajustei o seu horário pelo último registro de atividade no sistema.`;
+      parts.push(`:rotating_light: ${mention(fc)}, ontem você esqueceu o checkout no sistema *e* o ponto no relógio. Isso é sério, redobre o cuidado. ${adjusted}`);
+    }
     try {
-      await this.slack.postAs({ channel: this.operatorsChannel, sender: BOT, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
+      await this.slack.postAs({ channel: this.operatorsChannel, sender: BOT, thread_ts: null, unfurl_links: false, unfurl_media: false, text: parts.join('\n\n') });
       return true;
     } catch (e) { console.error('[forgotten-dm] envio falhou:', e.message); return false; }
   }

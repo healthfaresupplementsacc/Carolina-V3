@@ -1063,5 +1063,15 @@
     };
   }());
 
-  show('login');
+  // Bootstrap (Bruno 08-03): se já tem sessão válida (cookie hf_admin, vindo do
+  // login no dashboard), entra direto — não pede PIN de novo. Senão, tela de login.
+  (async function bootstrapSession() {
+    try {
+      const r = await api('/api/adminpanel/auth/me', { method: 'GET' });
+      me = r.admin || null; applyRole();
+      show('ops'); await loadOps(); refreshBadge();
+    } catch (_) {
+      show('login');
+    }
+  }());
 }());

@@ -91,15 +91,43 @@ async function handleEvent(payload, deps) {
             await db.query(
               `UPDATE v3.operator_sessions SET logged_out_at = NOW(), logoff_reason = 'saturday_confirmed_left'
                WHERE person_id = $1 AND logged_out_at IS NULL`, [pay.person_id]);
-            if (post) { try { await post({ channel: item.channel, sender: { name: 'HealthFare Tracker', icon: ':door:' }, thread_ts: null, text: `:door: Fazendo o checkout de *${pay.display_name}*. Bom fim de semana!` }); } catch (_) {} }
+            if (post) { try { await post({ channel: item.channel, sender: { name: 'HealthFare Tracker', icon: ':door:' }, thread_ts: null, text: `Checkout de *${pay.display_name}* feito. Bom fim de semana!` }); } catch (_) {} }
           } else if (post) {
             const who = pay.slack_user_id ? `<@${pay.slack_user_id}>` : `*${pay.display_name}*`;
-            try { await post({ channel: item.channel, sender: { name: 'HealthFare Tracker', icon: ':hourglass_flowing_sand:' }, thread_ts: null, text: `${who}, então registra a tarefa no aplicativo da linha de produção *agora*, por favor.` }); } catch (_) {}
+            try { await post({ channel: item.channel, sender: { name: 'HealthFare Tracker', icon: ':memo:' }, thread_ts: null, text: `${who}, então registra a tarefa agora, por favor.` }); } catch (_) {}
           }
           return { handled: true, action: 'saturday_idle_' + (yes ? 'checkout' : 'still_here') };
         }
       }
     } catch (e) { console.error('[events-v2] saturday_idle_check erro:', e.message); }
+    // ── NO-CLOCKIN (Bruno 07-28): o sistema perguntou no admin-orin "posso cobrar
+    // Fulana que não bateu o ponto?". SÓ um admin (owner/manager) reagindo ✅ libera
+    // a cobrança no canal dos operadores. ❌/nada = fica quieto. Confirma o relógio.
+    try {
+      const ask = await db.query(
+        `SELECT id, payload FROM v3.notifications
+         WHERE type = 'noclockin_ask' AND status = 'pending' AND payload->>'msg_ts' = $1 LIMIT 1`,
+        [carolinaMsgTs]);
+      if (ask.rows.length) {
+        const n = ask.rows[0]; const pay = n.payload || {};
+        const yes = ['white_check_mark', '+1', 'heavy_check_mark'].includes(emoji);
+        const no = ['x', 'no_entry_sign', 'red_circle'].includes(emoji);
+        if (yes || no) {
+          // só admin pode aprovar
+          const adminR = await db.query(
+            `SELECT 1 FROM v3.persons WHERE slack_user_id = $1 AND role IN ('owner','manager') AND deleted_at IS NULL`,
+            [reactorSlackUserId]);
+          if (adminR.rows.length === 0) return { handled: false, reason: 'noclockin_reactor_not_admin' };
+          await db.query("UPDATE v3.notifications SET status = 'resolved' WHERE id = $1", [n.id]);
+          const post = commandHandler && commandHandler.slack && commandHandler.slack.postAs;
+          if (yes && post) {
+            const who = pay.slack_user_id ? `<@${pay.slack_user_id}>` : `*${pay.display_name}*`;
+            try { await post({ channel: productionChannelId, sender: { name: 'HealthFare Tracker', icon: ':memo:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text: `${who}, você esqueceu de bater o ponto hoje. Não esquece na próxima.` }); } catch (_) {}
+          }
+          return { handled: true, action: 'noclockin_' + (yes ? 'callout' : 'dismissed') };
+        }
+      }
+    } catch (e) { console.error('[events-v2] noclockin_ask erro:', e.message); }
     // Resolve reactor → person (deve ser admin com role owner/manager)
     const personR = await db.query(
       `SELECT id, role, display_name FROM v3.persons
@@ -183,7 +211,7 @@ async function handleEvent(payload, deps) {
           if (cmd.action === 'mute') {
             await alertGate.setMute(db, { untilMs: cmd.untilMs, reason: (ev.text || '').slice(0, 120), by: ev.user });
             const f = alertGate.fmtUntil(cmd.untilMs, Date.now());
-            await post(`:mute: *Avisos do canal de operadores pausados* — ${cmd.label} (até ${f.clock}, ~${f.dur}).\nNão vou mandar cobrança de ociosidade nem alerta de máquina parada no #orders-and-inventory até lá. _Pra religar antes: "voltar avisos"._`);
+            await post(`:mute: Avisos do canal de operadores pausados, ${cmd.label} (até ${f.clock}, ~${f.dur}). Pra religar antes: "voltar avisos".`);
             return { handled: true, action: 'alerts_muted', until: cmd.untilMs };
           }
           if (cmd.action === 'unmute') {

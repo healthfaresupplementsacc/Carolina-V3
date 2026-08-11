@@ -73,6 +73,8 @@ html.hf-portrait #scr-home [style*="grid-template-columns:1fr auto"] { grid-temp
 #lyr-overlay { z-index: 45; padding: 18px; background: rgba(12,30,55,.42); backdrop-filter: blur(7px); }
 #lyr-alert   { z-index: 60; padding: 18px; background: rgba(179,38,30,.18); backdrop-filter: blur(6px); }
 #lyr-settings { position: absolute; inset: 0; z-index: 50; }
+/* P&P Workspace (Bruno 08-06): tela cheia entre a home (3) e o flow (40) */
+#lyr-workspace { position: absolute; inset: 0; z-index: 35; display: flex; flex-direction: column; }
 /* toast some/aparece com fade (nunca bloqueia) */
 #hf-toast { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 90; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 220ms ease-out, visibility 0s linear 220ms; }
 #hf-toast.on { opacity: 1; visibility: visible; transition: opacity 220ms ease-out; }

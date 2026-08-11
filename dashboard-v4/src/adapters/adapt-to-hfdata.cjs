@@ -198,6 +198,8 @@ function adaptToHFData(input) {
         _estimated_bottles: ev.estimated_bottles != null ? ev.estimated_bottles : null, // EMS target do lote
         _bottle_counts: Array.isArray(ev.bottle_counts) ? ev.bottle_counts : [],        // quem/quando/quanto
         _fnsku_counts: Array.isArray(ev.fnsku_counts) ? ev.fnsku_counts : [],           // FNSKU labels deste evento
+        _batch_bottles_total: ev.batch_bottles_total != null ? ev.batch_bottles_total : null, // rollup do LOTE (Bruno 07-23)
+        _batch_reporters: Array.isArray(ev.batch_reporters) ? ev.batch_reporters : [],       // quem participou do lote
       });
     }
   }

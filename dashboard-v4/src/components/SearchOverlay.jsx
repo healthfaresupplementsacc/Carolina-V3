@@ -238,6 +238,37 @@ function BatchHistory({ d }) {
           </span>
         ))}
       </div>
+      {/* Impressões de label deste lote — quem imprimiu, quantos, quando, tempo
+          físico. É o elo permanente batch↔impressão (Bruno 07-17). */}
+      {(d.prints || []).length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, marginBottom: 6 }}>
+            Impressão de labels · {d.print_summary ? d.print_summary.labels : 0} labels em {d.prints.length} impressão(ões)
+            {d.print_summary && d.print_summary.print_seconds > 0 && <span> · {fmtSec(d.print_summary.print_seconds)} imprimindo</span>}
+            {d.print_summary && d.print_summary.operators && d.print_summary.operators.length > 0 && <span> · {d.print_summary.operators.join(', ')}</span>}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {d.prints.map((pj) => (
+              <div key={pj.id} className="card" style={{ padding: '8px 11px', borderLeft: '3px solid var(--flow-production)' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <b style={{ fontSize: 12.5 }}>{pj.operator || 'sem PIN'}</b>
+                  <span style={{ color: 'var(--text-3)', fontSize: 12 }}>· {pj.sheets != null ? pj.sheets + ' labels' : '—'}</span>
+                  {pj.document && <span style={{ color: 'var(--text-3)', fontSize: 11.5 }}>· {pj.document}</span>}
+                  <span style={{ flex: 1 }}/>
+                  {pj.print_seconds != null
+                    ? <span className="mono" style={{ fontSize: 11.5, fontWeight: 700 }} title="tempo físico real (impressora imprimindo)">{fmtSec(pj.print_seconds)} 🖨️</span>
+                    : pj.active_seconds != null
+                      ? <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }} title="tempo ativo no PC">{fmtSec(pj.active_seconds)} no PC</span>
+                      : null}
+                </div>
+                <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                  {fmtWhen(pj.at)}{pj.printer ? ' · ' + pj.printer : ''}{pj.spool_seconds != null ? ' · spooler ' + pj.spool_seconds + 's' : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, marginBottom: 6 }}>
         Linha do tempo — cada tarefa
       </div>
@@ -296,15 +327,36 @@ function PersonHistory({ d, title }) {
 
 function ProductHistory({ d, openBatch }) {
   const p = d.product || {};
+  const ps = d.print_summary || null;
   return (
     <div>
       <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>{p.canonical_name || ('produto ' + p.id)}</div>
+      {ps && ps.jobs > 0 && (
+        <div className="card" style={{ padding: 12, marginBottom: 12, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+          <Stat label="Labels impressos" value={ps.labels} sub={`${ps.jobs} impressão(ões)`}/>
+          {ps.print_seconds > 0 && <Stat label="Tempo imprimindo" value={fmtSec(ps.print_seconds)} sub="físico real"/>}
+          {ps.operators && ps.operators.length > 0 && <Stat label="Quem imprimiu" value={ps.operators.length} sub={ps.operators.join(', ')}/>}
+        </div>
+      )}
       <Group title="Lotes (clique pra ver o processo)">
         {(d.batches || []).map((b) => (
           <Row key={b.id} icon="product" main={b.batch_number || ('lote ' + b.id)} sub={b.status}
                onClick={() => openBatch(b.id, (b.batch_number || ('lote ' + b.id)) + ' · ' + (p.canonical_name || ''))}/>
         ))}
       </Group>
+      {ps && ps.recent && ps.recent.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', fontWeight: 700, margin: '8px 0 6px' }}>Impressões recentes</div>
+          {ps.recent.map((pj) => (
+            <div key={pj.id} className="card" style={{ padding: '6px 10px', display: 'flex', gap: 10, fontSize: 12.5, alignItems: 'baseline' }}>
+              <span className="mono" style={{ color: 'var(--text-3)' }}>{fmtWhen(pj.at)}</span>
+              <span style={{ flex: 1 }}>{pj.operator || 'sem PIN'}{pj.batch ? ' · ' + pj.batch.batch_number : ''}</span>
+              <b>{pj.sheets != null ? pj.sheets : '—'}</b>
+              {pj.print_seconds != null && <span className="mono" style={{ color: 'var(--text-3)' }}>{fmtSec(pj.print_seconds)}</span>}
+            </div>
+          ))}
+        </div>
+      )}
       {(d.counts || []).length > 0 && (
         <div>
           <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', fontWeight: 700, margin: '8px 0 6px' }}>Contagens recentes</div>

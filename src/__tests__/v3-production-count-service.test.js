@@ -52,14 +52,21 @@ function makeFakeDb() {
         && c.superseded_by == null && c.deleted_at == null);
       return { rows: r.map((x) => ({ ...x })) };
     }
-    // Bloco 2 — detecção de duplicata (mesmo produto/lote/dia, mesmo valor).
-    if (/^SELECT id FROM v3\.production_counts WHERE product_id = \$1 AND bottles = \$2/.test(s)) {
-      const r = counts.find((c) => c.product_id === params[0]
+    // Bloco 2 — detecção de duplicata (mesmo produto/dia, mesmo valor, batch
+    // COMPATÍVEL: igual OU um dos dois null). Bruno 07-23: pega /op-com-lote vs
+    // Slack-sem-lote. Ordena por id DESC (mais recente primeiro).
+    if (/^SELECT id, source_event_id.*FROM\s+v3\.production_counts\s+WHERE product_id = \$1 AND bottles = \$2/s.test(s)) {
+      const r = counts.filter((c) => c.product_id === params[0]
         && Number(c.bottles) === Number(params[1]) && c.production_date === params[2]
-        && (c.product_batch_id == null ? params[3] == null : c.product_batch_id === params[3])
-        && c.superseded_by == null && c.deleted_at == null && c.possible_duplicate_of == null);
-      return { rows: r ? [{ id: r.id }] : [] };
+        && (c.product_batch_id == null || params[3] == null || c.product_batch_id === params[3])
+        && c.superseded_by == null && c.deleted_at == null && c.possible_duplicate_of == null)
+        .sort((a, b) => b.id - a.id);
+      return { rows: r.length ? [{ ...r[0] }] : [] };
     }
+    // incidente de dados (mock: só devolve id fake)
+    if (/^INSERT INTO v3\.data_incidents/.test(s)) return { rows: [{ id: 1 }] };
+    if (/^SELECT canonical_name FROM v3\.products/.test(s)) return { rows: [{ canonical_name: 'Produto' }] };
+    if (/^SELECT display_name FROM v3\.persons/.test(s)) return { rows: [{ display_name: 'Fulano' }] };
     if (/^INSERT INTO v3\.audit_log/.test(s)) {
       audit.push({ actor_type: params[0], action: params[2], target_id: params[3] });
       return { rows: [] };
