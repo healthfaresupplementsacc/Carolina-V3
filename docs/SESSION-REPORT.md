@@ -94,3 +94,67 @@ backlog to work through one at a time.
 - `git push` was run only in the earlier STEP 1 (before this autonomous session); this
   session's Parts 1–6 are committed locally on `v3-reset` and were not pushed (the
   instructions did not ask for a push after each part).
+
+---
+
+# Session Report — 11 Aug 2026 (part 2: drift enforcement)
+
+Second autonomous session: verified the BROKEN LINKS findings against code + schema,
+corrected the doc, and built automated drift enforcement (test + weekly Slack check).
+Hard limits respected: no prod DB writes, no deletions, no edits under `src/workers/`,
+`src/v3/`, `src/routes/`, `src/dashboard/`; `npm test` passed before every commit.
+
+## What I built + commit hashes
+
+| Part | Hash | What |
+| --- | --- | --- |
+| 1 | `748f3bb` | Corrected BROKEN LINKS in `docs/ARCHITECTURE.md` after verifying every claim against code + schema. |
+| 2 | `e2e320c` | `src/__tests__/architecture-drift.test.js` — pure static drift test (routes, workers, tables, sensitive-table writer sets). |
+| 3 | `2b16faa` | `drift-check.ps1` + `scripts/post-drift-to-slack.js` + gitignored `drift-log.txt` / dated DRIFT reports. |
+| 4 | `10fa567` | Registered `HealthFare drift check` scheduled task (Sun 6am) + `docs/DRIFT-SETUP.md`; scoped gitignore so `DRIFT-SETUP.md` stays tracked. |
+| 5 | `bd61c7b` | `CLAUDE.md` "Keeping ARCHITECTURE.md true" rule. |
+
+Test state at end: **206 suites pass, 2601 tests pass, 2 skipped, 0 fail** (was 205; the
+new drift test is the +1).
+
+## Doc corrections made in Part 1 (verified against code)
+
+- **Claim 1 (`v3.events.ended_at`)**: removed `BatchService.js` (it writes `product_batch_id`,
+  not `ended_at`); moved `merge.js` + `workflow/engine.js` out (they write the legacy
+  `public.tasks`/`phase_instances` tables, not `v3.events`); documented that most closers
+  guard with `WHERE ended_at IS NULL`; split "genuinely unguarded" (`op.js:1662,1669,1680`)
+  from "TOCTOU via preceding SELECT" (`op.js:1395,1419,1519`); noted `EventService._patch`'s
+  negative-duration guard (`EventService.js:122-140`) and that `idx_events_active` is
+  non-unique (no DB-level single-open guarantee).
+- **Claim 2 (`v3.production_counts`)**: corrected from "3 writers" to 6
+  (`op.js:1132,1160,2250,2912`, `admin.js:1013`, `ProductionCountService.js:87`).
+- Claims 3, 4, 5 verified exact — no change.
+- Side note found during Part 2: `v3.admin_chats` DOES exist as a migration table
+  (contradicts the earlier UNCERTAIN note that it likely didn't). It's in the drift test's
+  known-undocumented baseline.
+
+## Scheduled task
+
+**Registered successfully, no elevation needed.** `Get-ScheduledTask -TaskName "HealthFare
+drift check"` → State: Ready, Enabled: True, Trigger: Weekly Sunday 06:00, Next run
+2026-08-16 06:00. Details in `docs/DRIFT-SETUP.md`.
+
+## Slack delivery — proven working
+
+Ran `drift-check.ps1` manually once (Part 6):
+- `claude -p` re-traced the system and wrote `docs/DRIFT-2026-08-11.md` containing exactly
+  `no drift`.
+- `scripts/post-drift-to-slack.js` (under `railway run`) DM'd Bruno the one-line
+  confirmation. Verified via the Slack API: message ts `1786478713.713189`, text
+  "✅ Drift check (2026-08-11): *no drift*. ARCHITECTURE.md matches what runs."
+- Bruno's Slack id resolved via `config.slack.brunoUserId` (`U03URLL1D4L`) — no DB touched.
+
+## What failed / notes
+
+- Nothing failed. The scheduled task registered without admin rights; Slack delivery
+  succeeded first try; the drift check found "no drift" (expected, since the doc was just
+  verified).
+- These Part-1–6 commits are local on `v3-reset`, not pushed (instructions did not ask for
+  a push). An unrelated pre-existing uncommitted change in `src/routes/op.js` (a prior
+  deployed machine-handoff fix) was left untouched, as `src/routes/` is off-limits this
+  session.
