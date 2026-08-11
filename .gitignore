@@ -13,6 +13,7 @@ analysis_output.json
 docs/design/handoff/
 docs/design/screenshots/
 
-# drift check (weekly): local log + dated drift reports (regenerated, not tracked)
+# drift check (weekly): local log + dated drift reports (regenerated, not tracked).
+# NOTE: pattern is date-scoped so docs/DRIFT-SETUP.md stays tracked.
 drift-log.txt
-docs/DRIFT-*.md
+docs/DRIFT-[0-9]*.md
