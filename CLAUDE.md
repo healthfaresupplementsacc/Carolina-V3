@@ -6,9 +6,10 @@ Postgres.
 
 ## Before you do anything
 
-Read these two files at the start of any structural task:
+Read these files at the start of any structural task:
 - `docs/system-context.md`
 - `INTEGRATION_PLAN.md`
+- `docs/ARCHITECTURE.md`
 
 If your task touches duplicated concepts, also read
 `docs/investigacao/05-modelos-duplicados.md` and
