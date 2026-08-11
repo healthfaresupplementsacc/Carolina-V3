@@ -443,9 +443,19 @@ View-only PIN-gated proxy to the camera-PC gateway + machine-motion signal.
 
 State written in two places that could disagree, or edges emitted with no consumer:
 
-1. **`v3.events.ended_at` — 5+ independent writers, no single guard.** op.js raw SQL (`:1662,2126`), EventService (`:210`), attendance-sync (`:339,548,564`), ems-activity-sync (`:228,244`), plus admin.js / CommandHandler / Observer / BatchService / merge.js / workflow-engine. The `EventService.js:5-21` "single write-door" invariant is NOT enforced against op.js. Risk: two closers racing on the same event.
+1. **`v3.events.ended_at` — many independent writers, mostly guarded.** (Verified 2026-08-11 against code + schema; corrects an earlier draft of this claim.) The real direct writers of `v3.events.ended_at`:
+   - `src/routes/op.js` — ~9 raw closes: `:1395,1419,1519` (machine_return), `:1540,1550` (overnight expiry), `:1662,1669,1680` (lunch/new-task), `:3388` (forgotten-checkout cascade).
+   - `src/v3/services/EventService.js:211` (`_patch`, the only parameterized path).
+   - `src/routes/admin.js:654,1187`; `src/v3/data/router.js:1860,1913`; `src/v3/services/CommandHandler.js:783,798`; `src/workers/attendance-sync.js:339,548,564`; `src/workers/ems-activity-sync.js:228,244`.
+   - **Correction to the earlier draft:** `BatchService.js:159,195` do NOT write `ended_at` (they write `product_batch_id`). `src/admin/merge.js:74` and `src/workflow/engine.js:283,520` DO write `ended_at`, but on the **legacy `public.tasks`/`phase_instances`/`ad_hoc_task_instances` tables, NOT `v3.events`** — so they are out of scope for this claim.
+   - **Guard reality:** most closers include `WHERE ended_at IS NULL` (attendance-sync `:339,548,564`; CommandHandler `:783,798`; op.js bulk closers), which makes a concurrent double-close a no-op. Split the rest:
+     - **Genuinely unguarded** (close by id / `ANY(ids)` with NO `ended_at IS NULL` on the UPDATE): `op.js:1662,1669,1680`.
+     - **TOCTOU window** (UPDATE by `id` alone, but the row was SELECTed with `ended_at IS NULL` immediately before, e.g. `op.js:1393` → `:1395`): `op.js:1395,1419,1519`. A narrow read-then-write race, not a naked double-close.
+   - `EventService._patch` additionally has a **negative-duration guard** (`EventService.js:122-140`): if a patch would set `ended_at < started_at`, it clamps `ended_at = started_at` and audits.
+   - **No DB-level guarantee:** `idx_events_active` (`migrations/001_v3_initial.sql:144`) is a **non-unique** partial index — it does NOT enforce "one open event per person." All protection is the app-level `WHERE ended_at IS NULL` clause.
+   - Net: the `EventService.js:5-21` "single write-door" invariant is not enforced against op.js's raw SQL, but the practical race surface is small (only `op.js:1662,1669,1680` lack any guard).
 
-2. **`v3.production_counts` — 3 writers, "one write path" comment overstated.** ProductionCountService (canonical, dedup `:86`), op.js direct (`:2251` + `insertCount`), admin.js. The `wire.js:180` "one write path" holds only for the followup-total path, not operator `/end` inserts. Risk: op.js bypasses the dedup/supersede logic that catches double-counting.
+2. **`v3.production_counts` — 6 writers, "one write path" comment overstated.** (Verified 2026-08-11.) The real writers: `src/routes/op.js:1132` (`insertCount`), `:1160` (`insertOrdersCount`), `:2250`, `:2912`; `src/routes/admin.js:1013`; `src/v3/services/ProductionCountService.js:87` (canonical, dedup). `insertCount`/`insertOrdersCount` write **raw SQL, bypassing ProductionCountService** — no dedup/supersede. The `wire.js:180` "one write path" holds only for the followup-total path (`recordTotal` → `ProductionCountService.record`), not the operator `/end` inserts. Risk: op.js bypasses the dedup/supersede logic that catches double-counting.
 
 3. **`v3.stock_movements` — dual-path ledger.** `StockService._insertMovement` (idempotent, updates bin/box qty `:77`) vs raw kiosk INSERT `op.js:324` (source `'op_kiosk'`, no qty update, no idempotency). The header at `StockService.js:6` explicitly warns about this. Risk: kiosk picks that never adjust bin quantities.
 
