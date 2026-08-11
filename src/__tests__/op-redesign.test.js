@@ -22,6 +22,8 @@ const REAL = [
   '/api/v3/op/ems/my-activity', '/api/v3/op/ems/register-detected', // FASE FORM (detecção passiva)
   '/api/v3/op/pending-confirmations', // Bruno 07-18: confirmar auto-task do EMS (+ /answer)
   '/api/v3/op/machine/confirm-return', // custódia (Bruno 07-08): dono confirma no retorno
+  // P&P Workspace (Bruno 08-06) — todas registradas em src/routes/op.js:293-332
+  '/api/v3/op/picklist', '/api/v3/op/stock-gaps', '/api/v3/op/stock/recent', '/api/v3/op/stock/take',
   '/api/v3/architect/person/',
 ];
 
