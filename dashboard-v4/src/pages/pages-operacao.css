@@ -155,14 +155,9 @@
   background: var(--kit-surface); border: 1px solid var(--line); color: var(--ink-dim);
 }
 
-/* ── Faixa do Ponto (relógio) ────────────────────────────────────── */
-.opa-att-card {
-  background: var(--kit-surface); border: 1px solid var(--line); border-radius: var(--r-md);
-  box-shadow: var(--shadow-card); padding: 8px 12px;
-  display: flex; align-items: center; gap: 8px; min-width: 156px;
-}
-.opa-att-name { font: 600 12.5px var(--font); color: var(--ink); }
-.opa-att-sub { font-size: 11px; color: var(--ink-dim); }
+/* A faixa do Ponto saiu do corpo da página (Bruno 08-19): subiu pro topbar.
+   Estilo agora em components/widgets.css (.ponto-*). As classes .opa-att-*
+   foram removidas junto com o componente que as usava. */
 
 /* ── Esteira de fases (Produção) ─────────────────────────────────── */
 [data-page-op] .fase {
@@ -330,7 +325,6 @@
       precisa deixar de ser branco-fixo. Light continua prioridade. ── */
 :root[data-theme="dark"] .opa-empty,
 :root[data-theme="dark"] .opa-placeholder,
-:root[data-theme="dark"] .opa-att-card,
 :root[data-theme="dark"] .opa-modal {
   background: var(--surface); border-color: var(--border); color: var(--text);
 }
@@ -339,8 +333,6 @@
 :root[data-theme="dark"] .opa-strip-item .opa-strip-num,
 :root[data-theme="dark"] .opa-modal .opa-modal-title { color: var(--text); }
 :root[data-theme="dark"] .opa-section .rule { background: var(--border); }
-:root[data-theme="dark"] .opa-att-name { color: var(--text); }
-:root[data-theme="dark"] .opa-att-sub { color: var(--text-3); }
 
 /* No escuro o fundo do card ja e navy: o botao navy do kit some. Sobe pro
    verde do kit, que e a cor de acao e mantem contraste AA nos dois temas. */

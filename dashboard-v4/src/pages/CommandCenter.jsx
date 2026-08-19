@@ -12,122 +12,21 @@ import { Timeline } from '../components/Timeline.jsx';
 import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
+import { WidgetGrid, compact } from '../components/WidgetGrid.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
-import { apiGet, apiPost, usePoll } from '../adapters/from-api.js';
+import { apiGet, usePoll } from '../adapters/from-api.js';
 import nyTime from '../utils/ny-time.cjs';
 import dayStats from '../utils/day-stats.cjs';
 import './pages-operacao.css';
+import '../components/widgets.css';
 
 const NOTIFS_VISIBLE_KEY = 'hf-notifs-visible';
 
-/* ── PONTO (relógio NGTeco) — Bruno 07-22. ADMIN ONLY: os horários do relógio são
-   internos (nunca aparecem na página do funcionário/canal dos operadores; aqui é o
-   dashboard PIN-admin). Quadrados: entrou / EM PAUSA (Xmin) / saiu. Poll 30s. ── */
-function AttendanceStrip({ data, refresh }) {
-  const people = (data && data.people) || [];
-  const [busy, setBusy] = React.useState(null);
-  // Deslogar um operador (Bruno 08-01): login por engano na conta de outra pessoa.
-  const logoff = async (p) => {
-    if (busy) return;
-    if (!window.confirm(
-      `Deslogar ${p.name} da estação?\n\n` +
-      `Fecha a sessão do kiosk e encerra tarefas ativas (a máquina em background não é afetada). ` +
-      `Vou checar se ela bateu a saída no relógio e avisar no admin-orin.`)) return;
-    setBusy(p.person_id);
-    try {
-      const r = await apiPost(`/operator/${p.person_id}/logoff`, { reason: 'admin_dashboard' });
-      const d = (r && r.data) || r || {};
-      window.alert(`${p.name} deslogado(a).` +
-        (d.sessions_closed ? ` Sessões fechadas: ${d.sessions_closed.length}.` : '') +
-        (d.tasks_closed && d.tasks_closed.length ? ` Tarefas encerradas: ${d.tasks_closed.length}.` : '') +
-        (d.clocked_out === false ? ' ⚠️ Ainda não bateu a saída no relógio.' : ''));
-      if (refresh) refresh();
-    } catch (e) { window.alert('Falhou deslogar: ' + (e && e.message || e)); }
-    finally { setBusy(null); }
-  };
-  // SAÍDA MANUAL (Bruno 08-03): a pessoa esqueceu de bater a saída → o admin registra.
-  const doCheckout = async (p) => {
-    if (busy) return;
-    const t = window.prompt(
-      `Registrar SAÍDA de ${p.name} (esqueceu de bater no relógio).\n\n` +
-      `Hora da saída (HH:MM), ou deixe vazio pra usar AGORA:`, '');
-    if (t === null) return; // cancelou
-    let atIso = null;
-    if (t && t.trim()) {
-      const m = t.trim().match(/^(\d{1,2}):(\d{2})$/);
-      if (!m) { window.alert('Hora inválida. Use HH:MM (ex: 17:30).'); return; }
-      const d = new Date(); d.setHours(+m[1], +m[2], 0, 0); atIso = d.toISOString();
-    }
-    setBusy(p.person_id);
-    try {
-      const r = await apiPost(`/operator/${p.person_id}/checkout`, atIso ? { at: atIso } : {});
-      const dd = (r && r.data) || r || {};
-      window.alert(`Saída de ${p.name} registrada.` + (dd.tasks_closed && dd.tasks_closed.length ? ` ${dd.tasks_closed.length} tarefa(s) encerrada(s).` : ''));
-      if (refresh) refresh();
-    } catch (e) { window.alert('Falhou registrar saída: ' + (e && e.message || e)); }
-    finally { setBusy(null); }
-  };
-  if (!people.length) return null;
-  const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) : null;
-  const card = (p) => {
-    let dot = 'var(--ink-faint)', txt = 'sem ponto hoje', sub = null;
-    if (p.state === 'in') {
-      dot = 'var(--green)';
-      txt = `entrou ${fmtT(p.checkin_at) || '—'}`;
-      if (p.no_clockin) { dot = 'var(--dot-warn)'; txt = 'trabalhando SEM ponto'; sub = `início (tarefa) ${fmtT(p.checkin_at) || '—'}`; }
-      else if (p.last_in_at && p.checkin_at && p.last_in_at !== p.checkin_at) sub = `voltou ${fmtT(p.last_in_at)}`;
-    } else if (p.state === 'break') {
-      dot = 'var(--dot-warn)';
-      txt = 'EM PAUSA';
-      sub = p.break_sec != null ? `${Math.round(p.break_sec / 60)}min` : null;
-    } else if (p.checkout_at) {
-      dot = 'var(--ink-faint)';
-      txt = `saiu ${fmtT(p.checkout_at)}`;
-      sub = p.checkin_at ? `entrou ${fmtT(p.checkin_at)}` : null;
-    }
-    return (
-      <div key={p.person_id} className="opa-att-card"
-           title={`relógio #${p.clock_code} · ${p.punches.length} batida(s)`}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flex: '0 0 8px' }}/>
-        <div style={{ minWidth: 0 }}>
-          <div className="opa-att-name">{p.name}</div>
-          <div className="opa-att-sub">{txt}{sub ? <span style={{ marginLeft: 5 }}>· {sub}</span> : null}</div>
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
-          {p.logged_in ? (
-            <button
-              className="kit-btn xs"
-              onClick={() => logoff(p)}
-              disabled={busy === p.person_id}
-              title={`Deslogar ${p.name} do kiosk (fecha a sessão)`}
-              style={{ borderColor: 'var(--warn-line)', color: 'var(--warn-deep)', background: 'var(--warn-bg)',
-                cursor: busy === p.person_id ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
-              {busy === p.person_id ? '…' : 'deslogar'}
-            </button>
-          ) : null}
-          {p.state !== 'out' && !p.checkout_at ? (
-            <button
-              className="kit-btn xs"
-              onClick={() => doCheckout(p)}
-              disabled={busy === p.person_id}
-              title={`Registrar saída de ${p.name} (esqueceu de bater o ponto)`}
-              style={{ cursor: busy === p.person_id ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
-              saída
-            </button>
-          ) : null}
-        </div>
-      </div>
-    );
-  };
-  return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-      <span className="kit-mlabel" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        <Icon name="clock" size={12}/> Ponto
-      </span>
-      {people.map(card)}
-    </div>
-  );
-}
+/* A faixa do PONTO saiu daqui (Bruno 08-19): mudou pro TOPBAR, em
+   components/PontoStrip.jsx, no lugar das pills "ao vivo"/"edição ativa".
+   Não é duplicata: existe um lugar só que mostra quem bateu o ponto.
+   O CommandCenter continua LENDO /attendance (abaixo) porque a timeline usa os
+   markers das batidas, mas não desenha mais a faixa. */
 
 /* ── CAIXA URGENTE de incidentes de dados (Bruno 07-23): duplicatas etc, com o
    relatório detalhado (o quê/onde/canal/foi-falta-de-atenção). ── */
@@ -269,16 +168,107 @@ function PendingTotalsBox() {
 const GAP_VISIBLE_MIN = 25;    // gaps >= isso aparecem no card; menores só editáveis via expand
 const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invisíveis)
 
-// Widgets da página Hoje (Bruno 07-01): liga/desliga + reordena; persiste.
-// Ordem default põe Câmeras ANTES de Filtros (pedido explícito).
-const WIDGET_DEFS = [
-  { id: 'kpis',     label: 'Cards (KPIs)' },
-  { id: 'cameras',  label: 'Câmeras' },
+/* ── WIDGETS da página Hoje ────────────────────────────────────────
+   Bruno 08-19: os sete blocos do topo deixaram de ser uma faixa fixa de KPIs
+   e viraram widgets INDIVIDUAIS numa grade que arrasta e redimensiona.
+   Antes: um único widget 'kpis' com tudo dentro, mais 'cameras' embaixo.
+   Agora: cada card é um widget com id próprio, posição e tamanho.
+
+   GRADE (topo da página): produção, revisão, metas, pp, pedidos, fnsku, cameras.
+   EMPILHADOS (abaixo da grade, como hoje): filtros, timeline, resumo. Continuam
+   ligáveis/desligáveis no popover, mas não entram na grade porque são blocos de
+   largura cheia que se leem em sequência. */
+const GRID_DEFS = [
+  { id: 'producao', label: 'Produção hoje',  minW: 3, minH: 3, w: 3, h: 4 },
+  { id: 'revisao',  label: 'Revisão (dia)',  minW: 3, minH: 3, w: 3, h: 4 },
+  { id: 'metas',    label: 'Metas em curso', minW: 3, minH: 3, w: 3, h: 4 },
+  { id: 'pp',       label: 'P&P do dia',     minW: 3, minH: 3, w: 3, h: 4 },
+  { id: 'pedidos',  label: 'Pedidos hoje',   minW: 3, minH: 3, w: 6, h: 5 },
+  { id: 'fnsku',    label: 'FNSKU hoje',     minW: 3, minH: 3, w: 6, h: 5 },
+  { id: 'cameras',  label: 'Câmeras ao vivo', minW: 4, minH: 4, w: 12, h: 7 },
+];
+/* Blocos de largura cheia, fora da grade. */
+const STACK_DEFS = [
   { id: 'filtros',  label: 'Filtros' },
   { id: 'timeline', label: 'Linha do Tempo' },
   { id: 'resumo',   label: 'Resumo do dia' },
 ];
-const WIDGETS_KEY = 'hf-widgets-v1';
+const WIDGET_DEFS = [...GRID_DEFS, ...STACK_DEFS];
+const DEFS_BY_ID = Object.fromEntries(WIDGET_DEFS.map((d) => [d.id, d]));
+
+const LAYOUT_KEY = 'hf-hoje-layout-v2';
+const WIDGETS_KEY = 'hf-widgets-v1';        // esquema antigo (só on/off + ordem)
+
+/* Layout padrão = a ordem VISUAL de hoje: 4 cards de KPI na primeira faixa,
+   Pedidos + FNSKU na segunda, Câmeras em largura cheia embaixo. */
+function defaultLayout() {
+  return [
+    { id: 'producao', x: 0, y: 0,  w: 3, h: 4, on: true },
+    { id: 'revisao',  x: 3, y: 0,  w: 3, h: 4, on: true },
+    { id: 'metas',    x: 6, y: 0,  w: 3, h: 4, on: true },
+    { id: 'pp',       x: 9, y: 0,  w: 3, h: 4, on: true },
+    { id: 'pedidos',  x: 0, y: 4,  w: 6, h: 5, on: true },
+    { id: 'fnsku',    x: 6, y: 4,  w: 6, h: 5, on: true },
+    { id: 'cameras',  x: 0, y: 9,  w: 12, h: 7, on: true },
+  ];
+}
+function defaultStack() {
+  return { order: STACK_DEFS.map((d) => d.id), off: [] };
+}
+
+/* Lê o layout salvo. Se não existir, MIGRA do 'hf-widgets-v1' uma única vez:
+   quem tinha desligado Câmeras continua sem Câmeras, e quem tinha desligado o
+   bloco 'kpis' inteiro fica com os seis cards desligados. Ninguém abre a página
+   e encontra a configuração de outra pessoa. */
+function loadLayout() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
+    if (s && Array.isArray(s.grid)) {
+      const known = new Set(GRID_DEFS.map((d) => d.id));
+      const seen = new Set();
+      const grid = [];
+      for (const w of s.grid) {
+        if (!known.has(w.id) || seen.has(w.id)) continue;
+        seen.add(w.id);
+        const def = DEFS_BY_ID[w.id];
+        grid.push({
+          id: w.id,
+          x: Math.max(0, Math.min(11, Number(w.x) || 0)),
+          y: Math.max(0, Number(w.y) || 0),
+          w: Math.max(def.minW, Math.min(12, Number(w.w) || def.w)),
+          h: Math.max(def.minH, Number(w.h) || def.h),
+          on: w.on !== false,
+        });
+      }
+      // widget novo que o layout salvo não conhece entra ligado, no fim
+      for (const d of GRID_DEFS) {
+        if (!seen.has(d.id)) grid.push({ id: d.id, x: 0, y: 999, w: d.w, h: d.h, on: true });
+      }
+      const stack = s.stack && Array.isArray(s.stack.order) ? s.stack : defaultStack();
+      const kn = STACK_DEFS.map((d) => d.id);
+      stack.order = stack.order.filter((id) => kn.includes(id)).concat(kn.filter((id) => !stack.order.includes(id)));
+      stack.off = Array.isArray(stack.off) ? stack.off : [];
+      return { grid, stack };
+    }
+    // ── migração do esquema antigo ──────────────────────────────
+    const old = JSON.parse(localStorage.getItem(WIDGETS_KEY) || 'null');
+    if (old && Array.isArray(old.order)) {
+      const off = Array.isArray(old.off) ? old.off : [];
+      const grid = defaultLayout().map((w) => ({
+        ...w,
+        // 'kpis' era UM bloco com os 6 cards; desligado → os 6 nascem desligados
+        on: w.id === 'cameras' ? !off.includes('cameras') : !off.includes('kpis'),
+      }));
+      const kn = STACK_DEFS.map((d) => d.id);
+      const stack = {
+        order: old.order.filter((id) => kn.includes(id)).concat(kn.filter((id) => !old.order.includes(id))),
+        off: off.filter((id) => kn.includes(id)),
+      };
+      return { grid, stack };
+    }
+  } catch { /* localStorage off */ }
+  return { grid: defaultLayout(), stack: defaultStack() };
+}
 
 function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw,
                           onMerge, onSplit, onCreateInGap, writes,
@@ -331,28 +321,50 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   };
   const closeDrill = () => setDrill(null);
 
-  // ── Widgets (Bruno 07-01): on/off + ordem, persistidos ───
-  const [widgets, setWidgets] = React.useState(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem(WIDGETS_KEY) || 'null');
-      if (s && Array.isArray(s.order)) {
-        const known = WIDGET_DEFS.map((d) => d.id);
-        const order = s.order.filter((id) => known.includes(id)).concat(known.filter((id) => !s.order.includes(id)));
-        return { order, off: Array.isArray(s.off) ? s.off : [] };
-      }
-    } catch { /* localStorage off */ }
-    return { order: WIDGET_DEFS.map((d) => d.id), off: [] };
-  });
+  // ── Widgets: grade arrastável (topo) + blocos empilhados (embaixo) ──
+  // Bruno 08-19. Um único objeto persistido em 'hf-hoje-layout-v2'.
+  const [wstate, setWstate] = React.useState(loadLayout);
   const [widgetsOpen, setWidgetsOpen] = React.useState(false);
-  const saveWidgets = (w) => { setWidgets(w); try { localStorage.setItem(WIDGETS_KEY, JSON.stringify(w)); } catch {} };
-  const wOn = (id) => !widgets.off.includes(id);
-  const wOrder = (id) => widgets.order.indexOf(id) + 1;
-  const wToggle = (id) => saveWidgets({ ...widgets, off: wOn(id) ? [...widgets.off, id] : widgets.off.filter((x) => x !== id) });
+  const saveW = React.useCallback((next) => {
+    setWstate(next);
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); } catch { /* off */ }
+  }, []);
+
+  // grade
+  const grid = wstate.grid;
+  const onLayout = React.useCallback((nextGrid) => {
+    saveW({ ...wstate, grid: nextGrid });
+  }, [saveW, wstate]);
+  const gOn = (id) => { const w = grid.find((x) => x.id === id); return !!w && w.on; };
+  const gToggle = (id) => {
+    const next = grid.map((w) => (w.id === id ? { ...w, on: !w.on } : w));
+    // ao religar, compacta pra o bloco não voltar num buraco no meio da página
+    saveW({ ...wstate, grid: compact(next.filter((w) => w.on)).concat(next.filter((w) => !w.on)) });
+  };
+  /* Acessibilidade: subir/descer no popover é a alternativa ao mouse.
+     Move o widget uma faixa pra cima/baixo e recompacta. */
+  const gMove = (id, dir) => {
+    const me = grid.find((w) => w.id === id);
+    if (!me || !me.on) return;
+    const next = grid.map((w) => (w.id === id ? { ...w, y: Math.max(0, w.y + dir * (me.h + 1)) } : w));
+    const on = next.filter((w) => w.on).sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    saveW({ ...wstate, grid: compact(on).concat(next.filter((w) => !w.on)) });
+  };
+
+  // blocos empilhados (filtros / timeline / resumo)
+  const stack = wstate.stack;
+  const wOn = (id) => !stack.off.includes(id);
+  const wOrder = (id) => stack.order.indexOf(id) + 1;
+  const wToggle = (id) => saveW({ ...wstate, stack: { ...stack, off: wOn(id) ? [...stack.off, id] : stack.off.filter((x) => x !== id) } });
   const wMove = (id, dir) => {
-    const o = [...widgets.order]; const i = o.indexOf(id); const j = i + dir;
+    const o = [...stack.order]; const i = o.indexOf(id); const j = i + dir;
     if (i < 0 || j < 0 || j >= o.length) return;
     [o[i], o[j]] = [o[j], o[i]];
-    saveWidgets({ ...widgets, order: o });
+    saveW({ ...wstate, stack: { ...stack, order: o } });
+  };
+  const restoreDefaults = () => {
+    if (!window.confirm('Restaurar o padrão dos widgets? A posição e o tamanho que você ajustou se perdem.')) return;
+    saveW({ grid: defaultLayout(), stack: defaultStack() });
   };
 
   // Stats do filtro no TOPO da seção (sempre visível — Bruno 07-01):
@@ -623,65 +635,14 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     );
   }
 
-  return (
-    <div data-page-op="hoje" style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* ── Cabeçalho do kit ─────────────────────────────────── */}
-      <div className="opa-head" style={{ order: -1 }}>
-        <div className="opa-head-main">
-          <span className="kit-eyebrow">● HEALTHFARE · HOJE</span>
-          <h1 className="kit-h1">O dia da <em>fábrica</em> agora</h1>
-          <p className="kit-sub">
-            Produção, metas, P&amp;P e a linha do tempo de cada pessoa. Os blocos ligam e desligam no botão Widgets.
-          </p>
-        </div>
-        <div className="opa-head-side">
-          <button className="kit-btn sm" onClick={() => setWidgetsOpen((v) => !v)}
-                  title="Ligar/desligar e reordenar os blocos da página">Widgets</button>
-        </div>
-      </div>
-
-      {error && state.events.length > 0 && (
-        <div className="opa-alertbox warn" style={{ marginBottom: 10 }}>
-          <div className="opa-alert-title">Refresh falhou</div>
-          <div className="opa-alert-body">{error.message || String(error)}. Mostrando a última leitura.</div>
-        </div>
-      )}
-
-      {/* ── Widgets: escolher/ordenar os blocos da página (Bruno 07-01) ── */}
-      {widgetsOpen && (
-        <>
-          <div onClick={() => setWidgetsOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 260 }}/>
-          <div className="kit-card pad" style={{ position: 'fixed', top: 96, right: 18, zIndex: 270, width: 268, boxShadow: 'var(--shadow-pop)' }}>
-            <div className="kit-mlabel" style={{ marginBottom: 8 }}>Widgets da página</div>
-            {widgets.order.map((id, i) => {
-              const def = WIDGET_DEFS.find((d) => d.id === id); if (!def) return null;
-              return (
-                <div key={id} className="kit-dotted-row" style={{ padding: '7px 0' }}>
-                  <input type="checkbox" checked={wOn(id)} onChange={() => wToggle(id)} style={{ accentColor: 'var(--green-d)' }}/>
-                  <span style={{ flex: 1, fontSize: 13 }}>{def.label}</span>
-                  <button className="kit-btn xs" onClick={() => wMove(id, -1)} disabled={i === 0}
-                          style={{ padding: '0 8px' }} title="Subir">↑</button>
-                  <button className="kit-btn xs" onClick={() => wMove(id, +1)} disabled={i === widgets.order.length - 1}
-                          style={{ padding: '0 8px' }} title="Descer">↓</button>
-                </div>
-              );
-            })}
-            <div className="kit-mlabel" style={{ marginTop: 8 }}>salvo neste navegador</div>
-          </div>
-        </>
-      )}
-
-      {/* ── INCIDENTES DE DADOS (urgente) ──────────────────── */}
-      <IncidentsBox/>
-      <PendingTotalsBox/>
-
-      {/* ── PONTO (relógio) — admin only ───────────────────── */}
-      <AttendanceStrip data={attData} refresh={attPoll.refresh}/>
-
-      {/* ── KPI strip ──────────────────────────────────────── */}
-      {wOn('kpis') && (<section style={{ order: wOrder('kpis') }}>
-      <div className="kpi-grid">
-
+  /* ── Conteúdo de cada widget da grade ────────────────────────────
+     Um card por id. É o MESMO JSX que morava na faixa .kpi-grid: as
+     engrenagens, o drill no valor, o chip da Veeqo e os toggles das
+     câmeras continuam iguais. O que mudou foi só quem desenha a moldura.
+     Câmeras entrou aqui porque virou widget ligável como os outros. */
+  const renderGridWidget = (wid) => {
+    switch (wid) {
+      case 'producao': return (<>
         {/* PRODUÇÃO HOJE — engrenagem + valor clicável (drill bottle/seg) */}
         <KPI label="Produção hoje" en="Production today"
              value={liveProd.toLocaleString()} suffix="garrafas"
@@ -751,7 +712,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                           }}/>
                </EditPopover>
              </>}/>
-
+      </>);
+      case 'revisao': return (<>
         {/* REVISÃO DO DIA — FASE 3: cáps/seg + frascos/min + POR PESSOA, clicável */}
         <KPI label="Revisão (dia)" en="Review · day"
              value={review.avg_capsules_per_sec != null ? review.avg_capsules_per_sec : '—'}
@@ -777,7 +739,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  {review.n || 0} revisão(ões) no dia · clique pra ver 30d, custom ou por pessoa
                </div>
              </>}/>
-
+      </>);
+      case 'metas': return (<>
         {/* METAS — engrenagem */}
         <KPI label="Metas em curso" en="Goals in progress"
              value={goalsActive} suffix={`/ ${goalsActive + goalsHit}`}
@@ -799,7 +762,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  </>
                ) : <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>sem metas registradas</div>}
              </>}/>
-
+      </>);
+      case 'pp': return (<>
         {/* P&P — engrenagem (E6 #2: edita correio) */}
         <KPI label="P&P do dia" en="Pick & Pack"
              value={pp.total_minutes ? fmtDur(pp.total_minutes) : '—'}
@@ -890,7 +854,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  )}
                </EditPopover>
              </>}/>
-
+      </>);
+      case 'pedidos': return (<>
         {/* PEDIDOS HOJE (Veeqo · Fase ① Bruno 07-08) — read-only: pedidos com
             etiqueta impressa (shipped) hoje + unidades por suplemento e canal.
             Só aparece quando a Veeqo está configurada e há dado. */}
@@ -942,7 +907,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  </>}/>
           );
         })()}
-
+      </>);
+      case 'fnsku': return (<>
         {/* FNSKU — labels colados, tempo, labels/min + por pessoa (Bruno 06-23) */}
         {fnsku && (Number(fnsku.total_labels) > 0 || (fnsku.person_seconds || []).length > 0) && (
           <KPI label="FNSKU hoje" en="FNSKU labels"
@@ -976,13 +942,105 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  )}
                </>}/>
         )}
+      </>);
+      case 'cameras': return <CameraGrid compact/>;
+      default: return null;
+    }
+  };
 
-        {/* ATENÇÃO saiu do corpo da página (Bruno 06-23) — virou o SINO do topo:
-            a contagem + a lista de notificações moram no dropdown do sino, e
-            emergência (crítico novo) abre um modal de aviso. Ver dropdown + modal
-            no fim do componente; publica a contagem pro sino via onNotifInfo. */}
+  return (
+    <div data-page-op="hoje" style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* ── Cabeçalho do kit ─────────────────────────────────── */}
+      <div className="opa-head" style={{ order: -1 }}>
+        <div className="opa-head-main">
+          <span className="kit-eyebrow">● HEALTHFARE · HOJE</span>
+          <h1 className="kit-h1">O dia da <em>fábrica</em> agora</h1>
+          <p className="kit-sub">
+            Produção, metas, P&amp;P e a linha do tempo de cada pessoa. Os blocos ligam e desligam no botão Widgets.
+          </p>
+        </div>
+        <div className="opa-head-side">
+          <button className="kit-btn sm" onClick={() => setWidgetsOpen((v) => !v)}
+                  title="Ligar/desligar e reordenar os blocos da página">Widgets</button>
+        </div>
       </div>
-      </section>)}
+
+      {error && state.events.length > 0 && (
+        <div className="opa-alertbox warn" style={{ marginBottom: 10 }}>
+          <div className="opa-alert-title">Refresh falhou</div>
+          <div className="opa-alert-body">{error.message || String(error)}. Mostrando a última leitura.</div>
+        </div>
+      )}
+
+      {/* ── Widgets: ligar/desligar, reordenar e restaurar (Bruno 08-19) ──
+          As setas continuam aqui de propósito: são o caminho de quem usa
+          teclado ou toque, pra quem arrastar com o mouse não é opção. */}
+      {widgetsOpen && (
+        <>
+          <div onClick={() => setWidgetsOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 260 }}/>
+          <div className="kit-card pad" data-widgets-popover
+               style={{ position: 'fixed', top: 96, right: 18, zIndex: 270, width: 288,
+                        maxHeight: '76vh', overflowY: 'auto', boxShadow: 'var(--shadow-pop)' }}>
+            <div className="kit-mlabel" style={{ marginBottom: 8 }}>Widgets da grade</div>
+            {grid.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x)).map((w, i, arr) => {
+              const def = DEFS_BY_ID[w.id]; if (!def) return null;
+              return (
+                <div key={w.id} className="kit-dotted-row" style={{ padding: '7px 0' }} data-widget-row={w.id}>
+                  <input type="checkbox" checked={gOn(w.id)} onChange={() => gToggle(w.id)}
+                         aria-label={def.label} data-widget-toggle={w.id}
+                         style={{ accentColor: 'var(--green-d)' }}/>
+                  <span style={{ flex: 1, fontSize: 13 }}>{def.label}</span>
+                  <button className="kit-btn xs" onClick={() => gMove(w.id, -1)} disabled={!w.on || i === 0}
+                          style={{ padding: '0 8px' }} title={`Subir ${def.label}`}>↑</button>
+                  <button className="kit-btn xs" onClick={() => gMove(w.id, +1)} disabled={!w.on || i === arr.length - 1}
+                          style={{ padding: '0 8px' }} title={`Descer ${def.label}`}>↓</button>
+                </div>
+              );
+            })}
+
+            <div className="kit-mlabel" style={{ margin: '14px 0 8px' }}>Blocos da página</div>
+            {stack.order.map((id, i) => {
+              const def = DEFS_BY_ID[id]; if (!def) return null;
+              return (
+                <div key={id} className="kit-dotted-row" style={{ padding: '7px 0' }} data-widget-row={id}>
+                  <input type="checkbox" checked={wOn(id)} onChange={() => wToggle(id)}
+                         aria-label={def.label} data-widget-toggle={id}
+                         style={{ accentColor: 'var(--green-d)' }}/>
+                  <span style={{ flex: 1, fontSize: 13 }}>{def.label}</span>
+                  <button className="kit-btn xs" onClick={() => wMove(id, -1)} disabled={i === 0}
+                          style={{ padding: '0 8px' }} title={`Subir ${def.label}`}>↑</button>
+                  <button className="kit-btn xs" onClick={() => wMove(id, +1)} disabled={i === stack.order.length - 1}
+                          style={{ padding: '0 8px' }} title={`Descer ${def.label}`}>↓</button>
+                </div>
+              );
+            })}
+
+            <button className="kit-btn sm" data-widgets-reset onClick={restoreDefaults}
+                    style={{ width: '100%', marginTop: 14 }}>Restaurar padrão</button>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 10, lineHeight: 1.5 }}>
+              Arraste pelo título. Puxe o canto pra mudar o tamanho.
+            </div>
+            <div className="kit-mlabel" style={{ marginTop: 6 }}>salvo neste navegador</div>
+          </div>
+        </>
+      )}
+
+      {/* ── INCIDENTES DE DADOS (urgente) ──────────────────── */}
+      <IncidentsBox/>
+      <PendingTotalsBox/>
+
+      {/* ── GRADE de widgets (Bruno 08-19) ─────────────────────
+          Cada card do topo virou um widget com posição e tamanho próprios.
+          O conteúdo é EXATAMENTE o de antes (engrenagens, chip Veeqo, drill
+          no valor, toggles das câmeras); só a moldura mudou. */}
+      <section style={{ order: 0, marginBottom: 14 }} data-grid-section>
+        <WidgetGrid
+          layout={grid}
+          onLayout={onLayout}
+          defs={DEFS_BY_ID}
+          renderWidget={renderGridWidget}/>
+      </section>
+
 
       {/* Editor de metas — modal (Bruno 06-23): tela cheia centralizada (não fica
           mais atrás do card de P&P) + seletor de produto/lote estilo página dos op. */}
@@ -1046,14 +1104,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         </div>
       )}
 
-      {/* ── Câmeras (widget, default antes de Filtros — Bruno 07-01) ── */}
-      {wOn('cameras') && (<section style={{ order: wOrder('cameras') }}>
-        <div className="opa-section">
-          <span className="kit-mlabel">Câmeras ao vivo</span>
-          <div className="rule"/>
-        </div>
-        <CameraGrid compact/>
-      </section>)}
+      {/* Câmeras saiu daqui: virou um widget da grade (ligável e
+          redimensionável como os outros). Ver renderGridWidget. */}
 
       {/* ── Filters ─────────────────────────────────────────── */}
       {wOn('filtros') && (<section style={{ order: wOrder('filtros') }}>
@@ -1702,10 +1754,24 @@ function ScrollStrip({ title, children }) {
 // Subcomponentes inline
 // ────────────────────────────────────────────────────────────
 
+/* Linha do "Resumo do dia".
+
+   Bruno 08-19: "a letra está com tom gradiente, dificulta a leitura".
+   O que ele via NÃO era um gradiente de CSS: medido no browser, toda linha
+   tem a mesma cor computada e a mesma tinta mais escura (min luminância
+   idêntica em todas). O degrade era um efeito de ANTIALIASING: o valor vinha
+   em DM Mono peso 500, e num peso leve a proporção de pixel de borda (cinza
+   claro) contra pixel de miolo muda com o comprimento do texto. Um "0" fica
+   quase todo em borda e lê claro; "2026-08-19" tem miolo pra sobrar e lê
+   escuro. Lendo a coluna de cima pra baixo isso vira um falso degrade.
+
+   A correção é tornar a tinta sólida de verdade e igual em toda linha:
+   peso 600 e a MESMA cor (--ink) em rótulo e valor, com o antialiasing na
+   grade de pixels. Sem gradiente, sem opacidade, sem cor por linha. */
 const Row = ({ label, value }) => (
-  <div className="kit-dotted-row" style={{ justifyContent: 'space-between', fontSize: 13.5 }}>
-    <span style={{ color: 'var(--ink-dim)' }}>{label}</span>
-    <b className="mono tabnum" style={{ color: 'var(--primary-deep)', fontWeight: 500 }}>{value}</b>
+  <div className="kit-dotted-row resumo-row" style={{ justifyContent: 'space-between' }}>
+    <span className="resumo-label">{label}</span>
+    <b className="mono tabnum resumo-value">{value}</b>
   </div>
 );
 

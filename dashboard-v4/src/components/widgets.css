@@ -1,0 +1,206 @@
+/* ═══════════════════════════════════════════════════════════════════
+   PONTO no topbar + GRADE de widgets da página Hoje (Bruno 08-19).
+   Tokens do STYLE-KIT são LEI. Sem gradiente, sem water-drop, sem travessão.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── PONTO (topbar) ─────────────────────────────────────────────── */
+.ponto-strip {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-left: 14px; min-width: 0; position: relative;
+}
+.ponto-strip .ponto-label {
+  display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap; flex: 0 0 auto;
+}
+.ponto-list { display: inline-flex; align-items: center; gap: 7px; flex-wrap: nowrap; min-width: 0; }
+
+.ponto-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 5px 0 10px; border-radius: var(--r-pill);
+  background: var(--kit-surface); box-shadow: inset 0 0 0 1px var(--line);
+  font: 500 12px var(--font); color: var(--ink);
+  white-space: nowrap; flex: 0 0 auto;
+}
+.ponto-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+.ponto-name { font-weight: 600; }
+.ponto-when { font: 500 11px var(--font-mono); color: var(--ink-dim); }
+.ponto-when.muted { color: var(--ink-faint); }
+/* tom por estado: só a borda muda, o texto continua com contraste AA */
+.ponto-chip.ponto-in     { box-shadow: inset 0 0 0 1px var(--ok-line);   background: var(--ok-bg); }
+.ponto-chip.ponto-break  { box-shadow: inset 0 0 0 1px var(--warn-line); background: var(--warn-bg); }
+.ponto-chip.ponto-warn   { box-shadow: inset 0 0 0 1px var(--warn-line); background: var(--warn-bg); }
+.ponto-chip.ponto-in    .ponto-when { color: var(--ok-deep); }
+.ponto-chip.ponto-break .ponto-when,
+.ponto-chip.ponto-warn  .ponto-when { color: var(--warn-deep); }
+
+/* Botão de POWER: redondo, símbolo universal de desligar. */
+.ponto-power {
+  width: 22px; height: 22px; flex: 0 0 22px; padding: 0;
+  display: inline-grid; place-items: center;
+  border: none; border-radius: 50%;
+  background: var(--kit-surface-2); color: var(--ink-faint);
+  box-shadow: inset 0 0 0 1px var(--line);
+  cursor: pointer; transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
+}
+.ponto-power:hover:not(:disabled) {
+  background: var(--bad-bg); color: var(--bad-deep); box-shadow: inset 0 0 0 1px var(--bad-line);
+}
+.ponto-power:focus-visible { outline: none; box-shadow: var(--focus-ring), inset 0 0 0 1px var(--bad-line); }
+.ponto-power:disabled { opacity: .38; cursor: default; }
+
+/* Colapso no estreito: a pill "Ponto (N)" abre a lista. */
+.ponto-collapsed {
+  display: none; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px; border: none; border-radius: var(--r-pill);
+  background: var(--kit-surface); box-shadow: inset 0 0 0 1px var(--line);
+  font: 600 12px var(--font); color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.ponto-pop-back { position: fixed; inset: 0; z-index: 260; }
+.ponto-pop {
+  position: absolute; top: 38px; left: 0; z-index: 270;
+  display: flex; flex-direction: column; gap: 7px; align-items: flex-start;
+  min-width: 240px; padding: 14px 16px;
+  background: var(--kit-surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-pop);
+}
+
+/* Até 1720px o topbar já fica justo com 4 pessoas: some só o "entrou HH:MM"
+   (fica no title do chip), nome + power continuam visíveis. */
+@media (max-width: 1720px) {
+  .ponto-strip .ponto-when { display: none; }
+  .ponto-strip .ponto-chip { padding-right: 4px; }
+}
+/* 1180px: o topbar fica apertado com data + botões; a faixa vira pill. */
+@media (max-width: 1180px) {
+  .ponto-strip .ponto-list,
+  .ponto-strip .ponto-label { display: none; }
+  .ponto-collapsed { display: inline-flex; }
+}
+
+/* ── GRADE de widgets ───────────────────────────────────────────── */
+/* min-width:0 é obrigatório: a página Hoje é um flex column, e sem isso o
+   container herda a largura do conteúdo e a última coluna sai pela direita. */
+/* A coluna do conteúdo era `1fr`, que em grid significa `minmax(auto, 1fr)`:
+   o PISO da trilha é o min-content do que está dentro, então a coluna CRESCIA
+   pra caber o conteúdo em vez de limitá-lo. Com a grade de widgets isso virava
+   um laço: a grade media a área, pintava os widgets, a coluna esticava pra
+   caber, e a medida seguinte vinha maior ainda, empurrando o último widget
+   pra fora da tela. `minmax(0, 1fr)` põe o piso em zero: a área manda no
+   conteúdo, e não o contrário. Vale pra página inteira, não só pra Hoje.
+   Só acima de 880px: abaixo disso o .app deixa de ser grid (vira bloco e a
+   página rola no body), então não há trilha nenhuma pra corrigir. */
+@media (min-width: 881px) {
+  .app { grid-template-columns: 244px minmax(0, 1fr); }
+  .app.collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+  .app.side-hidden { grid-template-columns: minmax(0, 1fr); }
+  .app > .main { min-width: 0; }
+}
+
+/* Os widgets são absolutos, então a grade não ganha largura do conteúdo. O
+   max-width é o cinto de segurança: a grade nunca fica mais larga que a área
+   que a contém, mesmo se alguma medida chegar errada. */
+.wg-root { position: relative; width: 100%; min-width: 0; max-width: 100%; }
+[data-grid-section] { width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
+
+.wg-item {
+  position: absolute; top: 0; left: 0;
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--kit-surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: transform var(--t-base) var(--ease), width var(--t-base) var(--ease),
+              height var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+/* enquanto arrasta: sem transição (senão o bloco "persegue" o cursor) */
+.wg-item.wg-dragging {
+  transition: none; z-index: 30; box-shadow: var(--shadow-pop); cursor: grabbing;
+}
+
+.wg-handle {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px 7px; flex: 0 0 auto;
+  border-bottom: 1px dotted var(--dotline);
+  cursor: grab; touch-action: none; user-select: none;
+}
+.wg-handle:active { cursor: grabbing; }
+.wg-grip { color: var(--ink-faint); font-size: 12px; line-height: 1; letter-spacing: -1px; }
+.wg-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.wg-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px 14px; }
+/* o card interno já é card: dentro da grade ele vira conteúdo puro, senão
+   ficariam duas molduras e duas sombras uma dentro da outra */
+.wg-body > .card,
+.wg-body > .kit-card,
+[data-page-op] .wg-body > .card.kpi {
+  border: none; box-shadow: none; background: transparent; border-radius: 0;
+  padding: 0; height: 100%;
+}
+/* O KPI traz o próprio rótulo ("PRODUÇÃO HOJE · Production today"). Dentro da
+   grade quem manda é o título da alça, senão o mesmo nome aparece duas vezes.
+   Some só o TEXTO: o headRight (engrenagem, FlowDot, chip VEEQO) fica, porque
+   é controle, não decoração. */
+.wg-body > .card.kpi > div > .label > span:not([class]) { display: none; }
+.wg-body > .card.kpi > div > .label > svg { display: none; }
+.wg-body > .card.kpi > div > .label { min-height: 0; margin-bottom: 2px; }
+
+.wg-resize {
+  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px;
+  cursor: nwse-resize; touch-action: none;
+}
+/* duas riscas no canto: a alça precisa ser vista pra ser usada */
+.wg-resize::after {
+  content: ""; position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px;
+  border-right: 2px solid var(--line-strong); border-bottom: 2px solid var(--line-strong);
+  border-bottom-right-radius: 2px;
+}
+.wg-item:hover .wg-resize::after { border-color: var(--primary-line); }
+
+.wg-ghost {
+  position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;
+  border: 1px dashed var(--primary-line); border-radius: var(--r-lg);
+  background: var(--primary-soft);
+}
+
+/* Tablet: coluna única, sem arrastar. */
+.wg-root.wg-narrow { display: flex; flex-direction: column; gap: 14px; height: auto !important; }
+.wg-root.wg-narrow .wg-item { position: static; width: auto !important; height: auto !important; transform: none !important; }
+.wg-root.wg-narrow .wg-handle { cursor: default; }
+.wg-root.wg-narrow .wg-resize { display: none; }
+
+/* ── Resumo do dia: linhas chapadas ─────────────────────────────
+   Bruno 08-19: "tira esse efeito de gradiente da página completamente".
+   Não havia gradiente de CSS: o degrade era antialiasing (peso 500 num mono
+   claro, mais borda do que miolo em texto curto). Aqui a tinta fica sólida e
+   IDÊNTICA em toda linha, rótulo e valor na mesma cor.
+   `geometricPrecision` evita que o hinting engorde/afine glifo por glifo. */
+.resumo-row { font-size: 13.5px; }
+.resumo-row .resumo-label,
+.resumo-row .resumo-value {
+  color: var(--ink);
+  font-weight: 600;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+:root[data-theme="dark"] .resumo-row .resumo-label,
+:root[data-theme="dark"] .resumo-row .resumo-value { color: var(--text); }
+
+/* ── Dark ───────────────────────────────────────────────────────── */
+:root[data-theme="dark"] .ponto-chip,
+:root[data-theme="dark"] .ponto-collapsed,
+:root[data-theme="dark"] .ponto-pop,
+:root[data-theme="dark"] .wg-item {
+  background: var(--surface); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+:root[data-theme="dark"] .wg-item { border-color: var(--border); box-shadow: none; }
+:root[data-theme="dark"] .ponto-power { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); color: var(--text-3); }
+:root[data-theme="dark"] .ponto-when { color: var(--text-3); }
+:root[data-theme="dark"] .ponto-chip.ponto-in    { background: rgba(58,181,74,.14);  box-shadow: inset 0 0 0 1px rgba(58,181,74,.34); }
+:root[data-theme="dark"] .ponto-chip.ponto-break,
+:root[data-theme="dark"] .ponto-chip.ponto-warn  { background: rgba(232,161,60,.14); box-shadow: inset 0 0 0 1px rgba(232,161,60,.34); }
+:root[data-theme="dark"] .ponto-chip.ponto-in    .ponto-when { color: #9dd6a8; }
+:root[data-theme="dark"] .ponto-chip.ponto-break .ponto-when,
+:root[data-theme="dark"] .ponto-chip.ponto-warn  .ponto-when { color: #e3b45c; }
+:root[data-theme="dark"] .wg-ghost { background: rgba(74,116,194,.16); border-color: var(--border-strong); }
+:root[data-theme="dark"] .wg-handle { border-bottom-color: var(--border); }

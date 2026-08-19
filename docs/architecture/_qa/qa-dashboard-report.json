@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T13:48:39.244Z",
+  "at": "2026-08-19T16:50:03.983Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "203 KB → dash-estoque.png"
+      "detail": "202 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -131,7 +131,7 @@
       "group": "screenshot",
       "name": "estoque-painel",
       "pass": true,
-      "detail": "166 KB → dash-estoque-painel.png"
+      "detail": "164 KB → dash-estoque-painel.png"
     },
     {
       "group": "estoque",
@@ -143,7 +143,7 @@
       "group": "screenshot",
       "name": "estoque-familia",
       "pass": true,
-      "detail": "192 KB → dash-estoque-familia.png"
+      "detail": "190 KB → dash-estoque-familia.png"
     },
     {
       "group": "estoque",
@@ -161,7 +161,7 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "214 KB → dash-estoque-modal.png"
+      "detail": "212 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
@@ -221,7 +221,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "132 KB → dash-estoque-aprovacoes.png"
+      "detail": "130 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -239,7 +239,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "183 KB → dash-estoque-locais.png"
+      "detail": "181 KB → dash-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -257,7 +257,7 @@
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "106 KB → dash-picklist.png"
+      "detail": "104 KB → dash-picklist.png"
     },
     {
       "group": "picklist",
@@ -275,7 +275,7 @@
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "159 KB → dash-hoje.png"
+      "detail": "122 KB → dash-hoje.png"
     },
     {
       "group": "hoje",
@@ -293,7 +293,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "135 KB → dash-inventory.png"
+      "detail": "132 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -311,7 +311,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "153 KB → dash-produto-setup.png"
+      "detail": "151 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -329,7 +329,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "93 KB → dash-roadmap.png"
+      "detail": "91 KB → dash-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -353,13 +353,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"29h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"29h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
     },
     {
       "group": "estoque-locais",
@@ -425,7 +425,7 @@
       "group": "screenshot",
       "name": "estoque-locais-bulk",
       "pass": true,
-      "detail": "187 KB → dash-estoque-locais-bulk.png"
+      "detail": "185 KB → dash-estoque-locais-bulk.png"
     },
     {
       "group": "legado",
@@ -449,7 +449,7 @@
       "group": "screenshot",
       "name": "legado-estoque-geral",
       "pass": true,
-      "detail": "142 KB → dash-legado-estoque-geral.png"
+      "detail": "140 KB → dash-legado-estoque-geral.png"
     },
     {
       "group": "legado",
@@ -473,7 +473,7 @@
       "group": "screenshot",
       "name": "legado-inventory",
       "pass": true,
-      "detail": "135 KB → dash-legado-inventory.png"
+      "detail": "131 KB → dash-legado-inventory.png"
     }
   ]
 }

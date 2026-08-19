@@ -37,6 +37,10 @@ const Icon = ({ name, size = 18, className = "", style = {} }) => {
     case "clock":     return <svg {...common}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>;
     case "send":      return <svg {...common}><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>;
     case "calendar":  return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>;
+    /* power: simbolo universal de desligar (circulo com falha no topo + haste
+       vertical). Usado no botao que DESLOGA o funcionario do kiosk — quem ve o
+       icone entende "isso encerra a sessao", que era o pedido do Bruno. */
+    case "power":     return <svg {...common}><path d="M12 3.5v8"/><path d="M17.3 6.7a7.5 7.5 0 1 1-10.6 0"/></svg>;
     default: return null;
   }
 };

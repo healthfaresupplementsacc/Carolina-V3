@@ -1,0 +1,293 @@
+{
+  "at": "2026-08-19T16:49:23.877Z",
+  "results": [
+    {
+      "group": "grade",
+      "name": "nenhum widget passa da borda direita da area",
+      "pass": true,
+      "detail": "grade termina em 1578 | producao:584 revisao:915 metas:1247 pp:1578 pedidos:915 fnsku:1578 cameras:1578"
+    },
+    {
+      "group": "screenshot",
+      "name": "01-inicial",
+      "pass": true,
+      "detail": "159 KB → hoje-01-inicial.png"
+    },
+    {
+      "group": "hoje",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "topbar",
+      "name": "pill \"ao vivo · live\" removida",
+      "pass": true,
+      "detail": "Hoje· Today PontoVitorentrou 08:02SimoneEM PAUSA · 15minAnasaiu 16:30Brunosem ponto hoje Ponto (4)worker ativoCarolina1H"
+    },
+    {
+      "group": "topbar",
+      "name": "pill \"edição ativa · write\" removida",
+      "pass": true,
+      "detail": "Hoje· Today PontoVitorentrou 08:02SimoneEM PAUSA · 15minAnasaiu 16:30Brunosem ponto hoje Ponto (4)worker ativoCarolina1H"
+    },
+    {
+      "group": "topbar",
+      "name": "faixa do Ponto está no topbar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "ponto",
+      "name": "um chip por pessoa do /attendance (4)",
+      "pass": true,
+      "detail": "[\"Vitorentrou 08:02\",\"SimoneEM PAUSA · 15min\",\"Anasaiu 16:30\",\"Brunosem ponto hoje\"]"
+    },
+    {
+      "group": "ponto",
+      "name": "chip traz primeiro nome e a hora de entrada",
+      "pass": true,
+      "detail": "Vitorentrou 08:02"
+    },
+    {
+      "group": "ponto",
+      "name": "quem não bateu aparece como \"sem ponto hoje\"",
+      "pass": true,
+      "detail": "Brunosem ponto hoje"
+    },
+    {
+      "group": "ponto",
+      "name": "N botões de power (um por pessoa)",
+      "pass": true,
+      "detail": "botões=4"
+    },
+    {
+      "group": "ponto",
+      "name": "botão é redondo e tem ícone svg de power",
+      "pass": true,
+      "detail": "[\"50%\",\"50%\",\"50%\",\"50%\"]"
+    },
+    {
+      "group": "ponto",
+      "name": "título diz que desloga do kiosk e registra a saída",
+      "pass": true,
+      "detail": "Deslogar Vitor Silva do kiosk (encerra a sessão e registra a saída)"
+    },
+    {
+      "group": "ponto",
+      "name": "quem tem sessão aberta → ação logoff; sem sessão e dia aberto → checkout",
+      "pass": true,
+      "detail": "[\"4:logoff\",\"5:checkout\",\"6:none\",\"7:none\"]"
+    },
+    {
+      "group": "ponto",
+      "name": "quem já saiu / não bateu fica com o power desativado",
+      "pass": true,
+      "detail": "[\"4:false\",\"5:false\",\"6:true\",\"7:true\"]"
+    },
+    {
+      "group": "ponto",
+      "name": "clicar no power de quem está logado chama POST /operator/4/logoff",
+      "pass": true,
+      "detail": "[\"/api/v3/data/operator/4/logoff\"]"
+    },
+    {
+      "group": "ponto",
+      "name": "clicar no power de quem não tem sessão chama POST /operator/5/checkout",
+      "pass": true,
+      "detail": "[\"/api/v3/data/operator/5/checkout\"]"
+    },
+    {
+      "group": "ponto",
+      "name": "faixa do Ponto não aparece fora da Hoje",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "outra rota segue sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "grade",
+      "name": "a grade renderiza os 7 widgets",
+      "pass": true,
+      "detail": "producao,revisao,metas,pp,pedidos,fnsku,cameras"
+    },
+    {
+      "group": "grade",
+      "name": "cada widget tem alça de arraste e canto de resize",
+      "pass": true,
+      "detail": "alças=7 cantos=7"
+    },
+    {
+      "group": "screenshot",
+      "name": "02-grade",
+      "pass": true,
+      "detail": "159 KB → hoje-02-grade.png"
+    },
+    {
+      "group": "grade",
+      "name": "aparece o placeholder ao vivo enquanto arrasta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "grade",
+      "name": "arrastar muda a posição do widget",
+      "pass": true,
+      "detail": "x 0 → 2"
+    },
+    {
+      "group": "screenshot",
+      "name": "03-arrastado",
+      "pass": true,
+      "detail": "152 KB → hoje-03-arrastado.png"
+    },
+    {
+      "group": "grade",
+      "name": "layout gravado em hf-hoje-layout-v2",
+      "pass": true,
+      "detail": "{\"grid\":[{\"id\":\"producao\",\"x\":2,\"y\":0,\"w\":3,\"h\":4,\"on\":true},{\"id\":\"revisao\",\"x\""
+    },
+    {
+      "group": "grade",
+      "name": "a posição arrastada sobrevive ao reload",
+      "pass": true,
+      "detail": "{\"afterDrag\":{\"x\":2,\"y\":0,\"w\":3,\"h\":4},\"afterReload\":{\"x\":2,\"y\":0,\"w\":3,\"h\":4}}"
+    },
+    {
+      "group": "grade",
+      "name": "puxar o canto muda largura e altura",
+      "pass": true,
+      "detail": "{\"de\":{\"x\":6,\"y\":0,\"w\":3,\"h\":4},\"para\":{\"x\":6,\"y\":0,\"w\":4,\"h\":5}}"
+    },
+    {
+      "group": "screenshot",
+      "name": "04-redimensionado",
+      "pass": true,
+      "detail": "153 KB → hoje-04-redimensionado.png"
+    },
+    {
+      "group": "grade",
+      "name": "o tamanho novo sobrevive ao reload",
+      "pass": true,
+      "detail": "{\"sizeAfter\":{\"x\":6,\"y\":0,\"w\":4,\"h\":5},\"sizeReload\":{\"x\":6,\"y\":0,\"w\":4,\"h\":5}}"
+    },
+    {
+      "group": "widgets",
+      "name": "popover de Widgets abre",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "widgets",
+      "name": "popover traz a dica de arrastar e redimensionar",
+      "pass": true,
+      "detail": "estaurar padrãoArraste pelo título. Puxe o canto pra mudar o tamanho.salvo neste navegador"
+    },
+    {
+      "group": "widgets",
+      "name": "Câmeras tem toggle no popover",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "05-popover",
+      "pass": true,
+      "detail": "189 KB → hoje-05-popover.png"
+    },
+    {
+      "group": "widgets",
+      "name": "desligar Câmeras tira o widget da grade",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "widgets",
+      "name": "Câmeras desligada continua desligada depois do reload",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "widgets",
+      "name": "Restaurar padrão traz os 7 widgets de volta",
+      "pass": true,
+      "detail": "producao,revisao,metas,pp,pedidos,fnsku,cameras"
+    },
+    {
+      "group": "widgets",
+      "name": "padrão põe Produção em x=0,y=0 (3x4) e Câmeras em largura cheia",
+      "pass": true,
+      "detail": "{\"prod\":{\"id\":\"producao\",\"x\":0,\"y\":0,\"w\":3,\"h\":4},\"cams\":{\"id\":\"cameras\",\"x\":0,\"y\":9,\"w\":12,\"h\":7}}"
+    },
+    {
+      "group": "screenshot",
+      "name": "06-restaurado",
+      "pass": true,
+      "detail": "192 KB → hoje-06-restaurado.png"
+    },
+    {
+      "group": "widgets",
+      "name": "Filtros, Linha do Tempo e Resumo seguem na página",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "grade",
+      "name": "abaixo de 900px empilha em coluna única e desliga o drag",
+      "pass": true,
+      "detail": "narrow=1"
+    },
+    {
+      "group": "gradiente",
+      "name": "nenhum elemento usa background-clip:text nem gradiente em texto",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "group": "gradiente",
+      "name": "o Resumo do dia tem linhas",
+      "pass": true,
+      "detail": "8 linhas"
+    },
+    {
+      "group": "gradiente",
+      "name": "todos os rótulos do Resumo têm a MESMA cor",
+      "pass": true,
+      "detail": "rgb(28, 43, 58)"
+    },
+    {
+      "group": "gradiente",
+      "name": "todos os valores do Resumo têm a MESMA cor",
+      "pass": true,
+      "detail": "rgb(28, 43, 58)"
+    },
+    {
+      "group": "gradiente",
+      "name": "nenhuma linha do Resumo tem opacidade ou filtro próprio",
+      "pass": true,
+      "detail": "[\"1/none\",\"1/none\",\"1/none\"]"
+    },
+    {
+      "group": "gradiente",
+      "name": "nenhuma linha do Resumo tem fundo em gradiente",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "gradiente",
+      "name": "rótulo e valor têm o mesmo peso (tinta sólida, sem degrade de antialias)",
+      "pass": true,
+      "detail": "600/600"
+    },
+    {
+      "group": "hoje",
+      "name": "zero erro de console no fim",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

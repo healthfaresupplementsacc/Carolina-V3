@@ -195,6 +195,7 @@ IDs refer to `STRUCTURE_INDEX.md`. Mermaid uses the same R-ids as edge labels wh
 | R176 | S15.33 Locais "Criar várias" → `POST /api/v3/warehouse/locations/bins/bulk` → `locations-repo.bulkBins` (ON CONFLICT DO NOTHING; never qty) | VERIFIED | LocationsPage.jsx BulkBinsCard, router.js |
 | R186 | S15.36 Central + hub + /print station → poll `GET /api/v3/print-queue?status=queued` (Bearer page token + X-Session-Token) → take → `HF_LABELS.sheetHtml(payload.labels)` print window or Central print() for picklist → done/error | VERIFIED | print-queue-card.js |
 | R187 | S15.36 dashboard Etiquetas → `POST /api/v3/warehouse/mobile/print/submit`; Impressão panel → `GET /api/v3/print-queue`, `POST /:id/cancel` (x-admin-pin) | VERIFIED | warehouse-api.js adapter |
+| R193 | S03.01.09 PontoStrip (topbar #hoje) → `GET /api/v3/data/attendance` (30 s) · power → `POST operator/:id/logoff` (kiosk) or `POST operator/:id/checkout` (saída manual) | VERIFIED | PontoStrip.jsx |
 | R166 | S03.01 Shell nav: P&P + Picklist moved under Estoque; Planejamento + Produto after Metas | VERIFIED | `Shell.jsx`; `v4-nav-warehouse.test.js` |
 | R177 | S01.03 wire → S15.29 static `/m` (next to `/scan` and `/print`) · → S15.34 print-queue router · shared `PrintQueueService` instance also injected into S15.17 warehouse router | VERIFIED | `wire.js` static block + warehouse/print-queue mounts |
 | R178 | S15.29 `/m/` page → S15.35 `warehouse/mobile/*` (bootstrap · scan/resolve · print/submit · printers), header `x-admin-pin` | VERIFIED | `src/m/`; `mobile.js` |

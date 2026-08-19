@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from './Icons.jsx';
+import { PontoStrip } from './PontoStrip.jsx';
 import nyTime from '../utils/ny-time.cjs';
 import { FalarCarolinaButton } from '../pages/CarolinaFalar.jsx';
 import { can, getLogin } from '../adapters/from-api.js';
@@ -234,22 +235,18 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
       <div className="page-title">
         <h1>{page.pt}</h1>
         <span className="en">· {page.en}</span>
-        {pageId === "hoje" && (
-          <span className="pill live" style={{ marginLeft: 12 }}>
-            <span className="dot"/>ao vivo · live
-          </span>
-        )}
-        {readOnly ? (
-          <span className="pill" style={{ marginLeft: 8 }}
+        {/* As pills "ao vivo · live" e "edição ativa · write" SAÍRAM (Bruno
+            08-19): não informavam nada acionável, só ocupavam o topo. No lugar
+            entra o PONTO (quem está na fábrica + botão de deslogar).
+            A pill de LEITURA fica: essa é um aviso real, porque muda o que os
+            botões da página fazem de verdade. */}
+        {readOnly && (
+          <span className="pill" style={{ marginLeft: 12 }}
                 title="V4_ALLOW_WRITES=0 — edição/drag/criar são só preview">
             <span className="dot" style={{ background: "var(--ink-faint)" }}/>leitura · read-only
           </span>
-        ) : (
-          <span className="pill ok" style={{ marginLeft: 8 }}
-                title="V4_ALLOW_WRITES=1 — edits/drag/criar persistem em prod via PIN (auditados em v3.audit_log)">
-            <span className="dot" style={{ background: "var(--green)" }}/>edição ativa · write
-          </span>
         )}
+        <PontoStrip pageId={pageId}/>
       </div>
       <div className="topbar-spacer"/>
       {/* hide-mobile: secundários somem no celular (workerNode/falar/busca/bell/admin/op
