@@ -1,0 +1,138 @@
+{
+  "data": {
+    "generated_at": "2026-08-18T14:20:00Z",
+    "veeqo_checked_at": "2026-08-18T14:05:00Z",
+    "kpis": {
+      "total_bottles": 763,
+      "reserved": 58,
+      "available": 702,
+      "separated": 6,
+      "unplaced": 80,
+      "bins_to_restock": 3,
+      "pending_requests": 2,
+      "drift_products": 2
+    },
+    "attention": [
+      { "kind": "out", "product_id": 2, "product": "Berberine 500", "text": "precisa 14 hoje, tem 0 na prateleira, caixa BOX-012 tem 110", "action": { "type": "repor", "bin_id": 3 } },
+      { "kind": "pending", "product_id": 3, "product": "Chlorophyll", "text": "Simone propos -3 (extra pro pedido 12-345) ha 2h", "action": { "type": "aprovar", "request_id": 91 } },
+      { "kind": "drift", "product_id": 1, "product": "Benfotiamine 300", "text": "Veeqo 214, aqui 226, diferenca +12 conferir", "action": { "type": "ver" } },
+      { "kind": "organizar", "product_id": 5, "product": "NAC 600", "text": "80 garrafas no armazem sem prateleira nem caixa", "action": { "type": "organizar" } },
+      { "kind": "negative", "product_id": 4, "product": "Collagen", "text": "disponivel -4, pedidos abertos sem estoque", "action": { "type": "entrada" } },
+      { "kind": "sem_local", "product_id": 7, "product": "Magnesium Glycinate", "text": "sem prateleira nem caixa cadastrada", "action": { "type": "ver" } }
+    ],
+    "products": [
+      {
+        "product_id": 1, "name": "Benfotiamine 300 mg", "nickname": "Benfotiamine 300", "bottle_color": "black",
+        "base_sku": "HF-BENF-300",
+        "skus": [
+          { "id": 11, "sku": "HF-BENF-300", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true },
+          { "id": 12, "sku": "HF-BENF-300-C2", "channel": "veeqo", "units_per_pack": 2, "role": "member", "veeqo_type": "kit", "confirmed": true }
+        ],
+        "shelf_qty": 46, "box_qty": 180, "unplaced_qty": 0, "total": 226,
+        "reserved": 12, "pending_out": 0, "pending_in": 0, "available": 214, "separated": 2,
+        "min_units": 40, "days_cover": 38,
+        "veeqo": { "physical": 214, "allocated": 12, "available": 202 },
+        "veeqo_match": "drift",
+        "status": ["drift"],
+        "bins": [{ "id": 1, "bin_code": "A03", "shelf_code": "S2", "area": "P&P", "qty": 46, "min_qty": 20, "needs_restock": false }],
+        "boxes": [{ "id": 21, "box_number": "BOX-004", "area": "Palete 1", "qty": 180 }]
+      },
+      {
+        "product_id": 2, "name": "Berberine 500 mg", "nickname": "Berberine 500", "bottle_color": "white",
+        "base_sku": "HF-BERB-500",
+        "skus": [{ "id": 21, "sku": "HF-BERB-500", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true }],
+        "shelf_qty": 0, "box_qty": 110, "unplaced_qty": 0, "total": 110,
+        "reserved": 14, "pending_out": 0, "pending_in": 0, "available": 96, "separated": 0,
+        "min_units": 30, "days_cover": 12,
+        "veeqo": { "physical": 110, "allocated": 14, "available": 96 },
+        "veeqo_match": "ok",
+        "status": ["repor"],
+        "bins": [{ "id": 3, "bin_code": "A05", "shelf_code": "S2", "area": "P&P", "qty": 0, "min_qty": 20, "needs_restock": true }],
+        "boxes": [{ "id": 22, "box_number": "BOX-012", "area": "Palete 1", "qty": 110 }]
+      },
+      {
+        "product_id": 3, "name": "Chlorophyll Liquid", "nickname": "Chlorophyll", "bottle_color": "black",
+        "base_sku": "HF-CHLO-100",
+        "skus": [{ "id": 31, "sku": "HF-CHLO-100", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true }],
+        "shelf_qty": 41, "box_qty": 0, "unplaced_qty": 0, "total": 41,
+        "reserved": 3, "pending_out": 3, "pending_in": 0, "available": 35, "separated": 1,
+        "min_units": 25, "days_cover": 9,
+        "veeqo": { "physical": 41, "allocated": 3, "available": 38 },
+        "veeqo_match": "ok",
+        "status": ["pendente"],
+        "bins": [{ "id": 4, "bin_code": "A07", "shelf_code": "S2", "area": "P&P", "qty": 41, "min_qty": 15, "needs_restock": false }],
+        "boxes": []
+      },
+      {
+        "product_id": 4, "name": "Collagen Peptides", "nickname": "Collagen", "bottle_color": "white",
+        "base_sku": "HF-COLL-500",
+        "skus": [{ "id": 41, "sku": "HF-COLL-500", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": false }],
+        "shelf_qty": 0, "box_qty": 0, "unplaced_qty": 0, "total": 0,
+        "reserved": 4, "pending_out": 0, "pending_in": 0, "available": -4, "separated": 0,
+        "min_units": 20, "days_cover": 0,
+        "veeqo": { "physical": 0, "allocated": 4, "available": 0 },
+        "veeqo_match": "ok",
+        "status": ["negativo", "zerado"],
+        "bins": [{ "id": 5, "bin_code": "A09", "shelf_code": "S3", "area": "P&P", "qty": 0, "min_qty": 10, "needs_restock": true }],
+        "boxes": []
+      },
+      {
+        "product_id": 5, "name": "NAC 600 mg", "nickname": "NAC 600", "bottle_color": "black",
+        "base_sku": "HF-NAC-600",
+        "skus": [{ "id": 51, "sku": "HF-NAC-600", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true }],
+        "shelf_qty": 0, "box_qty": 0, "unplaced_qty": 80, "total": 80,
+        "reserved": 0, "pending_out": 0, "pending_in": 0, "available": 80, "separated": 0,
+        "min_units": 20, "days_cover": null,
+        "veeqo": { "physical": 80, "allocated": 0, "available": 80 },
+        "veeqo_match": "ok",
+        "status": ["organizar"],
+        "bins": [{ "id": 6, "bin_code": "B01", "shelf_code": "S4", "area": "Palete 2", "qty": 0, "min_qty": 10, "needs_restock": false }],
+        "boxes": []
+      },
+      {
+        "product_id": 6, "name": "L-Carnitine 1500 mg", "nickname": "L-Carnitine 1500", "bottle_color": "white",
+        "base_sku": "HF-LCAR-1500",
+        "skus": [
+          { "id": 61, "sku": "HF-LCAR-1500", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true },
+          { "id": 62, "sku": "HF-LCAR-1500-C2", "channel": "veeqo", "units_per_pack": 2, "role": "member", "veeqo_type": "kit", "confirmed": true },
+          { "id": 63, "sku": "HF-LCAR-1500-C3", "channel": "veeqo", "units_per_pack": 3, "role": "member", "veeqo_type": "kit", "confirmed": true },
+          { "id": 64, "sku": "HF-LCAR-1500-C4", "channel": "veeqo", "units_per_pack": 4, "role": "member", "veeqo_type": "kit", "confirmed": true }
+        ],
+        "shelf_qty": 48, "box_qty": 252, "unplaced_qty": 0, "total": 300,
+        "reserved": 20, "pending_out": 0, "pending_in": 0, "available": 280, "separated": 3,
+        "min_units": 50, "days_cover": 44,
+        "veeqo": { "physical": 300, "allocated": 20, "available": 280 },
+        "veeqo_match": "ok",
+        "status": ["ok"],
+        "bins": [{ "id": 7, "bin_code": "B03", "shelf_code": "S4", "area": "P&P", "qty": 48, "min_qty": 24, "needs_restock": false }],
+        "boxes": [{ "id": 23, "box_number": "BOX-021", "area": "Palete 2", "qty": 252 }]
+      },
+      {
+        "product_id": 7, "name": "Magnesium Glycinate 400", "nickname": "Magnesium Glycinate", "bottle_color": null,
+        "base_sku": null,
+        "skus": [],
+        "shelf_qty": 0, "box_qty": 0, "unplaced_qty": 0, "total": 0,
+        "reserved": 0, "pending_out": 0, "pending_in": 0, "available": 0, "separated": 0,
+        "min_units": null, "days_cover": null,
+        "veeqo": null,
+        "veeqo_match": "unknown",
+        "status": ["sem_local", "sem_sku"],
+        "bins": [],
+        "boxes": []
+      },
+      {
+        "product_id": 8, "name": "Ashwagandha KSM-66", "nickname": "Ashwagandha", "bottle_color": "black",
+        "base_sku": "HF-ASHW-600",
+        "skus": [{ "id": 81, "sku": "HF-ASHW-600", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true }],
+        "shelf_qty": 6, "box_qty": 0, "unplaced_qty": 0, "total": 6,
+        "reserved": 5, "pending_out": 0, "pending_in": 5, "available": 1, "separated": 0,
+        "min_units": 25, "days_cover": 2,
+        "veeqo": { "physical": 9, "allocated": 5, "available": 4 },
+        "veeqo_match": "drift",
+        "status": ["baixo", "drift", "pendente"],
+        "bins": [{ "id": 8, "bin_code": "C01", "shelf_code": "S5", "area": "P&P", "qty": 6, "min_qty": 15, "needs_restock": true }],
+        "boxes": []
+      }
+    ]
+  }
+}

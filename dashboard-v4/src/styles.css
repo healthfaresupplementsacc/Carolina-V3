@@ -612,5 +612,120 @@ a { color: inherit; text-decoration: none; }
 @keyframes slidein { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @media (max-width: 700px) { .side-panel { width: 100%; } }
 
+/* ============================================================
+   STYLE-KIT MAPPING (Bruno 08-18, S15 §10) — tema CLARO
+   Aponta os tokens ANTIGOS usados pelas paginas existentes pros valores do
+   STYLE-KIT (definidos em kit.css). So onde o SIGNIFICADO bate: ground,
+   surface, linha, tinta, primary, ok/warn/bad. Nada de layout aqui.
+   Dark theme NAO muda (o bloco [data-theme="dark"] acima continua valendo,
+   e este seletor exclui o dark explicitamente).
+   ============================================================ */
+:root:not([data-theme="dark"]), :root[data-theme="light"] {
+  /* fundo / superficies */
+  --bg-deep:    #eef4fa;
+  --bg:         #f4f8fc;            /* --ground do kit */
+  --bg-grain:   none;               /* o dot-grid do kit substitui o grain */
+  --surface:    #ffffff;
+  --surface-2:  #f7fafd;            /* --kit-surface-2 */
+  --surface-glass: rgba(255,255,255,0.78);
+  --surface-edge:  rgba(255,255,255,0.9);
+  --border:        #d4e2f0;         /* --line */
+  --border-strong: #b9cbe2;         /* --line-strong */
+  /* tinta */
+  --text:   #1c2b3a;                /* --ink */
+  --text-2: #54687c;                /* --ink-dim */
+  --text-3: #6b7f92;                /* --ink-faint */
+  --muted:  #6b7f92;
+  /* marca: a escada navy do V4 passa a girar em torno do navy do kit */
+  --hf-navy-600: #1a3a6b;
+  --hf-navy-700: #0d1f3c;
+  --hf-navy-800: #0d1f3c;
+  --hf-navy-500: #234c85;
+  --hf-navy-50:  #eaf0fb;           /* --primary-soft */
+  --hf-navy-100: #cddcf0;           /* --primary-soft-line */
+  --hf-leaf-500: #3ab54a;           /* --green */
+  --hf-leaf-600: #2e8b3c;           /* --green-d */
+  --hf-leaf-700: #1e6b2e;           /* --ok-deep */
+  --primary:    #1a3a6b;
+  --accent:     #2e8b3c;
+  /* status semantico do kit */
+  --ok:   #2e8b3c;
+  --warn: #96690a;
+  --bad:  #c0392b;
+  --info: #1a7a7a;
+  /* sombras do kit */
+  --shadow-sm: 0 1px 2px rgba(13,31,60,.03);
+  --shadow:    0 1px 2px rgba(13,31,60,.03), 0 10px 30px rgba(13,31,60,.05);
+  --shadow-lg: 0 10px 32px rgba(13,31,60,.16);
+  --drop-hl:   none;                /* o brilho "water-drop" nao existe no kit */
+  --hour-line:        rgba(26,58,107,0.07);
+  --hour-line-strong: rgba(26,58,107,0.14);
+}
+
+/* Tipografia do kit nas paginas antigas (light). O layout nao muda: so as
+   familias e os pesos dos titulos. */
+:root:not([data-theme="dark"]) body,
+:root[data-theme="light"] body {
+  font-family: 'DM Sans', system-ui, 'Segoe UI', sans-serif;
+}
+:root:not([data-theme="dark"]) .page-title h1,
+:root[data-theme="light"] .page-title h1 {
+  font-family: 'DM Serif Display', Georgia, serif; font-weight: 400;
+  letter-spacing: 0; color: var(--primary-deep, #0d1f3c);
+}
+:root:not([data-theme="dark"]) .card,
+:root[data-theme="light"] .card { border-radius: 18px; }
+:root:not([data-theme="dark"]) .card::before,
+:root[data-theme="light"] .card::before { background: none; }
+:root:not([data-theme="dark"]) .btn.primary,
+:root[data-theme="light"] .btn.primary {
+  background: #0d1f3c; border-color: #0d1f3c; border-radius: 999px;
+  box-shadow: none;
+}
+:root:not([data-theme="dark"]) .btn.primary:hover,
+:root[data-theme="light"] .btn.primary:hover { background: #0d1f3c; filter: brightness(1.15); }
+:root:not([data-theme="dark"]) .btn,
+:root[data-theme="light"] .btn { border-radius: 999px; }
+:root:not([data-theme="dark"]) .mono,
+:root[data-theme="light"] .mono { font-family: 'DM Mono', ui-monospace, monospace; }
+
+/* ===== Sidebar no STYLE-KIT (light) — mecanica igual, pele nova ===== */
+:root:not([data-theme="dark"]) .sidebar,
+:root[data-theme="light"] .sidebar { background: #fff; border-right: 1px solid var(--line, #d4e2f0); }
+:root:not([data-theme="dark"]) .sidebar::before,
+:root[data-theme="light"] .sidebar::before { background: none; }
+:root:not([data-theme="dark"]) .brand-sub,
+:root[data-theme="light"] .brand-sub {
+  font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px;
+  letter-spacing: .14em; color: var(--ink-faint, #6b7f92);
+}
+:root:not([data-theme="dark"]) .nav-section-btn,
+:root[data-theme="light"] .nav-section-btn {
+  font-family: 'DM Mono', ui-monospace, monospace; font-weight: 500; font-size: 10px;
+  letter-spacing: .14em; color: var(--ink-faint, #6b7f92);
+}
+:root:not([data-theme="dark"]) .nav-section-btn.has-active,
+:root[data-theme="light"] .nav-section-btn.has-active { color: var(--green-d, #2e8b3c); }
+:root:not([data-theme="dark"]) .nav-section-label,
+:root[data-theme="light"] .nav-section-label { font-weight: 500; }
+:root:not([data-theme="dark"]) .nav-item.active,
+:root[data-theme="light"] .nav-item.active {
+  background: var(--primary-soft, #eaf0fb); color: var(--primary, #1a3a6b);
+  font-weight: 600; border-color: transparent; box-shadow: none; border-radius: 999px;
+}
+:root:not([data-theme="dark"]) .nav-item.active::before,
+:root[data-theme="light"] .nav-item.active::before { background: var(--green-d, #2e8b3c); }
+:root:not([data-theme="dark"]) .nav-group .nav-item,
+:root[data-theme="light"] .nav-group .nav-item { border-left-color: transparent; }
+:root:not([data-theme="dark"]) .nav-group .nav-item.active,
+:root[data-theme="light"] .nav-group .nav-item.active { border-left-color: var(--green-d, #2e8b3c); }
+/* subgrupo dentro de uma secao (ex: P&P dentro de Estoque) */
+.nav-subgroup {
+  font: 500 10px 'DM Mono', ui-monospace, monospace; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-faint, #6b7f92);
+  padding: 9px 10px 4px 20px; margin-top: 4px;
+}
+.nav-group .nav-item.nav-item-sub { margin-left: 22px; }
+
 /* ===== Tweaks (custom) ===== */
 .tw-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }

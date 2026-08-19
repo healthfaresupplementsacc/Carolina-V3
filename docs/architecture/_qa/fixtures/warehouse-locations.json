@@ -1,0 +1,20 @@
+{
+  "data": {
+    "bins": [
+      { "id": 1, "bin_code": "A03", "shelf_code": "S2", "area": "P&P", "product_id": 1, "product": "Benfotiamine 300", "qty": 46, "min_qty": 20, "needs_restock": false, "active": true },
+      { "id": 3, "bin_code": "A05", "shelf_code": "S2", "area": "P&P", "product_id": 2, "product": "Berberine 500", "qty": 0, "min_qty": 20, "needs_restock": true, "active": true },
+      { "id": 4, "bin_code": "A07", "shelf_code": "S2", "area": "P&P", "product_id": 3, "product": "Chlorophyll", "qty": 41, "min_qty": 15, "needs_restock": false, "active": true },
+      { "id": 5, "bin_code": "A09", "shelf_code": "S3", "area": "P&P", "product_id": 4, "product": "Collagen", "qty": 0, "min_qty": 10, "needs_restock": true, "active": true },
+      { "id": 6, "bin_code": "B01", "shelf_code": "S4", "area": "Palete 2", "product_id": 5, "product": "NAC 600", "qty": 0, "min_qty": 10, "needs_restock": false, "active": true },
+      { "id": 7, "bin_code": "B03", "shelf_code": "S4", "area": "P&P", "product_id": 6, "product": "L-Carnitine 1500", "qty": 48, "min_qty": 24, "needs_restock": false, "active": true },
+      { "id": 8, "bin_code": "C01", "shelf_code": "S5", "area": "P&P", "product_id": 8, "product": "Ashwagandha", "qty": 6, "min_qty": 15, "needs_restock": true, "active": true },
+      { "id": 9, "bin_code": "C09", "shelf_code": "S5", "area": "P&P", "product_id": null, "product": null, "qty": 0, "min_qty": 0, "needs_restock": false, "active": false }
+    ],
+    "boxes": [
+      { "id": 21, "box_number": "BOX-004", "area": "Palete 1", "product_id": 1, "product": "Benfotiamine 300", "qty": 180 },
+      { "id": 22, "box_number": "BOX-012", "area": "Palete 1", "product_id": 2, "product": "Berberine 500", "qty": 110 },
+      { "id": 23, "box_number": "BOX-021", "area": "Palete 2", "product_id": 6, "product": "L-Carnitine 1500", "qty": 252 },
+      { "id": 24, "box_number": "BOX-030", "area": "Palete 3", "product_id": null, "product": null, "qty": 0 }
+    ]
+  }
+}

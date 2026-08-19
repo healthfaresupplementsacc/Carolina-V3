@@ -1,0 +1,479 @@
+{
+  "when": "2026-08-18T20:55:48.377Z",
+  "tabStats": [
+    {
+      "key": "MASTER",
+      "nodes": 136,
+      "pass": true,
+      "kb": 137,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-01-MASTER.png",
+      "status": "rendered ✓  Master map  (425 lines, 136 nodes)"
+    },
+    {
+      "key": "S02-http-surface",
+      "nodes": 62,
+      "pass": true,
+      "kb": 166,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-02-S02-http-surface.png",
+      "status": "rendered ✓  S02-http-surface  (119 lines, 62 nodes)"
+    },
+    {
+      "key": "S03-frontends",
+      "nodes": 43,
+      "pass": true,
+      "kb": 171,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-03-S03-frontends.png",
+      "status": "rendered ✓  S03-frontends  (89 lines, 43 nodes)"
+    },
+    {
+      "key": "S04-workers",
+      "nodes": 48,
+      "pass": true,
+      "kb": 169,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-04-S04-workers.png",
+      "status": "rendered ✓  S04-workers  (106 lines, 48 nodes)"
+    },
+    {
+      "key": "S05-S06-services-llm",
+      "nodes": 54,
+      "pass": true,
+      "kb": 177,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-05-S05-S06-services-llm.png",
+      "status": "rendered ✓  S05-S06-services-llm  (123 lines, 54 nodes)"
+    },
+    {
+      "key": "S07-legacy-v2",
+      "nodes": 29,
+      "pass": true,
+      "kb": 173,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-06-S07-legacy-v2.png",
+      "status": "rendered ✓  S07-legacy-v2  (71 lines, 29 nodes)"
+    },
+    {
+      "key": "S08-data",
+      "nodes": 36,
+      "pass": true,
+      "kb": 159,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-07-S08-data.png",
+      "status": "rendered ✓  S08-data  (91 lines, 36 nodes)"
+    },
+    {
+      "key": "S09-S12-crosscutting-auth",
+      "nodes": 48,
+      "pass": true,
+      "kb": 165,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-08-S09-S12-crosscutting-auth.png",
+      "status": "rendered ✓  S09-S12-crosscutting-auth  (119 lines, 48 nodes)"
+    },
+    {
+      "key": "S10-S11-external-satellites",
+      "nodes": 24,
+      "pass": true,
+      "kb": 150,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-09-S10-S11-external-satellites.png",
+      "status": "rendered ✓  S10-S11-external-satellites  (71 lines, 24 nodes"
+    },
+    {
+      "key": "S13-S14-tooling",
+      "nodes": 36,
+      "pass": true,
+      "kb": 157,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-10-S13-S14-tooling.png",
+      "status": "rendered ✓  S13-S14-tooling  (57 lines, 36 nodes)"
+    },
+    {
+      "key": "S15-warehouse-inventory",
+      "nodes": 42,
+      "pass": true,
+      "kb": 191,
+      "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-11-S15-warehouse-inventory.png",
+      "status": "rendered ✓  S15-warehouse-inventory  (128 lines, 42 nodes)"
+    }
+  ],
+  "results": [
+    {
+      "group": "tabs",
+      "name": "tab count == 11",
+      "pass": true,
+      "detail": "found 11"
+    },
+    {
+      "group": "tab-fit",
+      "name": "MASTER",
+      "pass": true,
+      "detail": "fit scale=0.054 (whole diagram visible, 20552x5577)"
+    },
+    {
+      "group": "tab",
+      "name": "MASTER",
+      "pass": true,
+      "detail": "136 nodes, status=\"rendered ✓  Master map  (425 lines\", shot 137KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S02-http-surface",
+      "pass": true,
+      "detail": "fit scale=0.183 (whole diagram visible, 6112x2412)"
+    },
+    {
+      "group": "tab",
+      "name": "S02-http-surface",
+      "pass": true,
+      "detail": "62 nodes, status=\"rendered ✓  S02-http-surface  (119\", shot 166KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S03-frontends",
+      "pass": true,
+      "detail": "fit scale=0.271 (whole diagram visible, 4126x1758)"
+    },
+    {
+      "group": "tab",
+      "name": "S03-frontends",
+      "pass": true,
+      "detail": "43 nodes, status=\"rendered ✓  S03-frontends  (89 lin\", shot 171KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S04-workers",
+      "pass": true,
+      "detail": "fit scale=0.252 (whole diagram visible, 4453x1816)"
+    },
+    {
+      "group": "tab",
+      "name": "S04-workers",
+      "pass": true,
+      "detail": "48 nodes, status=\"rendered ✓  S04-workers  (106 line\", shot 169KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S05-S06-services-llm",
+      "pass": true,
+      "detail": "fit scale=0.275 (whole diagram visible, 4066x2301)"
+    },
+    {
+      "group": "tab",
+      "name": "S05-S06-services-llm",
+      "pass": true,
+      "detail": "54 nodes, status=\"rendered ✓  S05-S06-services-llm  \", shot 177KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S07-legacy-v2",
+      "pass": true,
+      "detail": "fit scale=0.368 (whole diagram visible, 3046x1946)"
+    },
+    {
+      "group": "tab",
+      "name": "S07-legacy-v2",
+      "pass": true,
+      "detail": "29 nodes, status=\"rendered ✓  S07-legacy-v2  (71 lin\", shot 173KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S08-data",
+      "pass": true,
+      "detail": "fit scale=0.206 (whole diagram visible, 5435x1593)"
+    },
+    {
+      "group": "tab",
+      "name": "S08-data",
+      "pass": true,
+      "detail": "36 nodes, status=\"rendered ✓  S08-data  (91 lines, 3\", shot 159KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S09-S12-crosscutting-auth",
+      "pass": true,
+      "detail": "fit scale=0.243 (whole diagram visible, 4605x2101)"
+    },
+    {
+      "group": "tab",
+      "name": "S09-S12-crosscutting-auth",
+      "pass": true,
+      "detail": "48 nodes, status=\"rendered ✓  S09-S12-crosscutting-a\", shot 165KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S10-S11-external-satellites",
+      "pass": true,
+      "detail": "fit scale=0.201 (whole diagram visible, 5566x1915)"
+    },
+    {
+      "group": "tab",
+      "name": "S10-S11-external-satellites",
+      "pass": true,
+      "detail": "24 nodes, status=\"rendered ✓  S10-S11-external-satel\", shot 150KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S13-S14-tooling",
+      "pass": true,
+      "detail": "fit scale=0.264 (whole diagram visible, 4250x1895)"
+    },
+    {
+      "group": "tab",
+      "name": "S13-S14-tooling",
+      "pass": true,
+      "detail": "36 nodes, status=\"rendered ✓  S13-S14-tooling  (57 l\", shot 157KB, bodyClean=true"
+    },
+    {
+      "group": "tab-fit",
+      "name": "S15-warehouse-inventory",
+      "pass": true,
+      "detail": "fit scale=0.200 (whole diagram visible, 5600x2512)"
+    },
+    {
+      "group": "tab",
+      "name": "S15-warehouse-inventory",
+      "pass": true,
+      "detail": "42 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 191KB, bodyClean=true"
+    },
+    {
+      "group": "behaviour",
+      "name": "a1 live re-render after typing",
+      "pass": true,
+      "detail": "status=\"rendered ✓  Master map  (426 lines, 136 nodes)\""
+    },
+    {
+      "group": "behaviour",
+      "name": "a2 draft written to localStorage",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "behaviour",
+      "name": "a3 draft survives reload",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "behaviour",
+      "name": "b Reset to generated restores embedded source",
+      "pass": true,
+      "detail": "markerGone=true exactMatch=true lsCleared=true"
+    },
+    {
+      "group": "behaviour",
+      "name": "c download filename (MASTER)",
+      "pass": true,
+      "detail": "expected=\"MASTER_SYSTEM_MAP.mmd\" got=[\"MASTER_SYSTEM_MAP.mmd\"] status=\"downloaded MASTER_SYSTEM_MAP.mmd — overwrite docs/architectu\""
+    },
+    {
+      "group": "behaviour",
+      "name": "c download filename (S08-data)",
+      "pass": true,
+      "detail": "expected=\"S08-data.mmd\" got=[\"MASTER_SYSTEM_MAP.mmd\",\"S08-data.mmd\"] status=\"downloaded S08-data.mmd — overwrite docs/architecture/maps/S\""
+    },
+    {
+      "group": "behaviour",
+      "name": "d \"+ directive\" inserts template at cursor",
+      "pass": true,
+      "detail": "inserted=true atCursor=true"
+    },
+    {
+      "group": "behaviour",
+      "name": "e1 drag pans (transform changes)",
+      "pass": true,
+      "detail": "translate(20px, 20px) scale(1) -> translate(100px, 80px) scale(1)"
+    },
+    {
+      "group": "behaviour",
+      "name": "e2 wheel zooms (scale changes)",
+      "pass": true,
+      "detail": "scale=1.1"
+    },
+    {
+      "group": "behaviour",
+      "name": "e3 fit changes the transform",
+      "pass": true,
+      "detail": "translate(20px, 308.038px) scale(0.0544959)"
+    },
+    {
+      "group": "behaviour",
+      "name": "e4 fit is not degenerate (stays legible)",
+      "pass": true,
+      "detail": "scale=0.0544959 fillW=0.97 fillH=0.33"
+    },
+    {
+      "group": "behaviour",
+      "name": "f click node shows id in #status",
+      "pass": true,
+      "detail": "id=S14_07 status=\"copied node id: S14_07  ·  S14.07 · dashboard-v4/build orphan\""
+    },
+    {
+      "group": "feature",
+      "name": "d2 selected-node info line shows label",
+      "pass": true,
+      "detail": "selInfo=\"Selecionado: S14_07 → FROM — S14.07 · dashboard-v4/build orphan (próximo clique \""
+    },
+    {
+      "group": "behaviour",
+      "name": "g syntax error -> red error in #status, svg kept",
+      "pass": true,
+      "detail": "status=\"Mermaid error: Parse error on line 2:\n... TB  A[Broken --> B\" class=err color=rgb(198, 40, 40) nodes 136->136"
+    },
+    {
+      "group": "behaviour",
+      "name": "g2 no stray mermaid error graphic appended to body",
+      "pass": true,
+      "detail": "strayNodes=0 bombText=false"
+    },
+    {
+      "group": "behaviour",
+      "name": "g3 page does not grow past viewport after error",
+      "pass": true,
+      "detail": "scrollHeight=1000 viewport=1000"
+    },
+    {
+      "group": "feature",
+      "name": "a1 search highlights matching nodes (thick outline)",
+      "pass": true,
+      "detail": "1 hits [\"S02_08\"] strokeWidth=5px"
+    },
+    {
+      "group": "feature",
+      "name": "a2 search pans to first match",
+      "pass": true,
+      "detail": "{\"dx\":0,\"dy\":0.000030517578125}"
+    },
+    {
+      "group": "feature",
+      "name": "a3 search counter shows n/total",
+      "pass": true,
+      "detail": "1/1"
+    },
+    {
+      "group": "feature",
+      "name": "a4 search matches label text (\"Veeqo\")",
+      "pass": true,
+      "detail": "6 hits"
+    },
+    {
+      "group": "feature",
+      "name": "a5 next-match button cycles",
+      "pass": true,
+      "detail": "1/6 -> 2/6"
+    },
+    {
+      "group": "feature",
+      "name": "a6 clear removes highlights",
+      "pass": true,
+      "detail": "0 hits left"
+    },
+    {
+      "group": "feature",
+      "name": "b1 unchecking \"verified\" dims verified nodes",
+      "pass": true,
+      "detail": "dimmed=95 opacity=0.13 verifiedDimmed=true"
+    },
+    {
+      "group": "feature",
+      "name": "b2 other classes stay bright",
+      "pass": true,
+      "detail": "externalDimmed=false"
+    },
+    {
+      "group": "feature",
+      "name": "b3 \"all\" button restores everything",
+      "pass": true,
+      "detail": "0 still dimmed"
+    },
+    {
+      "group": "feature",
+      "name": "c1 1st click=FROM, 2nd click=TO",
+      "pass": true,
+      "detail": "{\"from\":\"S14_05\",\"to\":\"S15_UI\",\"expFrom\":\"S14_05\",\"expTo\":\"S15_UI\"}"
+    },
+    {
+      "group": "feature",
+      "name": "c2.CONNECT appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% CONNECT    S14_05 --> S15_UI  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.DISCONNECT appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% DISCONNECT S14_05 --> S15_UI  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.MOVE appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% MOVE       S14_05 UNDER S15_UI  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.SAME appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% SAME       S14_05 == S15_UI  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.FEEDS appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% FEEDS      S14_05 --> S15_UI  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.WRONG appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% WRONG      S14_05 --> S15_UI  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.NOTE appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% NOTE       S14_05  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c2.REORG appended below HUMAN EDITS, well formed",
+      "pass": true,
+      "detail": "\"%% REORG      S14_05  qa test note\" below=true"
+    },
+    {
+      "group": "feature",
+      "name": "c3 map still renders with directives appended",
+      "pass": true,
+      "detail": "rendered ✓  Master map  (432 lines, 136 nodes) nodes=136"
+    },
+    {
+      "group": "feature",
+      "name": "c4 missing ids -> red warning, no append",
+      "pass": true,
+      "detail": "len 20090->20090 cls=err"
+    },
+    {
+      "group": "feature",
+      "name": "c5 map without HUMAN EDITS marker -> section created",
+      "pass": true,
+      "detail": "markerExistedBefore=false"
+    },
+    {
+      "group": "feature",
+      "name": "c6 drill-down still renders after append",
+      "pass": true,
+      "detail": "rendered ✓  S04-workers  (108 lines, 48 nodes)"
+    },
+    {
+      "group": "feature",
+      "name": "e only external host is cdn.jsdelivr.net",
+      "pass": true,
+      "detail": "15 external reqs, hosts=[\"cdn.jsdelivr.net\"]"
+    },
+    {
+      "group": "feature",
+      "name": "e2 local ./mermaid.min.mjs fallback kept",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "feature",
+      "name": "e3 no external <link>/<script src>",
+      "pass": true,
+      "detail": "css=true script=true"
+    }
+  ]
+}

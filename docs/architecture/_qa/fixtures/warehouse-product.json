@@ -1,0 +1,46 @@
+{
+  "data": {
+    "product": {
+      "product_id": 6, "name": "L-Carnitine 1500 mg", "nickname": "L-Carnitine 1500", "bottle_color": "white",
+      "base_sku": "HF-LCAR-1500",
+      "skus": [
+        { "id": 61, "sku": "HF-LCAR-1500", "channel": "veeqo", "units_per_pack": 1, "role": "base", "veeqo_type": "variant", "confirmed": true },
+        { "id": 62, "sku": "HF-LCAR-1500-C2", "channel": "veeqo", "units_per_pack": 2, "role": "member", "veeqo_type": "kit", "confirmed": true },
+        { "id": 63, "sku": "HF-LCAR-1500-C3", "channel": "veeqo", "units_per_pack": 3, "role": "member", "veeqo_type": "kit", "confirmed": true },
+        { "id": 64, "sku": "HF-LCAR-1500-C4", "channel": "veeqo", "units_per_pack": 4, "role": "member", "veeqo_type": "kit", "confirmed": true }
+      ],
+      "shelf_qty": 48, "box_qty": 252, "unplaced_qty": 0, "total": 300,
+      "reserved": 20, "pending_out": 0, "pending_in": 0, "available": 280, "separated": 3,
+      "min_units": 50, "days_cover": 44,
+      "veeqo": { "physical": 300, "allocated": 20, "available": 280 },
+      "veeqo_match": "ok",
+      "status": ["ok"],
+      "bins": [{ "id": 7, "bin_code": "B03", "shelf_code": "S4", "area": "P&P", "qty": 48, "min_qty": 24, "needs_restock": false }],
+      "boxes": [{ "id": 23, "box_number": "BOX-021", "area": "Palete 2", "qty": 252 }]
+    },
+    "open_orders": [
+      { "order_number": "12-345", "channel": "ebay", "sku": "HF-LCAR-1500", "qty": 8, "bottles": 8, "order_date": "2026-08-18", "status": "pending", "age_min": 145 },
+      { "order_number": "12-401", "channel": "tiktok", "sku": "HF-LCAR-1500-C2", "qty": 6, "bottles": 12, "order_date": "2026-08-18", "status": "picklisted", "age_min": 62 }
+    ],
+    "movements": [
+      { "id": 9001, "kind": "store_in", "qty": 300, "bin_code": null, "box_number": "BOX-021", "person": "Henrique", "source": "warehouse_hub", "note": "entrada do lote 2026-08", "created_at": "2026-08-17T13:02:00Z" },
+      { "id": 9002, "kind": "restock", "qty": 48, "bin_code": "B03", "box_number": "BOX-021", "person": "Simone", "source": "op_workspace", "note": "reposicao da prateleira", "created_at": "2026-08-18T09:40:00Z" },
+      { "id": 9003, "kind": "pick", "qty": -8, "bin_code": "B03", "box_number": null, "person": null, "source": "veeqo_ship", "note": "pedido 12-330", "created_at": "2026-08-18T11:15:00Z" }
+    ],
+    "issues": [
+      { "id": 501, "qty": 2, "reason": "label", "status": "separated", "order_number": null, "person": "Simone", "note": "label torto", "created_at": "2026-08-18T10:05:00Z" },
+      { "id": 502, "qty": 1, "reason": "return", "status": "separated", "order_number": "12-201", "person": "Ana Kesya", "note": "devolvido pelo cliente", "created_at": "2026-08-16T15:20:00Z" }
+    ],
+    "requests": [
+      { "id": 92, "kind": "count", "qty": 300, "status": "pending", "proposed_by": "Simone", "reason": "contagem do dia", "created_at": "2026-08-18T12:10:00Z", "decided_by": null, "decided_at": null }
+    ],
+    "family": {
+      "base": { "sku": "HF-LCAR-1500", "channel": "veeqo" },
+      "members": [
+        { "id": 62, "sku": "HF-LCAR-1500-C2", "channel": "veeqo", "units_per_pack": 2, "veeqo_type": "kit", "veeqo_available": 140, "derived_packs": 140 },
+        { "id": 63, "sku": "HF-LCAR-1500-C3", "channel": "veeqo", "units_per_pack": 3, "veeqo_type": "kit", "veeqo_available": 93, "derived_packs": 93 },
+        { "id": 64, "sku": "HF-LCAR-1500-C4", "channel": "veeqo", "units_per_pack": 4, "veeqo_type": "kit", "veeqo_available": 70, "derived_packs": 70 }
+      ]
+    }
+  }
+}

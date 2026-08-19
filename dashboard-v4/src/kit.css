@@ -1,0 +1,197 @@
+/* ═══════════════════════════════════════════════════════════════════
+   HEALTHFARE STYLE-KIT — tema CLARO global do dashboard-v4.
+   Tokens copiados VERBATIM de G:\My Drive\Clinic\Obsidian Bruno\HealthFare\
+   STYLE-KIT.html (:root). Os tokens sao LEI (Bruno 08-18, S15 §10).
+
+   Identidade: Kinto editorial SaaS. Ground azulado com dot-grid, titulos
+   DM Serif Display com UMA palavra italica verde, pills navy, chips tonais,
+   cards raio 18, micro-labels DM Mono.
+   REGRAS DURAS: sem travessao (em dash) em texto de UI; contraste AA; cor
+   semantica so pra status (verde ok / ambar warn / vermelho bad / roxo dispute).
+
+   Carregado DEPOIS de styles.css em main.jsx: os mapeamentos no fim de
+   styles.css apontam os tokens antigos (--surface, --border, --text...) pros
+   tokens do kit, entao as paginas antigas herdam a paleta sem edicao por pagina.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0,1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --primary:#1a3a6b; --primary-deep:#0d1f3c;
+  --primary-grad:linear-gradient(180deg,#234c85,#1a3a6b);
+  --green:#3ab54a; --green-d:#2e8b3c; --teal:#1a7a7a;
+  --primary-soft:#eaf0fb; --primary-soft-line:#cddcf0; --primary-line:#b9cbe2;
+  --primary-glow:rgba(26,58,107,.28); --primary-row:#eaf0fb; --flash:#dbe7f5;
+  --focus-ring:0 0 0 3px rgba(26,58,107,.14);
+  --ground:#f4f8fc; --kit-surface:#ffffff; --kit-surface-2:#f7fafd; --bubble-buyer:#f1f5fa;
+  --line:#d4e2f0; --line-strong:#b9cbe2; --dotline:#c6d7e8;
+  --ink:#1c2b3a; --ink-dim:#54687c; --ink-faint:#6b7f92;
+  --kit-ok:#2e8b3c; --ok-bg:#e8f7ea; --ok-line:#c8ecce; --ok-deep:#1e6b2e;
+  --kit-warn:#96690a; --warn-bg:#fdf6e3; --warn-line:#eeddad; --warn-deep:#6b4c07;
+  --kit-bad:#c0392b; --bad-bg:#fdeeec; --bad-line:#f5cdc7; --bad-deep:#a02c20; --bad-bg-hover:#fbdfdb;
+  --dispute:#5b4a9e; --dispute-bg:#efecf9; --dispute-line:#ddd6f0;
+  --kit-info:#1a7a7a; --info-bg:#e6f3f3; --info-line:#c7e4e4;
+  --neutral-bg:#eaf0fb; --neutral-line:#d4e2f0;
+  --dot-ok:#3ab54a; --dot-warn:#e8a13c; --dot-bad:#e5604f;
+  --r-xs:6px; --r-sm:12px; --r-md:14px; --r-lg:18px; --r-xl:22px; --r-pill:999px;
+  --shadow-card:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05);
+  --shadow-lift:0 2px 4px rgba(13,31,60,.05),0 16px 40px rgba(13,31,60,.09);
+  --shadow-pop:0 10px 32px rgba(13,31,60,.16);
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+  --font:'DM Sans',system-ui,'Segoe UI',sans-serif;
+  --font-display:'DM Serif Display',Georgia,serif;
+  --font-mono:'DM Mono',ui-monospace,monospace;
+  --fs-micro:10.5px; --fs-nano:11px; --fs-tiny:11.5px; --fs-xs:12px; --fs-small:12.5px;
+  --fs-body:13px; --fs-base:13.5px; --fs-title:15px; --fs-page:18px; --fs-kpi:26px;
+  --t-fast:120ms; --t-base:170ms; --ease:cubic-bezier(.25,.6,.3,1); --lift:translateY(-2px);
+}
+
+/* ── Ground dot-grid (light only; dark segue os tokens antigos) ───── */
+:root:not([data-theme="dark"]) body,
+:root[data-theme="light"] body {
+  background: var(--ground);
+  background-image: radial-gradient(circle, rgba(26,58,107,.06) 1px, transparent 1px);
+  background-size: 26px 26px;
+  color: var(--ink);
+  font-family: var(--font);
+}
+:root:not([data-theme="dark"]) .main,
+:root[data-theme="light"] .main {
+  background: transparent;
+}
+
+/* ═══ CORE RECIPES (classes globais .kit-*) ══════════════════════ */
+
+.kit-eyebrow { font:500 10px var(--font-mono); letter-spacing:.14em; text-transform:uppercase; color:var(--green-d); }
+.kit-h1 { font-family:var(--font-display); font-weight:400; font-size:clamp(26px,2.6vw,34px); color:var(--primary-deep); margin:4px 0 2px; line-height:1.12; }
+.kit-h1 em { color:var(--green-d); font-style:italic; }
+.kit-h2 { font-family:var(--font-display); font-weight:400; font-size:20px; color:var(--primary-deep); margin:0; }
+.kit-sub { color:var(--ink-dim); font-size:13.5px; }
+.kit-mlabel { font:500 10px var(--font-mono); letter-spacing:.14em; text-transform:uppercase; color:var(--ink-faint); }
+
+.kit-card {
+  background:var(--kit-surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); transition:box-shadow var(--t-base) var(--ease);
+}
+.kit-card.pad { padding:18px 20px; }
+.kit-card.warn { border-color:var(--warn-line); background:var(--warn-bg); }
+.kit-card.bad { border-color:var(--bad-line); background:var(--bad-bg); }
+
+.kit-kpi { font-family:var(--font-display); font-size:34px; color:var(--primary-deep); font-variant-numeric:tabular-nums; line-height:1; }
+.kit-kpi-card {
+  background:var(--kit-surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); padding:14px 18px; min-width:124px;
+  text-align:left; cursor:pointer; transition:box-shadow var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+}
+.kit-kpi-card:hover { box-shadow:var(--shadow-lift); transform:var(--lift); }
+.kit-kpi-card.on { border-color:var(--primary-line); background:var(--primary-soft); }
+.kit-kpi-card .kit-kpi.bad { color:var(--bad-deep); }
+.kit-kpi-card .kit-kpi.warn { color:var(--warn-deep); }
+.kit-kpi-card .kit-kpi.ok { color:var(--ok-deep); }
+
+.kit-btn {
+  border:none; cursor:pointer; font:600 13px var(--font); border-radius:var(--r-pill);
+  height:38px; padding:0 22px; background:var(--kit-surface); color:var(--ink);
+  border:1px solid var(--line); transition:filter var(--t-fast), box-shadow var(--t-fast);
+  display:inline-flex; align-items:center; gap:8px; justify-content:center;
+}
+.kit-btn:hover { box-shadow:var(--shadow-card); }
+.kit-btn.primary { background:var(--primary-deep); color:#fff; border-color:var(--primary-deep); }
+.kit-btn.primary:hover { filter:brightness(1.15); }
+.kit-btn.sec { background:#fff; color:var(--ink); border:1px solid var(--line); }
+.kit-btn.danger { background:var(--bad-deep); color:#fff; border-color:var(--bad-deep); }
+.kit-btn.sm { height:30px; padding:0 13px; font-size:12px; }
+.kit-btn.xs { height:26px; padding:0 10px; font:600 11.5px var(--font); }
+.kit-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+.kit-chip {
+  display:inline-flex; align-items:center; height:22px; padding:0 10px;
+  border-radius:var(--r-pill); font:500 11px var(--font-mono); white-space:nowrap;
+}
+.kit-chip.ok { background:var(--ok-bg); color:var(--ok-deep); box-shadow:inset 0 0 0 1px var(--ok-line); }
+.kit-chip.warn { background:var(--warn-bg); color:var(--warn-deep); box-shadow:inset 0 0 0 1px var(--warn-line); }
+.kit-chip.bad { background:var(--bad-bg); color:var(--bad-deep); box-shadow:inset 0 0 0 1px var(--bad-line); }
+.kit-chip.neutral { background:var(--neutral-bg); color:var(--primary); box-shadow:inset 0 0 0 1px var(--neutral-line); }
+.kit-chip.dispute { background:var(--dispute-bg); color:var(--dispute); box-shadow:inset 0 0 0 1px var(--dispute-line); }
+.kit-chip.info { background:var(--info-bg); color:var(--kit-info); box-shadow:inset 0 0 0 1px var(--info-line); }
+.kit-chip.solid { background:var(--primary-deep); color:#fff; }
+
+.kit-dotted-row { border-bottom:1px dotted var(--dotline); padding:10px 0; display:flex; align-items:center; gap:10px; }
+.kit-dotted-row:last-child { border-bottom:none; }
+
+/* ── Tabela: thead mono uppercase micro-label, numeros tabulares,
+      separador pontilhado, hover com tinta --primary-row ─────────── */
+.kit-table { width:100%; border-collapse:collapse; font-size:13.5px; font-family:var(--font); }
+.kit-table thead th {
+  text-align:left; font:500 10px var(--font-mono); letter-spacing:.10em; text-transform:uppercase;
+  color:var(--ink-faint); padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
+}
+.kit-table tbody td { padding:9px 10px; border-bottom:1px dotted var(--dotline); vertical-align:middle; color:var(--ink); }
+.kit-table tbody tr:hover { background:var(--primary-row); }
+.kit-table tbody tr:last-child td { border-bottom:none; }
+.kit-table .num, .kit-table td.num, .kit-table th.num {
+  font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right;
+}
+.kit-table .sep { border-left:2px solid var(--line-strong); }
+.kit-table tbody tr.clickable { cursor:pointer; }
+
+.kit-input {
+  padding:7px 10px; border-radius:var(--r-sm); border:1px solid var(--line);
+  background:var(--kit-surface-2); color:var(--ink); font:400 13.5px var(--font);
+  outline:none; transition:box-shadow var(--t-fast);
+}
+.kit-input:focus { box-shadow:var(--focus-ring); border-color:var(--primary-line); }
+.kit-input.mono { font-family:var(--font-mono); }
+select.kit-input { cursor:pointer; }
+
+/* ── Segmented control ─────────────────────────────────────────── */
+.kit-seg { display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
+.kit-seg button {
+  border:none; background:#fff; color:var(--ink); cursor:pointer;
+  font:600 12.5px var(--font); padding:7px 14px; transition:background var(--t-fast);
+}
+.kit-seg button + button { border-left:1px solid var(--line); }
+.kit-seg button.on { background:var(--primary-deep); color:#fff; }
+.kit-seg button.on.danger { background:var(--bad-deep); }
+
+/* ── Modal 2 passos (Revisar -> Confirmar) ─────────────────────── */
+.kit-modal-back {
+  position:fixed; inset:0; background:rgba(13,31,60,.34); z-index:300;
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.kit-modal {
+  background:var(--kit-surface); border:1px solid var(--line); border-radius:var(--r-xl);
+  box-shadow:var(--shadow-pop); width:min(520px,96vw); max-height:90vh; overflow:auto;
+  padding:22px 24px; font-family:var(--font); color:var(--ink);
+}
+.kit-modal .title { font-family:var(--font-display); font-size:22px; color:var(--primary-deep); }
+.kit-modal .preview {
+  background:var(--kit-surface-2); border:1px solid var(--line); border-radius:var(--r-md);
+  padding:12px 14px; margin:14px 0; font-family:var(--font-mono); font-size:12.5px; color:var(--ink-dim);
+}
+.kit-modal .preview b { color:var(--primary-deep); font-size:13.5px; }
+.kit-modal .foot { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; }
+
+/* ── Drawer lateral (painel do produto) ───────────────────────── */
+.kit-drawer-back { position:fixed; inset:0; background:rgba(13,31,60,.24); z-index:250; }
+.kit-drawer {
+  position:fixed; top:0; right:0; bottom:0; width:min(720px,96vw); z-index:260;
+  background:var(--kit-surface); border-left:1px solid var(--line); box-shadow:var(--shadow-pop);
+  display:flex; flex-direction:column; font-family:var(--font); color:var(--ink);
+}
+.kit-drawer .head { padding:18px 22px 12px; border-bottom:1px solid var(--line); }
+.kit-drawer .body { flex:1; overflow:auto; padding:16px 22px 40px; }
+.kit-drawer .tabs { display:flex; gap:4px; padding:0 22px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+.kit-drawer .tabs button {
+  border:none; background:none; cursor:pointer; padding:9px 12px;
+  font:600 12.5px var(--font); color:var(--ink-dim); border-bottom:2px solid transparent;
+}
+.kit-drawer .tabs button.on { color:var(--primary); border-bottom-color:var(--green-d); }
+
+/* ── Toast do kit ─────────────────────────────────────────────── */
+.kit-toast {
+  position:fixed; bottom:22px; right:22px; z-index:400;
+  background:var(--primary-deep); color:#fff; border-radius:var(--r-md);
+  padding:11px 18px; font:600 13px var(--font); box-shadow:var(--shadow-pop);
+}
+.kit-toast.bad { background:var(--bad-deep); }

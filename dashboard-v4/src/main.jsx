@@ -5,4 +5,7 @@
 import './styles.css';
 import './timeline.css';
 import './extras.css';
+// STYLE-KIT (Bruno 08-18): tema CLARO global do dashboard. Vem DEPOIS dos CSS
+// antigos pra que os tokens do kit e o mapeamento (fim de styles.css) valham.
+import './kit.css';
 import './App.jsx';

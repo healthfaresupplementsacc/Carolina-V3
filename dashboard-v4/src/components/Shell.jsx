@@ -2,7 +2,7 @@ import React from 'react';
 import { Icon } from './Icons.jsx';
 import nyTime from '../utils/ny-time.cjs';
 import { FalarCarolinaButton } from '../pages/CarolinaFalar.jsx';
-import { can } from '../adapters/from-api.js';
+import { can, getLogin } from '../adapters/from-api.js';
 // E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
 // wordmark). Substitui o SVG inline `BrandH` que era um esboço.
 // Vite resolve a URL no build (com base /dashboard-v4/...).
@@ -14,24 +14,33 @@ import healthFareLogo from '../../assets/healthfare-logo.png';
 
 // Nav REAGRUPADA (Bruno 08-03): menus principais colapsáveis com submenus.
 // "Coisas conectadas ficam sob um menu principal; clica → submenu aparece."
-// Estoque, Suprimentos e Product Setup agora juntos em "Estoque & Produtos".
+// S15 (Bruno 08-18): nasce a seção ESTOQUE (Warehouse Inventory) com o hub novo,
+// Aprovações e Locais; as páginas antigas ficam marcadas "(antigo)" até a paridade;
+// P&P + Picklist viram um SUBGRUPO dentro dela (saíram de Operação); Planejamento
+// e Produto voltam pra Operação logo depois de Metas, intocadas.
 const NAV = [
   { section: "Operação", en: "Operations", icon: "home", items: [
-    { id: "hoje",      pt: "Hoje",          en: "Today",          icon: "home" },
-    { id: "roadmap",   pt: "Roadmap",       en: "Roadmap",        icon: "plan" },
-    { id: "producao",  pt: "Produção",      en: "Production",     icon: "factory" },
-    { id: "metas",     pt: "Metas",         en: "Goals",          icon: "target" },
-    { id: "pessoas",   pt: "Pessoas",       en: "People",         icon: "people" },
-    { id: "pp",        pt: "P&P",           en: "Pick & Pack",    icon: "pp" },
-    { id: "picklist",  pt: "Picklist",      en: "Picklist",       icon: "product" },
+    { id: "hoje",         pt: "Hoje",         en: "Today",       icon: "home" },
+    { id: "roadmap",      pt: "Roadmap",      en: "Roadmap",     icon: "plan" },
+    { id: "producao",     pt: "Produção",     en: "Production",  icon: "factory" },
+    { id: "metas",        pt: "Metas",        en: "Goals",       icon: "target" },
+    { id: "planejamento", pt: "Planejamento", en: "Planning",    icon: "plan" },
+    { id: "produto",      pt: "Produto",      en: "Product",     icon: "product" },
+    { id: "pessoas",      pt: "Pessoas",      en: "People",      icon: "people" },
   ]},
-  { section: "Estoque & Produtos", en: "Inventory & Products", icon: "product", items: [
-    { id: "estoque-geral", pt: "Ver estoque",       en: "Stock",             icon: "product" },
-    { id: "inventory",     pt: "Estoque detalhado", en: "Stock (detailed)",  icon: "product" },
-    { id: "produto-setup", pt: "Product Setup",     en: "Product Setup",     icon: "config" },
-    { id: "config-estoque", pt: "Configurações",    en: "Inventory Settings", icon: "config" },
-    { id: "planejamento",  pt: "Planejamento",      en: "Planning",          icon: "plan" },
-    { id: "produto",       pt: "Produto",           en: "Product",           icon: "product" },
+  // Seção nova (S15). Toda ela é gated por `view_stock` quando o login TEM lista
+  // de funções; login sem lista nenhuma continua vendo tudo (ver `visible()`).
+  { section: "Estoque", en: "Warehouse Inventory", icon: "product", fn: "view_stock", items: [
+    { id: "estoque",            pt: "Estoque",                   en: "Warehouse",          icon: "product" },
+    { id: "estoque-aprovacoes", pt: "Aprovações",                en: "Approvals",          icon: "target" },
+    { id: "estoque-locais",     pt: "Locais",                    en: "Locations",          icon: "plan" },
+    { id: "estoque-geral",      pt: "Ver estoque (antigo)",      en: "Stock (legacy)",     icon: "product" },
+    { id: "inventory",          pt: "Estoque detalhado (antigo)", en: "Stock (legacy detailed)", icon: "product" },
+    { id: "produto-setup",      pt: "Product Setup",             en: "Product Setup",      icon: "config" },
+    { id: "config-estoque",     pt: "Configurações",             en: "Inventory Settings", icon: "config" },
+    // subgrupo P&P (mesmo colapso da seção, cabeçalho recuado)
+    { id: "pp",       pt: "P&P",      en: "Pick & Pack", icon: "pp",      sub: "P&P" },
+    { id: "picklist", pt: "Picklist", en: "Picklist",    icon: "product", sub: "P&P" },
   ]},
   { section: "Impressão", en: "Printing", icon: "factory", items: [
     { id: "impressao",    pt: "Impressão",      en: "Printing",        icon: "factory" },
@@ -56,6 +65,16 @@ const NAV = [
 ];
 
 const ALL_PAGES = NAV.flatMap(s => s.items);
+
+/* RBAC tolerante (S15): se o login TEM lista de funções, respeita `can()`;
+   se NÃO tem lista nenhuma (login antigo, sem functions), mostra. Os logins de
+   hoje (Admin/Henrique) têm '*' ou lista cheia, então nada some pra eles. */
+function visible(fn) {
+  if (!fn) return true;
+  const l = getLogin();
+  if (!l || !Array.isArray(l.functions)) return true;   // sem lista → não esconde
+  return can(fn);
+}
 
 function findPage(id) {
   return ALL_PAGES.find(p => p.id === id) || ALL_PAGES[0];
@@ -84,6 +103,8 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
       </div>
       <nav className="nav">
         {NAV.map(sec => {
+          // seção inteira gated (S15: Estoque exige view_stock quando há lista)
+          if (sec.fn && !visible(sec.fn)) return null;
           // filtra itens por função (RBAC): item com `fn` só aparece se o login tiver.
           const items = sec.items.filter((it) => !it.fn || can(it.fn));
           if (items.length === 0) return null;      // grupo sem itens visíveis → some
@@ -106,19 +127,27 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
                 </button>
               )}
               {collapsed && <div style={{ height: 8 }}/>}
-              {isOpen && items.map(it => (
-                <a key={it.id} href={`#${it.id}`}
-                   className={`nav-item ${route === it.id ? "active" : ""}`}
-                   onClick={e => { e.preventDefault(); onRoute(it.id); if (onClose) onClose(); }}>
-                  <span className="nav-ico"><Icon name={it.icon} size={17}/></span>
-                  {!collapsed && (
-                    <>
-                      <span className="nav-label">{it.pt}</span>
-                      <span className="nav-sub-en">{it.en}</span>
-                    </>
-                  )}
-                </a>
-              ))}
+              {isOpen && items.map((it, i) => {
+                // subgrupo (S15): primeiro item com `sub` novo imprime o cabeçalho
+                const prev = i > 0 ? items[i - 1] : null;
+                const head = it.sub && (!prev || prev.sub !== it.sub);
+                return (
+                  <React.Fragment key={it.id}>
+                    {head && !collapsed && <div className="nav-subgroup">{it.sub}</div>}
+                    <a href={`#${it.id}`}
+                       className={`nav-item ${it.sub ? 'nav-item-sub' : ''} ${route === it.id ? "active" : ""}`}
+                       onClick={e => { e.preventDefault(); onRoute(it.id); if (onClose) onClose(); }}>
+                      <span className="nav-ico"><Icon name={it.icon} size={17}/></span>
+                      {!collapsed && (
+                        <>
+                          <span className="nav-label">{it.pt}</span>
+                          <span className="nav-sub-en">{it.en}</span>
+                        </>
+                      )}
+                    </a>
+                  </React.Fragment>
+                );
+              })}
             </div>
           );
         })}

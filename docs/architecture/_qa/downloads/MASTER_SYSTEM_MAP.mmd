@@ -1,0 +1,424 @@
+%% ============================================================================
+%% MASTER SYSTEM MAP — HealthFare Tracker (Carolina V4)
+%% Generated from code/schema/config discovery on 2026-08-14 (branch v3-reset).
+%% Node ID  = stable element ID with '_' instead of '.'  (S02_08 == S02.08 in STRUCTURE_INDEX.md)
+%% Edge label = R-id from RELATIONSHIPS.md
+%% Line styles:  -->  VERIFIED     -.->  PARTIAL / conditional     ==>  DUPLICATE-PATH
+%%               x--x DISCONNECTED (drawn as dotted with label DISCONNECTED)
+%% Classes:  verified | partial | orphaned | unknown | external | satellite
+%% Drill-downs: maps/S02-http-surface.mmd, S03-frontends.mmd, S04-workers.mmd,
+%%              S05-S06-services-llm.mmd, S07-legacy-v2.mmd, S08-data.mmd,
+%%              S09-S12-crosscutting-auth.mmd, S10-S11-external-satellites.mmd, S13-S14-tooling.mmd,
+%%              S15-warehouse-inventory.mmd (domain section: current vs PLANNED)
+%% ============================================================================
+%% ==== GENERATED SECTION (rescans regenerate ONLY this section) ==============
+flowchart TB
+
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+classDef unknown fill:#ede7f6,stroke:#6a1b9a,color:#4a148c,stroke-dasharray:2 3
+classDef external fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+classDef satellite fill:#e0f7fa,stroke:#00838f,color:#006064
+classDef hub fill:#0f4c92,stroke:#0f4c92,color:#ffffff
+classDef planned fill:#eef4ff,stroke:#0f4c92,color:#0f4c92,stroke-dasharray:6 4
+
+%% ---------------------------------------------------------------- S01 host
+subgraph S01["S01 · Railway service ProductionLineService (src/index.js)"]
+  direction TB
+  S01_01["S01.01 · Boot sequence start()"]:::verified
+  S01_02["S01.02 · Express app + global middleware"]:::verified
+  S01_03["S01.03 · src/v3/wire.js bridge (mount + startWorker)"]:::hub
+  S01_04["S01.04 · config.js + env vars"]:::verified
+  S01_05["S01.05 · Deploy artifacts (Dockerfile, railway.toml, deploy.*)"]:::verified
+  S01_06["S01.06 · GET /api/health"]:::verified
+end
+
+%% ---------------------------------------------------------------- S02 http
+subgraph S02["S02 · HTTP surface (~370 routes)"]
+  direction TB
+  S02_01["S02.01 · Legacy Slack webhook /slack/events"]:::verified
+  S02_02["S02.02 · Legacy API /api (62)"]:::verified
+  S02_03["S02.03 · Workflow API /api (38)"]:::verified
+  S02_04["S02.04 · V3 Slack webhook /slack/events-v2"]:::verified
+  S02_05["S02.05 · Security middleware (5 prefixes)"]:::verified
+  S02_06["S02.06 · admin-v3 shadow /api/admin/v3/*"]:::verified
+  S02_07["S02.07 · Architect API /api/v3/architect"]:::verified
+  S02_08["S02.08 · Operator API src/routes/op.js (48)"]:::verified
+  S02_09["S02.09 · Admin panel API /api/adminpanel (65)"]:::verified
+  S02_10["S02.10 · Data API /api/v3/data (114)"]:::verified
+  S02_11["S02.11 · Images upload /api/images/upload"]:::verified
+  S02_12["S02.12 · Cameras router /api/cam + pages"]:::verified
+  S02_13["S02.13 · Legacy dashboard router (template.js)"]:::partial
+  S02_14["S02.14 · GET / → 302 /dashboard-v4/"]:::verified
+  S02_15["S02.15 · Static mounts (8)"]:::verified
+  S02_15_06["S02.15.06 · /dashboard → public/dashboard (DIR MISSING)"]:::orphaned
+  S02_16["S02.16 · events-v2 createRouter (never mounted)"]:::orphaned
+end
+
+%% ---------------------------------------------------------------- S03 frontends
+subgraph S03["S03 · Frontend surfaces (same origin)"]
+  direction TB
+  S03_01["S03.01 · dashboard-v4 React SPA (CANONICAL)"]:::verified
+  S03_01_04["S03.01.04 · v4 Inventory pages (picklist, estoque, config, inventory, produto-setup, pp)"]:::verified
+  S03_01_06["S03.01.06 · v4 Admin group (admin, operadores, usuarios, sistema, config)"]:::verified
+  S03_02["S03.02 · Operator kiosk /op (PWA)"]:::verified
+  S03_02_04["S03.02.04 · /op .legacy set (unlinked)"]:::orphaned
+  S03_03["S03.03 · Admin SPA /admin (src/admin)"]:::verified
+  S03_04["S03.04 · Print kiosk /print (.28 browser half)"]:::verified
+  S03_05["S03.05 · Legacy server-rendered pages (7 alive / 3 shadowed)"]:::partial
+  S03_06["S03.06 · public/dashboard SPA (MISSING)"]:::orphaned
+  S03_07["S03.07 · /foto photo upload"]:::verified
+  S03_08["S03.08 · Cameras pages /cameras, /pip, /tag"]:::verified
+  S03_09["S03.09 · Shared design system src/shared"]:::verified
+  S03_10["S03.10 · admin-v3 shadow HTML pages"]:::verified
+end
+
+%% ---------------------------------------------------------------- S04 workers
+subgraph S04["S04 · Background processes on Railway (24 + 7 legacy crons)"]
+  direction TB
+  S04_01["S04.01 · Worker watchdog (10 min)"]:::verified
+  S04_02["S04.02 · Observer LLM (5s, shadow)"]:::verified
+  S04_ATT["S04.15/17/18/04 · Attendance-sync · Absence-alert · Encap-monitor · Forgotten-DM"]:::verified
+  S04_PROD["S04.16/07/25 · Production-total · EMS-activity-sync · Note-analyzer"]:::verified
+  S04_STOCK["S04.08/09/12/13 · Veeqo-order-sync · Stock-alerts · Stock-gap · Unusual-SKU (opt-in)"]:::verified
+  S04_ORD["S04.10/11/14 · Mergeable · Print-divergence · Dup-shipment (opt-in)"]:::verified
+  S04_HK["S04.05/06/19/20/22/21 · action_log cleanup · Sandbox cleanup · Matview refresh · Session cleanup · Pending-cmds · Dedupe"]:::verified
+  S04_03["S04.03 · Proactive alerts (opt-in, silent-gated)"]:::verified
+  S04_23["S04.23 · Data-incident → Slack callback"]:::verified
+  S04_28["S04.28 · Legacy V2 crons (7, node-cron, V2_DISABLED)"]:::verified
+  S04_29["S04.29 · process-registry.js (declared registry)"]:::partial
+  S04_30["S04.30 · alert-gate.js (kill-switch)"]:::verified
+  S04_31["S04.31 · CAROLINA_SILENT_MODE (default ON)"]:::verified
+end
+
+%% ---------------------------------------------------------------- S05 services
+subgraph S05["S05 · V3 services (write gates)"]
+  direction TB
+  S05_01["S05.01 · EventService (v3.events gate)"]:::verified
+  S05_02["S05.02 · BatchService"]:::verified
+  S05_03["S05.03 · ProductionCountService"]:::verified
+  S05_04["S05.04 · GoalService"]:::verified
+  S05_08["S05.08 · StockService (stock gate)"]:::verified
+  S05_09["S05.09 · SupplyService (consumeForSize unused)"]:::partial
+  S05_MISC["S05.10-12 · Catalog · Deadline · Sender"]:::verified
+  S05_13["S05.13 · stock-gap-service"]:::verified
+  S05_14["S05.14 · tiktok-source (CSV)"]:::verified
+  S05_15["S05.15 · ems-api client"]:::verified
+  S05_16["S05.16 · veeqo-api client"]:::verified
+  S05_17["S05.17 · ngteco client"]:::verified
+end
+
+%% ---------------------------------------------------------------- S06 llm
+subgraph S06["S06 · Carolina V3 (LLM + V3 Slack egress)"]
+  direction TB
+  S06_01["S06.01 · LLMProvider → QuotaChain (Gemini)"]:::verified
+  S06_02["S06.02 · GeminiProvider (×3 instantiations)"]:::verified
+  S06_04["S06.04 · OpenRouterProvider (if key)"]:::partial
+  S06_05["S06.05 · AnthropicProvider (rollback)"]:::partial
+  S06_06["S06.06 · OpenAIProvider stub"]:::orphaned
+  S06_09["S06.09 · FallbackProvider"]:::orphaned
+  S06_11["S06.11 · prompt-builder + S06.12 pre-filter"]:::verified
+  S06_13["S06.13 · CommandHandler (@Carolina)"]:::verified
+  S06_14["S06.14 · PersonResolver"]:::verified
+  S06_15["S06.15 · NotificationHandler"]:::verified
+  S06_17["S06.17 · V3 Slack sender.js"]:::verified
+end
+
+%% ---------------------------------------------------------------- S07 legacy
+subgraph S07["S07 · Legacy V2 layer — Carolina V2 (LIVE, crons gated)"]
+  direction TB
+  S07_01["S07.01 · src/slack/* (poller, events, interactive, home, dm, admin-chat)"]:::verified
+  S07_02["S07.02 · parser/"]:::verified
+  S07_03["S07.03 · dispatcher/ (canonical-dispatcher)"]:::verified
+  S07_04["S07.04 · workflow/ (ISA-88 engine, seed, migrate-legacy)"]:::verified
+  S07_05["S07.05 · ai/ (admin-tools, detect, persona, note-classifier…)"]:::verified
+  S07_06["S07.06 · scheduler.js (node-cron)"]:::verified
+  S07_07["S07.07 · root legacy modules (app-state, eod, tasks, orders, screenshot…)"]:::verified
+  S07_08["S07.08 · src/db legacy pool + migrate() (27 public.* tables)"]:::verified
+  S07_09["S07.09 · carolina_master_doc.md (V2 spec)"]:::partial
+end
+
+%% ---------------------------------------------------------------- S08 data
+subgraph S08["S08 · Postgres (Railway)"]
+  direction TB
+  S08_01["S08.01 · v3 schema"]:::verified
+  S08_02["S08.02 · v3 migrations 001–070 (no runner in src)"]:::partial
+  S08_03["S08.03 · v3 pool (search_path v3,public)"]:::verified
+  S08_04["S08.04 · legacy pool"]:::verified
+  S08_05["S08.05 · v3 tables by domain (persons/events/batches/counts/stock/orders/print/admin/ai/slack/ems/roadmap)"]:::verified
+  S08_06["S08.06 · Tables WITHOUT migration (att_punch, att_state, data_incidents, print_*)"]:::partial
+  S08_07["S08.07 · Legacy public.* tables (27)"]:::verified
+  S08_08["S08.08 · events_enriched matview"]:::verified
+  S08_ORPH["S08.05.08a/09a/03b · ORPHANED tables: admin_chats · carolina_* ×6 (017) · raw_material_coas (no writer in src)"]:::orphaned
+end
+
+%% ---------------------------------------------------------------- S09 glue
+subgraph S09["S09 · Cross-cutting shared modules"]
+  direction TB
+  S09_01["S09.01 · presence.js"]:::verified
+  S09_03["S09.03 · workday.js"]:::verified
+  S09_05["S09.05 · ems-confirm.js"]:::verified
+  S09_06["S09.06 · print-stream.js (SSE hub)"]:::verified
+  S09_07["S09.07 · production-total-followup.js"]:::verified
+  S09_08["S09.08 · station-operator.js"]:::verified
+  S09_11["S09.11 · utils/audit.js + idempotency.js (empty stubs)"]:::orphaned
+end
+
+%% ---------------------------------------------------------------- S10 external
+subgraph S10["S10 · External systems"]
+  direction TB
+  S10_01["S10.01 · Slack workspace (production C09UNBXFRKK · admin-orin C0B36DR5MP1 · images · DMs)"]:::external
+  S10_02["S10.02 · EMS Production API (Supabase)"]:::external
+  S10_03["S10.03 · Veeqo"]:::external
+  S10_04["S10.04 · NGTeco cloud"]:::external
+  S10_05["S10.05 · Gemini API"]:::external
+  S10_06["S10.06 · OpenRouter"]:::external
+  S10_07["S10.07 · Anthropic"]:::external
+  S10_08["S10.08 · Cameras PC via Tailscale"]:::external
+  S10_10["S10.10 · Railway platform"]:::external
+end
+
+%% ---------------------------------------------------------------- S11 satellites
+subgraph S11["S11 · Satellites (other machines / out-of-process)"]
+  direction TB
+  S11_01["S11.01 · Print PC .28 (printmon, epson_status, printlock, watchdog)"]:::satellite
+  S11_02["S11.02 · Cameras PC"]:::satellite
+  S11_03["S11.03 · Bruno PC: weekly drift check task"]:::satellite
+  S11_04["S11.04 · Bruno PC: scripts/analyst (Claude Code analyst) + Carol-speaks"]:::satellite
+  S11_05["S11.05 · Simone PC .246 (NOT IN CODE)"]:::unknown
+  S11_06["S11.06 · Ana scheduled task (README only)"]:::unknown
+  S11_07["S11.07 · LAN Intercom (separate project)"]:::unknown
+end
+
+%% ---------------------------------------------------------------- S12 auth
+subgraph S12["S12 · Auth & security model"]
+  direction TB
+  S12_01["S12.01 · ADMIN_PIN legacy (default 510510)"]:::verified
+  S12_02["S12.02 · v3.admin_users scrypt sessions"]:::verified
+  S12_03["S12.03 · v3.app_logins RBAC"]:::verified
+  S12_04["S12.04 · OPERATOR_PAGE_TOKEN + operator sessions"]:::verified
+  S12_05["S12.05 · PRINT_EVENT_TOKEN"]:::verified
+  S12_TOK["S12.06-10 · ARCHITECT · CAM HMAC · IMAGES · SNAPSHOT · Slack signing"]:::verified
+  S12_11["S12.11 · Brute-force guards ×2"]:::verified
+  S12_12["S12.12 · Unauthenticated writes (print/other, eod/run, backfill)"]:::verified
+end
+
+%% ---------------------------------------------------------------- S13 tooling
+subgraph S13["S13 · Tests, tooling, docs"]
+  direction TB
+  S13_01["S13.01 · Jest suite (206 suites)"]:::verified
+  S13_02["S13.02 · architecture-drift.test.js"]:::verified
+  S13_03["S13.03 · analysis/compute-task-targets CLI"]:::orphaned
+  S13_04["S13.04 · scripts/ (archive + live: post-drift, analyst, create-*-table)"]:::partial
+  S13_05["S13.05 · docs/ living refs + docs/architecture (this map)"]:::verified
+  S13_07["S13.07 · Obsidian vault"]:::verified
+end
+
+%% ---------------------------------------------------------------- S15 warehouse inventory (domain section)
+subgraph S15["S15 · WAREHOUSE INVENTORY — own section (admin + operator; runs order shipment; unlinked from fulfilled/FBA)"]
+  direction TB
+  S15_CORE["S15.01/02/05 · CURRENT core: stock_bins=SHELVES · stock_boxes=BOXES · stock_movements ledger · StockService write door · /api/v3/data stock endpoints"]:::verified
+  S15_UI["S15.03/04 · CURRENT UI: v4 'Estoque & Produtos' pages · /op stock panel (STOCK_UI_ENABLED)"]:::verified
+  S15_AUTO["S15.06/07/08 · CURRENT automations: veeqo-order-sync deducts on Veeqo shipped (DRY by default) · stock-alerts · stock-gap · unusual-sku · print-divergence · TikTok CSV · .28 print signal"]:::partial
+  S15_PLAN["S15.10-14 · PLANNED (decided 08-18): ONE admin section + P&P subsection (channel pages deferred) · operator page with APPROVAL QUEUE (moves free; add/remove/returns approved) · secondary 'Separadas' bucket for damaged/returns · admin/manager enters warehouse-in · product total = shelf + box · reservation per product from open Veeqo lines · deduction on Veeqo shipped only (shelf→box) · later: two-way Veeqo + reconciliation"]:::planned
+  S15_Q["Open: U-32 Veeqo↔ledger reconciliation authority · STOCK_DEDUCT_MODE value in Railway · Planejamento/Produto move out (recommended)"]:::partial
+end
+
+%% ---------------------------------------------------------------- S14 oddities
+subgraph S14["S14 · Repo oddities"]
+  direction TB
+  S14_01["S14.01 · NOW()-INTERVAL (0-byte stray)"]:::orphaned
+  S14_03["S14.03 · foto-link.txt (live token committed)"]:::verified
+  S14_05["S14.05 · Supplement catalog .ndjson/.xlsx"]:::verified
+  S14_07["S14.07 · dashboard-v4/build orphan"]:::orphaned
+end
+
+%% ================================================================ EDGES
+%% boot / hosting
+S01_01 -->|R002| S04
+S01_01 -->|R003 V2_DISABLED| S04_28
+S01_03 -->|R004 mount| S02
+S01_03 -->|R002 startWorker| S04
+S10_10 -->|R007| S01_06
+S01_05 -.->|R006 Chromium| S07_07
+
+%% ingress
+S10_01 -->|R010| S02_01
+S02_01 -->|R010| S07_01
+S10_01 -->|R011| S02_04
+S02_04 -->|R011 v3.messages| S04_02
+S02_04 -->|R012| S06_13
+S02_04 -->|R013| S06_15
+S02_04 -->|R014| S04_30
+S04_28 ==>|R016 DUP: poller also reads channel| S10_01
+S03_01 -->|R017| S02_10
+S03_01 -->|R018| S02_09
+S03_01 -->|R019| S02_12
+S02_08 -->|R020| S09_06
+S09_06 -->|R020 SSE| S02_10
+S03_02 -->|R021| S02_08
+S03_02 -.->|R022| S02_07
+S03_04 -->|R024| S02_08
+S11_01 -->|R025 PRINT_EVENT_TOKEN| S02_08
+S03_03 -->|R026| S02_09
+S03_05 -->|R027| S02_02
+S03_05 -->|R027| S02_03
+S03_07 -->|R028| S02_11
+S02_11 -->|R028| S10_01
+S03_08 -->|R029| S02_12
+S02_12 -->|R029| S10_08
+S02_14 -.->|R030 shadows /| S02_13
+S02_15 -.->|R031 shadows /admin| S02_13
+S02_15_06 -.->|R032 DISCONNECTED| S03_06
+S02_06 -->|R034 buildRepos| S02_10
+S02_05 -->|R035| S02_08
+S02_05 -->|R035| S02_09
+S02_05 -.->|R036 NOT covered| S02_10
+
+%% workers → services / external
+S04_02 -->|R040| S06_01
+S06_01 -->|R040| S06_02
+S06_02 -->|R040| S10_05
+S06_01 -.->|R106| S06_05
+S06_05 -.-> S10_07
+S06_04 -.-> S10_06
+S04_02 -->|R041| S05_01
+S04_02 -->|R041| S05_02
+S04_02 -->|R041| S05_03
+S04_02 -->|R041| S05_04
+S04_PROD -->|R043| S05_15
+S05_15 -->|R043| S10_02
+S04_STOCK -->|R046 R047| S05_16
+S04_ORD -->|R047| S05_16
+S05_16 -->|R046| S10_03
+S04_STOCK -->|R046| S05_08
+S04_STOCK -->|R048 in-process| S02_10
+S04_ATT -->|R049| S05_17
+S05_17 -->|R049| S10_04
+S04_PROD ==>|R051 R052 own Gemini| S06_02
+S04_PROD -->|R051| S05_03
+S04_ATT -->|R053| S09_01
+S04_ATT -->|R053| S09_03
+S04_ATT -->|R063| S04_30
+S04_01 -->|R055| S04_29
+S04_29 -.->|R056 AMBIGUOUS drift| S04
+S04_HK -->|R059| S08_08
+S04_HK -->|R060| S06_13
+S05_03 -->|R061| S04_23
+S04_23 -->|R061| S10_01
+S04_31 -.->|R062 gates| S04_02
+S04_31 -.->|R062| S04_03
+S04 -->|R067 egress| S06_17
+S06_17 -->|R067| S10_01
+S04_28 -->|R064 /eod-summary| S03_05
+S04_28 -->|R065| S07_05
+
+%% services ↔ data
+S05_01 -->|R070| S08_05
+S02_08 ==>|R071 raw v3.events / R075 counts / R076 stock| S08_05
+S02_09 ==>|R072 raw events+counts| S08_05
+S06_13 ==>|R073 raw events| S08_05
+S05_03 -->|R075| S08_05
+S05_08 -->|R076| S08_05
+S05_09 -.->|R077 DISCONNECTED consumeForSize| S08_05
+S05_02 -->|R079| S08_05
+S02_10 -->|R087 buildServices| S05
+S07_08 -->|R082 every boot| S08_07
+S07_04 -->|R083| S08_07
+S08_07 -.->|R084 name collision| S08_05
+S08_02 -.->|R085 no runner| S08_01
+S08_06 -.->|R086 DDL only in scripts| S08_01
+S08_03 --> S08_01
+S08_04 --> S08_07
+S11_04 -->|R088 imports repos| S02_10
+
+%% legacy internal
+S07_01 -->|R090| S07_02
+S07_02 -->|R090| S07_03
+S07_03 -->|R090| S07_04
+S07_05 -->|R091| S07_03
+S07_06 -->|R092| S07_01
+S07_06 -->|R092| S07_07
+S04_28 --> S07_06
+S07_09 -.->|R095| S13_01
+S07_05 -.->|R094| S10_07
+
+%% satellites
+S11_03 -->|R100 DM| S10_01
+S11_04 -->|R101| S10_01
+S11_02 -->|R104| S10_08
+S11_05 -.->|R103 UNKNOWN| S02_08
+S11_01 -->|R023 /op/config.js| S02_08
+S02_12 -->|R105| S09_03
+
+%% auth
+S12_01 -.-> S02_02
+S12_01 -.-> S02_06
+S12_01 -.-> S02_10
+S12_02 --> S02_09
+S12_03 --> S02_10
+S12_04 --> S02_08
+S12_05 --> S02_08
+S12_12 -.->|finding| S02_08
+
+%% tooling
+S13_02 -->|guards| S13_05
+S13_02 -.->|R111 not map| S13_05
+S13_03 -.->|R109| S14
+S14_03 -.->|R110 == IMAGES_UPLOAD_TOKEN| S12_TOK
+S03_09 --> S03_02
+S03_09 --> S03_04
+S03_09 --> S03_01
+
+%% 2nd-pass additions
+S02_12 -.->|R134 CIRCULAR require wire| S01_03
+S02_12 -->|R135 posts Slack| S06_17
+S02_10 ==>|R136 router imports WORKER stock-alerts| S04_STOCK
+S02_02 -->|R137 rescheduleJobs| S04_28
+S02_02 -->|R138| S07_01
+S02_02 -.->|R139 unauth backfill| S04_28
+S02_09 -.->|R140 DISCONNECTED: uses zero V3 services| S05
+S04_PROD ==>|R141 raw fetch slack.com bypasses sender| S10_01
+S02_09 -->|R145 postAs| S06_17
+S02_10 -->|R144 postAs| S06_17
+S03_01 -->|R128 opens /cameras/pip| S03_08
+S03_01 -->|R129 href /op/| S03_02
+S03_04 -.->|R132 needs /op/style.css| S03_02
+S01_03 -.->|R146 DI recordTotal closure| S02_08
+S01_03 -.->|R146| S02_10
+
+%% S15 wiring (domain view over existing IDs)
+S15_CORE -.->|= S08.05.05 + S05.08 + S02.10| S05_08
+S15_UI -.->|= S03.01.04 + S02.08 stock| S03_01_04
+S15_AUTO -.->|= S04.08/09/12/13/11| S04_STOCK
+S15_AUTO -.-> S04_ORD
+S15_PLAN -.->|planned auto add from batch total U-27| S05_03
+S15_PLAN -.->|deduction = Veeqo shipped mirrored via S04.08| S04_STOCK
+S15_PLAN -.->|reserve derived from pnp_order_lines| S08_05
+S15_CORE -.->|separate by design| S08_05
+
+%% duplicate surfaces (GENERATIONS)
+S03_03 ==>|R120 same API| S03_01_06
+S03_05 ==>|R121| S03_01
+S03_10 ==>|R122| S03_01_06
+S07 ==>|R123 two Carolinas| S06
+S03_02_04 ==>|R124 dead copy| S03_02
+S03_01_04 -->|R127| S05_08
+S02_08 -->|R127 STOCK_UI_ENABLED| S05_08
+
+%% ==== END GENERATED SECTION ==================================================
+%% ==== HUMAN EDITS BELOW — NEVER OVERWRITTEN BY RESCANS ======================
+%% Bruno: write your corrections here as Mermaid lines and/or directives.
+%% Directive grammar (one per line, I parse these programmatically):
+%%   %% CONNECT    <fromId> --> <toId>  [note]      e.g. %% CONNECT S03_03 --> S03_01_06 fold /admin tabs into v4
+%%   %% DISCONNECT <fromId> --> <toId>  [note]      e.g. %% DISCONNECT S02_15_06 --> S03_06 remove dead mount
+%%   %% MOVE       <id> UNDER <parentId> [note]     e.g. %% MOVE S09_09 UNDER S02_10
+%%   %% SAME       <idA> == <idB> [note]            e.g. %% SAME S03_10 == S03_01_06 same concept
+%%   %% FEEDS      <fromId> --> <toId> [note]       (data should flow)
+%%   %% WRONG      <edgeId or fromId --> toId> [why]
+%%   %% REORG      <groupId> [how]
+%%   %% NOTE       <id> [free text]
+%% You can also add/modify Mermaid nodes/edges directly below; use existing IDs.
+%% ---------------------------------------------------------------------------
+

@@ -43,6 +43,10 @@ import { OperatorsPage } from './pages/OperatorsTab.jsx';
 import { StockOverviewPage } from './pages/StockOverviewPage.jsx';
 import { InventorySettingsPage } from './pages/InventorySettingsPage.jsx';
 import { PicklistPage } from './pages/PicklistPage.jsx';
+// S15 — hub de estoque (Warehouse Inventory)
+import { WarehousePage, canRead as canReadStock } from './pages/WarehousePage.jsx';
+import { ApprovalsPage } from './pages/ApprovalsPage.jsx';
+import { LocationsPage } from './pages/LocationsPage.jsx';
 import { RoadmapPage } from './pages/RoadmapPage.jsx';
 import { SystemHealthPage } from './pages/SystemHealthPage.jsx';
 import {
@@ -432,6 +436,10 @@ function AuthedApp({ onLogout }) {
     case "impressao":     pageNode = <PrintingPage date={date}/>; break;
     case "picklist":      pageNode = <PicklistPage/>; break;
     case "roadmap":       pageNode = <RoadmapPage/>; break;
+    // S15 — hub de estoque
+    case "estoque":            pageNode = <WarehousePage/>; break;
+    case "estoque-aprovacoes": pageNode = <ApprovalsPage/>; break;
+    case "estoque-locais":     pageNode = <LocationsPage/>; break;
     case "estoque-geral": pageNode = <StockOverviewPage/>; break;
     case "config-estoque": pageNode = <InventorySettingsPage/>; break;
     case "inventory":     pageNode = <InventoryPage/>; break;
@@ -452,7 +460,18 @@ function AuthedApp({ onLogout }) {
   // Gate RBAC (Bruno 08-03): páginas de admin exigem a função; manager não entra
   // nem digitando o hash. Sem a função → bloqueio explícito.
   const ROUTE_FN = { admin: 'admin_page', operadores: 'admin_page', config: 'config_page', sistema: 'manage_system', usuarios: 'manage_users' };
-  if (ROUTE_FN[route] && !can(ROUTE_FN[route])) {
+  // S15: as 3 páginas do hub exigem view_stock OU manage_stock; login SEM lista
+  // de funções passa (fallback tolerante — ver canRead em WarehousePage).
+  const STOCK_ROUTES = { estoque: 1, 'estoque-aprovacoes': 1, 'estoque-locais': 1 };
+  if (STOCK_ROUTES[route] && !canReadStock()) {
+    pageNode = (
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>
+        <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+        <h2 style={{ margin: '0 0 6px' }}>Sem acesso ao estoque</h2>
+        <p>Essa página precisa da função view_stock. Fale com o Admin se precisar de acesso.</p>
+      </div>
+    );
+  } else if (ROUTE_FN[route] && !can(ROUTE_FN[route])) {
     pageNode = (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>
         <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>

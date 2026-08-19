@@ -1,0 +1,269 @@
+{
+  "at": "2026-08-19T00:17:38.749Z",
+  "results": [
+    {
+      "group": "screenshot",
+      "name": "estoque",
+      "pass": true,
+      "detail": "205 KB → dash-estoque.png"
+    },
+    {
+      "group": "estoque",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "tabela com 8 produtos",
+      "pass": true,
+      "detail": "linhas=8"
+    },
+    {
+      "group": "estoque",
+      "name": "KPIs batem com a fixture",
+      "pass": true,
+      "detail": "8 KPIs"
+    },
+    {
+      "group": "estoque",
+      "name": "card \"Precisa de atenção hoje\" presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "coluna Veeqo mostra ✓ e Δ",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "painel do produto abre no clique da linha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "painel mostra o produto clicado",
+      "pass": true,
+      "detail": "L-Carnitine 1500L-Carnitine 1500 mgokFec"
+    },
+    {
+      "group": "estoque",
+      "name": "painel tem as 7 abas",
+      "pass": true,
+      "detail": "abas=7"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-painel",
+      "pass": true,
+      "detail": "171 KB → dash-estoque-painel.png"
+    },
+    {
+      "group": "estoque",
+      "name": "aba Família lista base + membros kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-familia",
+      "pass": true,
+      "detail": "197 KB → dash-estoque-familia.png"
+    },
+    {
+      "group": "estoque",
+      "name": "modal de ação abre com Revisar",
+      "pass": true,
+      "detail": "Passo 1 de 2 · preencherEntrada de garrafasCollagenHF-COLL-5"
+    },
+    {
+      "group": "estoque",
+      "name": "passo 2 mostra Confirmar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-modal",
+      "pass": true,
+      "detail": "204 KB → dash-estoque-modal.png"
+    },
+    {
+      "group": "nav",
+      "name": "seção Estoque existe",
+      "pass": true,
+      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-geral,#inventory,#produto-setup,#config-estoque,#pp,#picklist"
+    },
+    {
+      "group": "nav",
+      "name": "Estoque tem o hub #estoque, aprovações e locais",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "nav",
+      "name": "subgrupo P&P dentro de Estoque",
+      "pass": true,
+      "detail": "P&P"
+    },
+    {
+      "group": "nav",
+      "name": "P&P e Picklist estão em Estoque, não em Operação",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "nav",
+      "name": "Planejamento e Produto logo depois de Metas",
+      "pass": true,
+      "detail": "#hoje,#roadmap,#producao,#metas,#planejamento,#produto,#pessoas"
+    },
+    {
+      "group": "nav",
+      "name": "Operação já não tem pp/picklist",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-aprovacoes",
+      "pass": true,
+      "detail": "130 KB → dash-estoque-aprovacoes.png"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "renderizou ([data-table=\"requests\"] tbody tr)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-locais",
+      "pass": true,
+      "detail": "159 KB → dash-estoque-locais.png"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "renderizou ([data-table=\"bins\"] tbody tr)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "picklist",
+      "pass": true,
+      "detail": "117 KB → dash-picklist.png"
+    },
+    {
+      "group": "picklist",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "renderizou (.pl-root)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "hoje",
+      "pass": true,
+      "detail": "169 KB → dash-hoje.png"
+    },
+    {
+      "group": "hoje",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "renderizou (.app)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "inventory",
+      "pass": true,
+      "detail": "126 KB → dash-inventory.png"
+    },
+    {
+      "group": "inventory",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "renderizou (.app)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "produto-setup",
+      "pass": true,
+      "detail": "125 KB → dash-produto-setup.png"
+    },
+    {
+      "group": "produto-setup",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "renderizou (.app)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "roadmap",
+      "pass": true,
+      "detail": "93 KB → dash-roadmap.png"
+    },
+    {
+      "group": "roadmap",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "renderizou (.app)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "lista 3 propostas pendentes",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "tabelas de prateleiras (8) e caixas (4)",
+      "pass": true,
+      "detail": "8 bins / 4 caixas"
+    }
+  ]
+}
