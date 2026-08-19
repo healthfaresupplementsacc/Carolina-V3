@@ -1,0 +1,12 @@
+{
+  "_nota": "Fixture de GET /api/v3/review/calendar?month=YYYY-MM. O harness troca __M__ pelo mês corrente de NY. Só os dias COM revisão aparecem: é o que vira ponto verde na grade.",
+  "data": {
+    "month": "__M__",
+    "days": [
+      { "date": "__M__-03", "revisions": 2, "bottles": 610 },
+      { "date": "__M__-05", "revisions": 1, "bottles": 240 },
+      { "date": "__M__-12", "revisions": 4, "bottles": 1280 },
+      { "date": "__M__-13", "revisions": 3, "bottles": 890 }
+    ]
+  }
+}

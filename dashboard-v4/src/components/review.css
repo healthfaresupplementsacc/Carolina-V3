@@ -1,0 +1,159 @@
+/* review.css — painel de Revisão do dia (Bruno 08-19).
+   Só TOKEN, nunca cor literal: o dashboard tem tema claro e escuro e o harness
+   de tema reprova hex escrito à mão. Fundo, linha e tinta saem todos de kit.css.
+
+   O layout é de duas colunas fixas: o dia à esquerda (rola junto com o painel) e
+   a fila da encapsuladora à direita, com rolagem PRÓPRIA — o Bruno pediu pra
+   varrer a fila inteira sem perder de vista a tabela do dia. */
+
+.rev-panel { display:flex; flex-direction:column; gap:12px; font-family:var(--font); }
+
+/* ── cabeçalho ───────────────────────────────────────────────── */
+.rev-head { display:flex; align-items:flex-start; gap:12px; }
+.rev-head-main { flex:1; min-width:0; }
+.rev-title {
+  font-family:var(--font-display); font-weight:400; font-size:21px; line-height:1.15;
+  color:var(--primary-deep); margin:2px 0 0;
+}
+.rev-title i { color:var(--green-d); font-style:italic; }
+
+.rev-cal-wrap { position:relative; flex:none; }
+/* .kit-btn.sm tem 30px e é o alvo principal do painel: sobe pra 34 (dois
+   seletores pra vencer a especificidade do .kit-btn.sm sem !important). */
+.rev-cal-btn.kit-btn { height:34px; padding:0 12px; }
+.rev-side .rev-filter.kit-btn { height:32px; }
+.mini-cal-head .kit-btn.xs, .mini-cal-foot .kit-btn.xs { height:32px; }
+.rev-cal-pop {
+  position:absolute; right:0; top:calc(100% + 6px); z-index:12;
+  background:var(--kit-surface); border:1px solid var(--line);
+  border-radius:var(--r-lg, 12px); box-shadow:var(--shadow-pop, 0 12px 32px rgba(0,0,0,.18));
+  padding:10px;
+}
+
+.rev-tabs { align-self:flex-start; }
+
+/* ── corpo: dia + barra lateral ──────────────────────────────── */
+.rev-body { display:flex; gap:14px; align-items:stretch; min-height:340px; }
+.rev-main { flex:1; min-width:0; }
+.rev-side {
+  flex:none; width:300px; display:flex; flex-direction:column;
+  border-left:1px solid var(--line); padding-left:13px;
+}
+
+/* ── totais do dia ───────────────────────────────────────────── */
+.rev-totals {
+  display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end;
+  padding-bottom:11px; margin-bottom:6px; border-bottom:1px dotted var(--dotline);
+}
+.rev-stat-v {
+  font-family:var(--font-display); font-size:23px; line-height:1.05; margin-top:3px;
+  color:var(--primary-deep); font-variant-numeric:tabular-nums;
+}
+.rev-stat-v.strong { color:var(--green-d); }
+.rev-ok-inline { display:inline-flex; align-items:center; gap:5px; color:var(--ok-deep); }
+
+/* ── grupo por produto ───────────────────────────────────────── */
+.rev-group { margin-top:14px; }
+.rev-group-head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin-bottom:2px; }
+.rev-group-name { font-size:14.5px; font-weight:600; color:var(--ink); }
+.rev-group-sub { font-size:12px; color:var(--ink-faint); font-family:var(--font-mono); }
+.rev-group-sub b { color:var(--ink-dim); }
+
+.rev-table { margin-top:2px; }
+.rev-table tbody td { padding:7px 9px; }
+.rev-who { font-weight:600; }
+.rev-batch { color:var(--ink-faint); font-size:12px; }
+
+/* etiqueta de estimativa: a garrafa veio do alvo do lote, não da contagem */
+.rev-tag {
+  display:inline-block; margin-left:5px; padding:1px 5px; border-radius:var(--r-pill, 999px);
+  font:500 9.5px var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+  background:var(--warn-bg); color:var(--warn-deep); box-shadow:inset 0 0 0 1px var(--warn-line);
+  vertical-align:middle;
+}
+
+.rev-ok { display:inline-flex; align-items:center; justify-content:center; color:var(--ok-deep); }
+.rev-chip-ico { gap:4px; }
+
+.rev-note { margin-top:14px; line-height:1.7; text-transform:none; letter-spacing:.02em; font-size:10.5px; }
+
+/* ── vazio / erro ────────────────────────────────────────────── */
+.rev-empty {
+  display:flex; flex-direction:column; gap:4px; padding:26px 4px;
+  font-size:13px; color:var(--ink-faint);
+}
+.rev-empty b { font-size:14px; color:var(--ink-dim); font-weight:600; }
+.rev-empty.sm { padding:16px 2px; font-size:12.5px; }
+.rev-err { padding:14px 2px; font-size:12.5px; color:var(--bad-deep); }
+
+/* ── barra lateral ───────────────────────────────────────────── */
+.rev-side-head { display:flex; flex-direction:column; gap:7px; padding-bottom:9px; border-bottom:1px dotted var(--dotline); }
+.rev-side-counts { display:flex; flex-wrap:wrap; gap:5px; }
+.rev-filter { align-self:flex-start; }
+.rev-ems-off {
+  font:500 11px var(--font-mono); line-height:1.5; padding:6px 8px; border-radius:var(--r-sm, 8px);
+  background:var(--warn-bg); color:var(--warn-deep); box-shadow:inset 0 0 0 1px var(--warn-line);
+}
+
+.rev-side-list { flex:1; overflow-y:auto; max-height:min(52vh, 460px); padding-right:3px; margin-top:2px; }
+
+.rev-wait { padding:9px 2px; border-bottom:1px dotted var(--dotline); display:flex; flex-direction:column; gap:5px; }
+.rev-wait:last-child { border-bottom:none; }
+.rev-wait[role="button"] { cursor:pointer; border-radius:var(--r-sm, 8px); padding-left:6px; padding-right:6px; }
+.rev-wait[role="button"]:hover { background:var(--primary-row, var(--primary-soft)); }
+.rev-wait[role="button"]:focus-visible { outline:none; box-shadow:var(--focus-ring, 0 0 0 2px var(--primary-line)); }
+.rev-wait-top { display:flex; align-items:baseline; gap:7px; }
+.rev-wait-name { font-size:13.5px; font-weight:600; color:var(--ink); flex:1; min-width:0; }
+.rev-wait-batch { font-size:11px; color:var(--ink-faint); }
+.rev-wait-mid { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.rev-wait-qty { font:500 11.5px var(--font-mono); color:var(--ink-dim); }
+.rev-wait-foot { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.rev-days { font:500 11px var(--font-mono); color:var(--ink-faint); }
+.rev-days.late { color:var(--bad-deep); }
+
+/* ── mini calendário (usado aqui, mas o componente é genérico) ── */
+.mini-cal { width:236px; font-family:var(--font); }
+.mini-cal-head { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:8px; }
+.mini-cal-head .kit-btn.xs { padding:0 9px; }
+.mini-cal-title { font-size:13px; font-weight:600; color:var(--primary-deep); text-transform:capitalize; }
+.mini-cal-title .mono { color:var(--ink-faint); font-weight:500; }
+
+.mini-cal-wd { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; margin-bottom:3px; }
+.mini-cal-wd span {
+  text-align:center; font:500 9.5px var(--font-mono); letter-spacing:.08em;
+  color:var(--ink-faint); text-transform:uppercase;
+}
+
+.mini-cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+.mini-cal-grid.loading { opacity:.55; }
+
+.mini-cal-day {
+  position:relative; height:30px; border:none; cursor:pointer; border-radius:var(--r-sm, 8px);
+  background:transparent; color:var(--ink); font:500 12.5px var(--font-mono);
+  display:flex; align-items:center; justify-content:center;
+  transition:background var(--t-fast, .12s);
+}
+.mini-cal-day:hover { background:var(--primary-soft); }
+.mini-cal-day.out { color:var(--ink-faint); opacity:.5; }
+.mini-cal-day.today { box-shadow:inset 0 0 0 1px var(--primary-line); }
+.mini-cal-day.sel { background:var(--primary-deep); color:#fff; font-weight:600; }
+.mini-cal-day.sel .mini-cal-dot { background:#fff; }
+.mini-cal-day:focus-visible { outline:none; box-shadow:var(--focus-ring, 0 0 0 2px var(--primary-line)); }
+
+.mini-cal-dot {
+  position:absolute; bottom:4px; left:50%; transform:translateX(-50%);
+  width:4px; height:4px; border-radius:50%; background:var(--green-d);
+}
+
+.mini-cal-foot {
+  display:flex; align-items:center; gap:8px; margin-top:9px; padding-top:8px;
+  border-top:1px dotted var(--dotline);
+}
+.mini-cal-foot .kit-mlabel { font-size:9px; letter-spacing:.06em; line-height:1.3; }
+
+/* ── estreito: a barra lateral vira uma faixa embaixo ─────────── */
+@media (max-width: 900px) {
+  .rev-body { flex-direction:column; }
+  .rev-side { width:auto; border-left:none; padding-left:0; border-top:1px solid var(--line); padding-top:11px; }
+  .rev-side-list { max-height:260px; }
+}

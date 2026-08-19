@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T17:24:50.453Z",
+  "at": "2026-08-19T18:12:26.363Z",
   "results": [
     {
       "group": "grade",
@@ -317,7 +317,7 @@
       "group": "screenshot",
       "name": "08-sem-conta",
       "pass": true,
-      "detail": "192 KB → hoje-08-sem-conta.png"
+      "detail": "193 KB → hoje-08-sem-conta.png"
     },
     {
       "group": "conta",
@@ -330,6 +330,252 @@
       "name": "e o ajuste que estava pendente SOBE pra conta na carga seguinte",
       "pass": true,
       "detail": "[6,1]"
+    },
+    {
+      "group": "revisao",
+      "name": "clicar no valor do card Revisão abre o painel",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "o painel abre largo o bastante pra dia + fila (>=800px)",
+      "pass": true,
+      "detail": "880px"
+    },
+    {
+      "group": "revisao",
+      "name": "a aba Dia é a que abre por padrão",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "o painel já pediu o dia de hoje",
+      "pass": true,
+      "detail": "[\"/api/v3/review/day?date=2026-08-19\",\"/api/v3/review/calendar?month=2026-08\",\"/api/v3/review/waiting\"]"
+    },
+    {
+      "group": "revisao",
+      "name": "e pediu a fila de espera do EMS",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "tem botão de calendário no cabeçalho",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "o botão do calendário é clicável de verdade (>=32px de altura)",
+      "pass": true,
+      "detail": "34px"
+    },
+    {
+      "group": "revisao",
+      "name": "o botão abre o mini calendário",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "o calendário tem as iniciais dos dias em PT-BR",
+      "pass": true,
+      "detail": "DSTQQSS"
+    },
+    {
+      "group": "revisao",
+      "name": "a grade do mês está completa (6 semanas)",
+      "pass": true,
+      "detail": "42"
+    },
+    {
+      "group": "revisao",
+      "name": "os dias com revisão vêm marcados com ponto",
+      "pass": true,
+      "detail": "2026-08-03, 2026-08-05, 2026-08-12, 2026-08-13"
+    },
+    {
+      "group": "revisao",
+      "name": "tem prev/next de mês e o atalho Hoje",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "os botões do calendário também passam dos 32px",
+      "pass": true,
+      "detail": "32,32,32"
+    },
+    {
+      "group": "screenshot",
+      "name": "10-revisao-calendario",
+      "pass": true,
+      "detail": "197 KB → hoje-10-revisao-calendario.png"
+    },
+    {
+      "group": "revisao",
+      "name": "seta do teclado anda um dia pra trás e recarrega",
+      "pass": true,
+      "detail": "[\"?date=2026-08-18\"]"
+    },
+    {
+      "group": "revisao",
+      "name": "escolher um dia dispara o GET /review/day com a data certa",
+      "pass": true,
+      "detail": "[\"/api/v3/review/day?date=2026-08-12\"]"
+    },
+    {
+      "group": "revisao",
+      "name": "o calendário fecha depois de escolher",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "o título mostra a data por extenso em PT-BR",
+      "pass": true,
+      "detail": "Revisão de quarta-feira, 12 de agosto de 2026"
+    },
+    {
+      "group": "revisao",
+      "name": "a linha de totais traz revisões, garrafas, tempo, produtos e na linha",
+      "pass": true,
+      "detail": "Revisões4 | Garrafas1.280 | Tempo7h25 | Produtos3 | Já na linha 2"
+    },
+    {
+      "group": "revisao",
+      "name": "Bruno e Simone no MESMO Charcoal viram um grupo só",
+      "pass": true,
+      "detail": "Bruno Santos + Simone Amabile"
+    },
+    {
+      "group": "revisao",
+      "name": "o grupo do Charcoal soma as garrafas das duas (420+360=780) e o tempo",
+      "pass": true,
+      "detail": "780 garrafas · 5h20 · Bruno Santos, Simone Amabile"
+    },
+    {
+      "group": "revisao",
+      "name": "quem já rodou na linha ganha o ✓ verde",
+      "pass": true,
+      "detail": "2 checks"
+    },
+    {
+      "group": "revisao",
+      "name": "quem NÃO rodou na linha mostra \"ainda não\"",
+      "pass": true,
+      "detail": "Vitor SilvaBR-2026-0231500lote1h3010.8ainda não"
+    },
+    {
+      "group": "revisao",
+      "name": "garrafa estimada do alvo do lote vem etiquetada como \"lote\"",
+      "pass": true,
+      "detail": "Vitor SilvaBR-2026-0231500lote1h3010.8ainda não"
+    },
+    {
+      "group": "revisao",
+      "name": "revisão sem lote ainda aparece na lista",
+      "pass": true,
+      "detail": "Charcoal | NAC | (sem lote)"
+    },
+    {
+      "group": "revisao",
+      "name": "revisão sem quantidade diz \"sem quantidade\", não \"0 garrafas\"",
+      "pass": true,
+      "detail": "sem quantidade · 35min · Ana Kesya"
+    },
+    {
+      "group": "screenshot",
+      "name": "09-revisao-dia",
+      "pass": true,
+      "detail": "208 KB → hoje-09-revisao-dia.png"
+    },
+    {
+      "group": "revisao",
+      "name": "a barra lateral existe e tem largura própria (~300px)",
+      "pass": true,
+      "detail": "300px"
+    },
+    {
+      "group": "revisao",
+      "name": "a lista da lateral rola sozinha",
+      "pass": true,
+      "detail": "auto"
+    },
+    {
+      "group": "revisao",
+      "name": "os contadores da lateral batem com o backend (2 sem revisão · 2 esperando · 1 na linha)",
+      "pass": true,
+      "detail": "2 sem revisão | 2 esperando a linha |  1 na linha"
+    },
+    {
+      "group": "revisao",
+      "name": "a fila lista os 5 lotes que saíram da encapsuladora",
+      "pass": true,
+      "detail": "5 itens"
+    },
+    {
+      "group": "revisao",
+      "name": "item sem revisão traz o estágio do EMS em português e o \"encapsulado há N dias\"",
+      "pass": true,
+      "detail": "AshwaBR-2026-0255cápsulas prontas588 garrafasencapsulado há 9 diassem revisão"
+    },
+    {
+      "group": "revisao",
+      "name": "item já revisado diz quem revisou e quando",
+      "pass": true,
+      "detail": "NACBR-2026-0231pronto pra linha500 garrafasencapsulado há 5 diasrevisado por Vitor Silva em 12/08"
+    },
+    {
+      "group": "screenshot",
+      "name": "11-revisao-espera",
+      "pass": true,
+      "detail": "208 KB → hoje-11-revisao-espera.png"
+    },
+    {
+      "group": "revisao",
+      "name": "o filtro \"só sem revisão\" deixa só os 2 lotes sem revisão",
+      "pass": true,
+      "detail": "2 itens"
+    },
+    {
+      "group": "revisao",
+      "name": "desligar o filtro traz a fila inteira de volta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "revisao",
+      "name": "dia sem revisão mostra o vazio explicando o que fazer",
+      "pass": true,
+      "detail": "Nenhuma revisão nesse dia07/08 não tem revisão registrada. Escolha outro dia no calendário"
+    },
+    {
+      "group": "revisao",
+      "name": "a aba Taxas ainda tem Hoje/7d/30d/Custom",
+      "pass": true,
+      "detail": "Hoje 7d 30d Custom"
+    },
+    {
+      "group": "revisao",
+      "name": "e a tabela antiga de cáps/seg por pessoa continua lá",
+      "pass": true,
+      "detail": "Operador | n | cáps/seg | frasco/min | seg/frasco"
+    },
+    {
+      "group": "revisao",
+      "name": "EMS fora do ar: a lateral avisa em vez de ficar vazia",
+      "pass": true,
+      "detail": "EMS fora do ar: mostrando o último estado conhecido."
+    },
+    {
+      "group": "revisao",
+      "name": "zero erro de console no painel de Revisão",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "gradiente",

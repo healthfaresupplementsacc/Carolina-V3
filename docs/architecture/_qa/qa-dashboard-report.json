@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T17:17:02.368Z",
+  "at": "2026-08-19T18:08:29.819Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "202 KB → dash-estoque.png"
+      "detail": "201 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -353,13 +353,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"30h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"33h\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"30h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"33h\"}]"
     },
     {
       "group": "estoque-locais",

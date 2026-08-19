@@ -12,6 +12,7 @@ import { Timeline } from '../components/Timeline.jsx';
 import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
+import { ReviewPanel } from '../components/ReviewPanel.jsx';
 import { WidgetGrid, compact } from '../components/WidgetGrid.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import { apiGet, usePoll } from '../adapters/from-api.js';
@@ -755,7 +756,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  </div>
                ) : null}
                <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 6 }}>
-                 {review.n || 0} revisão(ões) no dia · clique pra ver 30d, custom ou por pessoa
+                 {review.n || 0} revisão(ões) no dia · clique pra escolher o dia e ver a fila de espera
                </div>
              </>}/>
       </>);
@@ -1536,18 +1537,26 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         )}
       </FloatingPopover>
 
-      {/* FASE 3 — drill-down de taxas (Produção bottle/seg · Revisão cápsula/seg por produto) */}
+      {/* FASE 3 — drill-down de taxas (Produção bottle/seg · Revisão cápsula/seg por produto)
+
+         Bruno 08-19: a Revisão deixou de caber nos 420px. O painel novo tem
+         calendário, tabela do dia agrupada por produto e a barra lateral da
+         fila da encapsuladora — três leituras lado a lado. Por isso a MESMA
+         caixa flutuante abre larga (880) só quando o drill é 'revisao', e alta
+         o bastante pra a lateral ter rolagem própria. A Produção segue nos 420
+         de sempre: nada mudou pra ela. */}
       <FloatingPopover
         open={!!drill}
         anchor={drill?.anchor}
-        width={420}
+        width={drill?.which === 'revisao' ? 880 : 420}
         onClose={closeDrill}
         anchorSelector=".kpi-value-btn"
+        style={drill?.which === 'revisao' ? { maxHeight: 'min(88vh, 780px)' } : undefined}
         header={
           <>
             <Icon name={drill?.which === 'revisao' ? 'search' : 'factory'} size={14}/>
             <b style={{ fontSize: 13, flex: 1, fontWeight: 600 }}>
-              {drill?.which === 'revisao' ? 'Taxa de revisão · por produto' : 'Produção · taxa por lote'}
+              {drill?.which === 'revisao' ? 'Revisão · dia, calendário e fila' : 'Produção · taxa por lote'}
             </b>
             <button className="kit-btn xs" onClick={closeDrill} style={{ padding: '0 8px' }}><Icon name="x" size={11}/></button>
           </>
@@ -1637,7 +1646,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </div>
           </div>
         )}
-        {drill?.which === 'revisao' && <ReviewDetail date={date} today={review}/>}
+        {drill?.which === 'revisao' && (
+          <ReviewPanel date={date} today={review}
+                       ratesView={<ReviewDetail date={date} today={review}/>}/>
+        )}
       </FloatingPopover>
     </div>
   );

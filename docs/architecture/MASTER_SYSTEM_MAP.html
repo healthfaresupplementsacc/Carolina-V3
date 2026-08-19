@@ -626,6 +626,7 @@ subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
   S02_14["S02.14 · GET / → 302 /dashboard-v4/ (index.js:57)"]:::verified
   S02_12["S02.12 · cameras.js ×10 (/api/cam, /cameras*) — CAM PIN→HMAC"]:::verified
   S02_17["S02.17 · /api/v3/prefs ×4 (prefs/router.js) — PIN sem gate de funcao; preferencia por conta"]:::verified
+  S02_18["S02.18 · /api/v3/review ×3 (review/router.js) — day, calendar, waiting; PIN sem gate; so leitura"]:::verified
   S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
 end
 S01_02 --> MOUNT
@@ -716,6 +717,15 @@ USERPREFS[("S08.05.13 · v3.user_prefs")]:::verified
 S02_17 ==>|R196 upsert por login_id + key| USERPREFS
 V4HOJE["S03.01.20 · useAccountPref no dashboard-v4"]:::verified
 V4HOJE -->|R195 GET na carga · PUT debounce 600ms| S02_17
+
+%% S02.18 — revisao do dia (08-19). Dia e calendario saem dos NOSSOS eventos; a
+%% fila NASCE no EMS, porque lote esquecido nao tem evento nenhum aqui.
+REVEVENTS[("S08 · v3.events slug review + product_batches + production_counts")]:::verified
+EMSAPI["S10.02 · EMS /pipeline + /products"]:::verified
+EMSCACHE[("S08 · v3.ems_activity_cache")]:::verified
+S02_18 -->|R199 mesmo WORK_SEC do reviewRate| REVEVENTS
+S02_18 ==>|R198 fila nasce aqui · cache 120s| EMSAPI
+S02_18 -.->|R198 fallback quando o EMS nao responde| EMSCACHE
 
 %% auth coverage notes
 S02_05 -.->|NOT covered: /api/v3/data, /dashboard-v4, /api/cam, legacy /api, /api/admin/v3| S02_10

@@ -1,0 +1,146 @@
+{
+  "_nota": "Fixture de GET /api/v3/review/day. O harness troca __YMD__ pelo dia de NY de hoje e __PICK__ pelo dia escolhido no calendário (dia 12 do mês corrente). Duas pessoas revisando o MESMO Charcoal é o caso do Bruno: tem que virar UM grupo com subtotal.",
+  "__PICK__": {
+    "data": {
+      "date": "__PICK__",
+      "revisions": [
+        {
+          "event_id": 901,
+          "product_id": 3,
+          "product": "HealthFare Activated Charcoal 600mg",
+          "nickname": "Charcoal",
+          "batch_number": "BR-2026-0198",
+          "operator_id": 7,
+          "operator": "Bruno Santos",
+          "started_at": "__PICK__T12:05:00.000Z",
+          "ended_at": "__PICK__T15:20:00.000Z",
+          "work_sec": 10800,
+          "bottles": 420,
+          "bottles_source": "evento",
+          "capsules": 25200,
+          "capsules_per_sec": 2.33,
+          "sec_per_bottle": 25.7,
+          "on_line": true,
+          "on_line_at": "__PICK__T18:10:00.000Z",
+          "line_bottles": 415,
+          "ems_stage": "on_line"
+        },
+        {
+          "event_id": 902,
+          "product_id": 3,
+          "product": "HealthFare Activated Charcoal 600mg",
+          "nickname": "Charcoal",
+          "batch_number": "BR-2026-0198",
+          "operator_id": 5,
+          "operator": "Simone Amabile",
+          "started_at": "__PICK__T12:10:00.000Z",
+          "ended_at": "__PICK__T14:40:00.000Z",
+          "work_sec": 8400,
+          "bottles": 360,
+          "bottles_source": "evento",
+          "capsules": 21600,
+          "capsules_per_sec": 2.57,
+          "sec_per_bottle": 23.3,
+          "on_line": true,
+          "on_line_at": "__PICK__T18:10:00.000Z",
+          "line_bottles": 415,
+          "ems_stage": "on_line"
+        },
+        {
+          "event_id": 903,
+          "product_id": 1,
+          "product": "HealthFare NAC 600mg",
+          "nickname": "NAC",
+          "batch_number": "BR-2026-0231",
+          "operator_id": 4,
+          "operator": "Vitor Silva",
+          "started_at": "__PICK__T16:00:00.000Z",
+          "ended_at": "__PICK__T17:30:00.000Z",
+          "work_sec": 5400,
+          "bottles": 500,
+          "bottles_source": "lote",
+          "capsules": 30000,
+          "capsules_per_sec": 5.56,
+          "sec_per_bottle": 10.8,
+          "on_line": false,
+          "on_line_at": null,
+          "line_bottles": null,
+          "ems_stage": "ready_for_line"
+        },
+        {
+          "event_id": 904,
+          "product_id": null,
+          "product": "(sem lote)",
+          "nickname": null,
+          "batch_number": null,
+          "operator_id": 6,
+          "operator": "Ana Kesya",
+          "started_at": "__PICK__T19:00:00.000Z",
+          "ended_at": "__PICK__T19:35:00.000Z",
+          "work_sec": 2100,
+          "bottles": null,
+          "bottles_source": null,
+          "capsules": null,
+          "capsules_per_sec": null,
+          "sec_per_bottle": null,
+          "on_line": false,
+          "on_line_at": null,
+          "line_bottles": null,
+          "ems_stage": null
+        }
+      ],
+      "totals": { "revisions": 4, "bottles": 1280, "work_sec": 26700, "products": 3, "on_line": 2 },
+      "by_person": [
+        { "operator": "Bruno Santos", "n": 1, "bottles": 420, "work_sec": 10800 },
+        { "operator": "Simone Amabile", "n": 1, "bottles": 360, "work_sec": 8400 },
+        { "operator": "Vitor Silva", "n": 1, "bottles": 500, "work_sec": 5400 },
+        { "operator": "Ana Kesya", "n": 1, "bottles": 0, "work_sec": 2100 }
+      ],
+      "by_product": [
+        { "product": "Charcoal", "n": 2, "bottles": 780, "work_sec": 19200, "on_line": true },
+        { "product": "NAC", "n": 1, "bottles": 500, "work_sec": 5400, "on_line": false },
+        { "product": "(sem lote)", "n": 1, "bottles": 0, "work_sec": 2100, "on_line": false }
+      ]
+    }
+  },
+  "__YMD__": {
+    "data": {
+      "date": "__YMD__",
+      "revisions": [
+        {
+          "event_id": 910,
+          "product_id": 2,
+          "product": "HealthFare Magnesium Glycinate",
+          "nickname": "Magnesium",
+          "batch_number": "BR-2026-0240",
+          "operator_id": 5,
+          "operator": "Simone Amabile",
+          "started_at": "__YMD__T13:00:00.000Z",
+          "ended_at": "__YMD__T14:00:00.000Z",
+          "work_sec": 3600,
+          "bottles": 200,
+          "bottles_source": "evento",
+          "capsules": 12000,
+          "capsules_per_sec": 3.33,
+          "sec_per_bottle": 18,
+          "on_line": false,
+          "on_line_at": null,
+          "line_bottles": null,
+          "ems_stage": "to_count"
+        }
+      ],
+      "totals": { "revisions": 1, "bottles": 200, "work_sec": 3600, "products": 1, "on_line": 0 },
+      "by_person": [{ "operator": "Simone Amabile", "n": 1, "bottles": 200, "work_sec": 3600 }],
+      "by_product": [{ "product": "Magnesium", "n": 1, "bottles": 200, "work_sec": 3600, "on_line": false }]
+    }
+  },
+  "__EMPTY__": {
+    "data": {
+      "date": "__EMPTY__",
+      "revisions": [],
+      "totals": { "revisions": 0, "bottles": 0, "work_sec": 0, "products": 0, "on_line": 0 },
+      "by_person": [],
+      "by_product": []
+    }
+  }
+}

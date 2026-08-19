@@ -67,6 +67,71 @@ const ATTENDANCE = { data: { date: YMD, people: [
 /** POSTs que a página fez, pra conferir que o power chamou o endpoint certo. */
 const posted = [];
 
+/* ── REVISÃO POR DIA — /api/v3/review/* (Bruno 08-19) ──────────────
+   O pedido: "quando eu clico em Revisão eu quero um mini calendário onde eu
+   escolho a data; segunda o Bruno e a Simone revisaram Charcoal, quero ver
+   quantas garrafas deram conta, quanto tempo levaram e se já rodou na linha
+   (check pra quem rodou)". Mais a barra lateral com a fila da encapsuladora.
+
+   As fixtures moram em fixtures/review-*.json com marcadores de data, porque o
+   dia de NY muda todo dia e o teste não pode envelhecer:
+     __YMD__  = hoje em NY          __PICK__ = dia 12 do mês corrente
+     __M__    = mês corrente        __D1/3/5/9__ = N dias atrás
+   `PICK_DAY` é o dia que o teste CLICA na grade do calendário. */
+const MONTH = YMD.slice(0, 7);
+const PICK_DAY = MONTH + '-12';
+const EMPTY_DAY = MONTH + '-07';        // dia sem revisão nenhuma
+const daysAgo = (n) => {
+  const d = new Date(YMD + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+};
+
+const fixtureFile = (name) => JSON.parse(fs.readFileSync(path.join(QA, 'fixtures', name), 'utf8'));
+/** Troca os marcadores de data em toda a árvore (chave e valor). */
+function stamp(obj) {
+  const sub = (s) => String(s)
+    .replace(/__YMD__/g, YMD).replace(/__PICK__/g, PICK_DAY).replace(/__EMPTY__/g, EMPTY_DAY)
+    .replace(/__M__/g, MONTH).replace(/__NOW__/g, new Date().toISOString())
+    .replace(/__D1__/g, daysAgo(1)).replace(/__D3__/g, daysAgo(3))
+    .replace(/__D5__/g, daysAgo(5)).replace(/__D9__/g, daysAgo(9));
+  if (typeof obj === 'string') return sub(obj);
+  if (Array.isArray(obj)) return obj.map(stamp);
+  if (obj && typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) out[sub(k)] = stamp(v);
+    return out;
+  }
+  return obj;
+}
+
+const REVIEW_DAYS = stamp(fixtureFile('review-day.json'));
+const REVIEW_CAL = stamp(fixtureFile('review-calendar.json'));
+const REVIEW_WAIT = stamp(fixtureFile('review-waiting.json'));
+
+/** GETs que a página fez em /api/v3/review/*, pra conferir a data pedida. */
+const reviewGets = [];
+/** Liga o modo "EMS fora do ar" pra testar o aviso da barra lateral. */
+const EMS = { ok: true };
+
+function reviewFixture(pathname, search) {
+  const q = new URLSearchParams(search || '');
+  reviewGets.push({ pathname, search: search || '' });
+  if (pathname === '/api/v3/review/day') {
+    const d = q.get('date');
+    return REVIEW_DAYS[d] || REVIEW_DAYS[EMPTY_DAY];
+  }
+  if (pathname === '/api/v3/review/calendar') {
+    // mês diferente do corrente volta vazio: prova que o prev/next relê
+    return q.get('month') === MONTH ? REVIEW_CAL : { data: { month: q.get('month'), days: [] } };
+  }
+  if (pathname === '/api/v3/review/waiting') {
+    if (EMS.ok) return REVIEW_WAIT;
+    return { data: { ...REVIEW_WAIT.data, ems_ok: false } };
+  }
+  return { data: {} };
+}
+
 /* ── PREFERÊNCIAS POR CONTA — /api/v3/prefs/* (Bruno 08-19) ────────
    O servidor de mentira guarda a conta e o valor de 'hoje.layout'. Os testes
    mexem em PREFS entre navegações pra simular os três mundos:
@@ -126,6 +191,7 @@ function prefsFixture(pathname, method, body) {
 
 function apiFixture(pathname, search, method, body) {
   if (pathname.startsWith('/api/v3/prefs')) return prefsFixture(pathname, method, body);
+  if (pathname.startsWith('/api/v3/review/')) return reviewFixture(pathname, search);
   if (method === 'POST') posted.push({ pathname, body });
 
   if (pathname === '/api/v3/data/login') return { data: LOGIN };
@@ -688,6 +754,245 @@ async function main() {
   PREFS.account = { id: 1, name: 'Bruno', role: 'admin' };
   PREFS.value = null;
   prefPuts.length = 0;
+
+  // ══ 2.5 REVISÃO — dia, calendário e fila (Bruno 08-19) ════════
+  /* Cada assert aqui é uma frase do pedido do Bruno virada em pergunta:
+     dá pra escolher o dia? o Charcoal das duas pessoas aparece junto com o
+     subtotal? tem o ✓ pra quem já rodou na linha e o "ainda não" pra quem não
+     rodou? a fila da encapsuladora está do lado, rolando sozinha? */
+  await go('hoje');
+  await page.waitForSelector('[data-widget="revisao"]', { timeout: 8000 }).catch(() => {});
+  await sleep(400);
+  reviewGets.length = 0;
+
+  const openRevisao = async () => {
+    const btn = await page.$('[data-widget="revisao"] .kpi-value-btn');
+    if (!btn) return false;
+    await btn.click();
+    await page.waitForSelector('[data-review-panel]', { timeout: 6000 }).catch(() => {});
+    await sleep(500);
+    return true;
+  };
+  rec('revisao', 'clicar no valor do card Revisão abre o painel', await openRevisao());
+
+  const panelW = await page.$eval('[data-review-panel]', (e) => {
+    const box = e.closest('.float-popover');
+    return box ? Math.round(box.getBoundingClientRect().width) : 0;
+  }).catch(() => 0);
+  rec('revisao', 'o painel abre largo o bastante pra dia + fila (>=800px)', panelW >= 800, panelW + 'px');
+
+  rec('revisao', 'a aba Dia é a que abre por padrão',
+      await page.$eval('[data-review-tab="dia"]', (e) => e.classList.contains('on')).catch(() => false));
+
+  rec('revisao', 'o painel já pediu o dia de hoje',
+      reviewGets.some((g) => g.pathname === '/api/v3/review/day' && g.search.includes('date=' + YMD)),
+      JSON.stringify(reviewGets.map((g) => g.pathname + g.search).slice(0, 4)));
+  rec('revisao', 'e pediu a fila de espera do EMS',
+      reviewGets.some((g) => g.pathname === '/api/v3/review/waiting'));
+
+  rec('revisao', 'tem botão de calendário no cabeçalho', !!(await page.$('[data-review-cal-btn]')));
+  const calBtnH = await page.$eval('[data-review-cal-btn]', (e) => Math.round(e.getBoundingClientRect().height));
+  rec('revisao', 'o botão do calendário é clicável de verdade (>=32px de altura)', calBtnH >= 32, calBtnH + 'px');
+
+  /* ── o calendário ── */
+  await page.click('[data-review-cal-btn]');
+  await page.waitForSelector('[data-mini-cal]', { timeout: 4000 }).catch(() => {});
+  await sleep(400);
+  rec('revisao', 'o botão abre o mini calendário', !!(await page.$('[data-mini-cal]')));
+  const calInfo = await page.evaluate(() => {
+    const c = document.querySelector('[data-mini-cal]');
+    if (!c) return null;
+    return {
+      wd: [...c.querySelectorAll('.mini-cal-wd span')].map((s) => s.textContent),
+      days: c.querySelectorAll('[data-cal-day]').length,
+      dots: [...c.querySelectorAll('.mini-cal-day.has')].map((d) => d.dataset.calDay),
+      hasToday: !!c.querySelector('[data-cal-today]'),
+      hasNav: !!c.querySelector('[data-cal-prev]') && !!c.querySelector('[data-cal-next]'),
+    };
+  });
+  rec('revisao', 'o calendário tem as iniciais dos dias em PT-BR',
+      !!calInfo && calInfo.wd.join('') === 'DSTQQSS', calInfo ? calInfo.wd.join('') : '—');
+  rec('revisao', 'a grade do mês está completa (6 semanas)', !!calInfo && calInfo.days === 42, calInfo && calInfo.days);
+  rec('revisao', 'os dias com revisão vêm marcados com ponto',
+      !!calInfo && calInfo.dots.length === 4 && calInfo.dots.includes(PICK_DAY),
+      calInfo && calInfo.dots.join(', '));
+  rec('revisao', 'tem prev/next de mês e o atalho Hoje', !!calInfo && calInfo.hasNav && calInfo.hasToday);
+  const calBtns = await page.$$eval('[data-mini-cal] .kit-btn',
+    (els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+  rec('revisao', 'os botões do calendário também passam dos 32px',
+      calBtns.length > 0 && calBtns.every((h) => h >= 32), calBtns.join(','));
+  // o retrato do calendário ABERTO tem que sair aqui: escolher um dia fecha ele
+  await shot('10-revisao-calendario');
+
+  /* Setas do teclado andam de dia em dia: o calendário não pode ser só mouse. */
+  reviewGets.length = 0;
+  await page.focus(`[data-cal-day="${YMD}"]`);
+  await page.keyboard.press('ArrowLeft');
+  await sleep(450);
+  const prevDay = daysAgo(1);
+  rec('revisao', 'seta do teclado anda um dia pra trás e recarrega',
+      reviewGets.some((g) => g.search.includes('date=' + prevDay)),
+      JSON.stringify(reviewGets.map((g) => g.search)));
+
+  /* ── escolher o dia do Charcoal ──
+     A seta acima já escolheu um dia e por isso fechou o calendário (escolher
+     fecha, de propósito). Reabre pra clicar no dia 12 com o mouse. */
+  if (!(await page.$('[data-mini-cal]'))) {
+    await page.click('[data-review-cal-btn]');
+    await page.waitForSelector('[data-mini-cal]', { timeout: 4000 }).catch(() => {});
+    await sleep(300);
+  }
+  reviewGets.length = 0;
+  await page.click(`[data-cal-day="${PICK_DAY}"]`);
+  await sleep(600);
+  rec('revisao', 'escolher um dia dispara o GET /review/day com a data certa',
+      reviewGets.some((g) => g.pathname === '/api/v3/review/day' && g.search.includes('date=' + PICK_DAY)),
+      JSON.stringify(reviewGets.map((g) => g.pathname + g.search)));
+  rec('revisao', 'o calendário fecha depois de escolher', !(await page.$('[data-mini-cal]')));
+  rec('revisao', 'o título mostra a data por extenso em PT-BR',
+      /de\s+\w+\s+de\s+20\d\d/.test(await page.$eval('.rev-title', (e) => e.textContent)),
+      await page.$eval('.rev-title', (e) => e.textContent.trim()));
+
+  /* ── a tabela do dia ── */
+  const dayView = await page.evaluate(() => {
+    const root = document.querySelector('[data-review-day]');
+    if (!root) return null;
+    const groups = [...root.querySelectorAll('[data-review-group]')].map((g) => ({
+      name: g.dataset.reviewGroup,
+      sub: (g.querySelector('.rev-group-sub') || {}).textContent || '',
+      rows: [...g.querySelectorAll('[data-review-row]')].map((r) => ({
+        who: (r.querySelector('.rev-who') || {}).textContent || '',
+        online: (r.querySelector('[data-review-online]') || {}).dataset
+          ? r.querySelector('[data-review-online]').dataset.reviewOnline : null,
+        text: r.textContent.replace(/\s+/g, ' ').trim(),
+      })),
+    }));
+    const totals = [...root.querySelectorAll('[data-review-totals] .rev-stat')]
+      .map((s) => s.textContent.replace(/\s+/g, ' ').trim());
+    return { groups, totals, checks: root.querySelectorAll('.rev-ok svg').length };
+  });
+  rec('revisao', 'a linha de totais traz revisões, garrafas, tempo, produtos e na linha',
+      !!dayView && dayView.totals.length === 5, dayView && dayView.totals.join(' | '));
+
+  const charcoal = dayView && dayView.groups.find((g) => /Charcoal/i.test(g.name));
+  rec('revisao', 'Bruno e Simone no MESMO Charcoal viram um grupo só',
+      !!charcoal && charcoal.rows.length === 2
+      && /Bruno/.test(charcoal.rows.map((r) => r.who).join()) && /Simone/.test(charcoal.rows.map((r) => r.who).join()),
+      charcoal ? charcoal.rows.map((r) => r.who).join(' + ') : 'sem grupo Charcoal');
+  rec('revisao', 'o grupo do Charcoal soma as garrafas das duas (420+360=780) e o tempo',
+      !!charcoal && /780/.test(charcoal.sub) && /5h20|19200|5h/.test(charcoal.sub),
+      charcoal && charcoal.sub.replace(/\s+/g, ' ').trim());
+
+  rec('revisao', 'quem já rodou na linha ganha o ✓ verde',
+      !!charcoal && charcoal.rows.every((r) => r.online === '1') && dayView.checks >= 2,
+      dayView && dayView.checks + ' checks');
+  const nac = dayView && dayView.groups.find((g) => /NAC/i.test(g.name));
+  rec('revisao', 'quem NÃO rodou na linha mostra "ainda não"',
+      !!nac && nac.rows.every((r) => r.online === '0') && /ainda não/.test(nac.rows[0].text),
+      nac && nac.rows[0].text.slice(0, 90));
+  rec('revisao', 'garrafa estimada do alvo do lote vem etiquetada como "lote"',
+      !!nac && /lote/.test(nac.rows[0].text), nac && nac.rows[0].text.slice(0, 90));
+  rec('revisao', 'revisão sem lote ainda aparece na lista',
+      !!dayView && dayView.groups.some((g) => g.rows.some((r) => /Ana Kesya/.test(r.who))),
+      dayView && dayView.groups.map((g) => g.name).join(' | '));
+  /* Sem quantidade informada NÃO pode virar "0 garrafas": zero é um número, e
+     um número errado no subtotal é pior que a ausência dele. */
+  const semLote = dayView && dayView.groups.find((g) => /sem lote/i.test(g.name));
+  rec('revisao', 'revisão sem quantidade diz "sem quantidade", não "0 garrafas"',
+      !!semLote && /sem quantidade/.test(semLote.sub) && !/0 garrafas/.test(semLote.sub),
+      semLote && semLote.sub.replace(/\s+/g, ' ').trim());
+  await shot('09-revisao-dia');
+
+  /* ── a barra lateral ── */
+  const side = await page.evaluate(() => {
+    const root = document.querySelector('[data-review-waiting]');
+    if (!root) return null;
+    const list = root.querySelector('.rev-side-list');
+    return {
+      counts: {
+        pending: (root.querySelector('[data-count-pending]') || {}).textContent || '',
+        waiting: (root.querySelector('[data-count-waiting]') || {}).textContent || '',
+        online: (root.querySelector('[data-count-online]') || {}).textContent || '',
+      },
+      items: [...root.querySelectorAll('[data-review-wait-item]')]
+        .map((i) => i.textContent.replace(/\s+/g, ' ').trim()),
+      scrolls: list ? getComputedStyle(list).overflowY : '',
+      width: Math.round(root.getBoundingClientRect().width),
+      hasFilter: !!root.querySelector('[data-review-filter]'),
+    };
+  });
+  rec('revisao', 'a barra lateral existe e tem largura própria (~300px)',
+      !!side && side.width >= 280 && side.width <= 330, side && side.width + 'px');
+  rec('revisao', 'a lista da lateral rola sozinha', !!side && side.scrolls === 'auto', side && side.scrolls);
+  rec('revisao', 'os contadores da lateral batem com o backend (2 sem revisão · 2 esperando · 1 na linha)',
+      !!side && /2 sem revisão/.test(side.counts.pending) && /2 esperando a linha/.test(side.counts.waiting)
+      && /1 na linha/.test(side.counts.online),
+      side && [side.counts.pending, side.counts.waiting, side.counts.online].join(' | '));
+  rec('revisao', 'a fila lista os 5 lotes que saíram da encapsuladora',
+      !!side && side.items.length === 5, side && side.items.length + ' itens');
+  rec('revisao', 'item sem revisão traz o estágio do EMS em português e o "encapsulado há N dias"',
+      !!side && /cápsulas prontas/.test(side.items[0]) && /encapsulado há 9 dias/.test(side.items[0])
+      && /sem revisão/.test(side.items[0]), side && side.items[0].slice(0, 120));
+  rec('revisao', 'item já revisado diz quem revisou e quando',
+      !!side && side.items.some((t) => /revisado por Vitor Silva em \d\d\/\d\d/.test(t)),
+      side && (side.items.find((t) => /revisado por/.test(t)) || '').slice(0, 120));
+  await shot('11-revisao-espera');
+
+  /* ── filtro "só sem revisão" ── */
+  await page.click('[data-review-filter]');
+  await sleep(300);
+  const filtered = await page.$$eval('[data-review-wait-item]', (els) => els.map((e) => e.textContent));
+  rec('revisao', 'o filtro "só sem revisão" deixa só os 2 lotes sem revisão',
+      filtered.length === 2 && filtered.every((t) => /sem revisão/.test(t)), filtered.length + ' itens');
+  await page.click('[data-review-filter]');
+  await sleep(250);
+  rec('revisao', 'desligar o filtro traz a fila inteira de volta',
+      (await page.$$('[data-review-wait-item]')).length === 5);
+
+  /* ── dia vazio ── */
+  await page.click('[data-review-cal-btn]');
+  await sleep(300);
+  await page.click(`[data-cal-day="${EMPTY_DAY}"]`);
+  await sleep(500);
+  rec('revisao', 'dia sem revisão mostra o vazio explicando o que fazer',
+      /Nenhuma revisão nesse dia/.test(await page.$eval('[data-review-day]', (e) => e.textContent)),
+      await page.$eval('[data-review-day]', (e) => e.textContent.replace(/\s+/g, ' ').trim().slice(0, 90)));
+
+  /* ── a aba Taxas não perdeu nada ── */
+  await page.click('[data-review-tab="taxas"]');
+  await sleep(600);
+  const rates = await page.evaluate(() => {
+    const r = document.querySelector('.rev-rates');
+    if (!r) return null;
+    return {
+      seg: [...r.querySelectorAll('.kit-seg button')].map((b) => b.textContent),
+      heads: [...r.querySelectorAll('.kit-table thead th')].map((t) => t.textContent),
+    };
+  });
+  rec('revisao', 'a aba Taxas ainda tem Hoje/7d/30d/Custom',
+      !!rates && ['Hoje', '7d', '30d', 'Custom'].every((x) => rates.seg.includes(x)),
+      rates && rates.seg.join(' '));
+  rec('revisao', 'e a tabela antiga de cáps/seg por pessoa continua lá',
+      !!rates && rates.heads.some((h) => /cáps\/seg/.test(h)) && rates.heads.some((h) => /Operador/.test(h)),
+      rates && rates.heads.join(' | '));
+
+  /* ── EMS fora do ar ── */
+  await page.click('[data-review-tab="dia"]');
+  await sleep(300);
+  EMS.ok = false;
+  await page.keyboard.press('Escape');
+  await sleep(250);
+  await openRevisao();
+  rec('revisao', 'EMS fora do ar: a lateral avisa em vez de ficar vazia',
+      !!(await page.$('[data-review-ems-off]'))
+      && (await page.$$('[data-review-wait-item]')).length === 5,
+      await page.$eval('[data-review-ems-off]', (e) => e.textContent.trim()).catch(() => 'sem aviso'));
+  EMS.ok = true;
+  await page.keyboard.press('Escape');
+  await sleep(250);
+
+  rec('revisao', 'zero erro de console no painel de Revisão',
+      consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 
   // ══ 3. SEM GRADIENTE ══════════════════════════════════════════
   await go('hoje');

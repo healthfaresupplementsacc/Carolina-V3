@@ -256,6 +256,15 @@ function mount(app) {
   // salva o que é DELE; login de emergência (sem id) segue no localStorage.
   const prefsApi = require('./prefs/router');
   app.use('/', prefsApi.createPrefsRouter({ db: _pool }));
+  // REVISÃO DO DIA (Bruno 08-19) — /api/v3/review/*. O popup do widget "Revisão"
+  // da Hoje: escolher um dia no mini calendário e ver quem revisou o quê,
+  // quantas garrafas, quanto tempo, e se o lote já rodou na linha — mais a fila
+  // do que saiu da encapsuladora e ainda espera revisão. Módulo novo, só
+  // leitura; não encosta no data router. O cliente do EMS é o MESMO singleton
+  // do stock-gap-service / ems-activity-sync: uma chave, uma foto da fábrica.
+  const reviewApi = require('./review/router');
+  const { ems: reviewEms } = require('./services/ems-api');
+  app.use('/', reviewApi.createReviewRouter({ db: _pool, ems: reviewEms }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
   // buildada em public/dashboard/. Aditivo — não toca nada.
   const express = require('express');
@@ -287,7 +296,7 @@ function mount(app) {
   // Lateral total — não toca v3.events/messages/Observer/dashboard.
   app.use('/foto', express.static(path.join(process.cwd(), 'public', 'foto')));
   app.use('/', imagesApi.createImagesRouter({}));
-  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /api/v3/print-queue/* + /api/v3/prefs/* + /m + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /api/v3/print-queue/* + /api/v3/prefs/* + /api/v3/review/* + /m + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */
