@@ -173,3 +173,12 @@ Docs-only session. **No application code changed** (verified: `git status` shows
 
 ## Notable findings (recorded, not fixed)
 Dead `/dashboard` mount; 8 orphaned tables (`admin_chats`, six `carolina_*`, `raw_material_coas`); 9 tables written without migrations; no migration runner in `src/`; three PIN systems; raw writes bypassing EventService/StockService; `cameras.js` requires `wire.js` (circular); data router imports a worker; `production-total-worker` calls slack.com directly; unauthenticated `POST /api/v3/print/other`, `/api/eod/run`, `/api/backfill`; public source map on `/dashboard-v4`; `foto-link.txt` token committed. Full list with IDs in `UNCERTAINTIES.md` and `RELATIONSHIPS.md`.
+
+---
+
+# Session Report — 18 Aug 2026 (Warehouse Inventory: study → Phase 1 build → deploy)
+
+- **Study** (`docs/architecture/study/S15-WAREHOUSE-STUDY.md` + appendices A1–A3): full process, numbers, section IA, hub wireframe, 14 contradictions resolved, decisions rounds 1–2, Veeqo kits verified via API (casepacks = Kits derived from the base SKU).
+- **Phase 1 built** (commits `3ee621f` backend, `88b7719` dashboard, `9e5e44f` docs): migration 071, StockService additions, StockRequestService, `/api/v3/warehouse/*`, dashboard hub `#estoque` + Aprovações + Locais on STYLE-KIT `kit.css`, nav restructure. Tests 211/211 (2685); dashboard harness 44/44 (fixtures, offline).
+- **Production:** migration 071 applied and verified (tables/CHECKs/column present; 0 bins/boxes/movements still). `railway up` uploads registered 3 deployments that stayed INITIALIZING (Railway status: Degraded Performance; connection resets/TLS errors on upload). Old build keeps serving; additive schema is harmless to it. Background watch running until a build goes live.
+- **Not done:** Phase 2 (operator proposals from /op), retiring "(antigo)" pages, days-of-stock column, approval aging nag, roadmap card, per-manager logins. `STOCK_DEDUCT_MODE` in Railway still unknown.
