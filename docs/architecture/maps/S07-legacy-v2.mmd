@@ -1,0 +1,69 @@
+%% Drill-down S07 — Legacy V2 layer ("Carolina V2"). LIVE. V2_DISABLED=1 stops ONLY the 7 crons.
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef gated fill:#fff3e0,stroke:#ef6c00,color:#e65100
+
+subgraph BOOT["Boot steps that run EVERY boot (NOT gated by V2_DISABLED)"]
+  direction TB
+  S01_01_01["S01.01.01 · db.migrate() → 27 public.* tables (db/index.js:32-657)"]:::verified
+  S01_01_02["S01.01.02 · message-variations seed"]:::verified
+  S01_01_03["S01.01.03 · cleanupStaleBreaks + cleanupAuditLog"]:::verified
+  S01_01_04["S01.01.04 · loadCustomSupplements → parser"]:::verified
+  S01_01_05["S01.01.05 · workflow/seed"]:::verified
+  S01_01_06["S01.01.06 · workflow/migrate-legacy (SKIP_LEGACY_MIGRATION)"]:::verified
+  S01_01_08["S01.01.08 · poller.backfill if not done"]:::verified
+end
+
+subgraph SYNC["Synchronous V2 path (always live)"]
+  direction TB
+  S02_01["S02.01 · POST /slack/events (interactivity, App Home, options)"]:::verified
+  S07_01_int["S07.01 · slack/interactive.js · home.js · dm-handler.js · admin-chat.js · client.js (CAROLINA_SILENT)"]:::verified
+  S07_02["S07.02 · parser/ (regex; supplement catalog)"]:::verified
+  S07_03["S07.03 · dispatcher/canonical-dispatcher (idempotent by source_id; dispatcher_index; pending_disambiguation)"]:::verified
+  S07_04["S07.04 · workflow/engine.js (ISA-88 transitions; ≤1 open activity per operator)"]:::verified
+  S07_05["S07.05 · ai/admin-tools · persona · proposals · note-classifier (Anthropic flag) · supplement-corrector"]:::verified
+  S02_02["S02.02 · /api legacy (62)"]:::verified
+  S02_03["S02.03 · /api workflow (38)"]:::verified
+  S03_05["S03.05 · legacy dashboard pages"]:::partial
+end
+
+subgraph CRONS["S07.06 scheduler.js — gated by V2_DISABLED=1 (7 jobs)"]
+  direction TB
+  S04_28_01["polling loop → poller.poll + urgency + dm polls"]:::gated
+  S04_28_02["EOD summary + screenshot"]:::gated
+  S04_28_03["daily cleanup 03:30"]:::gated
+  S04_28_04["divergence telemetry 04:00"]:::gated
+  S04_28_05["greeting 08:00"]:::gated
+  S04_28_06["detect */30 → ai/detect"]:::gated
+  S04_28_07["activity-freshness hourly"]:::gated
+end
+
+S07_07["S07.07 · root modules: app-state (13 requirers) · message-variations · eod · urgency · tasks · orders · formulation · screenshot"]:::verified
+S07_08["S07.08 · src/db legacy pool"]:::verified
+S07_09["S07.09 · carolina_master_doc.md (spec) → smoke.e2e test"]:::partial
+S07_10["S07.10 · dm-handler pollBossDMs / pollManagerChannel (inside polling loop)"]:::partial
+S04_28_01 --> S07_10
+S08_07["S08.07 · public.* tables (messages, tasks, production_counts, pauses, operators, ISA-88 set, app_state, eod_snapshots, …)"]:::verified
+S10_01["S10.01 Slack"]:::verified
+
+S10_01 --> S02_01
+S02_01 --> S07_01_int
+S07_01_int -->|R090| S07_02
+S07_02 -->|R090| S07_03
+S07_03 -->|R090| S07_04
+S07_01_int -->|R091| S07_05
+S07_05 -->|R091| S07_03
+S07_04 -->|R083| S08_07
+S07_03 --> S08_07
+S02_02 --> S08_07
+S02_03 --> S08_07
+S03_05 --> S02_02
+BOOT --> S08_07
+S04_28_01 --> S07_01_int
+S04_28_01 ==>|R016 second reader| S10_01
+S04_28_02 --> S07_07
+S04_28_06 --> S07_05
+S07_07 --> S08_07
+S07_08 --> S08_07
+S07_09 -.-> S07_02

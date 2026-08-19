@@ -1,0 +1,117 @@
+%% Drill-down S09 (cross-cutting glue) + S12 (auth & security). Edges = who requires / who is protected by.
+flowchart LR
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+
+subgraph S09["S09 · Cross-cutting shared modules"]
+  direction TB
+  S09_01["S09.01 · presence.js (real presence, ignores ems_auto)"]:::verified
+  S09_02["S09.02 · alert-gate.js (= S04.30)"]:::verified
+  S09_03["S09.03 · workday.js (onDemandActive, nyToday)"]:::verified
+  S09_04["S09.04 · process-registry.js (= S04.29)"]:::partial
+  S09_05["S09.05 · ems-confirm.js"]:::verified
+  S09_06["S09.06 · print-stream.js (SSE hub)"]:::verified
+  S09_07["S09.07 · production-total-followup.js"]:::verified
+  S09_08["S09.08 · station-operator.js (who is at .28)"]:::verified
+  S09_09["S09.09 · attendance-markers.js"]:::verified
+  S09_10["S09.10 · utils/v3-pool.js"]:::verified
+  S09_11["S09.11 · utils/audit.js + idempotency.js (EMPTY)"]:::orphaned
+  S09_12["S09.12 · utils/time.js formatTime (legacy)"]:::verified
+  S09_13["S09.13 · shared/hf-design (= S03.09)"]:::verified
+  S09_14["S09.14 · middleware/security.js (= S02.05)"]:::verified
+end
+
+OP["S02.08 op.js"]:::verified
+DATA["S02.10 data router"]:::verified
+EV2["S02.04 events-v2"]:::verified
+WIRE["S01.03 wire.js"]:::verified
+CAM["S02.12 cameras"]:::verified
+CMD["S05.06 CommandHandler"]:::verified
+ABS["S04.17 absence"]:::verified
+ENC["S04.18 encap"]:::verified
+EMSS["S04.07 ems-sync"]:::verified
+PDW["S04.11 print-divergence"]:::verified
+SGA["S04.12 stock-gap"]:::verified
+PTW["S04.16 total-worker"]:::verified
+LEG["S07 legacy (dashboard/router, eod, dm-handler)"]:::verified
+
+OP --> S09_01
+EMSS --> S09_01
+ABS --> S09_01
+S09_05 --> S09_01
+OP --> S09_02
+EV2 --> S09_02
+WIRE --> S09_02
+ABS --> S09_02
+ENC --> S09_02
+PDW --> S09_02
+SGA --> S09_02
+CAM --> S09_03
+CMD --> S09_03
+ABS --> S09_03
+ENC --> S09_03
+WIRE --> S09_04
+DATA --> S09_04
+OP --> S09_05
+EMSS --> S09_05
+OP --> S09_06
+DATA --> S09_06
+OP --> S09_07
+PTW --> S09_07
+OP --> S09_08
+DATA --> S09_08
+DATA --> S09_09
+WIRE --> S09_10
+LEG --> S09_12
+S09_05 -->|R133| S09_01
+WIRE -.->|R151 required twice: attAlertGate + totalAlertGate| S09_02
+S12_14["S03.01.19 · public source map served on /dashboard-v4 (no auth) — finding"]:::verified
+S12_14 -.-> S12_12
+
+subgraph S12["S12 · Auth & security"]
+  direction TB
+  S12_01["S12.01 · ADMIN_PIN legacy (default 510510) — api.js, admin-v3, op.js admin, data/auth fallback"]:::verified
+  S12_02["S12.02 · v3.admin_users scrypt + admin_sessions (cookie/Bearer)"]:::verified
+  S12_03["S12.03 · v3.app_logins RBAC (roles/functions)"]:::verified
+  S12_04["S12.04 · OPERATOR_PAGE_TOKEN (public via /op/config.js) + operator sessions"]:::verified
+  S12_05["S12.05 · PRINT_EVENT_TOKEN (x-print-token)"]:::verified
+  S12_06["S12.06 · ARCHITECT_API_TOKEN"]:::verified
+  S12_07["S12.07 · CAM_VIEW_PIN → HMAC(CAM_TOKEN) 12h"]:::verified
+  S12_08["S12.08 · IMAGES_UPLOAD_TOKEN (also in foto-link.txt)"]:::verified
+  S12_09["S12.09 · V3_SNAPSHOT_TOKEN"]:::verified
+  S12_10["S12.10 · SLACK_SIGNING_SECRET"]:::verified
+  S12_11["S12.11 · brute-force guards ×2 (wire + cameras) share v3.blocked_ips"]:::verified
+  S12_12["S12.12 · UNAUTH writes: POST /api/v3/print/other · /api/eod/run · /api/backfill"]:::verified
+  S12_13["S12.13 · client-side-only PIN on legacy pages"]:::verified
+end
+
+API["S02.02 /api legacy"]:::verified
+ADMV3["S02.06 admin-v3"]:::verified
+ADMP["S02.09 adminpanel"]:::verified
+ARCH["S02.07 architect"]:::verified
+IMG["S02.11 images"]:::verified
+SLK["S02.01 + S02.04 Slack webhooks"]:::verified
+LDASH["S03.05 legacy pages"]:::partial
+
+S12_01 --> API
+S12_01 --> ADMV3
+S12_01 -.->|fallback| DATA
+S12_01 -.-> OP
+S12_02 --> ADMP
+S12_03 --> DATA
+S12_04 --> OP
+S12_05 --> OP
+S12_06 --> ARCH
+S12_04 -.->|4 endpoints| ARCH
+S12_07 --> CAM
+S12_08 --> IMG
+S12_09 --> DATA
+S12_10 --> SLK
+S12_11 --> S09_14
+S12_11 --> CAM
+S12_12 -.-> OP
+S12_12 -.-> API
+S12_13 -.-> LDASH
+S12_01 ==>|three PIN systems R126| S12_02
+S12_02 ==> S12_03

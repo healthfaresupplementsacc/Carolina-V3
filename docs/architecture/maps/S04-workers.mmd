@@ -1,0 +1,104 @@
+%% Drill-down S04 — every background process on Railway + legacy crons. Gate/interval in label.
+flowchart LR
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef optin fill:#f3e5f5,stroke:#8e24aa,color:#4a148c
+classDef inline fill:#eceff1,stroke:#546e7a,color:#263238
+
+subgraph ALWAYS["Default ON (opt-out !== 'false' or none)"]
+  direction TB
+  S04_01["S04.01 · Worker watchdog · inline 10 min (wire.js:267)"]:::inline
+  S04_02["S04.02 · Observer LLM · 5s · mode shadow (wire.js:335)"]:::verified
+  S04_06["S04.06 · sandbox-cleanup · 5s · HARD DELETE (heartbeat decoupled)"]:::verified
+  S04_07["S04.07 · ems-activity-sync · 45s"]:::verified
+  S04_15["S04.15 · attendance-sync NGTeco · 60s"]:::verified
+  S04_16["S04.16 · production-total-worker · 30s · own GeminiProvider"]:::verified
+  S04_17["S04.17 · absence-alert · 5 min (ABSENCE_ALERT_ENABLED)"]:::verified
+  S04_18["S04.18 · encap-monitor · 10 min (ENCAP_MONITOR_ENABLED)"]:::verified
+  S04_22["S04.22 · pending-commands expiry · inline 60s"]:::inline
+  S04_05["S04.05 · action_log cleanup · inline 24h (NOT in registry)"]:::inline
+  S04_19["S04.19 · matview refresh · inline 10 min (NOT in registry)"]:::inline
+  S04_20["S04.20 · session cleanup · inline 60 min (NOT in registry)"]:::inline
+  S04_23["S04.23 · data-incident → Slack callback (event-driven)"]:::inline
+  S04_24["S04.24 · brute-force hydrate (one-shot)"]:::inline
+  S04_26["S04.26 · SSE keep-alive 25s per client"]:::inline
+  S04_27["S04.27 · printer-repair confirm timeout"]:::inline
+end
+
+subgraph OPTIN["Opt-in (=== 'true')"]
+  direction TB
+  S04_03["S04.03 · proactive-alerts · 30 min · AND !silent"]:::optin
+  S04_04["S04.04 · carolina-forgotten-dm · 10 min · exempt from silent"]:::optin
+  S04_08["S04.08 · veeqo-order-sync · 5 min · STOCK_DEDUCT_MODE"]:::optin
+  S04_09["S04.09 · stock-alerts planner · 30 min"]:::optin
+  S04_10["S04.10 · veeqo-mergeable-alert · 30 min (7-12h)"]:::optin
+  S04_11["S04.11 · print-divergence-watchdog · 15 min (12pm)"]:::optin
+  S04_12["S04.12 · stock-gap-alert · 5 min"]:::optin
+  S04_13["S04.13 · unusual-sku-watch · 15 min"]:::optin
+  S04_14["S04.14 · veeqo-dup-shipment · 60 min (13-20h)"]:::optin
+  S04_21["S04.21 · dedupe-watcher · 60s (heartbeat decoupled)"]:::optin
+  S04_25["S04.25 · note-analyzer · on-demand · NOTE_LLM_ENABLED · own Gemini"]:::optin
+end
+
+subgraph V2["S04.28 · Legacy V2 crons (scheduler.js, node-cron) — skipped when V2_DISABLED=1"]
+  direction TB
+  S04_28_01["S04.28.01 · Slack polling loop (POLL_INTERVAL_MS 30s)"]:::verified
+  S04_28_02["S04.28.02 · EOD summary (eod_time 19:00) + Puppeteer image"]:::verified
+  S04_28_03["S04.28.03 · daily cleanup 03:30 (reaches scripts/)"]:::verified
+  S04_28_04["S04.28.04 · divergence telemetry 04:00"]:::verified
+  S04_28_05["S04.28.05 · morning greeting (08:00)"]:::verified
+  S04_28_06["S04.28.06 · autonomous detect */30 → ai/detect"]:::verified
+  S04_28_07["S04.28.07 · activity-freshness hourly"]:::verified
+end
+
+S04_29["S04.29 · process-registry.js (20 railway + 5 win28) — drift vs reality"]:::partial
+S04_30["S04.30 · alert-gate.js (mute via admin chat)"]:::verified
+S04_31["S04.31 · CAROLINA_SILENT_MODE default ON — gates only S04.02 alerts, S04.03, S04.21"]:::verified
+S04_32["S04.32 · Camera broker per-stream state machine (6 timers; reconnect; linger) inside cameras.js — not in registry"]:::inline
+S04_33["S04.33 · Worker first-tick kicks (staggered 20–80s after boot)"]:::inline
+S04_34["S04.34 · Streaming teardown res.on(close) ×3 · architect-audit res.on(finish)"]:::inline
+S04_33 -.-> OPTIN
+S04_33 -.-> S04_17
+S04_33 -.-> S04_18
+S04_16 ==>|R141 raw fetch slack.com, bypasses sender| S10_01
+S04_04 -.->|R142 3rd channel V3_ORDERS_CHANNEL no default| S10_01
+
+%% external + data
+S10_01["S10.01 Slack"]:::verified
+S10_02["S10.02 EMS"]:::verified
+S10_03["S10.03 Veeqo"]:::verified
+S10_04["S10.04 NGTeco"]:::verified
+S10_05["S10.05 Gemini"]:::verified
+S08_05["S08.05 v3 tables"]:::verified
+S08_06["S08.06 att_punch/att_state (no migration)"]:::partial
+S08_08["S08.08 events_enriched"]:::verified
+
+S04_01 -->|R055 watch list| S04_29
+S04_02 --> S10_05
+S04_02 --> S08_05
+S04_07 --> S10_02
+S04_07 --> S08_05
+S04_15 --> S10_04
+S04_15 --> S08_06
+S04_16 ==>|R051 bypass QuotaChain| S10_05
+S04_25 ==>|R052 bypass QuotaChain| S10_05
+S04_08 --> S10_03
+S04_09 --> S10_03
+S04_10 --> S10_03
+S04_11 --> S10_03
+S04_14 --> S10_03
+S04_12 -->|R048 in-process /stock-gaps| S08_05
+S04_19 --> S08_08
+S04_17 --> S04_30
+S04_18 --> S04_30
+S04_15 --> S04_30
+S04_11 --> S04_30
+S04_12 --> S04_30
+S04_31 -.-> S04_02
+S04_31 -.-> S04_03
+S04_31 -.-> S04_21
+S04_28_01 ==>|R016 second reader of channel| S10_01
+S04_28_02 --> S10_01
+ALWAYS --> S10_01
+OPTIN --> S10_01
+S04_23 --> S10_01

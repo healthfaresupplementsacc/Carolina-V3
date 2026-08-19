@@ -135,3 +135,16 @@ This is enforced automatically:
   the test's baseline set) in the same change.
 - A weekly scheduled task (`HealthFare drift check` → `drift-check.ps1`) re-traces the
   system and DMs Bruno any drift. See `docs/DRIFT-SETUP.md`.
+
+## Keeping the architecture MAP true (RULE #2)
+
+`docs/architecture/` holds the visual, human-editable map of the whole system:
+`MASTER_SYSTEM_MAP.mmd` (+ `.html` editor), `maps/*.mmd` drill-downs,
+`STRUCTURE_INDEX.md` (every element with a stable `Sxx.yy` ID), `UNCERTAINTIES.md`.
+
+- ANY addition or change to the system (route, worker, table, page, integration,
+  satellite process, flag, removal, reroute) MUST be reflected in the map set AND in
+  Obsidian in the same session. New elements get NEW IDs; IDs are never reused.
+- NEVER overwrite the `%% ==== HUMAN EDITS` section of `MASTER_SYSTEM_MAP.mmd`; a
+  rescan regenerates only the generated section. Read Bruno's directives there
+  (`%% CONNECT`, `%% DISCONNECT`, `%% MOVE`, `%% SAME`, `%% WRONG`) BEFORE any change.

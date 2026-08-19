@@ -1,0 +1,135 @@
+%% Drill-down S15 — WAREHOUSE INVENTORY (Bruno 2026-08-17: own section, own ADMIN + OPERATOR pages, runs order shipment,
+%% UNLINKED from fulfilled/FBA inventory). Green/amber = exists today. Dashed blue "planned" = Bruno's target, NOT built.
+%% Decisions locked with Bruno 2026-08-18 (U-27..U-31 resolved); remaining nuances: approval for internal moves, Veeqo reconciliation (U-32).
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+classDef external fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+classDef planned fill:#eef4ff,stroke:#0f4c92,color:#0f4c92,stroke-dasharray:6 4
+classDef question fill:#fff,stroke:#c62828,color:#c62828,stroke-dasharray:2 2
+
+subgraph S15_FLOW["S15.12 · THE FLOW (Bruno's model, plain words) — planned pieces dashed"]
+  direction LR
+  F1["① Batch of supplement X finishes → total bottles = a specific number"]:::verified
+  F2["② ADMIN/MANAGER enters the number of X that goes to the warehouse (operators cannot add) — DECIDED 08-18"]:::planned
+  F3["③ Admin splits: SHELVES (≈48 max, next to P&P) vs BOXES (>110, extra storage). PRODUCT TOTAL = shelf + box is the CONTROL number; shelf/box only organize physically"]:::verified
+  F4["④ Shelf empty → take from box of X → reorganize shelf (restock box→bin exists)"]:::verified
+  F5["⑤ Order arrives (sale of X) → RESERVED per PRODUCT = open Veeqo order lines (derived; available = total − reserved) — DECIDED 08-18"]:::planned
+  F6["⑥ Label printed IN VEEQO (shipped) → DEDUCT our ledger: shelf first, box second, idempotent per order line — DECIDED 08-18 (= veeqo-order-sync + pick, STOCK_DEDUCT_MODE=live)"]:::partial
+  F1 --> F2 --> F3 --> F4
+  F3 --> F5 --> F6
+end
+
+subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
+  direction TB
+  A_NOW["S15.03 CURRENT nav 'Estoque & Produtos': Ver estoque · Estoque detalhado · Product Setup · Configurações · Planejamento · Produto (P&P + Picklist are under 'Operação' today)"]:::verified
+  A_PLAN["S15.10 PLANNED ONE section 'Warehouse Inventory': Ver estoque · Estoque detalhado · Product Setup · Configurações + P&P subsection: Pick & Pack · Picklist · End Of Day Shipment · 4x6 Printer Settings (channel pages Amazon/eBay/Walmart/TikTok DEFERRED)"]:::planned
+  A_APPROVE["S15.14/S15.18 BUILT 08-18: approval queue (StockRequestService + Aprovações page); operator side Phase 2"]:::verified
+  A_HUB["S15.21 BUILT 08-18: hub #estoque (WarehousePage) + Locais + Aprovações on kit.css (STYLE-KIT light theme)"]:::verified
+  A_API["S15.17 BUILT 08-18: /api/v3/warehouse/* router + veeqo-cache + locations-repo + family-repo"]:::verified
+  A_HUB --> A_API
+  A_API --> SVC
+  A_API --> A_APPROVE
+  A_SEP["S15.15 SECONDARY inventory per product = v3.stock_issues 'Separadas' (EXISTS): damaged → separated → relabeled/restocked/discarded; PLANNED: + reason 'return'; back-to-sellable + discard need approval"]:::partial
+  A_APPROVE --> A_SEP
+  A_PLAN --> A_APPROVE
+  A_NOW ==>|move + add pages| A_PLAN
+end
+
+subgraph S15_OP["S15.04 / S15.11 · OPERATOR"]
+  direction TB
+  O_NOW["S15.04 CURRENT /op stock panel (STOCK_UI_ENABLED / allowlist): context · store · restock · damaged · count · take · recent · picklist · stock-gaps"]:::verified
+  O_PLAN["S15.11 PLANNED operator warehouse page: shelves near me · restock shelf from box · propose count/damaged (needs approval) · picklist"]:::planned
+  O_PLAN -.->|proposals| A_APPROVE
+  O_NOW ==>|seed| O_PLAN
+end
+
+subgraph S15_CORE["S15.01 / S15.02 / S15.05 · CORE (exists)"]
+  direction TB
+  T_BINS["S15.01 v3.stock_bins = SHELVES (1 product/bin, shelf_code, min_qty)"]:::verified
+  T_BOXES["S15.01 v3.stock_boxes = BOXES (numbered, pallet area, in_storage/empty)"]:::verified
+  T_LEDGER["S15.01 v3.stock_movements (append-only; idem source+source_ref; kinds + place/move via 071) · stock_thresholds"]:::verified
+  T_UNPLACED["S15.20 v3.stock_unplaced = A ORGANIZAR bucket (071, NOT APPLIED IN PROD YET)"]:::partial
+  T_REQ["S15.20 v3.stock_change_requests = approval queue (071)"]:::partial
+  SVC --> T_UNPLACED
+  A_APPROVE --> T_REQ
+  T_ISSUES["S15.15 v3.stock_issues = SEPARATED bucket per product (damaged/label/seal/other; + return PLANNED) — outside sellable total"]:::partial
+  T_SKUS["S15.01 v3.product_skus (SKU↔product) · pnp_order_lines (Veeqo mirror)"]:::verified
+  T_SUPPLY["S15.01 supplies: supply_items · package_size_supply · supply_movements · envelope_mix · packing_questions"]:::verified
+  SVC["S15.02 StockService (ONLY write door): storeIn · pick · restock · damaged · adjust · count · warehouseByProduct"]:::verified
+  API["S15.05 /api/v3/data stock/* (28) · product-setup/* · inventory-settings/* · supplies/* · picklist · stock-overview · stock-gaps · veeqo-today"]:::verified
+  RAW["op.js:324 raw INSERT into stock_movements (bypasses StockService) — R076"]:::orphaned
+  S15_09["S15.09 · GAPS vs Bruno's model: no reservation · no auto production→warehouse add · shelf-vs-box at pick not modeled · P&P/Picklist outside section · no dedicated operator page · raw INSERT"]:::partial
+end
+
+subgraph S15_AUTO["S15.06 / S15.07 / S15.08 · AUTOMATIONS & SIGNALS"]
+  direction TB
+  W_VEEQO["S15.06 veeqo-order-sync (opt-in, 5 min): mirrors lines → pnp_order_lines; deducts via pick() when order = shipped; STOCK_DEDUCT_MODE dry|live (default DRY)"]:::partial
+  W_ALERTS["S15.06 stock-alerts planner · stock-gap-alert · unusual-sku-watch · print-divergence-watchdog (opt-in)"]:::verified
+  W_TIKTOK["S15.06 tiktok-source (CSV now, API later) → pnp_order_lines"]:::verified
+  SIG_VEEQO["S15.07 signal A: Veeqo status shipped (Amazon/eBay/Walmart/site)"]:::verified
+  SIG_TIKTOK["signal B: TikTok label — LATER (Bruno 08-18: Veeqo only for now)"]:::planned
+  SIG_PRINT["S15.08 physical print event from .28 (/api/print-event → print_jobs) — NOT a stock signal (decided 08-18)"]:::verified
+  VEEQO2WAY["S15.13 PLANNED (later): ADD to Veeqo after production · REMOVE for adjustments via setStock; nightly reconciliation Veeqo vs our total → admin alert (U-32)"]:::planned
+  SUPPLY_LOOP["S15.08 SupplyService.consumeForSize (label size → envelope/box supply) — NO caller (R077)"]:::orphaned
+end
+
+subgraph S15_Q["DECIDED 08-18 (U-27..U-31) · still open"]
+  direction TB
+  Q27["U-27 DECIDED: admins/managers add quantity; shelf↔box moves immediate; add/remove/returns/count need approval"]:::partial
+  Q28["U-28 DECIDED: Veeqo shipped is the ONLY signal (TikTok later); idempotent per order line"]:::partial
+  Q29["U-29 DECIDED: reservation per PRODUCT, derived from open Veeqo lines"]:::partial
+  Q30["U-30 DECIDED: shelf first, box second; shelf + box always = product total"]:::partial
+  Q31["U-31 DECIDED: channel inventories deferred · Planejamento + Produto stay untouched, move next to Metas (Operação) · P&P + Picklist together in P&P subsection"]:::partial
+  Q32["U-32 DECIDED: nightly reconciliation ALERTS only — nothing auto-overwrites; human decides"]:::partial
+end
+
+EXT_VEEQO["S10.03 Veeqo"]:::external
+EXT_TIKTOK["TikTok Shop"]:::external
+EXT_EMS["S10.02 EMS"]:::external
+PROD["S05.03 / S08.05.04 production_counts (batch totals) — production line, flow ①"]:::verified
+FULFILLED["Fulfilled / FBA inventory (flow ①) — OUT OF SCOPE for S15 by design"]:::partial
+STATION["S11.01 Print PC .28"]:::verified
+
+%% wiring (existing)
+API --> SVC
+O_NOW --> SVC
+A_NOW --> API
+SVC --> T_BINS
+SVC --> T_BOXES
+SVC --> T_LEDGER
+SVC -->|damaged| T_ISSUES
+T_ISSUES -.->|restocked needs approval| A_APPROVE
+RAW ==> T_LEDGER
+W_VEEQO --> EXT_VEEQO
+W_VEEQO --> T_SKUS
+W_VEEQO -->|pick when shipped| SVC
+W_TIKTOK --> T_SKUS
+W_ALERTS --> EXT_VEEQO
+W_ALERTS --> EXT_EMS
+STATION --> SIG_PRINT
+SIG_VEEQO --> W_VEEQO
+EXT_TIKTOK -.-> SIG_TIKTOK
+SIG_PRINT -.->|deliberately NOT a stock signal| SVC
+VEEQO2WAY -.-> EXT_VEEQO
+Q32 -.- VEEQO2WAY
+SUPPLY_LOOP -.-> T_SUPPLY
+
+%% flow ↔ pieces
+PROD -.->|F2 admin/manager enters number| SVC
+PROD -.->|separate by design| FULFILLED
+F3 --> T_BINS
+F3 --> T_BOXES
+F4 -->|restock| SVC
+F5 -.->|derived from| T_SKUS
+F6 -->|Veeqo shipped → pick shelf→box| SVC
+A_PLAN -.-> API
+O_PLAN -.-> SVC
+
+%% questions attach
+Q27 -.- F2
+Q28 -.- F6
+Q29 -.- F5
+Q30 -.- F6
+Q31 -.- A_PLAN

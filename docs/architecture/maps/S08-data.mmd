@@ -1,0 +1,89 @@
+%% Drill-down S08 — Data layer. Two schemas, two pools, one Postgres. Writers shown for hot tables.
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+
+S08["S08 · Railway Postgres (DATABASE_URL)"]:::verified
+S08_03["S08.03 · v3 pool makeV3Pool (search_path v3,public) — not closed on SIGTERM"]:::verified
+S08_04["S08.04 · legacy pool (src/db, max 10)"]:::verified
+S08_02["S08.02 · v3 migrations 001–070 (101 .sql = 68 up + 33 down; 019 missing; no .down ≥034) — NO RUNNER IN src/"]:::partial
+
+subgraph V3T["S08.05 · v3 tables by domain"]
+  direction TB
+  S08_05_01["S08.05.01 · persons · shared_accounts(+users) · person_language_profile · sender_profiles · operator_sessions · operator_schedules · forgotten_checkouts · machine_custody"]:::verified
+  S08_05_02["S08.05.02 · events (central; UNIQUE idx_events_source_ts; non-unique idx_events_active) · activity_types · flows · operator_action_log · activity_gaps · daily_totals_log · deadlines · task_targets"]:::verified
+  S08_05_03["S08.05.03 · products · product_batches · bottle_size_tiers · product_skus (product_catalog + raw_material_coas → see RO/ORPHANED nodes)"]:::verified
+  S08_05_04["S08.05.04 · production_counts (idx only (kind, production_date)) · production_goals"]:::verified
+  S08_05_05["S08.05.05 · stock_bins · stock_boxes · stock_movements (UNIQUE idem) · stock_thresholds · stock_issues · supply_items · package_size_supply · supply_movements · envelope_mix · packing_questions"]:::verified
+  S08_05_06["S08.05.06 · pnp_order_lines"]:::verified
+  S08_05_07["S08.05.07 · print_divergence_log · camera_zones"]:::verified
+  S08_05_08["S08.05.08 · audit_log · admin_users · admin_sessions · app_functions · app_roles · role_functions · app_logins · blocked_ips · settings(heartbeats) · proposals · pending_commands · dedupe_links · notifications · op_notes"]:::verified
+  S08_05_09["S08.05.09 · llm_metrics · llm_corrections · vocabulary · prefix_resolution_log (live; carolina_* ×6 moved to ORPHANED node)"]:::verified
+  S08_05_10["S08.05.10 · messages (claim + dead-letter) · voice_recordings"]:::verified
+  S08_05_11["S08.05.11 · ems_activity_cache · ems_cleaning_log · ems_unconfirmed"]:::verified
+  S08_05_12["S08.05.12 · roadmap_areas/cards/comments/sketches"]:::verified
+  S08_08["S08.08 · events_enriched MATVIEW (refresh 10 min)"]:::verified
+end
+
+S08_06["S08.06 · WRITTEN IN PROD, NO MIGRATION: data_incidents · print_jobs · printer_status · printer_status_log · att_punch · att_state (DDL only in scripts/create-*.js) · print_progress · print_station_login_log (NO DDL anywhere)"]:::partial
+
+subgraph PUB["S08.07 · legacy public.* (27) from db/index.js migrate()"]
+  direction TB
+  P1["messages · tasks · production_counts · pauses · operators · supplements · supplement_catalog · eod_snapshots · urgency_notifications · app_state · silent_log"]:::verified
+  P2["formulation_sessions · orders_sessions · workflow_templates · phase_templates · workflow_instances · phase_instances · ad_hoc_tasks · ad_hoc_task_instances · operator_activity_log · operator_notes"]:::verified
+  P3["admin_audit_log · task_aliases · carolina_proposals · message_variations · dispatcher_index · pending_disambiguation"]:::verified
+end
+
+%% writers
+W_evsvc["S05.01 EventService"]:::verified
+W_op["S02.08 op.js"]:::verified
+W_admin["S02.09 admin.js"]:::verified
+W_cmd["S06.13 CommandHandler"]:::verified
+W_att["S04.15 attendance-sync"]:::verified
+W_ems["S04.07 ems-sync"]:::verified
+W_dedupe["S04.21 dedupe"]:::verified
+W_pcs["S05.03 ProductionCountService"]:::verified
+W_stock["S05.08 StockService"]:::verified
+W_obs["S04.02 Observer"]:::verified
+W_leg["S07 legacy (parser/dispatcher/engine/api)"]:::verified
+
+S08 --> S08_03
+S08 --> S08_04
+S08_03 --> V3T
+S08_04 --> PUB
+S08_02 -.->|no runner| V3T
+S08_06 -.->|scripts DDL| V3T
+S08_05_02 --> S08_08
+
+W_evsvc --> S08_05_02
+W_op ==>|ended_at unguarded ×3, TOCTOU ×3| S08_05_02
+W_admin ==> S08_05_02
+W_cmd ==> S08_05_02
+W_att --> S08_05_02
+W_ems --> S08_05_02
+W_dedupe --> S08_05_02
+W_obs --> S08_05_10
+W_pcs --> S08_05_04
+W_op ==>|×4| S08_05_04
+W_admin ==> S08_05_04
+W_stock --> S08_05_05
+W_op ==>|raw INSERT op.js:324| S08_05_05
+W_att --> S08_06
+W_op --> S08_06
+W_pcs --> S08_06
+W_leg --> PUB
+P1 -.->|name collision production_counts, messages| S08_05_04
+S08_ORPH["ORPHANED (no writer in src): S08.05.08a admin_chats · S08.05.09a carolina_personalities/config/channel_personality/prompt_versions/signals/learning_cycles · S08.05.03b raw_material_coas"]:::orphaned
+S08_RO["S08.05.03a product_catalog — read-only in app (scripts/import-supplement-catalog.js writes) · packing_questions UPDATE-only"]:::partial
+S08_09["S08.09 · Two pools on one DB + colliding names (public vs v3 production_counts, messages)"]:::verified
+S08_03 -.-> S08_09
+S08_04 -.-> S08_09
+V3T -.-> S08_ORPH
+V3T -.-> S08_RO
+S08_03 -.->|no pool.on error handler| S08
+S08_04 -->|pool.on error handler| S08
+W_op -->|R147 op_notes · voice_recordings · machine_custody · activity_gaps · daily_totals_log| S08_05_01
+W_admin -->|R147 task_targets · voice_recordings| S08_05_02
+DATAR["S02.10 data router"]:::verified
+DATAR -->|R147 envelope_mix · packing_questions| S08_05_05

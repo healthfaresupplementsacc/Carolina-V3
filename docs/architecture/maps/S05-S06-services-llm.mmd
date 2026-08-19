@@ -1,0 +1,121 @@
+%% Drill-down S05 (V3 services / write gates) + S06 (Carolina V3 LLM path). Shows write-gate violations (==>).
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+classDef external fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+
+subgraph S05["S05 · V3 services (src/v3/services) — all reachable"]
+  direction TB
+  S05_01["S05.01 · EventService — v3.events gate (idempotent source_ts; negative-duration guard)"]:::verified
+  S05_02["S05.02 · BatchService — product_batches, events.product_batch_id"]:::verified
+  S05_03["S05.03 · ProductionCountService — supersede-not-delete; dup → data_incidents"]:::verified
+  S05_04["S05.04 · GoalService"]:::verified
+  S05_05["S05.05 · PersonResolver (LLM for shared accounts)"]:::verified
+  S05_06["S05.06 · CommandHandler (@Carolina; pending_commands + ✅)"]:::verified
+  S05_07["S05.07 · NotificationHandler (✅/❌/📝)"]:::verified
+  S05_08["S05.08 · StockService — stock gate (movement+qty tx; idem (source,source_ref))"]:::verified
+  S05_09["S05.09 · SupplyService — consumeForSize NO caller"]:::partial
+  S05_10["S05.10 · CatalogService"]:::verified
+  S05_11["S05.11 · DeadlineService"]:::verified
+  S05_12["S05.12 · SenderService (audited postAs)"]:::verified
+  S05_13["S05.13 · stock-gap-service (compute)"]:::verified
+  S05_14["S05.14 · tiktok-source (CSV now, API later)"]:::verified
+  S05_15["S05.15 · ems-api client"]:::verified
+  S05_16["S05.16 · veeqo-api client (1 write: setStock wh 108841)"]:::verified
+  S05_17["S05.17 · ngteco client (3-step handshake)"]:::verified
+end
+
+subgraph S06["S06 · Carolina V3 LLM"]
+  direction TB
+  S06_01["S06.01 · getProductionProvider() → QuotaChainProvider (wire.js:42)"]:::verified
+  S06_03["S06.03 · QuotaChain rungs: Gemini flash → flash-lite → keys 2..5 ×2 → OpenRouter"]:::verified
+  S06_02["S06.02 · GeminiProvider (raw fetch)"]:::verified
+  S06_04["S06.04 · OpenRouterProvider (if OPENROUTER_API_KEY)"]:::partial
+  S06_05["S06.05 · AnthropicProvider (LLM_PROVIDER=anthropic only) + RateLimiter"]:::partial
+  S06_07["S06.07 · DeterministicProvider (out of chain)"]:::partial
+  S06_08["S06.08 · MockProvider (tests)"]:::verified
+  S06_06["S06.06 · OpenAIProvider stub"]:::orphaned
+  S06_09["S06.09 · FallbackProvider unreferenced"]:::orphaned
+  S06_10["S06.10 · RateLimiter (Anthropic only)"]:::partial
+  S06_11["S06.11 · prompt-builder (V3_PROMPT_CACHE_ENABLED)"]:::verified
+  S06_12["S06.12 · pre-filter (skip LLM)"]:::verified
+  S06_16["S06.16 · note-analyzer (own GeminiProvider)"]:::verified
+  S06_17["S06.17 · V3 Slack sender.js (postAs/postDm/addReaction/updateMessage)"]:::verified
+  S06_19["S06.19 · Observer (= S04.02)"]:::verified
+end
+
+S10_05["S10.05 · Gemini API"]:::external
+S10_06["S10.06 · OpenRouter"]:::external
+S10_07["S10.07 · Anthropic"]:::external
+S10_02["S10.02 · EMS"]:::external
+S10_03["S10.03 · Veeqo"]:::external
+S10_04["S10.04 · NGTeco"]:::external
+S10_01["S10.01 · Slack"]:::external
+
+%% tables
+T_events["v3.events (+ended_at)"]:::verified
+T_counts["v3.production_counts"]:::verified
+T_stock["v3.stock_movements/bins/boxes/issues"]:::verified
+T_batches["v3.product_batches"]:::verified
+T_goals["v3.production_goals"]:::verified
+T_pending["v3.pending_commands"]:::verified
+T_notif["v3.notifications"]:::verified
+T_supply["v3.supply_movements/items"]:::verified
+T_pnp["v3.pnp_order_lines"]:::verified
+T_incid["v3.data_incidents (no migration)"]:::partial
+
+%% raw writers (violations)
+OPJS["S02.08 op.js raw SQL"]:::verified
+ADMINJS["S02.09 admin.js raw SQL"]:::verified
+S04_16["S04.16 total-worker"]:::verified
+
+S06_01 --> S06_03
+S06_03 --> S06_02
+S06_03 -.-> S06_04
+S06_02 --> S10_05
+S06_04 -.-> S10_06
+S06_05 -.-> S10_07
+S06_10 -.-> S06_05
+S06_19 --> S06_12
+S06_19 --> S06_11
+S06_19 --> S06_01
+S05_05 --> S06_01
+S05_06 --> S06_01
+S06_16 ==>|own Gemini| S06_02
+S04_16 ==>|own Gemini| S06_02
+
+S06_19 --> S05_01
+S06_19 --> S05_02
+S06_19 --> S05_03
+S06_19 --> S05_04
+S05_01 --> T_events
+OPJS ==>|R071 unguarded ended_at :1662,1669,1680| T_events
+ADMINJS ==>|R072| T_events
+S05_06 ==>|R073| T_events
+S05_03 --> T_counts
+OPJS ==>|R075 ×4| T_counts
+ADMINJS ==>|R075| T_counts
+S05_03 --> T_incid
+S05_08 --> T_stock
+OPJS ==>|R076 raw INSERT op.js:324| T_stock
+S05_08 -.->|onDiscrepancy| T_incid
+S05_02 --> T_batches
+S05_04 --> T_goals
+S05_06 --> T_pending
+S05_07 --> T_notif
+S05_09 -.->|R077 no caller| T_supply
+S05_14 --> T_pnp
+S05_12 --> S06_17
+S06_17 --> S10_01
+S05_15 --> S10_02
+S05_16 --> S10_03
+S05_17 --> S10_04
+S05_13 --> S05_15
+S05_13 --> S05_16
+WIRE["S01.03 wire.js"]:::verified
+DATAR["S02.10 data router"]:::verified
+WIRE -.->|R146 DI closure recordTotal → op.js + data router| S05_03
+DATAR -.->|R146| S05_03
+S04_16 ==>|R141 direct slack.com| S10_01
+ADMINJS -.->|R140 DISCONNECTED: zero V3 services| S05

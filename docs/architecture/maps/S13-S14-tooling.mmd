@@ -1,0 +1,55 @@
+%% Drill-down S13 (tests, tooling, docs) + S14 (repo oddities) + S01 boot detail.
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+
+subgraph S01B["S01.01 · Boot sequence (src/index.js:66-181)"]
+  direction LR
+  S01_01_01["S01.01.01 db.migrate()"]:::verified --> S01_01_02["S01.01.02 message-variations seed"]:::verified --> S01_01_03["S01.01.03 cleanupStaleBreaks/AuditLog"]:::verified --> S01_01_04["S01.01.04 loadCustomSupplements"]:::verified --> S01_01_05["S01.01.05 workflow seed"]:::verified --> S01_01_06["S01.01.06 migrate-legacy (SKIP_LEGACY_MIGRATION)"]:::verified --> S01_01_07["S01.01.07 Slack check"]:::verified --> S01_01_08["S01.01.08 poller backfill?"]:::verified --> S01_01_09["S01.01.09 V2 crons unless V2_DISABLED=1"]:::verified --> S01_01_10["S01.01.10 app-state warm"]:::verified --> S01_01_11["S01.01.11 wire.startWorker()"]:::verified --> S01_01_12["S01.01.12 app.listen"]:::verified
+  S01_07["S01.07 SIGTERM/SIGINT → db.pool.end() (legacy pool only; v3 pool not closed)"]:::partial
+end
+
+subgraph S13["S13 · Tests, tooling, docs"]
+  direction TB
+  S13_01["S13.01 · Jest (206 suites / 2601 tests, 2026-08-11) — src/__tests__ + module __tests__"]:::verified
+  S13_02["S13.02 · architecture-drift.test.js (99 assertions: workers, routes, tables, writers vs ARCHITECTURE.md)"]:::verified
+  S13_03["S13.03 · src/analysis/compute-task-targets.js (manual CLI → analysis_output.json)"]:::orphaned
+  S13_04["S13.04 · scripts/ (archive) — live exceptions: post-drift-to-slack.js · analyst/ · create-*-table.js (only DDL for S08.06) · backup-prod-db.js"]:::partial
+  S13_05["S13.05 · docs/ living: ARCHITECTURE.md · system-context.md · DRIFT-SETUP.md · SESSION-REPORT.md · SECURITY.md · METRICS_GUIDE.md · OPERATOR_PAGE.md · ADMIN_* · FORGOTTEN_CHECKOUTS.md · decisions/ · design/ · architecture/ (this map set)"]:::verified
+  S13_06["S13.06 · docs/ historical: INTEGRATION_PLAN.md (superseded) · HEALTHFARE_HANDOFF_V3.md · SPRINT_2_PLANO.md · v3-sprint2-roadmap.md · PLAN-phantom-presence-fix.md · investigacao/*"]:::verified
+  S13_07["S13.07 · Obsidian vault (G:\\…\\Production Line Tracker) — RULE #2 mirror"]:::verified
+  S13_08["S13.08 · Roadmap board (#roadmap, v3.roadmap_*)"]:::verified
+  S13_01_01["S13.01.01 · jest.config.js: testMatch **/__tests__/**, ignores only node_modules; coverage excludes template.js + index.js"]:::verified
+  S13_09["S13.09 · .claude/settings.json + scheduled_tasks.lock"]:::partial
+  S01_04_01["S01.04.01 · .env.example (unreadable this session)"]:::orphaned
+  S13_10["S13.10 · Map tooling: build-map-html.js (compact render-time layout) + _qa/qa-map.js (puppeteer harness)"]:::verified
+end
+S13_10 --> MAP
+V4UTILS["S03.01.17 dashboard-v4 .cjs utils"]:::verified
+S13_01 -.->|R150| V4UTILS
+
+subgraph S14["S14 · Repo oddities"]
+  direction TB
+  S14_01["S14.01 · NOW()-INTERVAL (0-byte shell accident, git-tracked)"]:::orphaned
+  S14_02["S14.02 · analysis_output.json (gitignored artifact)"]:::verified
+  S14_03["S14.03 · foto-link.txt (live IMAGES_UPLOAD_TOKEN, NOT gitignored)"]:::verified
+  S14_04["S14.04 · carolina_master_doc.md (V2 spec)"]:::partial
+  S14_05["S14.05 · Supplement Catalog .ndjson (importer input) / .xlsx (provenance)"]:::verified
+  S14_06["S14.06 · RUN_THIS.md · deploy - Shortcut.lnk · drift-log.txt"]:::verified
+  S14_07["S14.07 · dashboard-v4/build/ orphan"]:::orphaned
+end
+
+ARCHDOC["docs/ARCHITECTURE.md"]:::verified
+MAP["docs/architecture/* (MASTER_SYSTEM_MAP, STRUCTURE_INDEX, …)"]:::verified
+DRIFT["S11.03 weekly drift task"]:::verified
+
+S13_02 -->|guards| ARCHDOC
+S13_02 -.->|R111 does NOT guard| MAP
+DRIFT --> ARCHDOC
+S13_03 --> S14_02
+S14_02 --> S13_04
+S14_04 -.->|R095| S13_01
+S14_05 --> S13_04
+S13_05 --> MAP
+S13_07 -.->|mirror| MAP

@@ -1,0 +1,117 @@
+%% Drill-down S02 — HTTP surface. IDs match STRUCTURE_INDEX.md. Mount order = Express first-match.
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+
+S01_02["S01.02 · global middleware: trust proxy 1 · cors · /slack rawBody · json 10mb (index.js:24-42)"]:::verified
+
+subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
+  direction TB
+  S02_15_01["S02.15.01 · /archive static (index.js:42) dir gitignored"]:::partial
+  S02_01["S02.01 · POST /slack/events · /slack/options (events.js:67,125) — Slack sig"]:::verified
+  S02_02["S02.02 · /api legacy (api.js) 62 routes — checkPin ADMIN_PIN"]:::verified
+  S02_03["S02.03 · /api workflow (workflow.js) 38 — GETs open, writes PIN"]:::verified
+  S02_04["S02.04 · POST /slack/events-v2 inline (wire.js:96) — Slack sig"]:::verified
+  S02_05["S02.05 · securityHeaders + bruteForce.globalGate on /op /admin /api/v3/op /api/v3/architect /api/adminpanel (wire.js:116-128)"]:::verified
+  S02_06["S02.06 · /api/admin/v3/<slug> ×8 (admin-v3/routes.js) — checkPin"]:::verified
+  S02_07["S02.07 · /api/v3/architect ×11 GET (architect.js) — Bearer tokens"]:::verified
+  S02_08["S02.08 · op.js router (48) mounted at / (wire.js:149)"]:::verified
+  S02_15_02["S02.15.02 · /shared static"]:::verified
+  S02_15_03["S02.15.03 · /op static"]:::verified
+  S02_15_04["S02.15.04 · /print static"]:::verified
+  S02_09["S02.09 · /api/adminpanel ×65 (admin.js) — admin_users sessions"]:::verified
+  S02_15_05["S02.15.05 · /admin static + SPA fallback ×7 paths"]:::verified
+  S02_10["S02.10 · /api/v3/data ×114 (data/router.js) — RBAC PIN"]:::verified
+  S02_15_06["S02.15.06 · /dashboard static → public/dashboard (MISSING)"]:::orphaned
+  S02_15_07["S02.15.07 · /dashboard-v4 static (cache policy)"]:::verified
+  S02_15_08["S02.15.08 · /foto static"]:::verified
+  S02_11["S02.11 · POST /api/images/upload — IMAGES_UPLOAD_TOKEN"]:::verified
+  S02_14["S02.14 · GET / → 302 /dashboard-v4/ (index.js:57)"]:::verified
+  S02_12["S02.12 · cameras.js ×10 (/api/cam, /cameras*) — CAM PIN→HMAC"]:::verified
+  S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
+end
+S01_02 --> MOUNT
+
+subgraph OP["S02.08 · op.js internals"]
+  direction TB
+  S02_08_01["S02.08.01 · GET /op/config.js (no auth; leaks OPERATOR_PAGE_TOKEN) op.js:89"]:::verified
+  S02_08_02["S02.08.02 · /api/v3/op/* ×35 — Bearer page token (op.js:100) + x-session-token"]:::verified
+  S02_08_03["S02.08.03 · /api/print-event · machine-state · print-watchdog · print-progress · printer-status — PRINT_EVENT_TOKEN"]:::verified
+  S02_08_04["S02.08.04 · POST /api/v3/print/other — NO AUTH (op.js:360)"]:::verified
+  S02_08_05["S02.08.05 · /api/admin/operator/:id/auto-logoff — ADMIN_PIN"]:::verified
+  S02_08_06["S02.08.06 · lib/op-auth.js (scrypt PIN, sessions 16h)"]:::verified
+end
+S02_08 --> OP
+S02_08_02 --> S02_08_06
+
+subgraph DATA["S02.10 · data/router.js internals"]
+  direction TB
+  S02_10_05["S02.10.05 · GET /snapshot (V3_SNAPSHOT_TOKEN) before PIN mw"]:::verified
+  S02_10_06["S02.10.06 · POST /login (open PIN exchange)"]:::verified
+  S02_10_01["S02.10.01 · auth.js RBAC PIN (v3.app_logins; ADMIN_PIN fallback; 10s cache)"]:::verified
+  S02_10_04["S02.10.04 · GET /print-stream SSE (PIN in query)"]:::verified
+  S02_10_HW["hand-written ×11: attendance · incidents · operator logoff/checkout · pending-totals · system-health · printers · inventory"]:::verified
+  S02_10_02["S02.10.02 · ENDPOINTS table ×101 (router.js:459-1568): timeline · counts · batches · goals · events · catalog · history · flows · stock ×28 · product-setup · inventory-settings · supplies · rbac · roadmap · send/react · sender-profiles · deadlines · veeqo-today"]:::verified
+  S02_10_03["S02.10.03 · repos: timeline · counts · batches · goals · flow-views · history · messages · metrics · health · catalog · deadlines · vocabulary · sender-profiles(WRITES) · stock · ny-date"]:::verified
+end
+S02_10 --> DATA
+S02_10_02 --> S02_10_03
+S02_10_HW --> S02_10_03
+
+subgraph LEGDASH["S02.13 · legacy dashboard routes"]
+  direction TB
+  L_root["GET / (router.js:24) — SHADOWED by S02.14"]:::orphaned
+  L_eod["GET /eod-summary (:29) — alive (Puppeteer source)"]:::verified
+  L_arch["GET /archive/:date (:64) — alive"]:::verified
+  L_admin["GET /admin (:86) — SHADOWED by S02.15.05"]:::orphaned
+  L_audit["GET /admin/audit (:424) — SHADOWED"]:::orphaned
+  L_silent["GET /admin/silent-log (:602) — alive"]:::verified
+  L_ccfg["GET /admin/carolina-config (:725) — alive"]:::verified
+  L_oper["GET /operator/:id (:1135) — alive"]:::verified
+  L_wf["GET /admin/workflows (:1377) — alive"]:::verified
+  L_adhoc["GET /admin/ad-hoc-tasks (:1459) — alive"]:::verified
+end
+S02_13 --> LEGDASH
+S02_14 -.->|shadows| L_root
+S02_15_05 -.->|shadows| L_admin
+S02_15_05 -.->|shadows| L_audit
+
+S02_16["S02.16 · events-v2.js createRouter() — never mounted (tests only)"]:::orphaned
+S02_07_01["S02.07.01 · architect-auth (Bearer ARCHITECT_API_TOKEN / OPERATOR_PAGE_TOKEN)"]:::verified
+S02_07_02["S02.07.02 · architect-audit (every call → v3.audit_log; res.on finish)"]:::verified
+S02_07_03["S02.07.03 · lib/architect-queries (LIMIT ≤500)"]:::verified
+S02_12_01["S02.12.01 · cameras-schedule.js (CAM_TZ/ON/OFF/DAYS)"]:::verified
+S02_07 --> S02_07_01
+S02_07 --> S02_07_02
+S02_07 --> S02_07_03
+S02_12 --> S02_12_01
+S06_18["S06.18 · events-v2 handler (= S02.04)"]:::verified
+S06_18 -.-> S02_04
+S02_01_01["S02.01.01 · block_suggestion autocomplete (/slack/options; no url_verification bypass)"]:::verified
+S02_01_02["S02.01.02 · Events API: ONLY app_home_opened handled; rest dropped; no slash/shortcut anywhere"]:::verified
+S02_04_01["S02.04.01 · reaction protocol saturday_idle_check (any member) → operator_sessions.logged_out_at"]:::verified
+S02_04_02["S02.04.02 · reaction protocol noclockin_ask (owner/manager only)"]:::verified
+S02_06_01["S02.06.01 · admin-v3/views/ empty dir (.gitkeep)"]:::orphaned
+S02_01 --> S02_01_01
+S02_01 --> S02_01_02
+S02_04 --> S02_04_01
+S02_04 --> S02_04_02
+S02_06 -.-> S02_06_01
+WIRE["S01.03 wire.js"]:::verified
+SENDER["S06.17 sender"]:::verified
+STOCKW["S04.09 stock-alerts worker"]:::verified
+SCHED["S04.28 legacy crons"]:::verified
+ADMCHAT["S07.01 admin-chat"]:::verified
+S02_12 -.->|R134 CIRCULAR| WIRE
+S02_12 -->|R135| SENDER
+S02_10 ==>|R136 imports worker| STOCKW
+S02_02 -->|R137 rescheduleJobs| SCHED
+S02_02 -->|R138| ADMCHAT
+S02_02 -.->|R139 unauth /api/backfill → poller| SCHED
+S02_09 -->|R145 postAs| SENDER
+S02_10 -->|R144 postAs| SENDER
+S02_16 -.->|superseded by| S02_04
+
+%% auth coverage notes
+S02_05 -.->|NOT covered: /api/v3/data, /dashboard-v4, /api/cam, legacy /api, /api/admin/v3| S02_10

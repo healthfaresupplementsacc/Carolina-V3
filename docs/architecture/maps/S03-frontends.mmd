@@ -1,0 +1,87 @@
+%% Drill-down S03 — Frontend surfaces (browser). Also shows GENERATIONS overlap (==> edges).
+flowchart TB
+classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
+classDef orphaned fill:#fdecea,stroke:#c62828,color:#7f0000,stroke-dasharray:4 3
+
+subgraph V4["S03.01 · dashboard-v4 (React/Vite, hash routes, CANONICAL) — build committed to public/dashboard-v4"]
+  direction TB
+  S03_01_01["S03.01.01 · #hoje CommandCenter · #producao · #metas · #pessoas · #floor FloorDisplay"]:::verified
+  S03_01_02["S03.01.02 · #cameras CamerasPage"]:::verified
+  S03_01_03["S03.01.03 · #impressao PrintingPage (SSE)"]:::verified
+  S03_01_04["S03.01.04 · #picklist · #estoque-geral StockOverview · #config-estoque InventorySettings · #inventory · #produto-setup · #pp"]:::verified
+  S03_01_05["S03.01.05 · #roadmap RoadmapPage"]:::verified
+  S03_01_06["S03.01.06 · #admin AdminPanel · #operadores · #usuarios UsersPage · #sistema SystemHealth · #config (RBAC gated)"]:::verified
+  S03_01_07["S03.01.07 · #suporte · #produto · #falar CarolinaFalar · #planejamento · #carolina (OtherPages)"]:::partial
+  S03_01_08["S03.01.08 · adapters: from-api (/api/v3/data) · admin-api (/api/adminpanel) · writes"]:::verified
+  S03_01_09["S03.01.09 · PinGate (sessionStorage v3pin)"]:::verified
+  S03_01_10["S03.01.10 · V4_ALLOW_WRITES flag"]:::verified
+  S03_01_11["S03.01.11 · dashboard-v4/build/ orphan"]:::orphaned
+  S03_01_12["S03.01.12 · CameraGrid.jsx (mp4↔MJPEG, PIP, watchdog; owns /api/cam contract)"]:::verified
+  S03_01_13["S03.01.13 · data.js HFData mock dataset in prod bundle"]:::partial
+  S03_01_14["S03.01.14 · tweaks-panel.jsx"]:::verified
+  S03_01_15["S03.01.15 · shared components: AdminBits · NotificationsPanel · SidePanel · SearchOverlay · Timeline · Primitives · Icons · FloatingPopover"]:::verified
+  S03_01_16["S03.01.16 · CSS: styles · redesign-v4 · extras · timeline"]:::verified
+  S03_01_17["S03.01.17 · utils ny-time.cjs · day-stats.cjs · helpers.js · adapt-to-hfdata.cjs (also required by backend Jest)"]:::verified
+  S03_01_18["S03.01.18 · DESIGN-BRIEF.md · CURRENT-PAGE-SNAPSHOT.html"]:::partial
+  S03_01_19["S03.01.19 · committed build assets incl. PUBLIC source map"]:::verified
+end
+
+subgraph OP["S03.02 · Operator kiosk /op (PWA)"]
+  direction TB
+  S03_02_01["S03.02.01 · app.js (2331)"]:::verified
+  S03_02_02["S03.02.02 · fuse-data.js (2417, no fetches)"]:::verified
+  S03_02_03["S03.02.03 · state-machine · offline-queue · sw.js v39 · manifest · products.json · assets"]:::verified
+  S03_02_04["S03.02.04 · .legacy set (index/app/sw/style .legacy) — unlinked"]:::orphaned
+end
+
+S03_03["S03.03 · /admin SPA (src/admin: app.js, audit.js, merge.js) tabs: Operadores · Notificações · Analytics · Métricas · Lotes · EMS · Gaps · Logs · Voices · Admins · Histórico · Chart.js CDN"]:::verified
+S03_03_01["S03.03.01 · src/admin/audit.js checkPin (server helper in client dir)"]:::verified
+S03_04["S03.04 · /print kiosk (title/hash lock signal for printlock.py)"]:::verified
+S03_05["S03.05 · Legacy server-rendered pages (template.js) — 7 alive / 3 shadowed"]:::partial
+S03_06["S03.06 · public/dashboard SPA — MISSING"]:::orphaned
+S03_07["S03.07 · /foto upload (Simone) → /api/images/upload → Slack #images"]:::verified
+S03_08["S03.08 · /cameras · /cameras/pip · /cameras/tag (inline HTML)"]:::verified
+S03_09["S03.09 · src/shared hf-design.css/.js"]:::verified
+S03_10["S03.10 · admin-v3 shadow HTML (/api/admin/v3/*)"]:::verified
+
+%% backends
+S02_10["S02.10 · /api/v3/data"]:::verified
+S02_09["S02.09 · /api/adminpanel"]:::verified
+S02_08["S02.08 · op.js"]:::verified
+S02_12["S02.12 · cameras"]:::verified
+S02_02["S02.02/S02.03 · legacy /api"]:::verified
+S02_11["S02.11 · images"]:::verified
+
+S03_01_08 -->|R017| S02_10
+S03_01_08 -->|R018| S02_09
+S03_01_02 -->|R019| S02_12
+S03_01_03 -->|R020 SSE| S02_10
+S03_02_01 -->|R021| S02_08
+S03_03 -->|R026| S02_09
+S03_04 -->|R024| S02_08
+S03_05 -->|R027| S02_02
+S03_07 -->|R028| S02_11
+S03_08 -->|R029| S02_12
+S03_09 --> S03_02_01
+S03_09 --> S03_04
+S03_09 --> S03_01_01
+S03_03_01 -.-> S02_02
+S03_02_05["S03.02.05 · products.json + assets/bottles/*.png (runtime URLs)"]:::verified
+S02_15_03["S02.15.03 · /op static mount"]:::verified
+S13_01["S13.01 Jest"]:::verified
+S03_01_12 -->|R128 opens /cameras/pip, href /cameras| S03_08
+S03_01 -->|R129 href /op/| S03_02
+S03_01_03 -.->|R130 PIN in EventSource URL| S02_10
+S03_02_01 -->|R131| S03_02_05
+S03_02_05 --> S02_15_03
+S03_04 -.->|R132 /op/style.css + logo| S02_15_03
+S03_04 --> S03_09
+S13_01 -.->|R150 requires .cjs utils| S03_01_17
+
+%% generations overlap
+S03_03 ==>|R120 same API, two UIs| S03_01_06
+S03_05 ==>|R121 root redirect made v4 canonical| S03_01_01
+S03_10 ==>|R122| S03_01_06
+S03_02_04 ==>|R124 dead copy| S03_02_01
+S03_08 ==>|D7 /tag,/pip no v4 twin| S03_01_02

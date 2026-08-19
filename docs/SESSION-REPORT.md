@@ -158,3 +158,18 @@ Ran `drift-check.ps1` manually once (Part 6):
   a push). An unrelated pre-existing uncommitted change in `src/routes/op.js` (a prior
   deployed machine-handoff fix) was left untouched, as `src/routes/` is off-limits this
   session.
+
+---
+
+# Session Report — 14 Aug 2026 (part 3: full discovery + master system map)
+
+Docs-only session. **No application code changed** (verified: `git status` shows only `CLAUDE.md`, `docs/ARCHITECTURE.md`, new `docs/architecture/`; the modified `src/routes/op.js` is the pre-existing uncommitted change from before 08-11). `npm test` at end: **206/206 suites, 2601 tests pass** (same as 08-11 baseline).
+
+## Built
+- `docs/architecture/` — `MASTER_SYSTEM_MAP.mmd` (+ `.md`, `.html` editor), `maps/` (9 drill-downs), `STRUCTURE_INDEX.md` (295 rows, stable `Sxx.yy` IDs), `RELATIONSHIPS.md` (134 numbered edges), `UNCERTAINTIES.md` (26), `GENERATIONS.md` (old dashboard/Carolina/kiosk/inventory generations), `build-map-html.js`, `_qa/` (62-check puppeteer harness + screenshots).
+- All 10 diagrams validated with the real Mermaid parser; index↔map cross-check = 0 gaps both ways.
+- Method: 4 parallel discovery agents (routes / workers / data+services / frontends+deploy+satellites) → index → independent completeness pass (found +~48 rows, +25 edges, 2 corrected edges) → Opus 4.8 agent QA'd/polished the HTML page (verified by re-running its harness + reading screenshots) → I fixed the wide-strip layout at render time and relaxed `fit()`.
+- Rules: RULE #2 (map + Obsidian sync) saved in memory and `CLAUDE.md`; Obsidian architecture note + build log updated; `docs/ARCHITECTURE.md` gained a pointer to the map set and a correction on the dead `/dashboard` mount (drift test still 99/99).
+
+## Notable findings (recorded, not fixed)
+Dead `/dashboard` mount; 8 orphaned tables (`admin_chats`, six `carolina_*`, `raw_material_coas`); 9 tables written without migrations; no migration runner in `src/`; three PIN systems; raw writes bypassing EventService/StockService; `cameras.js` requires `wire.js` (circular); data router imports a worker; `production-total-worker` calls slack.com directly; unauthenticated `POST /api/v3/print/other`, `/api/eod/run`, `/api/backfill`; public source map on `/dashboard-v4`; `foto-link.txt` token committed. Full list with IDs in `UNCERTAINTIES.md` and `RELATIONSHIPS.md`.

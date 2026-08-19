@@ -1,0 +1,189 @@
+# RELATIONSHIPS — traced connections between elements
+
+Each edge is numbered (stable). Direction is `FROM → TO` as evidenced. Types:
+**VERIFIED** (traced in code) · **PARTIAL** (one side traced) · **INDIRECT** (via an intermediary) ·
+**SHARED-DEP** (both use the same thing) · **AMBIGUOUS** · **DUPLICATE-PATH** (two paths do the same job) ·
+**DISCONNECTED** (expected edge does NOT exist).
+
+IDs refer to `STRUCTURE_INDEX.md`. Mermaid uses the same R-ids as edge labels where space allows.
+
+## Boot / hosting
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R001 | S01.01 → S01.01.01…S01.01.12 (sequence) | VERIFIED | `src/index.js:66-181` |
+| R002 | S01.01.11 → S04.* (starts every worker/timer) | VERIFIED | `index.js:164` → `wire.js:250-633` |
+| R003 | S01.01.09 → S04.28.* (starts 7 legacy crons unless `V2_DISABLED=1`) | VERIFIED | `index.js:136-154`; `scheduler.js` |
+| R004 | S01.03 (`wire.mount`) → S02.04–S02.15 | VERIFIED | `index.js:51`; `wire.js:96-232` |
+| R005 | S01.02 → S02.* (global middleware precedes all routers) | VERIFIED | `index.js:24-42` |
+| R006 | S01.05 (Dockerfile) → S07.07 screenshot (Chromium for Puppeteer) | VERIFIED | `Dockerfile`; `src/screenshot.js:26` |
+| R007 | S10.10 Railway healthcheck → S01.06 `/api/health` | VERIFIED | `railway.toml` |
+| R008 | S01.07 SIGTERM → closes S08.04 only; S08.03 NOT closed | DISCONNECTED | `index.js:184-194` |
+
+## HTTP ingress → backend
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R010 | S10.01 Slack → S02.01 (`/slack/events`) → S07.01 interactive/home/dm | VERIFIED | `events.js:67-125` |
+| R011 | S10.01 Slack → S02.04 (`/slack/events-v2`) → `v3.messages` → S04.02 Observer | VERIFIED | `events-v2.js:283-287`; `Observer.js:810` |
+| R012 | S02.04 → S06.13 CommandHandler (mentions, ✅ confirm) | VERIFIED | `events-v2.js:150-156,235` |
+| R013 | S02.04 → S06.15 NotificationHandler (reactions) | VERIFIED | `events-v2.js:143-147` |
+| R014 | S02.04 → S04.30 alert-gate (mute/unmute commands, no LLM) | VERIFIED | `events-v2.js:201-234` |
+| R015 | S02.04 → S05.01 EventService.softDelete on `message_deleted` | VERIFIED | `events-v2.js:257-268` |
+| R016 | S04.28.01 poller AND S02.04 webhook both read production channel | DUPLICATE-PATH | poller writes `public.messages`; webhook writes `v3.messages` |
+| R017 | S03.01 dashboard-v4 → S02.10 `/api/v3/data` | VERIFIED | `adapters/from-api.js:11` |
+| R018 | S03.01 → S02.09 `/api/adminpanel` | VERIFIED | `adapters/admin-api.js:15` |
+| R019 | S03.01.02 → S02.12 `/api/cam` | VERIFIED | `CamerasPage.jsx` |
+| R020 | S03.01.03 → S02.10.04 SSE ← S09.06 print-stream ← S02.08.03 | VERIFIED | `router.js:1741`; `print-stream.js:21`; `op.js:584` |
+| R021 | S03.02 /op → S02.08.02 `/api/v3/op/*` | VERIFIED | `src/op/app.js` fetches |
+| R022 | S03.02 → S02.07 `/api/v3/architect/person/` (operator token scope) | VERIFIED | `app.js`; `architect.js:122-143` |
+| R023 | S03.02, S03.04, S11.01.03 → S02.08.01 `/op/config.js` (page token) | VERIFIED | `op.js:89`; `print/index.html:29`; `printlock.py:155` |
+| R024 | S03.04 /print → S02.08.02 (`auth/login`, `event/start`) + S02.08.04 | VERIFIED | `print.js` |
+| R025 | S11.01 .28 → S02.08.03 (`/api/print-*`, `PRINT_EVENT_TOKEN`) | VERIFIED | `printlock.py:22`; `op.js:418-691` |
+| R026 | S03.03 /admin → S02.09 only | VERIFIED | `src/admin/app.js` (~50 endpoints) |
+| R027 | S03.05 legacy pages → S02.02, S02.03 (`/api/admin/*?pin=`) | VERIFIED | `dashboard/router.js:231` |
+| R028 | S03.07 /foto → S02.11 → S10.01 `#images` | VERIFIED | `foto/index.html:179`; `images/router.js` |
+| R029 | S03.08 cameras pages → S02.12 → S10.08 (Tailscale) | VERIFIED | `cameras.js:302-355` |
+| R030 | S02.14 `GET /` shadows S02.13 `/` | VERIFIED | `index.js:57` vs `dashboard/router.js:24` |
+| R031 | S02.15.05 `/admin` SPA shadows S02.13 `/admin`, `/admin/audit` | VERIFIED | `wire.js:174` vs `router.js:86,424` |
+| R032 | S02.15.06 `/dashboard` → S03.06 (dir missing) | DISCONNECTED | `wire.js:206`; `ls public/` |
+| R033 | S02.16 createRouter → (nothing) | DISCONNECTED | only tests import it |
+| R034 | S02.06 admin-v3 → S02.10.03 `buildRepos` | VERIFIED | `admin-v3/routes.js:20` |
+| R035 | S02.05 security middleware → S02.08, S02.09, S02.07, S03.02, S03.03 prefixes only | VERIFIED | `wire.js:116-128` |
+| R036 | S02.05 ✗ S02.10, S03.01, S02.12, S02.02 (not covered) | DISCONNECTED | `security.js:5-7` |
+| R037 | S02.12 own brute-force guard ↔ S02.05 guard share `v3.blocked_ips` only | SHARED-DEP | `cameras.js:76`; `wire.js:120` |
+
+## Workers → data / services / external
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R040 | S04.02 Observer → S06.01 provider → S10.05 Gemini | VERIFIED | `wire.js:42,334` |
+| R041 | S04.02 → S05.01/S05.02/S05.03/S05.04 (writes) | VERIFIED | `Observer.js` dispatch |
+| R042 | S04.02 → `v3.llm_metrics`, `v3.vocabulary`, `v3.notifications`, `v3.settings` | VERIFIED | `Observer.js:554,496,662,761` |
+| R043 | S04.07 ems-sync → S05.15 → S10.02 EMS | VERIFIED | `wire.js:389` |
+| R044 | S04.07 → `v3.events`, `v3.ems_activity_cache`, `v3.persons`, `v3.products`, `v3.product_batches` | VERIFIED | `ems-activity-sync.js:190-458` |
+| R045 | S04.07 → S09.01 presence, S09.05 ems-confirm | VERIFIED | requires |
+| R046 | S04.08 veeqo-order-sync → S05.16 → S10.03; → S05.08 StockService | VERIFIED | `wire.js:400-422` |
+| R047 | S04.09/S04.10/S04.11/S04.14 → S05.16 Veeqo | VERIFIED | `wire.js:426,438,451,500` |
+| R048 | S04.12 stock-gap-alert → S02.10.02 ENDPOINTS handler in-process → S05.13 | VERIFIED | `wire.js:471-476` |
+| R049 | S04.15 attendance-sync → S05.17 → S10.04 NGTeco | VERIFIED | `wire.js:513` |
+| R050 | S04.15 → `v3.att_punch/att_state` (no migration) | PARTIAL | S08.06 |
+| R051 | S04.16 total-worker → own GeminiProvider (bypass QuotaChain) → S05.03 | VERIFIED | `wire.js:531-546` |
+| R052 | S04.25 note-analyzer → own GeminiProvider; triggered by S02.08 | VERIFIED | `wire.js:145`; `op.js:1778,2890` |
+| R053 | S04.17 absence-alert → S09.01, S09.03, S04.30; writes sessions/action_log/notifications | VERIFIED | `absence-alert.js:11-13,146-182` |
+| R054 | S04.18 encap-monitor → S09.03, S04.30 | VERIFIED | requires |
+| R055 | S04.01 watchdog ← S04.29 registry (watch list) | VERIFIED | `wire.js:261` |
+| R056 | S04.29 registry ↔ reality (intervals, missing entries) | AMBIGUOUS | see U-05 |
+| R057 | S04.06 sandbox-cleanup heartbeat decoupled from tick | AMBIGUOUS | `wire.js:381` |
+| R058 | S04.21 dedupe heartbeat decoupled | AMBIGUOUS | `wire.js:616` |
+| R059 | S04.19 → S08.08 matview refresh | VERIFIED | `wire.js:578` |
+| R060 | S04.22 → S06.13 `expireOldPending` | VERIFIED | `wire.js:620-628` |
+| R061 | S04.23 ← S05.03 (incident callback) → S10.01 admin | VERIFIED | `wire.js:62-81` |
+| R062 | S04.31 CAROLINA_SILENT_MODE gates S04.02 alerts, S04.03, S04.21 only | VERIFIED | `wire.js:329,339,613` |
+| R063 | S04.30 alert-gate used by S02.08, S02.04, S04.15, S04.17, S04.18, S04.11, S04.12 | SHARED-DEP | grep |
+| R064 | S04.28.02 EOD → S03.05 `/eod-summary` (Puppeteer) → S10.01 image | VERIFIED | `scheduler.js:230-335` |
+| R065 | S04.28.06 detect → S07.05 ai/detect → `public.carolina_proposals` | VERIFIED | `scheduler.js:159` |
+| R066 | S04.28.03 daily cleanup → `scripts/` (cleanup-ghost-workflows, expire-helpers) | VERIFIED | `scheduler.js:209,216` |
+| R067 | All S04.* Slack egress → S06.17 sender → S10.01 | VERIFIED | `wire.js` deps |
+
+## Services ↔ data
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R070 | S05.01 → `v3.events` (claimed sole gate) | VERIFIED | `EventService.js:5-21` |
+| R071 | S02.08 op.js raw SQL → `v3.events.ended_at` (unguarded :1662,1669,1680; TOCTOU :1395,1419,1519) | VERIFIED | grep + read | 
+| R072 | S02.09 admin.js → `v3.events`, `v3.production_counts` raw | VERIFIED | `admin.js:1013` |
+| R073 | S06.13 CommandHandler → `v3.events` raw | VERIFIED | `CommandHandler.js` |
+| R074 | R070+R071+R072+R073 = multiple writers to one table | DUPLICATE-PATH | ARCHITECTURE.md BROKEN LINKS Claim 1 |
+| R075 | S05.03 + S02.08 (×4) + S02.09 → `v3.production_counts` (6 writers) | DUPLICATE-PATH | Claim 2 |
+| R076 | S05.08 StockService + S02.08 raw INSERT (`op.js:324`) → `v3.stock_movements` | DUPLICATE-PATH | Claim 3 |
+| R077 | S05.09 `consumeForSize` ← (no production caller) | DISCONNECTED | Claim 4 |
+| R078 | S02.08 `orders` count (`production_counts kind='orders'`) vs S04.08 `v3.pnp_order_lines` (Veeqo mirror), reconciled by S04.11 at noon | DUPLICATE-PATH | Claim 5 |
+| R079 | S05.02 → `v3.product_batches`, `events.product_batch_id` | VERIFIED | `BatchService.js:159,195` |
+| R080 | S02.10.03 sender-profiles-repo → `v3.sender_profiles` (write from read layer) | VERIFIED | `sender-profiles-repo.js` |
+| R081 | S05.12 → S06.17 (audited post) | VERIFIED | `SenderService.js` |
+| R082 | S07.08 legacy migrate() → S08.07 27 tables (every boot) | VERIFIED | `db/index.js:32-657` |
+| R083 | S07.03 dispatcher + S07.04 engine → ISA-88 `public.*` tables | VERIFIED | `engine.js:283,520` |
+| R084 | S08.07 `public.production_counts`/`messages` vs S08.05 v3 same names | AMBIGUOUS | name collision |
+| R085 | S08.02 migrations ← (no runner in `src/`); applied via `scripts/` | DISCONNECTED | grep "migrations" in src |
+| R086 | S08.06 tables ← `scripts/create-*.js` only; 2 tables no DDL anywhere | PARTIAL | agent §A.3 |
+| R087 | S02.10 data-router → S05.* via `buildServices` | VERIFIED | `router.js:387-411` |
+| R088 | S11.04 context.js → S02.10.03 repos (imports backend code) | VERIFIED | `context.js:22-25` |
+
+## Legacy V2 internal
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R090 | S07.01 interactive → S07.02 parser → S07.03 dispatcher → S07.04 engine | VERIFIED | `interactive.js:68,160-161`; `canonical-dispatcher.js:29` |
+| R091 | S07.01 dm-handler/admin-chat → S07.05 admin-tools → S07.03 | VERIFIED | `dm-handler.js:638`; `admin-chat.js:128`; `admin-tools.js:708` |
+| R092 | S07.06 scheduler → S07.01 poller, S07.07 eod/urgency, S07.05 detect, S07.04 activity-freshness | VERIFIED | `scheduler.js` |
+| R093 | S07.07 app-state ← 13 requirers (S02.02, S07.06, S07.05, S07.01…) | SHARED-DEP | grep |
+| R094 | S07.05 note-classifier → S10.07 Anthropic (`AI_NOTE_CLASSIFIER_ENABLED`) | PARTIAL | `note-classifier.js:56` |
+| R095 | S07.09 master doc → S13.01 smoke.e2e | VERIFIED | `smoke.e2e.test.js:4` |
+
+## Satellites / external
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R100 | S11.03 drift task → `claude -p` → `docs/DRIFT-*.md` → `post-drift-to-slack.js` → S10.01 DM Bruno | VERIFIED | `drift-check.ps1`; verified 08-11 run |
+| R101 | S11.04 watch.js → S10.01 (read) → Claude Code → reply.js → S10.01 | VERIFIED | `watch.js`, `reply.js` |
+| R102 | S11.01.02 epson_status → EPSON CW-C8000u USB → S02.08.03 `/api/printer-status` | VERIFIED | `epson_status.py:6-21` |
+| R103 | S11.05 Simone .246 → (nothing in code) | UNKNOWN | U-02 |
+| R104 | S11.02 cameras PC → S10.08 Tailscale → S02.12 | PARTIAL | gateway code out of repo |
+| R105 | S02.12 → S09.03 workday (weekend on-demand) | VERIFIED | `cameras.js:60-74` |
+| R106 | S06.05 Anthropic ← `LLM_PROVIDER=anthropic` only | PARTIAL | `LLMProvider.js:137` |
+| R107 | S06.09 FallbackProvider, S06.06 OpenAIProvider ← nothing | DISCONNECTED | grep |
+| R108 | S09.11 audit.js/idempotency.js stubs ← nothing | DISCONNECTED | files empty |
+| R109 | S13.03 compute-task-targets ← manual only → `analysis_output.json` → `scripts/v3-seed-task-targets.js` | PARTIAL | header comment |
+| R110 | S14.03 foto-link.txt token == S12.08 | VERIFIED | value matches env name |
+| R111 | S13.02 drift test guards ARCHITECTURE.md but not map set (docs/architecture) | DISCONNECTED | test reads only ARCHITECTURE.md |
+
+## Duplicate / overlapping surfaces (feeds GENERATIONS.md)
+| R | From ↔ To | Type | Evidence |
+|---|---|---|---|
+| R120 | S03.01.06 (dashboard-v4 admin pages) ↔ S03.03 (/admin SPA) both on S02.09 | DUPLICATE-PATH | same API, two UIs |
+| R121 | S03.05 legacy pages ↔ S03.01 (metas/producao/operator) | DUPLICATE-PATH | root redirect made v4 canonical |
+| R122 | S03.10 admin-v3 shadow pages ↔ S03.01.06 SystemHealth/messages views | DUPLICATE-PATH | inspection surface predates v4 |
+| R123 | S07 (Carolina V2 crons/poller/parser) ↔ S06 (Carolina V3 Observer/CommandHandler) | DUPLICATE-PATH | two ingestion + two write models |
+| R124 | S03.02.04 op .legacy ↔ S03.02 | DUPLICATE-PATH | dead copy |
+| R125 | S06.02 GeminiProvider ×3 instantiations | DUPLICATE-PATH | `wire.js:42,145,532` |
+| R126 | S12.01 ↔ S12.02 ↔ S12.03 three PIN systems | DUPLICATE-PATH | agent §E.7 |
+| R127 | S03.01.04 inventory pages ↔ S02.08 `/op` stock endpoints (`STOCK_UI_ENABLED`) ↔ S05.08 | SHARED-DEP | two UIs, one service (plus one raw path R076) |
+
+## Added / corrected by the 2nd (completeness) pass
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R003 (corrected) | S01.01.09 → 5 start calls (`startPolling`, `startEodJob`, `startGreetingJob`, `startDetectJob`, `startActivityCheckJob`); 7 cron tasks result because `startEodJob()` registers 2 more inside (`scheduler.js:75,83`) | VERIFIED | `index.js:141-154`; `scheduler.js:70-87` |
+| R067 (corrected) | NOT all worker egress goes through S06.17: S04.16 production-total-worker calls `https://slack.com` with raw `fetch` | VERIFIED | `production-total-worker.js:59` |
+| R128 | S03.01.12 CameraGrid → S03.08 (`window.open('/cameras/pip?cam=…#t=<token>')`, `href="/cameras"`) — token in URL fragment | VERIFIED | `CameraGrid.jsx:195,501` |
+| R129 | S03.01 Shell/App → S03.02 (`href="/op/"`) | VERIFIED | `Shell.jsx:205`; `App.jsx:129` |
+| R130 | S03.01.03 PrintingPage → S02.10.04 via `EventSource('/api/v3/data/print-stream?pin=…')` — dashboard-v4 is the party putting the PIN in the URL | VERIFIED | `PrintingPage.jsx:98` |
+| R131 | S03.02 → S02.15.03 (`fetch('/op/products.json')`; `/op/assets/bottles/<slug>.png` built at runtime) | VERIFIED | `src/op/app.js`; `src/op/products.json` |
+| R132 | S03.04 → S02.15.03 (`/op/style.css`, `/op/assets/healthfare-logo.png`) + S02.15.02 (`/shared/hf-design.css`) | VERIFIED | `src/print/index.html:11-13` |
+| R133 | S09.05 ems-confirm → S09.01 presence (`hasManualCheckinToday`, `EDT`) | VERIFIED | `ems-confirm.js:28` |
+| R134 | S02.12 cameras.js → S01.03 `require('../v3/wire')` — a router reaching back into the hub (**circular**) | VERIFIED | `cameras.js:46` |
+| R135 | S02.12 cameras.js → S06.17 sender (posts to Slack, try/catch) | VERIFIED | `cameras.js:53` |
+| R136 | S02.10 data/router.js → S04.09 `require('../../workers/stock-alerts')` — router imports a WORKER (inverted layering; used as calc lib) | VERIFIED | `data/router.js:39,408` |
+| R137 | S02.02 api.js → S04.28 (`rescheduleJobs()`, `runEod`) — legacy HTTP mutates cron schedules at runtime | VERIFIED | `api.js:316,954` |
+| R138 | S02.02 api.js → S07.01 admin-chat | VERIFIED | `api.js:2077,2108` |
+| R139 | S02.02 `POST /api/backfill` (unauth, S12.12) → S04.28.01 poller | VERIFIED | `api.js:415` |
+| R140 | S02.09 admin.js ✗ S05.* — admin.js requires ZERO V3 services (only `lib/op-auth`, `middleware/security`); it is a pure raw-SQL surface | DISCONNECTED | `admin.js:27-28` |
+| R141 | S04.16 → S10.01 direct (`fetch https://slack.com/…`), bypassing S06.17 | VERIFIED | `production-total-worker.js:59` |
+| R142 | S04.04 forgotten-dm gets a THIRD channel `ordersChannel = V3_ORDERS_CHANNEL` with NO default (undefined if unset → silent fail) | VERIFIED | `wire.js:359` |
+| R143 | S02.08 op.js posts to production channel via its OWN env read (`V3_PRODUCTION_CHANNEL ‖ 'C09UNBXFRKK'`) — wire passes only `adminChannelId` | VERIFIED | `wire.js:149-155`; `op.js:49,51,1100,1935,1951,2832` |
+| R144 | S02.10 data router → S06.17 (`postAs` admin) — 2 call sites | VERIFIED | `data/router.js:1870-1875,1920-1923` |
+| R145 | S02.09 admin.js → S06.17 → S10.01 (admin ch `:559`; production ch via own env `:1020-1026`) | VERIFIED | `wire.js:166-170`; `admin.js:559,1023` |
+| R146 | S01.03 wire → S02.08, S02.10 via **DI closure `recordTotal`** over one `ProductionCountService` (the "one write path" mechanism; invisible to require-graphs) | VERIFIED | `wire.js:181-200` |
+| R147 | Writer edges previously missing: S02.08 → `op_notes` (:2888), `voice_recordings` (:3109,3121), `machine_custody` (:1340-1558), `activity_gaps` (:2874), `daily_totals_log` (:2812); S02.09 → `voice_recordings` (:865), `task_targets` (:1369); S02.10 → `envelope_mix` (:1180), `packing_questions` UPDATE-only (:1196) | VERIFIED | as cited |
+| R148 | NO writer in `src/` → ORPHANED tables: `admin_chats`, `carolina_personalities/config/channel_personality/prompt_versions/signals/learning_cycles`, `raw_material_coas`; `product_catalog` populated only by `scripts/import-supplement-catalog.js` | DISCONNECTED | grep |
+| R149 | S02.04 → S02.04.01 saturday_idle_check → writes `v3.operator_sessions`; S02.04 → S02.04.02 noclockin_ask (owner/manager only) — evaluated BEFORE S06.15 | VERIFIED | `events-v2.js:80-120` |
+| R150 | S03.01.17 dashboard-v4 `.cjs` utils ← S13.01 backend Jest (`v4-day-stats.test.js:17`) — cross-boundary test dependency | VERIFIED | as cited |
+| R151 | S09.02 alert-gate is required TWICE by wire under two aliases (`attAlertGate` :514, `totalAlertGate` :528) | SHARED-DEP | `wire.js:514,528` |
+| R152 | S02.07.02 architect-audit writes AFTER `res.on('finish')` (fire-and-forget) | PARTIAL | `architect-audit.js:24` |
+
+## Added 2026-08-18 (Warehouse hub, Phase 1 build)
+| R | From → To | Type | Evidence |
+|---|---|---|---|
+| R160 | S01.03 wire → S15.17 warehouse router (mount) with StockService + StockRequestService instances | VERIFIED | `wire.js:206-228` |
+| R161 | S03.01 WarehousePage/Approvals/Locations → S15.17 `/api/v3/warehouse/*` (adapter warehouse-api.js) | VERIFIED | `dashboard-v4/src/adapters/warehouse-api.js` |
+| R162 | S15.17 router → S15.19 StockService (all quantity writes) · → S15.18 StockRequestService (queue) · → S05.16 veeqo (cache) | VERIFIED | `router.js` |
+| R163 | S15.18 approve → S15.19 StockService (source 'request', source_ref request:<id>) | VERIFIED | `StockRequestService.js:120-175` |
+| R164 | S04.08 veeqo-order-sync → `pick({allow_box:true})` shelf first, box second | VERIFIED | `veeqo-order-sync.js:124` |
+| R165 | S15.20 migration 071 → S08.05.05 (+2 tables, widened CHECKs) | VERIFIED | migration file |
+| R166 | S03.01 Shell nav: P&P + Picklist moved under Estoque; Planejamento + Produto after Metas | VERIFIED | `Shell.jsx`; `v4-nav-warehouse.test.js` |
+
+**Totals after 2nd pass (machine-counted):** **134 unique R-ids** (R001–R152 with intentional gaps in numbering; R003 and R067 corrected in place, not renumbered) — VERIFIED 106 · PARTIAL 10 · SHARED-DEP 6 · DUPLICATE-PATH 12 · AMBIGUOUS 5 · DISCONNECTED 12 · UNKNOWN 1 (by primary tag; a few edges carry two tags).
