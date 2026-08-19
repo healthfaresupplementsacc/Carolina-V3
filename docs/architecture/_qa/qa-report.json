@@ -1,5 +1,5 @@
 {
-  "when": "2026-08-19T13:24:19.482Z",
+  "when": "2026-08-19T17:22:52.169Z",
   "tabStats": [
     {
       "key": "MASTER",
@@ -83,11 +83,11 @@
     },
     {
       "key": "S15-warehouse-inventory",
-      "nodes": 55,
+      "nodes": 56,
       "pass": true,
-      "kb": 167,
+      "kb": 177,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-11-S15-warehouse-inventory.png",
-      "status": "rendered ✓  S15-warehouse-inventory  (159 lines, 55 nodes)"
+      "status": "rendered ✓  S15-warehouse-inventory  (165 lines, 56 nodes)"
     }
   ],
   "results": [
@@ -221,13 +221,13 @@
       "group": "tab-fit",
       "name": "S15-warehouse-inventory",
       "pass": true,
-      "detail": "fit scale=0.122 (whole diagram visible, 9152x3114)"
+      "detail": "fit scale=0.129 (whole diagram visible, 8690x3836)"
     },
     {
       "group": "tab",
       "name": "S15-warehouse-inventory",
       "pass": true,
-      "detail": "55 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 167KB, bodyClean=true"
+      "detail": "56 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 177KB, bodyClean=true"
     },
     {
       "group": "behaviour",

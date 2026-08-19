@@ -25,6 +25,7 @@ subgraph V4["S03.01 · dashboard-v4 (React/Vite, hash routes, CANONICAL) — bui
   S03_01_17["S03.01.17 · utils ny-time.cjs · day-stats.cjs · helpers.js · adapt-to-hfdata.cjs (also required by backend Jest)"]:::verified
   S03_01_18["S03.01.18 · DESIGN-BRIEF.md · CURRENT-PAGE-SNAPSHOT.html"]:::partial
   S03_01_19["S03.01.19 · committed build assets incl. PUBLIC source map"]:::verified
+  S03_01_20["S03.01.20 · prefs-api.js + hook useAccountPref — preferencia por conta; localStorage vira cache"]:::verified
 end
 
 subgraph OP["S03.02 · Operator kiosk /op (PWA)"]
@@ -53,8 +54,12 @@ S02_12["S02.12 · cameras"]:::verified
 S02_02["S02.02/S02.03 · legacy /api"]:::verified
 S02_11["S02.11 · images"]:::verified
 
+S02_17["S02.17 · /api/v3/prefs"]:::verified
 S03_01_08 -->|R017| S02_10
 S03_01_08 -->|R018| S02_09
+%% 08-19 — o layout dos widgets da Hoje segue a PESSOA, nao o navegador.
+S03_01_20 -->|R195 conta vence o localStorage na carga| S02_17
+S03_01_01 -->|R197 chave hoje.layout| S03_01_20
 S03_01_02 -->|R019| S02_12
 S03_01_03 -->|R020 SSE| S02_10
 S03_02_01 -->|R021| S02_08

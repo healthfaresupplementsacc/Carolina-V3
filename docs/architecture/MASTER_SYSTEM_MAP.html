@@ -625,6 +625,7 @@ subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
   S02_11["S02.11 · POST /api/images/upload — IMAGES_UPLOAD_TOKEN"]:::verified
   S02_14["S02.14 · GET / → 302 /dashboard-v4/ (index.js:57)"]:::verified
   S02_12["S02.12 · cameras.js ×10 (/api/cam, /cameras*) — CAM PIN→HMAC"]:::verified
+  S02_17["S02.17 · /api/v3/prefs ×4 (prefs/router.js) — PIN sem gate de funcao; preferencia por conta"]:::verified
   S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
 end
 S01_02 --> MOUNT
@@ -709,6 +710,13 @@ S02_09 -->|R145 postAs| SENDER
 S02_10 -->|R144 postAs| SENDER
 S02_16 -.->|superseded by| S02_04
 
+%% S02.17 — preferencias por conta (08-19). Escrita unica em v3.user_prefs; o
+%% login_id vem do PIN resolvido, nunca do corpo — e' o que isola uma conta da outra.
+USERPREFS[("S08.05.13 · v3.user_prefs")]:::verified
+S02_17 ==>|R196 upsert por login_id + key| USERPREFS
+V4HOJE["S03.01.20 · useAccountPref no dashboard-v4"]:::verified
+V4HOJE -->|R195 GET na carga · PUT debounce 600ms| S02_17
+
 %% auth coverage notes
 S02_05 -.->|NOT covered: /api/v3/data, /dashboard-v4, /api/cam, legacy /api, /api/admin/v3| S02_10
 
@@ -741,6 +749,7 @@ subgraph V4["S03.01 · dashboard-v4 (React/Vite, hash routes, CANONICAL) — bui
   S03_01_17["S03.01.17 · utils ny-time.cjs · day-stats.cjs · helpers.js · adapt-to-hfdata.cjs (also required by backend Jest)"]:::verified
   S03_01_18["S03.01.18 · DESIGN-BRIEF.md · CURRENT-PAGE-SNAPSHOT.html"]:::partial
   S03_01_19["S03.01.19 · committed build assets incl. PUBLIC source map"]:::verified
+  S03_01_20["S03.01.20 · prefs-api.js + hook useAccountPref — preferencia por conta; localStorage vira cache"]:::verified
 end
 
 subgraph OP["S03.02 · Operator kiosk /op (PWA)"]
@@ -769,8 +778,12 @@ S02_12["S02.12 · cameras"]:::verified
 S02_02["S02.02/S02.03 · legacy /api"]:::verified
 S02_11["S02.11 · images"]:::verified
 
+S02_17["S02.17 · /api/v3/prefs"]:::verified
 S03_01_08 -->|R017| S02_10
 S03_01_08 -->|R018| S02_09
+%% 08-19 — o layout dos widgets da Hoje segue a PESSOA, nao o navegador.
+S03_01_20 -->|R195 conta vence o localStorage na carga| S02_17
+S03_01_01 -->|R197 chave hoje.layout| S03_01_20
 S03_01_02 -->|R019| S02_12
 S03_01_03 -->|R020 SSE| S02_10
 S03_02_01 -->|R021| S02_08
@@ -1132,6 +1145,7 @@ subgraph V3T["S08.05 · v3 tables by domain"]
   S08_05_10["S08.05.10 · messages (claim + dead-letter) · voice_recordings"]:::verified
   S08_05_11["S08.05.11 · ems_activity_cache · ems_cleaning_log · ems_unconfirmed"]:::verified
   S08_05_12["S08.05.12 · roadmap_areas/cards/comments/sketches"]:::verified
+  S08_05_13["S08.05.13 · user_prefs — preferencia por conta; PK login_id+key; escrita so em S02.17"]:::verified
   S08_08["S08.08 · events_enriched MATVIEW (refresh 10 min)"]:::verified
 end
 

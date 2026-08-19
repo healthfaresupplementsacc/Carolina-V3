@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T16:49:23.877Z",
+  "at": "2026-08-19T17:24:50.453Z",
   "results": [
     {
       "group": "grade",
@@ -143,7 +143,7 @@
       "group": "screenshot",
       "name": "03-arrastado",
       "pass": true,
-      "detail": "152 KB → hoje-03-arrastado.png"
+      "detail": "153 KB → hoje-03-arrastado.png"
     },
     {
       "group": "grade",
@@ -185,7 +185,7 @@
       "group": "widgets",
       "name": "popover traz a dica de arrastar e redimensionar",
       "pass": true,
-      "detail": "estaurar padrãoArraste pelo título. Puxe o canto pra mudar o tamanho.salvo neste navegador"
+      "detail": "ãoArraste pelo título. Puxe o canto pra mudar o tamanho.Salvo na sua conta (Bruno) · agora"
     },
     {
       "group": "widgets",
@@ -197,7 +197,7 @@
       "group": "screenshot",
       "name": "05-popover",
       "pass": true,
-      "detail": "189 KB → hoje-05-popover.png"
+      "detail": "190 KB → hoje-05-popover.png"
     },
     {
       "group": "widgets",
@@ -240,6 +240,96 @@
       "name": "abaixo de 900px empilha em coluna única e desliga o drag",
       "pass": true,
       "detail": "narrow=1"
+    },
+    {
+      "group": "conta",
+      "name": "antes de recarregar, o navegador tem um layout DIFERENTE do da conta",
+      "pass": true,
+      "detail": "local x=0 · conta x=6"
+    },
+    {
+      "group": "conta",
+      "name": "na carga, o layout DA CONTA vence o do navegador",
+      "pass": true,
+      "detail": "producao x=6 (esperado 6)"
+    },
+    {
+      "group": "conta",
+      "name": "o layout da conta é reescrito no cache do navegador",
+      "pass": true,
+      "detail": "cache x=6"
+    },
+    {
+      "group": "conta",
+      "name": "arrastar move o widget (pré-requisito do PUT)",
+      "pass": true,
+      "detail": "x 6 → 3"
+    },
+    {
+      "group": "conta",
+      "name": "arrastar dispara PUT /api/v3/prefs/hoje.layout",
+      "pass": true,
+      "detail": "hoje.layout"
+    },
+    {
+      "group": "conta",
+      "name": "o corpo do PUT carrega o layout NOVO (o mesmo que está na tela)",
+      "pass": true,
+      "detail": "PUT x=3 · tela x=3"
+    },
+    {
+      "group": "conta",
+      "name": "o debounce COALESCE: um arraste inteiro gera 1 PUT, não um por quadro",
+      "pass": true,
+      "detail": "1 PUT(s)"
+    },
+    {
+      "group": "conta",
+      "name": "o popover diz \"Salvo na sua conta\" com o nome de quem está logado",
+      "pass": true,
+      "detail": "Salvo na sua conta (Bruno) · agora"
+    },
+    {
+      "group": "screenshot",
+      "name": "07-conta",
+      "pass": true,
+      "detail": "183 KB → hoje-07-conta.png"
+    },
+    {
+      "group": "conta",
+      "name": "sem conta o arraste ainda funciona e fica salvo no navegador",
+      "pass": true,
+      "detail": "x 3 → 6"
+    },
+    {
+      "group": "conta",
+      "name": "sem conta NENHUM PUT é enviado (não existe conta pra salvar)",
+      "pass": true,
+      "detail": "0 PUT(s)"
+    },
+    {
+      "group": "conta",
+      "name": "sem conta o popover diz \"Só neste navegador\" e como resolver",
+      "pass": true,
+      "detail": "Só neste navegador (entre com seu PIN pessoal pra salvar na conta)"
+    },
+    {
+      "group": "screenshot",
+      "name": "08-sem-conta",
+      "pass": true,
+      "detail": "192 KB → hoje-08-sem-conta.png"
+    },
+    {
+      "group": "conta",
+      "name": "F5 antes do debounce: o ajuste local vence a conta velha (nada se perde)",
+      "pass": true,
+      "detail": "arrastado x=1 · depois do F5 x=1 · conta x=6"
+    },
+    {
+      "group": "conta",
+      "name": "e o ajuste que estava pendente SOBE pra conta na carga seguinte",
+      "pass": true,
+      "detail": "[6,1]"
     },
     {
       "group": "gradiente",

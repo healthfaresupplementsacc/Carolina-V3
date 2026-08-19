@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T16:51:05.817Z",
+  "at": "2026-08-19T17:18:03.984Z",
   "results": [
     {
       "group": "hoje",
@@ -539,7 +539,7 @@
       "group": "estoque-locais",
       "name": "screenshot",
       "pass": true,
-      "detail": "181 KB → theme-estoque-locais.png"
+      "detail": "180 KB → theme-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -1001,7 +1001,7 @@
       "group": "floor",
       "name": "screenshot",
       "pass": true,
-      "detail": "78 KB → theme-floor.png"
+      "detail": "77 KB → theme-floor.png"
     },
     {
       "group": "floor",

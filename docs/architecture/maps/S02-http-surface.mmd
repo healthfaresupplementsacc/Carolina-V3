@@ -29,6 +29,7 @@ subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
   S02_11["S02.11 · POST /api/images/upload — IMAGES_UPLOAD_TOKEN"]:::verified
   S02_14["S02.14 · GET / → 302 /dashboard-v4/ (index.js:57)"]:::verified
   S02_12["S02.12 · cameras.js ×10 (/api/cam, /cameras*) — CAM PIN→HMAC"]:::verified
+  S02_17["S02.17 · /api/v3/prefs ×4 (prefs/router.js) — PIN sem gate de funcao; preferencia por conta"]:::verified
   S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
 end
 S01_02 --> MOUNT
@@ -112,6 +113,13 @@ S02_02 -.->|R139 unauth /api/backfill → poller| SCHED
 S02_09 -->|R145 postAs| SENDER
 S02_10 -->|R144 postAs| SENDER
 S02_16 -.->|superseded by| S02_04
+
+%% S02.17 — preferencias por conta (08-19). Escrita unica em v3.user_prefs; o
+%% login_id vem do PIN resolvido, nunca do corpo — e' o que isola uma conta da outra.
+USERPREFS[("S08.05.13 · v3.user_prefs")]:::verified
+S02_17 ==>|R196 upsert por login_id + key| USERPREFS
+V4HOJE["S03.01.20 · useAccountPref no dashboard-v4"]:::verified
+V4HOJE -->|R195 GET na carga · PUT debounce 600ms| S02_17
 
 %% auth coverage notes
 S02_05 -.->|NOT covered: /api/v3/data, /dashboard-v4, /api/cam, legacy /api, /api/admin/v3| S02_10

@@ -250,6 +250,12 @@ function mount(app) {
   app.use('/', warehouseApi.createWarehouseRouter({
     db: _pool, stock: whStock, requests: whRequests, veeqo: whVeeqo,
     printQueue, adminChannelId }));
+  // PREFERÊNCIAS POR CONTA (Bruno 08-19) — /api/v3/prefs/*. Chave/valor por
+  // login: o layout dos widgets da Hoje para de morar só no navegador. Módulo
+  // novo e minúsculo, não encosta no data router. Qualquer login autenticado
+  // salva o que é DELE; login de emergência (sem id) segue no localStorage.
+  const prefsApi = require('./prefs/router');
+  app.use('/', prefsApi.createPrefsRouter({ db: _pool }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
   // buildada em public/dashboard/. Aditivo — não toca nada.
   const express = require('express');
@@ -281,7 +287,7 @@ function mount(app) {
   // Lateral total — não toca v3.events/messages/Observer/dashboard.
   app.use('/foto', express.static(path.join(process.cwd(), 'public', 'foto')));
   app.use('/', imagesApi.createImagesRouter({}));
-  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /api/v3/print-queue/* + /m + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /api/v3/print-queue/* + /api/v3/prefs/* + /m + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */

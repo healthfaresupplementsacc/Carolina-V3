@@ -15,6 +15,7 @@ import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { WidgetGrid, compact } from '../components/WidgetGrid.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import { apiGet, usePoll } from '../adapters/from-api.js';
+import { useAccountPref, prefStatusText } from '../hooks/useAccountPref.js';
 import nyTime from '../utils/ny-time.cjs';
 import dayStats from '../utils/day-stats.cjs';
 import './pages-operacao.css';
@@ -196,8 +197,9 @@ const STACK_DEFS = [
 const WIDGET_DEFS = [...GRID_DEFS, ...STACK_DEFS];
 const DEFS_BY_ID = Object.fromEntries(WIDGET_DEFS.map((d) => [d.id, d]));
 
-const LAYOUT_KEY = 'hf-hoje-layout-v2';
+const LAYOUT_KEY = 'hf-hoje-layout-v2';     // cache DESTE navegador
 const WIDGETS_KEY = 'hf-widgets-v1';        // esquema antigo (só on/off + ordem)
+const PREF_KEY = 'hoje.layout';             // a mesma coisa, salva NA CONTA
 
 /* Layout padrão = a ordem VISUAL de hoje: 4 cards de KPI na primeira faixa,
    Pedidos + FNSKU na segunda, Câmeras em largura cheia embaixo. */
@@ -216,40 +218,50 @@ function defaultStack() {
   return { order: STACK_DEFS.map((d) => d.id), off: [] };
 }
 
-/* Lê o layout salvo. Se não existir, MIGRA do 'hf-widgets-v1' uma única vez:
-   quem tinha desligado Câmeras continua sem Câmeras, e quem tinha desligado o
-   bloco 'kpis' inteiro fica com os seis cards desligados. Ninguém abre a página
-   e encontra a configuração de outra pessoa. */
+/* Normaliza um {grid, stack} salvo — venha do navegador ou DA CONTA.
+   O saneamento é o mesmo nos dois casos de propósito: um layout gravado por uma
+   versão anterior da página (widget que não existe mais, largura fora da grade)
+   não pode quebrar a tela só porque chegou pela rede em vez do localStorage. */
+function normalizeLayout(s) {
+  if (!s || !Array.isArray(s.grid)) return null;
+  const known = new Set(GRID_DEFS.map((d) => d.id));
+  const seen = new Set();
+  const grid = [];
+  for (const w of s.grid) {
+    if (!w || !known.has(w.id) || seen.has(w.id)) continue;
+    seen.add(w.id);
+    const def = DEFS_BY_ID[w.id];
+    grid.push({
+      id: w.id,
+      x: Math.max(0, Math.min(11, Number(w.x) || 0)),
+      y: Math.max(0, Number(w.y) || 0),
+      w: Math.max(def.minW, Math.min(12, Number(w.w) || def.w)),
+      h: Math.max(def.minH, Number(w.h) || def.h),
+      on: w.on !== false,
+    });
+  }
+  // widget novo que o layout salvo não conhece entra ligado, no fim
+  for (const d of GRID_DEFS) {
+    if (!seen.has(d.id)) grid.push({ id: d.id, x: 0, y: 999, w: d.w, h: d.h, on: true });
+  }
+  const src = s.stack && Array.isArray(s.stack.order) ? s.stack : defaultStack();
+  const kn = STACK_DEFS.map((d) => d.id);
+  const stack = {
+    order: src.order.filter((id) => kn.includes(id)).concat(kn.filter((id) => !src.order.includes(id))),
+    off: Array.isArray(src.off) ? src.off.filter((id) => kn.includes(id)) : [],
+  };
+  return { grid, stack };
+}
+
+/* Lê o layout salvo NO NAVEGADOR (cache imediato, sem piscar). Se não existir,
+   MIGRA do 'hf-widgets-v1' uma única vez: quem tinha desligado Câmeras continua
+   sem Câmeras, e quem tinha desligado o bloco 'kpis' inteiro fica com os seis
+   cards desligados.
+   A CONTA (useAccountPref) manda em cima disto assim que a resposta chega. */
 function loadLayout() {
   try {
-    const s = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null');
-    if (s && Array.isArray(s.grid)) {
-      const known = new Set(GRID_DEFS.map((d) => d.id));
-      const seen = new Set();
-      const grid = [];
-      for (const w of s.grid) {
-        if (!known.has(w.id) || seen.has(w.id)) continue;
-        seen.add(w.id);
-        const def = DEFS_BY_ID[w.id];
-        grid.push({
-          id: w.id,
-          x: Math.max(0, Math.min(11, Number(w.x) || 0)),
-          y: Math.max(0, Number(w.y) || 0),
-          w: Math.max(def.minW, Math.min(12, Number(w.w) || def.w)),
-          h: Math.max(def.minH, Number(w.h) || def.h),
-          on: w.on !== false,
-        });
-      }
-      // widget novo que o layout salvo não conhece entra ligado, no fim
-      for (const d of GRID_DEFS) {
-        if (!seen.has(d.id)) grid.push({ id: d.id, x: 0, y: 999, w: d.w, h: d.h, on: true });
-      }
-      const stack = s.stack && Array.isArray(s.stack.order) ? s.stack : defaultStack();
-      const kn = STACK_DEFS.map((d) => d.id);
-      stack.order = stack.order.filter((id) => kn.includes(id)).concat(kn.filter((id) => !stack.order.includes(id)));
-      stack.off = Array.isArray(stack.off) ? stack.off : [];
-      return { grid, stack };
-    }
+    const s = normalizeLayout(JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'));
+    if (s) return s;
     // ── migração do esquema antigo ──────────────────────────────
     const old = JSON.parse(localStorage.getItem(WIDGETS_KEY) || 'null');
     if (old && Array.isArray(old.order)) {
@@ -322,13 +334,20 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const closeDrill = () => setDrill(null);
 
   // ── Widgets: grade arrastável (topo) + blocos empilhados (embaixo) ──
-  // Bruno 08-19. Um único objeto persistido em 'hf-hoje-layout-v2'.
-  const [wstate, setWstate] = React.useState(loadLayout);
+  // Bruno 08-19. Um único objeto, salvo NA CONTA ('hoje.layout') com o
+  // localStorage 'hf-hoje-layout-v2' de cache: abre sem piscar, e quando a
+  // resposta da conta chega ela vence (o layout segue a pessoa, não o PC).
+  // Quem entrou pelo PIN de emergência não tem conta: fica só neste navegador,
+  // e o popover diz isso com todas as letras.
+  const [rawWstate, setWstate, prefMeta] = useAccountPref(PREF_KEY, loadLayout, { localKey: LAYOUT_KEY });
   const [widgetsOpen, setWidgetsOpen] = React.useState(false);
-  const saveW = React.useCallback((next) => {
-    setWstate(next);
-    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); } catch { /* off */ }
-  }, []);
+  /* O layout que volta DA CONTA passa pelo MESMO saneamento do local: quem
+     gravou numa versão anterior da página (widget que já não existe, largura
+     fora da grade) não pode quebrar a tela por ter chegado pela rede. */
+  const wstate = React.useMemo(
+    () => normalizeLayout(rawWstate) || { grid: defaultLayout(), stack: defaultStack() },
+    [rawWstate]);
+  const saveW = React.useCallback((next) => { setWstate(next); }, [setWstate]);
 
   // grade
   const grid = wstate.grid;
@@ -1020,7 +1039,15 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             <div style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 10, lineHeight: 1.5 }}>
               Arraste pelo título. Puxe o canto pra mudar o tamanho.
             </div>
-            <div className="kit-mlabel" style={{ marginTop: 6 }}>salvo neste navegador</div>
+            {/* Onde este layout foi parar. A pessoa precisa saber se o ajuste
+                dela segue pro outro computador ou morre neste navegador — e,
+                quando morre, o que fazer pra mudar isso. */}
+            <div className="kit-mlabel" data-pref-status
+                 data-pref-source={prefMeta.saving ? 'salvando' : (prefMeta.error ? 'erro' : prefMeta.source)}
+                 style={{ marginTop: 6, lineHeight: 1.45,
+                          color: prefMeta.error ? 'var(--red-d, #a33)' : undefined }}>
+              {prefStatusText(prefMeta, now)}
+            </div>
           </div>
         </>
       )}

@@ -13,6 +13,10 @@
  *   3. SEM GRADIENTE — nenhum elemento com background-clip:text nem gradiente
  *      em texto; as linhas do Resumo têm cor idêntica em todos os rótulos e
  *      idêntica em todos os valores.
+ *   4. LAYOUT NA CONTA (Bruno 08-19) — /api/v3/prefs/hoje.layout. A conta VENCE
+ *      o navegador na carga; arrastar manda PUT com o layout novo; o popover
+ *      diz onde o ajuste foi parar. Sem conta (PIN de emergência) não sai PUT
+ *      nenhum e a tela avisa que ficou só neste navegador.
  *
  * Mesmo padrão do qa-dashboard.js: servidor estático de public/ + TODA /api/**
  * respondida por fixture local. Nunca fala com servidor nem banco.
@@ -63,7 +67,65 @@ const ATTENDANCE = { data: { date: YMD, people: [
 /** POSTs que a página fez, pra conferir que o power chamou o endpoint certo. */
 const posted = [];
 
+/* ── PREFERÊNCIAS POR CONTA — /api/v3/prefs/* (Bruno 08-19) ────────
+   O servidor de mentira guarda a conta e o valor de 'hoje.layout'. Os testes
+   mexem em PREFS entre navegações pra simular os três mundos:
+     conta com layout      → a conta tem que VENCER o localStorage
+     conta sem layout      → o local sobe (promoção) e o arraste manda PUT
+     account: null         → PIN de emergência: nenhum PUT pode sair */
+const PREFS = {
+  account: { id: 1, name: 'Bruno', role: 'admin' },
+  value: null,
+  updated_at: null,
+};
+/** PUTs de preferência que a página fez, com o corpo. */
+const prefPuts = [];
+
+/** Layout de conta usado no teste "a conta vence": Produção em x=6, sem Câmeras. */
+const SERVER_LAYOUT = {
+  grid: [
+    { id: 'producao', x: 6, y: 0, w: 3, h: 4, on: true },
+    { id: 'revisao', x: 0, y: 0, w: 3, h: 4, on: true },
+    { id: 'metas', x: 3, y: 0, w: 3, h: 4, on: true },
+    { id: 'pp', x: 9, y: 0, w: 3, h: 4, on: true },
+    { id: 'pedidos', x: 0, y: 4, w: 6, h: 5, on: true },
+    { id: 'fnsku', x: 6, y: 4, w: 6, h: 5, on: true },
+    { id: 'cameras', x: 0, y: 9, w: 12, h: 7, on: true },
+  ],
+  stack: { order: ['filtros', 'timeline', 'resumo'], off: [] },
+};
+
+function prefsFixture(pathname, method, body) {
+  const isKey = /^\/api\/v3\/prefs\/(.+)$/.exec(pathname);
+  const key = isKey ? decodeURIComponent(isKey[1]) : null;
+
+  if (method === 'GET' && !key) {
+    return { data: { prefs: PREFS.value ? { 'hoje.layout': PREFS.value } : {}, account: PREFS.account } };
+  }
+  if (method === 'GET') {
+    if (!PREFS.account) return { data: { key, value: null, updated_at: null, account: null } };
+    return { data: { key, value: PREFS.value, updated_at: PREFS.updated_at, account: PREFS.account } };
+  }
+  if (method === 'PUT') {
+    prefPuts.push({ key, value: body && body.value });
+    if (!PREFS.account) {
+      return { __status: 409,
+        error: { code: 'no_account', message: 'Entre com o seu PIN pessoal pra salvar na conta.' } };
+    }
+    PREFS.value = body && body.value;
+    PREFS.updated_at = new Date().toISOString();
+    return { data: { key, updated_at: PREFS.updated_at, account: PREFS.account } };
+  }
+  if (method === 'DELETE') {
+    const had = PREFS.value != null;
+    PREFS.value = null;
+    return { data: { key, deleted: had, account: PREFS.account } };
+  }
+  return { data: {} };
+}
+
 function apiFixture(pathname, search, method, body) {
+  if (pathname.startsWith('/api/v3/prefs')) return prefsFixture(pathname, method, body);
   if (method === 'POST') posted.push({ pathname, body });
 
   if (pathname === '/api/v3/data/login') return { data: LOGIN };
@@ -218,10 +280,11 @@ async function main() {
       if (u.pathname.startsWith('/api/')) {
         let payload = null;
         try { payload = req.postData() ? JSON.parse(req.postData()) : null; } catch (e) { payload = req.postData(); }
-        req.respond({
-          status: 200, contentType: 'application/json',
-          body: JSON.stringify(apiFixture(u.pathname, u.search, req.method(), payload)),
-        });
+        const out = apiFixture(u.pathname, u.search, req.method(), payload) || { data: {} };
+        // __status permite a fixture devolver 409 (no_account) e não só 200
+        const status = out.__status || 200;
+        if (out.__status) delete out.__status;
+        req.respond({ status, contentType: 'application/json', body: JSON.stringify(out) });
         return;
       }
       req.continue(); return;
@@ -252,7 +315,7 @@ async function main() {
   async function go(hash, opts) {
     await page.goto('about:blank');
     if (opts && opts.clearLayout) {
-      await page.evaluateOnNewDocument(() => { try { localStorage.removeItem('hf-hoje-layout-v2'); localStorage.removeItem('hf-widgets-v1'); } catch (e) {} });
+      await page.evaluateOnNewDocument(() => { try { localStorage.removeItem('hf-hoje-layout-v2'); localStorage.removeItem('hf-hoje-layout-v2.dirty'); localStorage.removeItem('hf-widgets-v1'); } catch (e) {} });
     }
     await page.goto(BASE + '#' + hash, { waitUntil: 'networkidle0' });
     await sleep(700);
@@ -469,6 +532,162 @@ async function main() {
   rec('grade', 'abaixo de 900px empilha em coluna única e desliga o drag', narrow === '1', 'narrow=' + narrow);
   await page.setViewport({ width: 1600, height: 1100 });
   await sleep(700);
+
+  // ══ 2b. LAYOUT SALVO NA CONTA (Bruno 08-19) ═══════════════════
+  /* Três mundos, na ordem em que uma pessoa real os encontra:
+       a) a conta já tem layout → ele vence o que está neste navegador
+       b) a pessoa arrasta      → sai um PUT com o layout novo e a tela confirma
+       c) PIN de emergência     → nada sobe, e a tela explica por quê */
+
+  // (a) a CONTA VENCE. O navegador está com um layout (o restaurado, Produção em
+  // x=0); a conta manda Produção pra x=6. Quem abre tem que ver o da CONTA.
+  PREFS.account = { id: 1, name: 'Bruno', role: 'admin' };
+  PREFS.value = SERVER_LAYOUT;
+  PREFS.updated_at = new Date().toISOString();
+  prefPuts.length = 0;
+  /* Cenário: "arrumei a grade no OUTRO computador e voltei pra este". Este
+     navegador está EM DIA (nada pendente pra subir) e tem um layout antigo em
+     cache; a conta tem outro. Baixar a flag de pendente é o que descreve esse
+     estado — com pendência, o certo seria o oposto (o local sobe), e isso é o
+     que o teste do arraste + F5 cobre no fim. */
+  await page.evaluate(() => { try { localStorage.removeItem('hf-hoje-layout-v2.dirty'); } catch (e) {} });
+  const localBefore = await page.evaluate(() => localStorage.getItem('hf-hoje-layout-v2'));
+  const localProdX = (() => {
+    try { return (JSON.parse(localBefore).grid.find((w) => w.id === 'producao') || {}).x; }
+    catch (e) { return null; }
+  })();
+  rec('conta', 'antes de recarregar, o navegador tem um layout DIFERENTE do da conta',
+      localProdX != null && localProdX !== 6, 'local x=' + localProdX + ' · conta x=6');
+
+  await go('hoje');
+  await page.waitForSelector('[data-widget="producao"]', { timeout: 8000 }).catch(() => {});
+  await sleep(500);
+  const fromAccount = await posOf('producao');
+  rec('conta', 'na carga, o layout DA CONTA vence o do navegador',
+      fromAccount.x === 6, 'producao x=' + fromAccount.x + ' (esperado 6)');
+
+  const localAfter = await page.evaluate(() => {
+    try { return JSON.parse(localStorage.getItem('hf-hoje-layout-v2')); } catch (e) { return null; }
+  });
+  const cachedX = localAfter && (localAfter.grid.find((w) => w.id === 'producao') || {}).x;
+  rec('conta', 'o layout da conta é reescrito no cache do navegador',
+      cachedX === 6, 'cache x=' + cachedX);
+
+  // (b) ARRASTAR manda PUT com o layout novo
+  prefPuts.length = 0;
+  const beforeAcc = await posOf('producao');
+  const hb2 = await page.$eval('[data-widget="producao"] [data-widget-handle]', (e) => {
+    const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const colPx2 = await page.$eval('[data-widget-grid]', (e) => (e.clientWidth - 14 * 11) / 12);
+  await page.mouse.move(hb2.x, hb2.y);
+  await page.mouse.down();
+  await page.mouse.move(hb2.x - colPx2 * 3 - 28, hb2.y, { steps: 12 });
+  await page.mouse.up();
+  await sleep(1400);                      // 600ms de debounce + folga da rede
+  const afterAcc = await posOf('producao');
+  rec('conta', 'arrastar move o widget (pré-requisito do PUT)',
+      afterAcc.x !== beforeAcc.x, `x ${beforeAcc.x} → ${afterAcc.x}`);
+
+  const put = prefPuts[prefPuts.length - 1];
+  rec('conta', 'arrastar dispara PUT /api/v3/prefs/hoje.layout',
+      !!put && put.key === 'hoje.layout', put ? put.key : 'nenhum PUT');
+  const putProd = put && put.value && Array.isArray(put.value.grid)
+    ? put.value.grid.find((w) => w.id === 'producao') : null;
+  rec('conta', 'o corpo do PUT carrega o layout NOVO (o mesmo que está na tela)',
+      !!putProd && putProd.x === afterAcc.x,
+      'PUT x=' + (putProd ? putProd.x : '?') + ' · tela x=' + afterAcc.x);
+  rec('conta', 'o debounce COALESCE: um arraste inteiro gera 1 PUT, não um por quadro',
+      prefPuts.length === 1, prefPuts.length + ' PUT(s)');
+
+  // status do popover
+  await openWidgets();
+  await sleep(200);
+  const statusOk = await page.$eval('[data-widgets-popover] [data-pref-status]',
+    (e) => ({ txt: e.textContent.replace(/\s+/g, ' ').trim(), src: e.getAttribute('data-pref-source') }));
+  rec('conta', 'o popover diz "Salvo na sua conta" com o nome de quem está logado',
+      /^Salvo na sua conta \(Bruno\) · /.test(statusOk.txt) && statusOk.src === 'conta', statusOk.txt);
+  await shot('07-conta');
+  await page.evaluate(() => { const b = document.querySelector('[data-widgets-popover]'); if (b) b.blur(); });
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.evaluate(() => {
+    const back = [...document.querySelectorAll('div')].find((d) => d.style.position === 'fixed' && d.style.inset === '0px');
+    if (back) back.click();
+  });
+  await sleep(250);
+
+  // (c) SEM CONTA (PIN de emergência): nenhum PUT, e a tela explica
+  PREFS.account = null;
+  PREFS.value = null;
+  prefPuts.length = 0;
+  await go('hoje');
+  await page.waitForSelector('[data-widget="producao"]', { timeout: 8000 }).catch(() => {});
+  await sleep(500);
+  const beforeNo = await posOf('producao');
+  const hb3 = await page.$eval('[data-widget="producao"] [data-widget-handle]', (e) => {
+    const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const colPx3 = await page.$eval('[data-widget-grid]', (e) => (e.clientWidth - 14 * 11) / 12);
+  await page.mouse.move(hb3.x, hb3.y);
+  await page.mouse.down();
+  await page.mouse.move(hb3.x + colPx3 * 3 + 28, hb3.y, { steps: 12 });
+  await page.mouse.up();
+  await sleep(1400);
+  const afterNo = await posOf('producao');
+  rec('conta', 'sem conta o arraste ainda funciona e fica salvo no navegador',
+      afterNo.x !== beforeNo.x, `x ${beforeNo.x} → ${afterNo.x}`);
+  rec('conta', 'sem conta NENHUM PUT é enviado (não existe conta pra salvar)',
+      prefPuts.length === 0, prefPuts.length + ' PUT(s)');
+
+  await openWidgets();
+  await sleep(200);
+  const statusNo = await page.$eval('[data-widgets-popover] [data-pref-status]',
+    (e) => ({ txt: e.textContent.replace(/\s+/g, ' ').trim(), src: e.getAttribute('data-pref-source') }));
+  rec('conta', 'sem conta o popover diz "Só neste navegador" e como resolver',
+      /^Só neste navegador \(entre com seu PIN pessoal pra salvar na conta\)$/.test(statusNo.txt)
+      && statusNo.src === 'navegador', statusNo.txt);
+  await shot('08-sem-conta');
+  await page.evaluate(() => {
+    const back = [...document.querySelectorAll('div')].find((d) => d.style.position === 'fixed' && d.style.inset === '0px');
+    if (back) back.click();
+  });
+  await sleep(250);
+
+  // (d) O NAVEGADOR NA FRENTE: a pessoa arruma a grade e dá F5 antes dos 600 ms
+  // do debounce subirem. A conta tem um layout VELHO — e não pode desfazer o que
+  // ela acabou de fazer. Este foi o caso que quebrou o "sobrevive ao reload".
+  PREFS.account = { id: 1, name: 'Bruno', role: 'admin' };
+  PREFS.value = SERVER_LAYOUT;                 // conta com Produção em x=6
+  PREFS.updated_at = new Date().toISOString();
+  prefPuts.length = 0;
+  await go('hoje');
+  await page.waitForSelector('[data-widget="producao"]', { timeout: 8000 }).catch(() => {});
+  await sleep(600);
+  const hb4 = await page.$eval('[data-widget="producao"] [data-widget-handle]', (e) => {
+    const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const colPx4 = await page.$eval('[data-widget-grid]', (e) => (e.clientWidth - 14 * 11) / 12);
+  await page.mouse.move(hb4.x, hb4.y);
+  await page.mouse.down();
+  await page.mouse.move(hb4.x - colPx4 * 6 - 28, hb4.y, { steps: 12 });
+  await page.mouse.up();
+  await sleep(120);                            // MENOS que o debounce: nada subiu
+  const justDragged = await posOf('producao');
+  await go('hoje');                            // F5 no meio do caminho
+  await page.waitForSelector('[data-widget="producao"]', { timeout: 8000 }).catch(() => {});
+  await sleep(700);
+  const afterF5 = await posOf('producao');
+  rec('conta', 'F5 antes do debounce: o ajuste local vence a conta velha (nada se perde)',
+      afterF5.x === justDragged.x,
+      'arrastado x=' + justDragged.x + ' · depois do F5 x=' + afterF5.x + ' · conta x=6');
+  rec('conta', 'e o ajuste que estava pendente SOBE pra conta na carga seguinte',
+      prefPuts.some((p) => p.value && (p.value.grid.find((w) => w.id === 'producao') || {}).x === justDragged.x),
+      JSON.stringify(prefPuts.map((p) => (p.value && p.value.grid.find((w) => w.id === 'producao') || {}).x)));
+
+  // volta o mundo normal pro resto do harness
+  PREFS.account = { id: 1, name: 'Bruno', role: 'admin' };
+  PREFS.value = null;
+  prefPuts.length = 0;
 
   // ══ 3. SEM GRADIENTE ══════════════════════════════════════════
   await go('hoje');

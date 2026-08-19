@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T16:50:03.983Z",
+  "at": "2026-08-19T17:17:02.368Z",
   "results": [
     {
       "group": "screenshot",
@@ -353,13 +353,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"28h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"32h\"}]"
     },
     {
       "group": "estoque-locais",
@@ -473,7 +473,7 @@
       "group": "screenshot",
       "name": "legado-inventory",
       "pass": true,
-      "detail": "131 KB → dash-legado-inventory.png"
+      "detail": "132 KB → dash-legado-inventory.png"
     }
   ]
 }
