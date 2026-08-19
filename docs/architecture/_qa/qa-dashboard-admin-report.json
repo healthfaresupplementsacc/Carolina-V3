@@ -1,0 +1,425 @@
+{
+  "at": "2026-08-19T01:13:30.473Z",
+  "results": [
+    {
+      "group": "screenshot",
+      "name": "admin",
+      "pass": true,
+      "detail": "151 KB → theme-C-admin.png"
+    },
+    {
+      "group": "admin",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "H1 do kit existe",
+      "pass": true,
+      "detail": "Painel admin"
+    },
+    {
+      "group": "admin",
+      "name": "H1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "admin",
+      "name": "H1 tem uma palavra em <em>",
+      "pass": true,
+      "detail": "admin"
+    },
+    {
+      "group": "admin",
+      "name": "eyebrow presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "sem classes do tema antigo (.card/.btn/.pill/.filter-chip)",
+      "pass": true,
+      "detail": "restam=0"
+    },
+    {
+      "group": "admin",
+      "name": "aba Hoje lista os 4 operadores logados",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "admin",
+      "name": "sub-nav e um kit-seg com aba ativa",
+      "pass": true,
+      "detail": "Hoje"
+    },
+    {
+      "group": "admin",
+      "name": "excecoes aparecem em kit-card warn",
+      "pass": true,
+      "detail": "cards warn=1"
+    },
+    {
+      "group": "screenshot",
+      "name": "admin-metricas",
+      "pass": true,
+      "detail": "171 KB → theme-C-admin-metricas.png"
+    },
+    {
+      "group": "admin",
+      "name": "Analytics desenha as barras do kit",
+      "pass": true,
+      "detail": "barras=4"
+    },
+    {
+      "group": "screenshot",
+      "name": "admin-analytics",
+      "pass": true,
+      "detail": "157 KB → theme-C-admin-analytics.png"
+    },
+    {
+      "group": "screenshot",
+      "name": "operadores",
+      "pass": true,
+      "detail": "125 KB → theme-C-operadores.png"
+    },
+    {
+      "group": "operadores",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "H1 do kit existe",
+      "pass": true,
+      "detail": "Quem trabalha na linha"
+    },
+    {
+      "group": "operadores",
+      "name": "H1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "operadores",
+      "name": "H1 tem uma palavra em <em>",
+      "pass": true,
+      "detail": "linha"
+    },
+    {
+      "group": "operadores",
+      "name": "eyebrow presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "sem classes do tema antigo (.card/.btn/.pill/.filter-chip)",
+      "pass": true,
+      "detail": "restam=0"
+    },
+    {
+      "group": "operadores",
+      "name": "lista os 5 operadores da fixture",
+      "pass": true,
+      "detail": "cards=5"
+    },
+    {
+      "group": "operadores",
+      "name": "chips de estado ativo/inativo",
+      "pass": true,
+      "detail": "ativo,1 sessão,ativo,1 sessão,ativo,ativo,1 sessão,inativo"
+    },
+    {
+      "group": "operadores",
+      "name": "painel Gerenciar abre",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "editor de escala com 14 campos de hora (7 dias)",
+      "pass": true,
+      "detail": "inputs=14"
+    },
+    {
+      "group": "screenshot",
+      "name": "operadores-escala",
+      "pass": true,
+      "detail": "160 KB → theme-C-operadores-escala.png"
+    },
+    {
+      "group": "screenshot",
+      "name": "usuarios",
+      "pass": true,
+      "detail": "136 KB → theme-C-usuarios.png"
+    },
+    {
+      "group": "usuarios",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "H1 do kit existe",
+      "pass": true,
+      "detail": "Quem entra e o que cada cargo acessa"
+    },
+    {
+      "group": "usuarios",
+      "name": "H1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "usuarios",
+      "name": "H1 tem uma palavra em <em>",
+      "pass": true,
+      "detail": "cargo"
+    },
+    {
+      "group": "usuarios",
+      "name": "eyebrow presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "sem classes do tema antigo (.card/.btn/.pill/.filter-chip)",
+      "pass": true,
+      "detail": "restam=0"
+    },
+    {
+      "group": "usuarios",
+      "name": "tabela de logins com 3 linhas",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "usuarios",
+      "name": "matriz 11 funcoes x 3 cargos = 33 checkboxes",
+      "pass": true,
+      "detail": "checkboxes=33"
+    },
+    {
+      "group": "usuarios",
+      "name": "coluna Admin fica travada (sempre tem tudo)",
+      "pass": true,
+      "detail": "travados=11"
+    },
+    {
+      "group": "screenshot",
+      "name": "sistema",
+      "pass": true,
+      "detail": "155 KB → theme-C-sistema.png"
+    },
+    {
+      "group": "sistema",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "H1 do kit existe",
+      "pass": true,
+      "detail": "Tudo que está rodando"
+    },
+    {
+      "group": "sistema",
+      "name": "H1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "sistema",
+      "name": "H1 tem uma palavra em <em>",
+      "pass": true,
+      "detail": "rodando"
+    },
+    {
+      "group": "sistema",
+      "name": "eyebrow presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "sem classes do tema antigo (.card/.btn/.pill/.filter-chip)",
+      "pass": true,
+      "detail": "restam=0"
+    },
+    {
+      "group": "sistema",
+      "name": "registro lista os 12 processos",
+      "pass": true,
+      "detail": "linhas=12"
+    },
+    {
+      "group": "sistema",
+      "name": "estados usam chips tonais ok/warn/bad",
+      "pass": true,
+      "detail": "kit-chip bad | kit-chip ok | kit-chip bad | kit-chip ok | kit-chip bad"
+    },
+    {
+      "group": "sistema",
+      "name": "aviso de critico parado em kit-card bad",
+      "pass": true,
+      "detail": "cards bad=1"
+    },
+    {
+      "group": "sistema",
+      "name": "clique na linha abre o detalhe",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "sistema-detalhe",
+      "pass": true,
+      "detail": "158 KB → theme-C-sistema-detalhe.png"
+    },
+    {
+      "group": "screenshot",
+      "name": "impressao",
+      "pass": true,
+      "detail": "147 KB → theme-C-impressao.png"
+    },
+    {
+      "group": "impressao",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "H1 do kit existe",
+      "pass": true,
+      "detail": "Impressoras da fábrica"
+    },
+    {
+      "group": "impressao",
+      "name": "H1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "impressao",
+      "name": "H1 tem uma palavra em <em>",
+      "pass": true,
+      "detail": "fábrica"
+    },
+    {
+      "group": "impressao",
+      "name": "eyebrow presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "sem classes do tema antigo (.card/.btn/.pill/.filter-chip)",
+      "pass": true,
+      "detail": "restam=0"
+    },
+    {
+      "group": "impressao",
+      "name": "3 cards de impressora",
+      "pass": true,
+      "detail": "cards=3"
+    },
+    {
+      "group": "impressao",
+      "name": "barras de tinta CMYK + caixa de manutencao (5)",
+      "pass": true,
+      "detail": "barras=5"
+    },
+    {
+      "group": "impressao",
+      "name": "incidente aberto em kit-card bad",
+      "pass": true,
+      "detail": "incidentes=1"
+    },
+    {
+      "group": "impressao",
+      "name": "historico com 4 impressoes",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "impressao",
+      "name": "KPIs batem com a fixture (3860 labels, 14 jobs, 3 impressoras)",
+      "pass": true,
+      "detail": "3860,14,3"
+    },
+    {
+      "group": "screenshot",
+      "name": "cameras",
+      "pass": true,
+      "detail": "110 KB → theme-C-cameras.png"
+    },
+    {
+      "group": "cameras",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "H1 do kit existe",
+      "pass": true,
+      "detail": "A produção ao vivo"
+    },
+    {
+      "group": "cameras",
+      "name": "H1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "cameras",
+      "name": "H1 tem uma palavra em <em>",
+      "pass": true,
+      "detail": "vivo"
+    },
+    {
+      "group": "cameras",
+      "name": "eyebrow presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "sem classes do tema antigo (.card/.btn/.pill/.filter-chip)",
+      "pass": true,
+      "detail": "restam=0"
+    },
+    {
+      "group": "cameras",
+      "name": "3 tiles de camera",
+      "pass": true,
+      "detail": "tiles=3"
+    },
+    {
+      "group": "cameras",
+      "name": "header do tile no chrome do kit",
+      "pass": true,
+      "detail": "headers=3"
+    },
+    {
+      "group": "cameras",
+      "name": "mecanica do video preservada (elemento por tile)",
+      "pass": true,
+      "detail": "players=3"
+    },
+    {
+      "group": "cameras",
+      "name": "clique no header minimiza o tile",
+      "pass": true,
+      "detail": "stages=2"
+    }
+  ]
+}

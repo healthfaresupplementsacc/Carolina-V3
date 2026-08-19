@@ -1,0 +1,155 @@
+{
+  "rbac": {
+    "roles": [
+      { "id": 1, "key": "admin",     "name": "Admin",     "functions": ["*"] },
+      { "id": 2, "key": "manager",   "name": "Manager",   "functions": ["admin_page", "view_stock", "manage_stock", "config_page"] },
+      { "id": 3, "key": "assistant", "name": "Assistente", "functions": ["view_stock"] }
+    ],
+    "functions": [
+      { "key": "admin_page",     "label": "Painel admin",            "category": "admin" },
+      { "key": "manage_users",   "label": "Usuários e permissões",   "category": "admin" },
+      { "key": "manage_system",  "label": "Saúde do sistema",        "category": "admin" },
+      { "key": "config_page",    "label": "Configurações",           "category": "admin" },
+      { "key": "view_timeline",  "label": "Ver a timeline do dia",   "category": "operacao" },
+      { "key": "manage_events",  "label": "Editar eventos",          "category": "operacao" },
+      { "key": "view_stock",     "label": "Ver estoque",             "category": "estoque" },
+      { "key": "manage_stock",   "label": "Movimentar estoque",      "category": "estoque" },
+      { "key": "view_printing",  "label": "Ver impressão",           "category": "fabrica" },
+      { "key": "view_cameras",   "label": "Ver câmeras",             "category": "fabrica" },
+      { "key": "ask_assistant",  "label": "Perguntar pro assistente", "category": "assistente" }
+    ],
+    "logins": [
+      { "id": 1, "name": "Bruno S",   "role": "admin",     "role_name": "Admin",      "active": true },
+      { "id": 2, "name": "Henrique",  "role": "manager",   "role_name": "Manager",    "active": true },
+      { "id": 3, "name": "Carolina",  "role": "assistant", "role_name": "Assistente", "active": false }
+    ]
+  },
+
+  "system_health": {
+    "summary": { "up": 9, "down": 1, "off": 2, "total": 12, "critical_down": 1 },
+    "processes": [
+      { "key": "worker_main", "name": "Worker principal", "where": "railway", "health": "up", "critical": true,
+        "short": "Fila de eventos, cowork e fechamento de tasks.",
+        "detail": "Roda o loop principal da fila v3: consome eventos, fecha tasks abertas e dispara os watchdogs.",
+        "heartbeat": true, "last_beat_min": 0, "tick_ms": 15000, "since": "18/08 06:02", "enabled": true },
+      { "key": "slack_observer", "name": "Observer do Slack", "where": "railway", "health": "up", "critical": true,
+        "short": "Lê as mensagens dos canais e vira evento.",
+        "detail": "Webhook /slack/events-v2 mais o LLM observer. Cada mensagem vira evento ou pergunta de confirmação.",
+        "heartbeat": true, "last_beat_min": 1, "tick_ms": null, "since": "18/08 06:02", "enabled": true },
+      { "key": "forgotten_checkout", "name": "Checkout esquecido", "where": "railway", "health": "down", "critical": true,
+        "short": "Cobra no dia seguinte quem esqueceu de bater a saída.",
+        "detail": "Cron diário que monta a lista de checkouts esquecidos e manda pela Carolina. Está PARADO.",
+        "heartbeat": true, "last_beat_min": 640, "tick_ms": 3600000, "since": "17/08 06:02", "enabled": true },
+      { "key": "idle_watchdog", "name": "Watchdog de ociosidade", "where": "railway", "health": "up", "critical": false,
+        "short": "Avisa quando alguém fica parado demais.",
+        "detail": "Compara última atividade com a escala do dia. Respeita o kill-switch de alertas.",
+        "heartbeat": true, "last_beat_min": 2, "tick_ms": 300000, "since": "18/08 06:02", "enabled": true },
+      { "key": "veeqo_orders", "name": "Sync de pedidos Veeqo", "where": "railway", "health": "on_no_hb", "critical": false,
+        "short": "Puxa os pedidos abertos pro reservado do estoque.",
+        "detail": "Ligado por config mas sem heartbeat próprio. O reservado do hub vem daqui.",
+        "heartbeat": false, "last_beat_min": null, "tick_ms": 600000, "since": null, "enabled": true },
+      { "key": "stock_alerts", "name": "Alertas de estoque", "where": "railway", "health": "off", "critical": false,
+        "short": "Avisa produto zerado ou baixo.",
+        "detail": "Desligado por flag (WORKER_STOCK_ALERTS=0) enquanto o ledger está em fase A.",
+        "heartbeat": false, "last_beat_min": null, "tick_ms": 900000, "since": null, "enabled": false },
+      { "key": "note_analyzer", "name": "Analisador de notas", "where": "railway", "health": "up", "critical": false,
+        "short": "Lê as notas dos operadores e classifica.",
+        "detail": "Passa as notas livres pelo LLM e marca incidentes prováveis. Conservador por decisão do Bruno.",
+        "heartbeat": true, "last_beat_min": 4, "tick_ms": 600000, "since": "18/08 06:02", "enabled": true },
+      { "key": "ngteco_sync", "name": "Sync do relógio NGTeco", "where": "railway", "health": "up", "critical": false,
+        "short": "Traz as batidas do relógio de ponto.",
+        "detail": "Batida de saída é o checkout autoritativo. Horários internos aparecem só pro admin.",
+        "heartbeat": true, "last_beat_min": 7, "tick_ms": 900000, "since": "18/08 06:02", "enabled": true },
+      { "key": "cam_gateway", "name": "Gateway das câmeras", "where": "railway", "health": "up", "critical": false,
+        "short": "Proxy H.264 das câmeras da produção.",
+        "detail": "Serve /api/cam/:name/mp4 com fallback MJPEG. O túnel fica no PC das câmeras.",
+        "heartbeat": true, "last_beat_min": 0, "tick_ms": null, "since": "18/08 06:02", "enabled": true },
+      { "key": "print_poller", "name": "Poller da impressora", "where": "win28", "health": "idle28", "critical": true,
+        "short": "Lê o estado físico da EPSON via ESC/Label.",
+        "detail": "Fala ~H(SMA,S no device USB. A transição PR para IL é o fim físico real da impressão.",
+        "heartbeat": true, "last_beat_min": 12, "tick_ms": 5000, "since": "18/08 07:41", "enabled": true },
+      { "key": "spooler_watch", "name": "Watch do spooler", "where": "win28", "health": "up", "critical": false,
+        "short": "Progresso dos jobs no spooler do Windows.",
+        "detail": "Manda progress e done pro SSE /api/v3/data/print-stream. Não é o fim físico.",
+        "heartbeat": true, "last_beat_min": 1, "tick_ms": 3000, "since": "18/08 07:41", "enabled": true },
+      { "key": "kiosk_agent", "name": "Kiosk de labels", "where": "win28", "health": "off", "critical": false,
+        "short": "Login por PIN na estação de impressão.",
+        "detail": "Abre a task Impressão de Labels e captura quem imprimiu o quê. Cliente ainda não migrado.",
+        "heartbeat": false, "last_beat_min": null, "tick_ms": null, "since": null, "enabled": false }
+    ]
+  },
+
+  "printers": {
+    "stats": { "jobs": 14, "labels": 3860, "operators": 2 },
+    "stationOperator": { "name": "Simone", "active_now": true, "active_sec": 7200, "last_seen_sec": 40, "stale": false },
+    "printers": [
+      {
+        "computer": "WIN-28", "printer": "EPSON CW-C8000u", "status_label": "PR imprimindo", "age_sec": 12,
+        "error_label": null,
+        "ink": {
+          "K": { "code": "RH", "label": "cheio", "pct": 92 },
+          "C": { "code": "RM", "label": "médio", "pct": 58 },
+          "M": { "code": "RL", "label": "baixo", "pct": 12 },
+          "Y": { "code": "RM", "label": "médio", "pct": 44 }
+        },
+        "media": {
+          "maint_box": { "code": "RM", "label": "meio cheia", "pct": 61 },
+          "warnings": ["IM1", "NCR"]
+        }
+      },
+      {
+        "computer": "WIN-28", "printer": "Zebra ZT411", "status_label": "IL ociosa", "age_sec": 340,
+        "error_label": null, "ink": null, "media": null
+      },
+      {
+        "computer": "WIN-246", "printer": "Brother QL-820", "status_label": "erro sem papel", "age_sec": 90,
+        "error_label": "sem papel na bandeja", "ink": null, "media": null
+      }
+    ],
+    "incidents": [
+      { "printer": "Brother QL-820", "error": "sem papel", "down_seconds": 780, "tried_by": "Simone", "alerts": 2 }
+    ],
+    "live": {
+      "active": [
+        { "computer": "WIN-28", "job_id": 4411, "printer": "EPSON CW-C8000u", "document": "labels_lcarnitine_4821.pdf",
+          "elapsed_sec": 96, "pages_printed": 320, "total_pages": 480, "pct": 67, "eta_sec": 58 },
+        { "computer": "WIN-28", "job_id": 4412, "printer": "Zebra ZT411", "document": "fnsku_batch_4822.pdf",
+          "elapsed_sec": 21, "pages_printed": 0, "total_pages": 1, "pct": null, "eta_sec": null }
+      ],
+      "done": []
+    },
+    "byPrinter": [
+      { "printer": "EPSON CW-C8000u", "labels": 2600 },
+      { "printer": "Zebra ZT411", "labels": 980 },
+      { "printer": "Brother QL-820", "labels": 280 }
+    ],
+    "byOperator": [
+      { "operator": "Simone", "labels": 2900 },
+      { "operator": "Vitor", "labels": 960 }
+    ],
+    "byProduct": [
+      { "product": "L-Carnitine 1500", "labels": 1800 },
+      { "product": "Magnesium Glycinate", "labels": 1200 },
+      { "product": "Ashwagandha KSM-66", "labels": 860 }
+    ],
+    "history": [
+      { "id": 91, "completed_at": "2026-08-18T14:31:00Z", "operator": "Simone", "document": "labels_lcarnitine_4821.pdf",
+        "product": "L-Carnitine 1500", "batch": "4821", "sheets": 480, "print_seconds": 142, "session_active_sec": 7200, "printer": "EPSON CW-C8000u" },
+      { "id": 92, "completed_at": "2026-08-18T13:58:00Z", "operator": "Simone", "document": "fnsku_mag_4822.pdf",
+        "product": "Magnesium Glycinate", "batch": "4822", "sheets": 300, "print_seconds": 96, "session_active_sec": 7200, "printer": "Zebra ZT411" },
+      { "id": 93, "completed_at": "2026-08-18T12:40:00Z", "operator": null, "operator_fallback": null, "document": "documento_sem_nome.pdf",
+        "product": null, "has_batch": false, "sheets": 40, "print_seconds": 18, "session_active_sec": null, "printer": "Brother QL-820" },
+      { "id": 94, "completed_at": "2026-08-18T11:12:00Z", "operator": "Vitor", "document": "labels_ashwa_4819.pdf",
+        "product": "Ashwagandha KSM-66", "batch": "4819", "sheets": 860, "print_seconds": 240, "session_active_sec": 3600, "printer": "EPSON CW-C8000u" }
+    ],
+    "errorLog": [
+      { "at": "2026-08-18T12:35:00Z", "error_label": "sem papel", "printer": "Brother QL-820" },
+      { "at": "2026-08-18T10:02:00Z", "error_label": "atolou", "printer": "Zebra ZT411" }
+    ],
+    "transitions": [
+      { "at": "2026-08-18T14:31:00Z", "status_label": "IL ociosa", "printer": "EPSON CW-C8000u", "error_label": null },
+      { "at": "2026-08-18T14:28:00Z", "status_label": "PR imprimindo", "printer": "EPSON CW-C8000u", "error_label": null },
+      { "at": "2026-08-18T12:35:00Z", "status_label": "erro sem papel", "printer": "Brother QL-820", "error_label": "sem papel na bandeja" }
+    ]
+  }
+}

@@ -71,8 +71,10 @@
   --shadow-glow-leaf: 0 0 0 4px rgba(34,179,93,0.12);
   --shadow-glow-navy: 0 0 0 4px rgba(40,85,173,0.14);
 
-  /* Water-drop highlight (gradient overlay on cards) */
-  --drop-hl:   linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.55) 18%, rgba(255,255,255,0) 50%);
+  /* Bruno 08-18: o brilho "water-drop" MORREU. O gradiente branco no topo do
+     card deixava o texto da primeira linha ilegivel. Cards sao chapados agora.
+     O token continua definido (= none) so pra nao quebrar quem ainda o le. */
+  --drop-hl:   none;
 
   --hour-line:  rgba(12,25,59,0.06);
   --hour-line-strong: rgba(12,25,59,0.12);
@@ -105,7 +107,8 @@
   --shadow-glow-leaf: 0 0 0 4px rgba(34,179,93,0.18);
   --shadow-glow-navy: 0 0 0 4px rgba(74,116,194,0.25);
 
-  --drop-hl:   linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 22%, rgba(255,255,255,0) 50%);
+  /* dark tambem chapado (mesma regra do light: sem water-drop) */
+  --drop-hl:   none;
 
   --hour-line:  rgba(255,255,255,0.05);
   --hour-line-strong: rgba(255,255,255,0.12);
@@ -222,10 +225,7 @@ a { color: inherit; text-decoration: none; }
   position: relative;
   overflow: hidden;
 }
-.sidebar::before {
-  content: ""; position: absolute; inset: 0;
-  background: var(--drop-hl); pointer-events: none;
-}
+/* .sidebar::before REMOVIDO (Bruno 08-18) — era a camada water-drop. */
 .brand {
   display: flex; align-items: center; gap: 10px;
   padding: 16px 18px 12px;
@@ -404,11 +404,8 @@ a { color: inherit; text-decoration: none; }
   position: relative;
   overflow: hidden;
 }
-.card::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit;
-  background: var(--drop-hl); pointer-events: none;
-  mix-blend-mode: normal;
-}
+/* .card::before REMOVIDO (Bruno 08-18) — o gradiente branco no topo apagava o
+   texto da primeira linha. Card do kit = chapado, sem overlay. */
 .card.flat { box-shadow: none; }
 .card-pad { padding: 16px 18px; }
 .card-pad-lg { padding: 20px 22px; }
@@ -482,11 +479,10 @@ a { color: inherit; text-decoration: none; }
 .kpi .value { font-size: 30px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; margin-top: 4px; color: var(--text); }
 .kpi .value small { font-size: 14px; font-weight: 600; color: var(--text-3); margin-left: 4px; letter-spacing: 0; }
 .kpi .foot { margin-top: 10px; font-size: 12px; color: var(--text-3); }
-.kpi.attn { border-color: rgba(220,38,38,0.28); }
+/* .kpi.attn: so a borda + o numero em vermelho. O ::before com gradiente
+   FOI REMOVIDO (Bruno 08-18) junto com o resto do water-drop. */
+.kpi.attn { border-color: var(--bad-line, rgba(192,57,43,0.32)); background: var(--bad-bg, #fdeeec); }
 .kpi.attn .value { color: var(--bad); }
-.kpi.attn::before {
-  background: var(--drop-hl), linear-gradient(180deg, rgba(220,38,38,0.04), transparent 30%);
-}
 
 /* ===== Countdown ===== */
 .countdown {
@@ -660,6 +656,16 @@ a { color: inherit; text-decoration: none; }
   --drop-hl:   none;                /* o brilho "water-drop" nao existe no kit */
   --hour-line:        rgba(26,58,107,0.07);
   --hour-line-strong: rgba(26,58,107,0.14);
+
+  /* ── aliases que faltavam (grep var(--...) no dashboard-v4/src): estavam
+        SEM definicao nenhuma, entao caiam pro valor inicial do browser
+        (texto preto, cor herdada). Agora todos apontam pro kit. ───────── */
+  --text-1: #1c2b3a;                /* usado em PinGate/NotificationsPanel/extras */
+  --mono: 'DM Mono', ui-monospace, monospace;   /* InventoryPage escreve var(--mono) */
+  --flow-production: var(--flow-prod);          /* SearchOverlay: nome longo do flow */
+  --hf-green-leaf:   #3ab54a;
+  --hf-green-bright: #2e8b3c;
+  --hf-blue-deep:    #0d1f3c;
 }
 
 /* Tipografia do kit nas paginas antigas (light). O layout nao muda: so as
@@ -675,8 +681,6 @@ a { color: inherit; text-decoration: none; }
 }
 :root:not([data-theme="dark"]) .card,
 :root[data-theme="light"] .card { border-radius: 18px; }
-:root:not([data-theme="dark"]) .card::before,
-:root[data-theme="light"] .card::before { background: none; }
 :root:not([data-theme="dark"]) .btn.primary,
 :root[data-theme="light"] .btn.primary {
   background: #0d1f3c; border-color: #0d1f3c; border-radius: 999px;
@@ -692,8 +696,6 @@ a { color: inherit; text-decoration: none; }
 /* ===== Sidebar no STYLE-KIT (light) — mecanica igual, pele nova ===== */
 :root:not([data-theme="dark"]) .sidebar,
 :root[data-theme="light"] .sidebar { background: #fff; border-right: 1px solid var(--line, #d4e2f0); }
-:root:not([data-theme="dark"]) .sidebar::before,
-:root[data-theme="light"] .sidebar::before { background: none; }
 :root:not([data-theme="dark"]) .brand-sub,
 :root[data-theme="light"] .brand-sub {
   font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px;
@@ -726,6 +728,317 @@ a { color: inherit; text-decoration: none; }
   padding: 9px 10px 4px 20px; margin-top: 4px;
 }
 .nav-group .nav-item.nav-item-sub { margin-left: 22px; }
+
+/* ============================================================
+   PELE GLOBAL DO KIT (Bruno 08-18) — as classes genericas que TODA pagina
+   usa (.card, .btn, input, tabela, topbar, drawer, toast) passam a ter o
+   acabamento do STYLE-KIT. Sem renomear classe nenhuma: os agentes de pagina
+   continuam escrevendo .card/.btn e herdam isso de graca.
+   Escopo LIGHT; o dark tem o bloco proprio la embaixo.
+   ============================================================ */
+:root:not([data-theme="dark"]), :root[data-theme="light"] {
+
+  /* ── Card = card do kit: chapado, raio 18, sombra suave ─────────── */
+  & .card {
+    background: var(--kit-surface, #fff);
+    border: 1px solid var(--line, #d4e2f0);
+    border-radius: var(--r-lg, 18px);
+    box-shadow: var(--shadow-card, 0 1px 2px rgba(13,31,60,.03), 0 10px 30px rgba(13,31,60,.05));
+    background-image: none;
+  }
+  & .card.flat { box-shadow: none; }
+  & .card-head { border-bottom: 1px solid var(--line, #d4e2f0); }
+  & .card-head h2 {
+    font: 500 10px var(--font-mono, 'DM Mono', monospace);
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint, #6b7f92);
+  }
+  & .card-head .en { font-family: var(--font-mono, 'DM Mono', monospace); letter-spacing: .1em; }
+
+  /* ── KPI: numero em DM Serif, label micro mono ──────────────────── */
+  & .kpi .label {
+    font: 500 10px var(--font-mono, 'DM Mono', monospace);
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint, #6b7f92);
+  }
+  & .kpi .value {
+    font-family: var(--font-display, 'DM Serif Display', Georgia, serif);
+    font-weight: 400; font-size: 34px; letter-spacing: 0;
+    color: var(--primary-deep, #0d1f3c); font-variant-numeric: tabular-nums;
+  }
+  & .kpi .value small { font-family: var(--font, 'DM Sans', sans-serif); font-size: 13px; }
+  & .kpi .foot { color: var(--ink-dim, #54687c); font-size: 12px; }
+
+  /* ── Botao = pill do kit ────────────────────────────────────────── */
+  & .btn {
+    border-radius: var(--r-pill, 999px);
+    font: 600 13px var(--font, 'DM Sans', sans-serif);
+    border: 1px solid var(--line, #d4e2f0);
+    background: var(--kit-surface, #fff);
+    color: var(--ink, #1c2b3a);
+  }
+  & .btn:hover { background: var(--kit-surface, #fff); border-color: var(--line-strong, #b9cbe2); box-shadow: var(--shadow-card); }
+  & .btn.primary {
+    background: var(--primary-deep, #0d1f3c); border-color: var(--primary-deep, #0d1f3c);
+    color: #fff; box-shadow: none; background-image: none;
+  }
+  & .btn.primary:hover { background: var(--primary-deep, #0d1f3c); filter: brightness(1.15); }
+  & .btn.accent {
+    background: var(--green-d, #2e8b3c); border-color: var(--green-d, #2e8b3c);
+    color: #fff; box-shadow: none; background-image: none;
+  }
+  & .btn.ghost { background: transparent; border-color: transparent; }
+  & .btn.ghost:hover { background: var(--primary-soft, #eaf0fb); border-color: transparent; }
+  & .btn.danger { color: var(--bad-deep, #a02c20); border-color: transparent; background: transparent; }
+  & .btn.danger:hover { background: var(--bad-bg, #fdeeec); }
+  & .btn.sm { font-size: 12px; padding: 5px 13px; }
+
+  /* ── Botao icone: pill tambem ──────────────────────────────────── */
+  & .icon-btn {
+    border-radius: var(--r-pill, 999px);
+    background: var(--kit-surface-2, #f7fafd);
+    border: 1px solid var(--line, #d4e2f0);
+    color: var(--ink-dim, #54687c);
+  }
+  & .icon-btn:hover { background: var(--primary-soft, #eaf0fb); border-color: var(--primary-line, #b9cbe2); color: var(--primary, #1a3a6b); }
+  & .icon-btn.primary { background: var(--primary-deep, #0d1f3c); border-color: var(--primary-deep, #0d1f3c); color: #fff; }
+
+  /* ── Campos = input do kit ─────────────────────────────────────── */
+  & input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  & select, & textarea {
+    border-radius: var(--r-sm, 12px);
+    border: 1px solid var(--line, #d4e2f0);
+    background: var(--kit-surface-2, #f7fafd);
+    color: var(--ink, #1c2b3a);
+    font-family: var(--font, 'DM Sans', sans-serif);
+    outline: none;
+  }
+  & input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+  & select:focus, & textarea:focus {
+    box-shadow: var(--focus-ring, 0 0 0 3px rgba(26,58,107,.14));
+    border-color: var(--primary-line, #b9cbe2);
+  }
+
+  /* ── Tabelas genericas: cabecalho micro-mono, linha pontilhada ──── */
+  & table thead th, & .tbl thead th {
+    font: 500 10px var(--font-mono, 'DM Mono', monospace);
+    letter-spacing: .10em; text-transform: uppercase;
+    color: var(--ink-faint, #6b7f92);
+    border-bottom: 1px solid var(--line, #d4e2f0);
+    text-align: left;
+  }
+  & table tbody td, & .tbl tbody td {
+    border-bottom: 1px dotted var(--dotline, #c6d7e8);
+    color: var(--ink, #1c2b3a);
+  }
+  & table tbody tr:hover, & .tbl tbody tr:hover { background: var(--primary-row, #eaf0fb); }
+
+  /* ── Topbar / date pill ────────────────────────────────────────── */
+  & .topbar { background: var(--kit-surface, #fff); border-bottom: 1px solid var(--line, #d4e2f0); }
+  & .topbar::after { background: none; }
+  & .page-title .en {
+    font: 500 10px var(--font-mono, 'DM Mono', monospace);
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint, #6b7f92);
+  }
+  & .date-picker {
+    border-radius: var(--r-pill, 999px);
+    background: var(--kit-surface-2, #f7fafd);
+    border: 1px solid var(--line, #d4e2f0);
+  }
+  & .date-picker button { border-radius: var(--r-pill, 999px); }
+  & .date-picker button:hover { background: var(--primary-soft, #eaf0fb); color: var(--primary, #1a3a6b); }
+  & .date-picker .date-value { font-weight: 600; color: var(--ink, #1c2b3a); }
+  & .date-picker .date-value .small {
+    font-family: var(--font-mono, 'DM Mono', monospace);
+    letter-spacing: .12em; color: var(--ink-faint, #6b7f92);
+  }
+
+  /* ── Pill/chip generico = chip tonal do kit ────────────────────── */
+  & .pill {
+    font-family: var(--font-mono, 'DM Mono', monospace);
+    font-size: 11px; font-weight: 500;
+    background: var(--neutral-bg, #eaf0fb); color: var(--primary, #1a3a6b);
+    border-color: var(--neutral-line, #d4e2f0);
+  }
+  & .pill.ok   { background: var(--ok-bg, #e8f7ea);  color: var(--ok-deep, #1e6b2e);  border-color: var(--ok-line, #c8ecce); }
+  & .pill.warn { background: var(--warn-bg, #fdf6e3); color: var(--warn-deep, #6b4c07); border-color: var(--warn-line, #eeddad); }
+  & .pill.bad  { background: var(--bad-bg, #fdeeec); color: var(--bad-deep, #a02c20); border-color: var(--bad-line, #f5cdc7); }
+  & .pill.live { background: var(--ok-bg, #e8f7ea);  color: var(--ok-deep, #1e6b2e);  border-color: var(--ok-line, #c8ecce); }
+
+  /* ── Drawer lateral / backdrop / modal / toast ─────────────────── */
+  & .side-panel {
+    background: var(--kit-surface, #fff);
+    border-left: 1px solid var(--line, #d4e2f0);
+    box-shadow: var(--shadow-pop, 0 10px 32px rgba(13,31,60,.16));
+  }
+  & .backdrop { background: rgba(13,31,60,.24); backdrop-filter: none; }
+  & .float-popover { border-radius: var(--r-md, 14px) !important; }
+
+  /* ── Filtros / seccoes / kbd / vazio ───────────────────────────── */
+  & .filter-chip {
+    border-radius: var(--r-pill, 999px);
+    font-family: var(--font, 'DM Sans', sans-serif);
+    background: var(--kit-surface, #fff); border-color: var(--line, #d4e2f0);
+    color: var(--ink-dim, #54687c);
+  }
+  & .filter-chip.on { background: var(--primary-deep, #0d1f3c); border-color: var(--primary-deep, #0d1f3c); color: #fff; }
+  & .section-title h2 {
+    font: 500 10px var(--font-mono, 'DM Mono', monospace);
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint, #6b7f92);
+  }
+  & .section-title .rule { background: linear-gradient(90deg, var(--line, #d4e2f0), transparent); }
+  & .kbd { font-family: var(--font-mono, 'DM Mono', monospace); background: var(--kit-surface-2, #f7fafd); border-color: var(--line, #d4e2f0); }
+  & .empty { color: var(--ink-faint, #6b7f92); }
+
+  /* ── Timeline: mesmo card chapado ─────────────────────────────── */
+  & .tl-wrap {
+    border-radius: var(--r-lg, 18px); border-color: var(--line, #d4e2f0);
+    box-shadow: var(--shadow-card);
+  }
+  & .tl-header { background: var(--kit-surface, #fff); border-bottom: 1px solid var(--line, #d4e2f0); }
+}
+
+/* ============================================================
+   DARK THEME (Bruno 08-18) — o toggle CONTINUA funcionando.
+   Os MESMOS nomes de token do kit sao remapeados pra um conjunto escuro
+   coerente, entao tudo que usa var(--line)/var(--ink)/var(--kit-surface)...
+   (inclusive as classes .kit-*) fica legivel no escuro sem regra por pagina.
+   ============================================================ */
+:root[data-theme="dark"] {
+  /* superficies e linhas */
+  --ground:        #0a1124;
+  --kit-surface:   #131c36;
+  --kit-surface-2: #0f1730;
+  --bubble-buyer:  #172341;
+  --line:          #243056;
+  --line-strong:   #2e3c6c;
+  --dotline:       #253158;
+  /* tinta: clara sobre escuro */
+  --ink:       #e9eef9;
+  --ink-dim:   #b6c0db;
+  --ink-faint: #8693b8;
+  /* marca: navy CLARO no escuro (o navy profundo sumiria no fundo) */
+  --primary:       #7a99d4;
+  --primary-deep:  #d8e2f5;
+  --primary-grad:  linear-gradient(180deg,#4a74c2,#2855ad);
+  --primary-soft:      rgba(74,116,194,.20);
+  --primary-soft-line: rgba(74,116,194,.34);
+  --primary-line:      rgba(74,116,194,.44);
+  --primary-row:       rgba(74,116,194,.12);
+  --primary-glow:      rgba(122,153,212,.30);
+  --flash:             rgba(74,116,194,.26);
+  --focus-ring: 0 0 0 3px rgba(122,153,212,.28);
+  --green:   #3fc874;
+  --green-d: #6cdc99;
+  --teal:    #4fc7c7;
+  /* status tonal: fundo escuro translucido + texto claro */
+  --kit-ok:   #6cdc99; --ok-bg:   rgba(63,200,116,.16);  --ok-line:   rgba(63,200,116,.34);  --ok-deep:   #a4ebc1;
+  --kit-warn: #e8b45c; --warn-bg: rgba(217,119,6,.18);   --warn-line: rgba(217,119,6,.36);   --warn-deep: #f0c883;
+  --kit-bad:  #ef8175; --bad-bg:  rgba(220,38,38,.16);   --bad-line:  rgba(220,38,38,.36);   --bad-deep:  #f6aca3;
+  --bad-bg-hover: rgba(220,38,38,.24);
+  --dispute: #b9a8f0; --dispute-bg: rgba(124,92,214,.18); --dispute-line: rgba(124,92,214,.36);
+  --kit-info: #6fd0d0; --info-bg: rgba(26,122,122,.20);  --info-line: rgba(26,122,122,.40);
+  --neutral-bg: rgba(74,116,194,.16); --neutral-line: rgba(74,116,194,.32);
+  /* sombras: no escuro sombra e preta, nao azul */
+  --shadow-card: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.34);
+  --shadow-lift: 0 2px 4px rgba(0,0,0,.45), 0 16px 40px rgba(0,0,0,.44);
+  --shadow-pop:  0 10px 32px rgba(0,0,0,.60);
+  /* aliases que faltavam, versao dark */
+  --text-1: #e9eef9;
+  --mono: 'DM Mono', ui-monospace, monospace;
+  --flow-production: var(--flow-prod);
+  --hf-green-leaf:   #3fc874;
+  --hf-green-bright: #6cdc99;
+  --hf-blue-deep:    #d8e2f5;
+}
+
+/* Ground do dark: mesmo dot-grid, pontos claros. Fonte do kit tambem no dark
+   (o kit.css so aplicava a familia no light). */
+:root[data-theme="dark"] body {
+  background: var(--ground);
+  background-image: radial-gradient(circle, rgba(255,255,255,.05) 1px, transparent 1px);
+  background-size: 26px 26px;
+  color: var(--ink);
+  font-family: var(--font);
+}
+:root[data-theme="dark"] .main { background: transparent; }
+:root[data-theme="dark"] .mono { font-family: var(--font-mono); }
+:root[data-theme="dark"] .page-title h1 {
+  font-family: var(--font-display); font-weight: 400; letter-spacing: 0;
+  color: var(--primary-deep);
+}
+
+/* As mesmas pecas globais no dark (espelha o bloco light) */
+:root[data-theme="dark"] {
+  & .card {
+    background: var(--kit-surface); border: 1px solid var(--line);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-card); background-image: none;
+  }
+  & .card.flat { box-shadow: none; }
+  & .card-head, & .card-head h2, & .card-head .en { border-color: var(--line); }
+  & .card-head h2 {
+    font: 500 10px var(--font-mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  & .kpi .label {
+    font: 500 10px var(--font-mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  & .kpi .value {
+    font-family: var(--font-display); font-weight: 400; font-size: 34px;
+    letter-spacing: 0; color: var(--primary-deep); font-variant-numeric: tabular-nums;
+  }
+  & .kpi .value small { font-family: var(--font); font-size: 13px; }
+  & .kpi.attn { border-color: var(--bad-line); background: var(--bad-bg); }
+  & .btn {
+    border-radius: var(--r-pill); font: 600 13px var(--font);
+    border: 1px solid var(--line); background: var(--kit-surface-2); color: var(--ink);
+  }
+  & .btn:hover { background: var(--kit-surface); border-color: var(--line-strong); }
+  & .btn.primary { background: #2855ad; border-color: #2855ad; color: #fff; background-image: none; box-shadow: none; }
+  & .btn.primary:hover { filter: brightness(1.18); }
+  & .btn.accent { background: var(--green); border-color: var(--green); color: #06160d; background-image: none; }
+  & .btn.ghost { background: transparent; border-color: transparent; }
+  & .btn.danger { background: transparent; border-color: transparent; color: var(--bad-deep); }
+  & .btn.danger:hover { background: var(--bad-bg); }
+  & .icon-btn {
+    border-radius: var(--r-pill); background: var(--kit-surface-2);
+    border: 1px solid var(--line); color: var(--ink-dim);
+  }
+  & .icon-btn:hover { background: var(--primary-soft); border-color: var(--primary-line); color: var(--ink); }
+  & input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  & select, & textarea {
+    border-radius: var(--r-sm); border: 1px solid var(--line);
+    background: var(--kit-surface-2); color: var(--ink); font-family: var(--font); outline: none;
+  }
+  & input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+  & select:focus, & textarea:focus { box-shadow: var(--focus-ring); border-color: var(--primary-line); }
+  & table thead th, & .tbl thead th {
+    font: 500 10px var(--font-mono); letter-spacing: .10em; text-transform: uppercase;
+    color: var(--ink-faint); border-bottom: 1px solid var(--line); text-align: left;
+  }
+  & table tbody td, & .tbl tbody td { border-bottom: 1px dotted var(--dotline); color: var(--ink); }
+  & table tbody tr:hover, & .tbl tbody tr:hover { background: var(--primary-row); }
+  & .topbar { background: var(--kit-surface); border-bottom: 1px solid var(--line); }
+  & .topbar::after { background: none; }
+  & .sidebar { background: var(--kit-surface); border-right: 1px solid var(--line); }
+  & .date-picker { border-radius: var(--r-pill); background: var(--kit-surface-2); border: 1px solid var(--line); }
+  & .date-picker button { border-radius: var(--r-pill); }
+  & .side-panel { background: var(--kit-surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop); }
+  & .tl-wrap { border-radius: var(--r-lg); border-color: var(--line); box-shadow: var(--shadow-card); }
+  & .tl-header { background: var(--kit-surface); border-bottom: 1px solid var(--line); }
+  & .filter-chip { border-radius: var(--r-pill); background: var(--kit-surface-2); border-color: var(--line); color: var(--ink-dim); }
+  & .filter-chip.on { background: #2855ad; border-color: #2855ad; color: #fff; }
+  & .nav-subgroup { color: var(--ink-faint); }
+  & .nav-item.active { background: var(--primary-soft); color: var(--ink); border-radius: 999px; border-color: transparent; }
+  & .empty { color: var(--ink-faint); }
+  /* classes .kit-* que fixam #fff no light */
+  & .kit-btn.sec { background: var(--kit-surface-2); color: var(--ink); border-color: var(--line); }
+  & .kit-seg, & .kit-seg button { background: var(--kit-surface-2); color: var(--ink); }
+  & .kit-seg button.on { background: #2855ad; color: #fff; }
+  & .kit-chip.solid { background: #2855ad; }
+  & .kit-modal-back { background: rgba(0,0,0,.55); }
+  & .kit-drawer-back { background: rgba(0,0,0,.45); }
+  & .kit-toast { background: #2855ad; }
+}
 
 /* ===== Tweaks (custom) ===== */
 .tw-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }

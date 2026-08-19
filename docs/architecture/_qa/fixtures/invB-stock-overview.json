@@ -1,0 +1,13 @@
+{
+  "_note": "Fixture do GRUPO B (tema STYLE-KIT). Campos EXATOS que StockOverviewPage e InventoryPage leem: id, product, nickname, bin_qty, box_qty, warehouse_stock, veeqo_stock, has_veeqo_sku, veeqo_skus, active. NAO editar as fixtures warehouse-*.json (sao de outro grupo).",
+  "data": [
+    { "id": 1, "product": "Benfotiamine 300 mg", "nickname": "BENF-300", "bin_qty": 46, "box_qty": 180, "warehouse_stock": 226, "veeqo_stock": 214, "has_veeqo_sku": true, "veeqo_skus": ["HF-BENF-300"], "active": true },
+    { "id": 2, "product": "Berberine 500 mg", "nickname": "BERB-500", "bin_qty": 0, "box_qty": 110, "warehouse_stock": 110, "veeqo_stock": 8, "has_veeqo_sku": true, "veeqo_skus": ["HF-BERB-500", "HF-BERB-500-C2"], "active": true },
+    { "id": 3, "product": "Chlorophyll Liquid", "nickname": "CHLO-LIQ", "bin_qty": 41, "box_qty": 0, "warehouse_stock": 41, "veeqo_stock": 37, "has_veeqo_sku": true, "veeqo_skus": ["HF-CHLO-LIQ"], "active": true },
+    { "id": 4, "product": "Collagen Peptides", "nickname": "COLL-PEP", "bin_qty": 0, "box_qty": 0, "warehouse_stock": 0, "veeqo_stock": 3, "has_veeqo_sku": true, "veeqo_skus": ["HF-COLL-PEP"], "active": true },
+    { "id": 5, "product": "NAC 600 mg", "nickname": "NAC-600", "bin_qty": 0, "box_qty": 0, "warehouse_stock": 80, "veeqo_stock": null, "has_veeqo_sku": true, "veeqo_skus": ["HF-NAC-600"], "active": true },
+    { "id": 6, "product": "L-Carnitine 1500 mg", "nickname": "LCAR-1500", "bin_qty": 48, "box_qty": 120, "warehouse_stock": 168, "veeqo_stock": 155, "has_veeqo_sku": true, "veeqo_skus": ["HF-LCAR-1500"], "active": true },
+    { "id": 7, "product": "Magnesium Glycinate", "nickname": "MAGN-GLY", "bin_qty": 0, "box_qty": 0, "warehouse_stock": 0, "veeqo_stock": null, "has_veeqo_sku": false, "veeqo_skus": [], "active": true },
+    { "id": 8, "product": "Zinc Picolinate (descontinuado)", "nickname": "ZINC-PIC", "bin_qty": 12, "box_qty": 0, "warehouse_stock": 12, "veeqo_stock": 0, "has_veeqo_sku": true, "veeqo_skus": ["HF-ZINC-PIC"], "active": false }
+  ]
+}

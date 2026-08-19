@@ -249,7 +249,7 @@ function BatchHistory({ d }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {d.prints.map((pj) => (
-              <div key={pj.id} className="card" style={{ padding: '8px 11px', borderLeft: '3px solid var(--flow-production)' }}>
+              <div key={pj.id} className="card" style={{ padding: '8px 11px', borderLeft: '3px solid var(--flow-prod)' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                   <b style={{ fontSize: 12.5 }}>{pj.operator || 'sem PIN'}</b>
                   <span style={{ color: 'var(--text-3)', fontSize: 12 }}>· {pj.sheets != null ? pj.sheets + ' labels' : '—'}</span>

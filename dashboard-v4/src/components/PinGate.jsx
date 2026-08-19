@@ -27,48 +27,37 @@ function PinGate({ onOk }) {
     <div style={{
       position: 'fixed', inset: 0,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'var(--bg, #f7f8fb)', zIndex: 9999,
+      background: 'var(--ground, #f4f8fc)', zIndex: 9999,
+      fontFamily: 'var(--font)',
     }}>
-      <div className="card" style={{
+      <div className="kit-card" style={{
         padding: '28px 24px', width: 'min(360px, 92vw)', maxWidth: 400,
-        textAlign: 'center', boxShadow: 'var(--shadow-lg)',
+        textAlign: 'center', boxShadow: 'var(--shadow-pop)',
       }}>
-        <div style={{
-          fontSize: 18, fontWeight: 800, letterSpacing: '-0.01em',
-          marginBottom: 6, color: 'var(--hf-navy-700, #1e3f8c)',
-        }}>
-          HealthFare · Production V4
+        <div className="kit-h2" style={{ marginBottom: 4 }}>
+          HealthFare <em style={{ color: 'var(--green-d)', fontStyle: 'italic' }}>Production</em>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-3, #6c7488)', marginBottom: 18 }}>
+        <div className="kit-mlabel" style={{ marginBottom: 18 }}>
           Digite o PIN admin para continuar
         </div>
         <form onSubmit={submit}>
           <input
+            className="kit-input"
             type="password"
             inputMode="numeric"
             value={v}
             placeholder="PIN"
             autoFocus
             onChange={(e) => { setV(e.target.value); setErr(''); }}
-            style={{
-              width: '100%', padding: '12px 12px', fontSize: 16,
-              border: '1px solid var(--border, #d8dce5)', borderRadius: 8,
-              background: 'var(--surface, #fff)', color: 'var(--text-1)',
-              boxSizing: 'border-box',
-            }}
+            style={{ width: '100%', padding: '12px', fontSize: 16, boxSizing: 'border-box', textAlign: 'center' }}
           />
-          <button type="submit" disabled={busy} style={{
-            marginTop: 12, width: '100%', padding: '10px 14px',
-            fontSize: 14, fontWeight: 700, color: '#fff',
-            background: 'var(--hf-navy-600, #2855ad)',
-            border: 'none', borderRadius: 8, cursor: busy ? 'wait' : 'pointer',
-            opacity: busy ? 0.7 : 1,
-          }}>
+          <button className="kit-btn primary" type="submit" disabled={busy}
+                  style={{ marginTop: 12, width: '100%', cursor: busy ? 'wait' : 'pointer' }}>
             {busy ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
         {err && (
-          <p style={{ color: 'var(--bad, #d9534f)', fontSize: 12, marginTop: 10 }}>
+          <p style={{ color: 'var(--bad-deep, #a02c20)', fontSize: 12, marginTop: 10 }}>
             {err}
           </p>
         )}

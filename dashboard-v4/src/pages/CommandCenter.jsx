@@ -16,6 +16,7 @@ import { V4_ALLOW_WRITES } from '../flags.js';
 import { apiGet, apiPost, usePoll } from '../adapters/from-api.js';
 import nyTime from '../utils/ny-time.cjs';
 import dayStats from '../utils/day-stats.cjs';
+import './pages-operacao.css';
 
 const NOTIFS_VISIBLE_KEY = 'hf-notifs-visible';
 
@@ -69,50 +70,49 @@ function AttendanceStrip({ data, refresh }) {
   if (!people.length) return null;
   const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }) : null;
   const card = (p) => {
-    let dot = 'var(--text-3)', txt = 'sem ponto hoje', sub = null;
+    let dot = 'var(--ink-faint)', txt = 'sem ponto hoje', sub = null;
     if (p.state === 'in') {
-      dot = 'var(--hf-leaf-500, #22b35d)';
+      dot = 'var(--green)';
       txt = `entrou ${fmtT(p.checkin_at) || '—'}`;
-      if (p.no_clockin) { dot = 'var(--warn, #d97706)'; txt = 'trabalhando SEM ponto'; sub = `início (tarefa) ${fmtT(p.checkin_at) || '—'}`; }
+      if (p.no_clockin) { dot = 'var(--dot-warn)'; txt = 'trabalhando SEM ponto'; sub = `início (tarefa) ${fmtT(p.checkin_at) || '—'}`; }
       else if (p.last_in_at && p.checkin_at && p.last_in_at !== p.checkin_at) sub = `voltou ${fmtT(p.last_in_at)}`;
     } else if (p.state === 'break') {
-      dot = 'var(--warn, #d97706)';
+      dot = 'var(--dot-warn)';
       txt = 'EM PAUSA';
       sub = p.break_sec != null ? `${Math.round(p.break_sec / 60)}min` : null;
     } else if (p.checkout_at) {
-      dot = 'var(--text-3)';
+      dot = 'var(--ink-faint)';
       txt = `saiu ${fmtT(p.checkout_at)}`;
       sub = p.checkin_at ? `entrou ${fmtT(p.checkin_at)}` : null;
     }
     return (
-      <div key={p.person_id} className="card" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 150 }}
+      <div key={p.person_id} className="opa-att-card"
            title={`relógio #${p.clock_code} · ${p.punches.length} batida(s)`}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flex: '0 0 8px' }}/>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{txt}{sub ? <span style={{ marginLeft: 5, opacity: 0.8 }}>· {sub}</span> : null}</div>
+          <div className="opa-att-name">{p.name}</div>
+          <div className="opa-att-sub">{txt}{sub ? <span style={{ marginLeft: 5 }}>· {sub}</span> : null}</div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
           {p.logged_in ? (
             <button
+              className="kit-btn xs"
               onClick={() => logoff(p)}
               disabled={busy === p.person_id}
               title={`Deslogar ${p.name} do kiosk (fecha a sessão)`}
-              style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 7px', borderRadius: 6,
-                border: '1px solid var(--warn, #d97706)', background: 'transparent', color: 'var(--warn, #d97706)',
-                cursor: busy === p.person_id ? 'wait' : 'pointer', opacity: busy === p.person_id ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-              {busy === p.person_id ? '…' : '⨯ deslogar'}
+              style={{ borderColor: 'var(--warn-line)', color: 'var(--warn-deep)', background: 'var(--warn-bg)',
+                cursor: busy === p.person_id ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+              {busy === p.person_id ? '…' : 'deslogar'}
             </button>
           ) : null}
           {p.state !== 'out' && !p.checkout_at ? (
             <button
+              className="kit-btn xs"
               onClick={() => doCheckout(p)}
               disabled={busy === p.person_id}
               title={`Registrar saída de ${p.name} (esqueceu de bater o ponto)`}
-              style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 7px', borderRadius: 6,
-                border: '1px solid var(--text-3)', background: 'transparent', color: 'var(--text-3)',
-                cursor: busy === p.person_id ? 'wait' : 'pointer', opacity: busy === p.person_id ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-              🏁 saída
+              style={{ cursor: busy === p.person_id ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+              saída
             </button>
           ) : null}
         </div>
@@ -120,8 +120,8 @@ function AttendanceStrip({ data, refresh }) {
     );
   };
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-      <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+      <span className="kit-mlabel" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
         <Icon name="clock" size={12}/> Ponto
       </span>
       {people.map(card)}
@@ -151,39 +151,36 @@ function IncidentsBox() {
         const w = inc.where_json || {};
         const isOpen = expanded === inc.id;
         return (
-          <div key={inc.id} className="card" style={{ padding: 0, marginBottom: 8, overflow: 'hidden',
-                 border: '1.5px solid var(--bad, #dc2626)', background: 'color-mix(in srgb, var(--bad,#dc2626) 6%, var(--surface))' }}>
-            <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div key={inc.id} className="opa-alertbox">
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <span style={{ fontSize: 18 }}>🚨</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--bad, #dc2626)' }}>{inc.title}
-                  {inc.auto_fixed && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--hf-leaf-700)', background: 'color-mix(in srgb, var(--hf-leaf-500) 14%, transparent)', padding: '1px 6px', borderRadius: 5 }}>já corrigido</span>}
+                <div className="opa-alert-title">{inc.title}
+                  {inc.auto_fixed && <span className="kit-chip ok" style={{ marginLeft: 8 }}>já corrigido</span>}
                 </div>
-                <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 3 }}>{inc.explanation}</div>
+                <div className="opa-alert-body">{inc.explanation}</div>
                 {inc.diagnosis && (
-                  <div style={{ fontSize: 12.5, marginTop: 5, padding: '5px 8px', borderRadius: 6, background: 'var(--surface-2)', fontWeight: 600 }}>
-                    🔎 {inc.diagnosis}
-                  </div>
+                  <div className="opa-alert-note">{inc.diagnosis}</div>
                 )}
-                <div style={{ display: 'flex', gap: 12, marginTop: 6, alignItems: 'center' }}>
-                  <button className="btn sm" onClick={() => setExpanded(isOpen ? null : inc.id)}>{isOpen ? 'Ocultar detalhes' : 'Ver onde aconteceu'}</button>
-                  <button className="btn sm" onClick={() => resolve(inc.id, false)}>Entendi, resolver</button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                  <button className="kit-btn sm" onClick={() => setExpanded(isOpen ? null : inc.id)}>{isOpen ? 'Ocultar detalhes' : 'Ver onde aconteceu'}</button>
+                  <button className="kit-btn sm primary" onClick={() => resolve(inc.id, false)}>Entendi, resolver</button>
                 </div>
                 {isOpen && (
-                  <div style={{ marginTop: 8, fontSize: 12, display: 'grid', gap: 6 }}>
-                    <div style={{ padding: '6px 9px', borderRadius: 6, background: 'var(--surface-2)' }}>
-                      <b style={{ color: 'var(--hf-leaf-700)' }}>✓ 1ª (mantida)</b> — canal: <b>{w.original?.channel || '?'}</b> · pessoa: <b>{w.original?.person || '?'}</b>
+                  <div style={{ marginTop: 10, fontSize: 12.5, display: 'grid', gap: 6 }}>
+                    <div className="opa-alert-note">
+                      <b style={{ color: 'var(--ok-deep)' }}>1ª (mantida)</b> · canal: <b>{w.original?.channel || '?'}</b> · pessoa: <b>{w.original?.person || '?'}</b>
                       {w.original?.event_id ? <> · evento <span className="mono">ev{w.original.event_id}</span></> : null}
                       {w.original?.slack_ts ? <> · <span className="mono">Slack</span></> : null}
                     </div>
-                    <div style={{ padding: '6px 9px', borderRadius: 6, background: 'color-mix(in srgb, var(--bad,#dc2626) 8%, var(--surface-2))' }}>
-                      <b style={{ color: 'var(--bad)' }}>✗ 2ª (duplicata removida)</b> — canal: <b>{w.duplicate?.channel || '?'}</b> · pessoa: <b>{w.duplicate?.person || '?'}</b>
+                    <div className="opa-alert-note">
+                      <b style={{ color: 'var(--bad-deep)' }}>2ª (duplicata removida)</b> · canal: <b>{w.duplicate?.channel || '?'}</b> · pessoa: <b>{w.duplicate?.person || '?'}</b>
                       {w.duplicate?.event_id ? <> · evento <span className="mono">ev{w.duplicate.event_id}</span></> : null}
                       {w.duplicate?.slack_ts ? <> · <span className="mono">Slack</span></> : null}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--ink-dim)' }}>
                       {w.minutes_apart != null ? `As duas entradas foram feitas com ${w.minutes_apart}min de diferença. ` : ''}
-                      {w.same_person_same_channel ? 'Mesma pessoa, mesmo canal → foi falta de atenção.' : 'Canais diferentes → registraram no app e no Slack.'}
+                      {w.same_person_same_channel ? 'Mesma pessoa, mesmo canal: foi falta de atenção.' : 'Canais diferentes: registraram no app e no Slack.'}
                     </div>
                   </div>
                 )}
@@ -229,39 +226,36 @@ function PendingTotalsBox() {
     <div style={{ marginBottom: 14 }}>
       {pending.map((f) => {
         const escalated = f.status === 'escalated';
-        const color = escalated ? 'var(--bad, #dc2626)' : 'var(--warn, #d97706)';
         return (
-          <div key={f.id} className="card" style={{ padding: '10px 14px', marginBottom: 8,
-                 border: '1.5px solid ' + color, background: 'color-mix(in srgb, ' + color + ' 6%, var(--surface))' }}>
+          <div key={f.id} className={`opa-alertbox ${escalated ? '' : 'warn'}`}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
               <span style={{ fontSize: 18 }}>{escalated ? '🚨' : '⏳'}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 13.5, color }}>
-                  Total de produção pendente{escalated ? ' — precisa investigar' : ''}
+                <div className="opa-alert-title">
+                  Total de produção pendente{escalated ? ' · precisa investigar' : ''}
                 </div>
-                <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginTop: 3 }}>
+                <div className="opa-alert-body">
                   <b>{f.person_name || '?'}</b> fechou a linha{f.product_name ? <> de <b>{f.product_name}</b></> : null}
                   {f.batch_number ? <> (lote <b>{f.batch_number}</b>)</> : null} sem informar a quantidade final.
                 </div>
                 {f.close_reason && (
-                  <div style={{ fontSize: 12, marginTop: 4, padding: '4px 8px', borderRadius: 6, background: 'var(--surface-2)' }}>
+                  <div className="opa-alert-note">
                     Motivo dado: <i>"{f.close_reason}"</i>
                   </div>
                 )}
-                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: 'var(--ink-dim)', marginTop: 6 }}>
                   {escalated
-                    ? 'O sistema não conseguiu o número com o operador — alguém precisa ir atrás e registrar.'
+                    ? 'O sistema não conseguiu o número com o operador. Alguém precisa ir atrás e registrar.'
                     : 'O sistema está conversando com o operador no Slack pra obter o total.'}
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-                  <input type="number" min="0" placeholder="total de unidades"
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input type="number" min="0" placeholder="total de unidades" className="kit-input mono"
                     value={vals[f.id] || ''} onChange={(e) => setVals((v) => ({ ...v, [f.id]: e.target.value }))}
-                    style={{ width: 130, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }} />
-                  <button className="btn sm" onClick={() => submit(f.id)}>Registrar total</button>
-                  <button className="btn sm ghost" onClick={() => dismiss(f.id)}
-                    title="Tarefa aberta por engano, sem produção real — remove a cobrança"
-                    style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}>foi engano</button>
-                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>linha <span className="mono">ev{f.event_id}</span></span>
+                    style={{ width: 140 }} />
+                  <button className="kit-btn sm primary" onClick={() => submit(f.id)}>Registrar total</button>
+                  <button className="kit-btn sm" onClick={() => dismiss(f.id)}
+                    title="Tarefa aberta por engano, sem produção real. Remove a cobrança">foi engano</button>
+                  <span className="kit-mlabel">linha ev{f.event_id}</span>
                 </div>
               </div>
             </div>
@@ -576,7 +570,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     if (pendingDrags.length === 0) return;
     const n = pendingDrags.length;
     if (!window.confirm(`Tem certeza que quer aplicar ${n} mudança(s) na linha do tempo? Sim/Não`)) return;
-    if (!window.confirm(`Confirme — isso vai mudar a linha do tempo de verdade. Sim/Não`)) return;
+    if (!window.confirm(`Confirme: isso vai mudar a linha do tempo de verdade. Sim/Não`)) return;
     let okCount = 0, errCount = 0;
     for (const pd of pendingDrags) {
       const changes = {
@@ -589,7 +583,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     }
     setPendingDrags([]);
     if (refresh) refresh();
-    ack(`Aplicado ✓ — ${okCount} mudança(s)${errCount > 0 ? ` · ${errCount} falha(s)` : ''}`);
+    ack(`Aplicado ✓ ${okCount} mudança(s)${errCount > 0 ? ` · ${errCount} falha(s)` : ''}`);
   };
 
   const cancelDrags = () => {
@@ -607,58 +601,72 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   // ── Loading / erro fatal ─────────────────────────────────
   if (loading) {
     return (
-      <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>
-        <div style={{ fontSize: 14 }}>Carregando dado real do servidor…</div>
-        <div style={{ fontSize: 11, marginTop: 6 }}>/api/v3/data/timeline · /production · /pp · /goals · /deadlines · /catalog</div>
+      <div data-page-op="hoje">
+        <div className="opa-empty">
+          <div style={{ fontSize: 14 }}>Carregando dado real do servidor…</div>
+          <div className="kit-mlabel" style={{ marginTop: 8 }}>timeline · production · pp · goals · deadlines · catalog</div>
+        </div>
       </div>
     );
   }
   if (error && state.events.length === 0) {
     return (
-      <div className="card" style={{ padding: 30, color: 'var(--bad)' }}>
-        <b>Erro carregando dado:</b> {error.message || String(error)}
-        <div style={{ marginTop: 12 }}>
-          <button className="btn sm" onClick={refresh}>Tentar de novo</button>
+      <div data-page-op="hoje">
+        <div className="opa-alertbox">
+          <div className="opa-alert-title">Erro carregando dado</div>
+          <div className="opa-alert-body">{error.message || String(error)}</div>
+          <div style={{ marginTop: 12 }}>
+            <button className="kit-btn sm primary" onClick={refresh}>Tentar de novo</button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div data-page-op="hoje" style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* ── Cabeçalho do kit ─────────────────────────────────── */}
+      <div className="opa-head" style={{ order: -1 }}>
+        <div className="opa-head-main">
+          <span className="kit-eyebrow">● HEALTHFARE · HOJE</span>
+          <h1 className="kit-h1">O dia da <em>fábrica</em> agora</h1>
+          <p className="kit-sub">
+            Produção, metas, P&amp;P e a linha do tempo de cada pessoa. Os blocos ligam e desligam no botão Widgets.
+          </p>
+        </div>
+        <div className="opa-head-side">
+          <button className="kit-btn sm" onClick={() => setWidgetsOpen((v) => !v)}
+                  title="Ligar/desligar e reordenar os blocos da página">Widgets</button>
+        </div>
+      </div>
+
       {error && state.events.length > 0 && (
-        <div className="alert-row warn" style={{ marginBottom: 10 }}>
-          <div className="ico"><Icon name="bell" size={14}/></div>
-          <div><b>Refresh falhou:</b> {error.message || String(error)}. Mostrando última leitura.</div>
+        <div className="opa-alertbox warn" style={{ marginBottom: 10 }}>
+          <div className="opa-alert-title">Refresh falhou</div>
+          <div className="opa-alert-body">{error.message || String(error)}. Mostrando a última leitura.</div>
         </div>
       )}
 
       {/* ── Widgets: escolher/ordenar os blocos da página (Bruno 07-01) ── */}
-      <div style={{ order: 0, display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-        <button className="btn sm ghost" onClick={() => setWidgetsOpen((v) => !v)}
-                title="Ligar/desligar e reordenar os blocos da página">⚙ Widgets</button>
-      </div>
       {widgetsOpen && (
         <>
           <div onClick={() => setWidgetsOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 260 }}/>
-          <div className="card" style={{ position: 'fixed', top: 96, right: 18, zIndex: 270, width: 262, padding: 12, boxShadow: 'var(--shadow-lg)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 8 }}>
-              Widgets da página
-            </div>
+          <div className="kit-card pad" style={{ position: 'fixed', top: 96, right: 18, zIndex: 270, width: 268, boxShadow: 'var(--shadow-pop)' }}>
+            <div className="kit-mlabel" style={{ marginBottom: 8 }}>Widgets da página</div>
             {widgets.order.map((id, i) => {
               const def = WIDGET_DEFS.find((d) => d.id === id); if (!def) return null;
               return (
-                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
-                  <input type="checkbox" checked={wOn(id)} onChange={() => wToggle(id)} style={{ accentColor: 'var(--hf-leaf-500)' }}/>
+                <div key={id} className="kit-dotted-row" style={{ padding: '7px 0' }}>
+                  <input type="checkbox" checked={wOn(id)} onChange={() => wToggle(id)} style={{ accentColor: 'var(--green-d)' }}/>
                   <span style={{ flex: 1, fontSize: 13 }}>{def.label}</span>
-                  <button className="icon-btn" onClick={() => wMove(id, -1)} disabled={i === 0}
-                          style={{ padding: 2, width: 22, opacity: i === 0 ? 0.3 : 1 }} title="Subir">↑</button>
-                  <button className="icon-btn" onClick={() => wMove(id, +1)} disabled={i === widgets.order.length - 1}
-                          style={{ padding: 2, width: 22, opacity: i === widgets.order.length - 1 ? 0.3 : 1 }} title="Descer">↓</button>
+                  <button className="kit-btn xs" onClick={() => wMove(id, -1)} disabled={i === 0}
+                          style={{ padding: '0 8px' }} title="Subir">↑</button>
+                  <button className="kit-btn xs" onClick={() => wMove(id, +1)} disabled={i === widgets.order.length - 1}
+                          style={{ padding: '0 8px' }} title="Descer">↓</button>
                 </div>
               );
             })}
-            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>salvo neste navegador</div>
+            <div className="kit-mlabel" style={{ marginTop: 8 }}>salvo neste navegador</div>
           </div>
         </>
       )}
@@ -687,8 +695,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  <div style={{ marginBottom: 4, lineHeight: 1.5 }}>
                    {/* LINHA (só produção, por relógio) — a métrica principal */}
                    {(lineWall > 0 || prodPerMin != null) && (
-                     <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700 }}>
-                       <span style={{ fontSize: 9.5, opacity: 0.7, fontWeight: 800, letterSpacing: 0.3 }}>LINHA </span>
+                     <div className="mono" style={{ fontSize: 12, color: 'var(--primary)', fontWeight: 500 }}>
+                       <span className="kit-mlabel" style={{ color: 'var(--green-d)' }}>LINHA </span>
                        {lineWall > 0 && <span title="relógio em que a linha esteve produzindo (sem dupla contagem)">{fmtDurSec(lineWall)}</span>}
                        {prodPerMin != null && <span> · {prodPerMin}/min</span>}
                        {secPerBottle != null && <span> · {secPerBottle}s/un</span>}
@@ -696,8 +704,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                    )}
                    {/* TOTAL (linha + revisão + labeling…, pessoa-hora) — a antiga */}
                    {flowPerMin != null && (
-                     <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>
-                       <span style={{ fontSize: 9.5, opacity: 0.8, fontWeight: 800, letterSpacing: 0.3 }}>TOTAL </span>
+                     <div className="mono" style={{ fontSize: 11.5, color: 'var(--ink-dim)' }}>
+                       <span className="kit-mlabel">TOTAL </span>
                        <span title="garrafas ÷ soma de TODO o tempo de produção (linha+revisão+labeling), pessoa-hora">{fmtDurSec(flowSecs)} · {flowPerMin}/min</span>
                        {reviewPhase && Number(reviewPhase.seconds) > 0 && <span> · revisão {fmtDurSec(reviewPhase.seconds)}</span>}
                      </div>
@@ -705,14 +713,14 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  </div>
                )}
                {topLotes.length ? (
-                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
                    {topLotes.map((g) => (
-                     <span key={g.id} className="pill prod">
-                       <span className="dot"/>{g._product_name || g.product || '(?)'} {g.done}
+                     <span key={g.id} className="kit-chip neutral">
+                       {g._product_name || g.product || '(?)'} {g.done}
                      </span>
                    ))}
                  </div>
-               ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem contagens hoje</div>}
+               ) : <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>sem contagens hoje</div>}
                <EditPopover open={gearOpen === 'producao'} anchor={gear?.anchor} onClose={closeGear}
                             title="Editar produção · contagens">
                  <EditList items={topLotes.map((g) => ({
@@ -731,7 +739,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                             const res = await writes.patchCount(it.id, n);
                             if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
                             if (refresh) refresh();
-                            ack(`Salvo ✓ — contagem ev${it.id} = ${n}`);
+                            ack(`Salvo ✓ contagem ev${it.id} = ${n}`);
                           }}
                           onDelete={async (it) => {
                             if (!window.confirm(`Apagar contagem ${it.label}?`)) return;
@@ -739,7 +747,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                             const res = await writes.deleteCount(it.id, 'apagado via /dashboard-v4');
                             if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
                             if (refresh) refresh();
-                            ack(`Apagado ✓ — contagem ${it.id}`);
+                            ack(`Apagado ✓ contagem ${it.id}`);
                           }}/>
                </EditPopover>
              </>}/>
@@ -752,21 +760,21 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              headRight={<FlowDot flow="production"/>}
              foot={<>
                {review.avg_bottles_per_min != null ? (
-                 <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, marginBottom: 4 }}>
+                 <div className="mono" style={{ fontSize: 12, color: 'var(--primary)', marginBottom: 6 }}>
                    {review.avg_bottles_per_min}/min · {review.avg_sec_per_bottle != null ? `${review.avg_sec_per_bottle}s/frasco` : '—'}
                  </div>
-               ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem revisão com lote neste dia</div>}
+               ) : <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>sem revisão com lote neste dia</div>}
                {(review.operators || []).length > 0 ? (
                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
                    {(review.operators || []).slice(0, 4).map((o, i) => (
-                     <span key={i} className="pill prod" title={`${o.n} revisão(ões)`}>
-                       <span className="dot"/>{o.operator || '(?)'} {o.avg_capsules_per_sec}/s
+                     <span key={i} className="kit-chip neutral" title={`${o.n} revisão(ões)`}>
+                       {o.operator || '(?)'} {o.avg_capsules_per_sec}/s
                      </span>
                    ))}
                  </div>
                ) : null}
-               <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-                 {review.n || 0} revisão(ões) no dia · clique p/ detalhe (30d / custom / por pessoa)
+               <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 6 }}>
+                 {review.n || 0} revisão(ões) no dia · clique pra ver 30d, custom ou por pessoa
                </div>
              </>}/>
 
@@ -789,7 +797,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                      </React.Fragment>
                    ))}
                  </>
-               ) : <div style={{ fontSize: 12, color: 'var(--text-3)' }}>sem metas registradas</div>}
+               ) : <div style={{ fontSize: 12, color: 'var(--ink-faint)' }}>sem metas registradas</div>}
              </>}/>
 
         {/* P&P — engrenagem (E6 #2: edita correio) */}
@@ -800,15 +808,15 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                <GearButton onClick={onGearToggle('pp')} active={gearOpen === 'pp'}/>
              </div>}
              foot={<>
-               <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
+               <div style={{ display: 'flex', gap: 16, marginTop: 4, flexWrap: 'wrap' }}>
                  <div>
-                   <div style={{ fontSize: 11, color: 'var(--text-3)' }}>ordens</div>
+                   <div className="kit-mlabel">ordens</div>
                    {pp.orders_reset ? (
                      // reajustado por operador: total antigo riscado + novo em vermelho
                      <span title={`Reajustado por ${pp.orders_reset.by || 'operador'}${pp.orders_reset.at ? ' às ' + pp.orders_reset.at : ''}`}>
-                       <b className="mono" style={{ textDecoration: 'line-through', color: 'var(--text-3)', fontWeight: 500 }}>{pp.orders_reset.old_total}</b>
-                       <b className="mono" style={{ color: '#c0352b', marginLeft: 6 }}>{pp.orders}</b>
-                       <span style={{ fontSize: 9.5, color: '#c0352b', marginLeft: 4 }}>editado</span>
+                       <b className="mono" style={{ textDecoration: 'line-through', color: 'var(--ink-faint)', fontWeight: 500 }}>{pp.orders_reset.old_total}</b>
+                       <b className="mono" style={{ color: 'var(--bad-deep)', marginLeft: 6 }}>{pp.orders}</b>
+                       <span className="kit-mlabel" style={{ color: 'var(--bad-deep)', marginLeft: 4 }}>editado</span>
                      </span>
                    ) : <b className="mono">{pp.orders || 0}</b>}
                  </div>
@@ -816,40 +824,40 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                  {vqToday.data && vqToday.data.total_orders != null && (() => {
                    const v = vqToday.data.total_orders; const d = (pp.orders || 0) - v;
                    return (
-                     <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>Veeqo</div>
+                     <div><div className="kit-mlabel">Veeqo</div>
                        <b className="mono">{v}</b>
-                       <span className="mono" title="digitado − Veeqo (positivo = TikTok/clínica ou sobra; negativo = faltou digitar)"
-                         style={{ marginLeft: 5, fontSize: 11, fontWeight: 800,
-                           color: d === 0 ? 'var(--hf-leaf-600)' : (d > 0 ? '#b45309' : '#c0352b') }}>
-                         {d === 0 ? '✓' : (d > 0 ? '+' + d : d)}
+                       <span className="mono" title="digitado menos Veeqo (positivo = TikTok/clínica ou sobra; negativo = faltou digitar)"
+                         style={{ marginLeft: 5, fontSize: 11.5, fontWeight: 500,
+                           color: d === 0 ? 'var(--ok-deep)' : (d > 0 ? 'var(--warn-deep)' : 'var(--bad-deep)') }}>
+                         {d === 0 ? 'ok' : (d > 0 ? '+' + d : d)}
                        </span>
                      </div>
                    );
                  })()}
-                 <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
+                 <div><div className="kit-mlabel">seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
                  {correioNotif && (
-                   <div><div style={{ fontSize: 11, color: 'var(--text-3)' }}>corte</div>
-                        <b className="mono" style={{ color: (correioNotif._minutes != null && window.HFH.liveNowMin() > correioNotif._minutes) ? '#c0352b' : 'var(--hf-leaf-600)' }}>
+                   <div><div className="kit-mlabel">corte</div>
+                        <b className="mono" style={{ color: (correioNotif._minutes != null && window.HFH.liveNowMin() > correioNotif._minutes) ? 'var(--bad-deep)' : 'var(--ok-deep)' }}>
                           {fmtClock(correioNotif._minutes)}{(correioNotif._minutes != null && window.HFH.liveNowMin() > correioNotif._minutes) ? ' vencido' : ''}</b></div>
                  )}
                </div>
                {/* TEMPO POR PESSOA (Bruno 06-22): cada pessoa no P&P + soma + média/pacote */}
                {pp.person_seconds && pp.person_seconds.length > 0 && (
-                 <div style={{ marginTop: 8, borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 6 }}>
-                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-pnp)', textTransform: 'uppercase', marginBottom: 4 }}>
+                 <div style={{ marginTop: 10, borderTop: '1px dotted var(--dotline)', paddingTop: 8 }}>
+                   <div className="kit-mlabel" style={{ marginBottom: 5 }}>
                      Tempo por pessoa · pessoa-hora
                    </div>
-                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
+                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
                      {pp.person_seconds.map((p) => (
-                       <span key={p.person} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
-                         {p.person}: <b>{fmtDurSec(p.seconds)}</b>
+                       <span key={p.person} className="kit-chip info">
+                         {p.person}: {fmtDurSec(p.seconds)}
                        </span>
                      ))}
                    </div>
-                   <div style={{ fontSize: 11, color: 'var(--text-2, #4b5563)', fontWeight: 600 }}>
+                   <div style={{ fontSize: 11.5, color: 'var(--ink-dim)' }}>
                      Soma: <b className="mono">{fmtDurSec(pp.person_seconds_total)}</b>
                      {pp.person_seconds_per_order != null && (
-                       <span title="soma do tempo de todas as pessoas ÷ nº de pacotes"> · média <b className="mono" style={{ color: 'var(--flow-pnp)' }}>{pp.person_seconds_per_order}s</b>/pacote{pp.orders ? ` (${pp.orders} pacotes)` : ''}</span>
+                       <span title="soma do tempo de todas as pessoas dividida pelo nº de pacotes"> · média <b className="mono" style={{ color: 'var(--kit-info)' }}>{pp.person_seconds_per_order}s</b>/pacote{pp.orders ? ` (${pp.orders} pacotes)` : ''}</span>
                      )}
                    </div>
                  </div>
@@ -858,10 +866,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                             title="Editar P&P · correio">
                  {correioNotif ? (
                    <div>
-                     <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 8 }}>
+                     <div style={{ fontSize: 12.5, color: 'var(--ink-dim)', marginBottom: 10 }}>
                        Corte do correio atual: <b>{fmtClock(correioNotif._minutes)}</b> · deadline #{correioNotif._deadline_id}
                      </div>
-                     <button className="btn sm primary" style={{ width: '100%' }}
+                     <button className="kit-btn sm primary" style={{ width: '100%' }}
                              onClick={async () => {
                                const t = window.prompt('Novo horário do corte (HH:MM 24h NY):', correioNotif._deadline_hhmm || '13:00');
                                if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return;
@@ -876,7 +884,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                      </button>
                    </div>
                  ) : (
-                   <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                   <div style={{ fontSize: 12.5, color: 'var(--ink-faint)' }}>
                      Sem deadline ativa configurada. Vai em Config pra criar um deadline novo.
                    </div>
                  )}
@@ -895,38 +903,36 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           return (
             <KPI label="Pedidos hoje" en="Orders shipped · Veeqo"
                  value={(Number(vq.total_orders) || 0).toLocaleString()} suffix="pedidos"
-                 headRight={<span title="Veeqo — pedidos com etiqueta impressa hoje (multi-canal)"
-                                  style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-pnp)',
-                                           border: '1px solid var(--flow-pnp)', borderRadius: 4, padding: '1px 5px' }}>VEEQO</span>}
+                 headRight={<span className="kit-chip info" title="Veeqo · pedidos com etiqueta impressa hoje (multi-canal)">VEEQO</span>}
                  foot={<>
-                   <div style={{ fontSize: 12, color: 'var(--flow-pnp)', fontWeight: 700, marginBottom: 4 }}>
-                     {(Number(vq.total_units) || 0).toLocaleString()} <span style={{ fontWeight: 500, color: 'var(--text-3)' }}>unidades a produzir/enviar</span>
+                   <div style={{ fontSize: 12.5, color: 'var(--ink-dim)', marginBottom: 6 }}>
+                     <b className="mono" style={{ color: 'var(--kit-info)' }}>{(Number(vq.total_units) || 0).toLocaleString()}</b> unidades a produzir ou enviar
                    </div>
                    {vq.error ? (
-                     <div style={{ fontSize: 11, color: '#c0352b' }}>Veeqo indisponível ({vq.error}) — mostrando 0</div>
+                     <div style={{ fontSize: 11.5, color: 'var(--bad-deep)' }}>Veeqo indisponível ({vq.error}), mostrando 0</div>
                    ) : (<>
                      {chans.length > 0 && (
-                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                          {chans.map((c) => (
-                           <span key={c.channel} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
-                             {c.channel}: <b>{c.orders}</b>
+                           <span key={c.channel} className="kit-chip neutral">
+                             {c.channel}: {c.orders}
                            </span>
                          ))}
                        </div>
                      )}
                      {prods.length > 0 && (
-                       <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 5 }}>
-                         <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-pnp)', textTransform: 'uppercase', marginBottom: 3 }}>
+                       <div style={{ borderTop: '1px dotted var(--dotline)', paddingTop: 7 }}>
+                         <div className="kit-mlabel" style={{ marginBottom: 4 }}>
                            Unidades por suplemento
                          </div>
                          {prods.map((p) => (
-                           <div key={(p.sku || '') + p.product} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, lineHeight: 1.6 }}>
-                             <span style={{ color: 'var(--text-2, #4b5563)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.product}>{shortName(p.product)}</span>
-                             <b className="mono" style={{ color: 'var(--flow-pnp)' }}>{p.units}</b>
+                           <div key={(p.sku || '') + p.product} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, lineHeight: 1.7 }}>
+                             <span style={{ color: 'var(--ink-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.product}>{shortName(p.product)}</span>
+                             <b className="mono" style={{ color: 'var(--kit-info)' }}>{p.units}</b>
                            </div>
                          ))}
                          {(vq.by_product || []).length > prods.length && (
-                           <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 3 }}>
+                           <div className="kit-mlabel" style={{ marginTop: 4 }}>
                              +{(vq.by_product || []).length - prods.length} outros suplementos
                            </div>
                          )}
@@ -943,27 +949,27 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                value={(Number(fnsku.total_labels) || 0).toLocaleString()} suffix="labels"
                headRight={<FlowDot flow="production"/>}
                foot={<>
-                 <div style={{ fontSize: 12, color: 'var(--flow-prod)', fontWeight: 700, lineHeight: 1.5 }}>
-                   {Number(fnsku.wall_seconds) > 0 && <span title="tempo de relógio colando FNSKU (união)">⏱ {fmtDurSec(fnsku.wall_seconds)}</span>}
+                 <div className="mono" style={{ fontSize: 12, color: 'var(--primary)', lineHeight: 1.6 }}>
+                   {Number(fnsku.wall_seconds) > 0 && <span title="tempo de relógio colando FNSKU (união)">{fmtDurSec(fnsku.wall_seconds)}</span>}
                    {fnsku.labels_per_min != null && <span>{Number(fnsku.wall_seconds) > 0 ? ' · ' : ''}{fnsku.labels_per_min}/min</span>}
                    {fnsku.sec_per_label != null && <span> · {fnsku.sec_per_label}s/label</span>}
                  </div>
                  {(fnsku.person_seconds || []).length > 0 && (
-                   <div style={{ marginTop: 6, borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 6 }}>
-                     <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, color: 'var(--flow-prod)', textTransform: 'uppercase', marginBottom: 4 }}>
+                   <div style={{ marginTop: 8, borderTop: '1px dotted var(--dotline)', paddingTop: 8 }}>
+                     <div className="kit-mlabel" style={{ marginBottom: 5 }}>
                        Tempo por pessoa · pessoa-hora
                      </div>
-                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
+                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
                        {fnsku.person_seconds.map((p) => (
-                         <span key={p.person} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
-                           {p.person}: <b>{fmtDurSec(p.seconds)}</b>
+                         <span key={p.person} className="kit-chip neutral">
+                           {p.person}: {fmtDurSec(p.seconds)}
                          </span>
                        ))}
                      </div>
-                     <div style={{ fontSize: 11, color: 'var(--text-2, #4b5563)', fontWeight: 600 }}>
+                     <div style={{ fontSize: 11.5, color: 'var(--ink-dim)' }}>
                        Soma: <b className="mono">{fmtDurSec(fnsku.person_seconds_total)}</b>
                        {fnsku.person_seconds_per_label != null && (
-                         <span title="soma do tempo de todos ÷ nº de labels"> · média <b className="mono" style={{ color: 'var(--flow-prod)' }}>{fnsku.person_seconds_per_label}s</b>/label</span>
+                         <span title="soma do tempo de todos dividida pelo nº de labels"> · média <b className="mono" style={{ color: 'var(--primary)' }}>{fnsku.person_seconds_per_label}s</b>/label</span>
                        )}
                      </div>
                    </div>
@@ -1023,20 +1029,18 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
 
       {/* ── EMERGÊNCIA: crítico NOVO → modal de aviso (OK), no lugar do card fixo ── */}
       {emergency && (
-        <div onClick={() => setEmergency(null)} style={{ position: 'fixed', inset: 0, zIndex: 320, background: 'rgba(120,10,10,0.35)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(440px, 94vw)', borderTop: '4px solid var(--bad)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ flex: 'none', width: 38, height: 38, borderRadius: 11, background: 'rgba(220,38,38,0.14)', color: 'var(--bad)', display: 'grid', placeItems: 'center' }}><Icon name="bell" size={20}/></span>
-              <b style={{ fontSize: 16 }}>Atenção — emergência</b>
-            </div>
-            <div style={{ padding: '0 18px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div onClick={() => setEmergency(null)} className="kit-modal-back" style={{ zIndex: 320 }}>
+          <div onClick={(e) => e.stopPropagation()} className="kit-modal" style={{ width: 'min(460px, 94vw)', borderTop: '3px solid var(--bad-deep)' }}>
+            <div className="kit-mlabel">Atenção</div>
+            <div className="title">Emergência na <em style={{ color: 'var(--green-d)', fontStyle: 'italic' }}>linha</em></div>
+            <div className="preview">
               {(emergency.items || []).slice(0, 6).map((a, i) => (
-                <div key={i} style={{ fontSize: 13, color: 'var(--text-2)' }}>• {a.title || a.label || a.msg || 'Crítico'}{a.detail ? ` — ${a.detail}` : ''}</div>
+                <div key={i} style={{ marginBottom: 4 }}>{a.title || a.label || a.msg || 'Crítico'}{a.detail ? ` · ${a.detail}` : ''}</div>
               ))}
-              {(emergency.items || []).length === 0 && <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Há uma notificação crítica nova. Veja no sino.</div>}
+              {(emergency.items || []).length === 0 && <div>Há uma notificação crítica nova. Veja no sino.</div>}
             </div>
-            <div style={{ padding: 14, display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn primary" onClick={() => setEmergency(null)}>OK</button>
+            <div className="foot">
+              <button className="kit-btn primary" onClick={() => setEmergency(null)}>OK</button>
             </div>
           </div>
         </div>
@@ -1044,9 +1048,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
 
       {/* ── Câmeras (widget, default antes de Filtros — Bruno 07-01) ── */}
       {wOn('cameras') && (<section style={{ order: wOrder('cameras') }}>
-        <div className="section-title">
-          <Leaf size={14} color="var(--hf-leaf-500)"/>
-          <h2>Câmeras</h2><span className="en">· Live cameras</span>
+        <div className="opa-section">
+          <span className="kit-mlabel">Câmeras ao vivo</span>
           <div className="rule"/>
         </div>
         <CameraGrid compact/>
@@ -1054,19 +1057,16 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
 
       {/* ── Filters ─────────────────────────────────────────── */}
       {wOn('filtros') && (<section style={{ order: wOrder('filtros') }}>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Filtros</h2><span className="en">· Filter view</span>
-        <span title="Stats do recorte atual (tudo, se nenhum filtro ativo)"
-              style={{ fontSize: 11.5, fontWeight: 700, marginLeft: 10, padding: '2px 10px', borderRadius: 999, whiteSpace: 'nowrap',
-                       color: filterStats.active ? 'var(--hf-navy-600)' : 'var(--text-3)',
-                       background: filterStats.active ? 'rgba(40,85,173,0.10)' : 'var(--surface-2)' }}>
+      <div className="opa-section">
+        <span className="kit-mlabel">Filtros</span>
+        <span className={`kit-chip ${filterStats.active ? 'neutral' : ''}`} title="Stats do recorte atual (tudo, se nenhum filtro ativo)"
+              style={filterStats.active ? undefined : { background: 'var(--kit-surface-2)', color: 'var(--ink-faint)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>
           {filterStats.active ? 'filtro ativo' : 'tudo'} · {filterStats.n} evento{filterStats.n === 1 ? '' : 's'} · {fmtDur(filterStats.min)}
         </span>
         <div className="rule"/>
       </div>
       <div className="filters">
-        <span style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: 0.05, textTransform: 'uppercase', fontWeight: 700, marginRight: 4 }}>Fluxo:</span>
+        <span className="kit-mlabel" style={{ marginRight: 4 }}>Fluxo</span>
         {['production', 'pnp', 'support'].map((f) => {
           const on = filterFlows.has(f);
           return (
@@ -1077,7 +1077,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           );
         })}
         <span style={{ width: 16 }}/>
-        <span style={{ fontSize: 11, color: 'var(--text-3)', letterSpacing: 0.05, textTransform: 'uppercase', fontWeight: 700, marginRight: 4 }}>Pessoa:</span>
+        <span className="kit-mlabel" style={{ marginRight: 4 }}>Pessoa</span>
         {operators.map((o) => {
           const on = filterOps.has(o.id);
           return (
@@ -1089,7 +1089,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           );
         })}
         {(filterOps.size > 0 || filterFlows.size > 0) && (
-          <button className="btn sm ghost" onClick={() => { setFilterOps(new Set()); setFilterFlows(new Set()); }}>
+          <button className="kit-btn sm" onClick={() => { setFilterOps(new Set()); setFilterFlows(new Set()); }}>
             Limpar
           </button>
         )}
@@ -1123,32 +1123,26 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           byPerson[e.op] = (byPerson[e.op] || 0) + dur;
         }
         return (
-          <div className="card" style={{ marginTop: 8, padding: 12, background: 'var(--surface-2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="kit-card pad" style={{ marginTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
               <div>
-                <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700 }}>
-                  Tempo total filtrado
-                </div>
-                <b className="mono" style={{ fontSize: 18, color: 'var(--hf-navy-700)' }}>{fmtDur(totalMin)}</b>
+                <div className="kit-mlabel">Tempo total filtrado</div>
+                <div className="kit-kpi" style={{ fontSize: 26, marginTop: 3 }}>{fmtDur(totalMin)}</div>
               </div>
-              <div style={{ flex: 1, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
-                <span style={{ color: 'var(--text-3)' }}>{filtered.length} event(s)</span>
+              <div style={{ flex: 1, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span className="kit-mlabel">{filtered.length} evento(s)</span>
                 {Object.entries(byFlow).sort((a, b) => b[1] - a[1]).map(([f, mins]) => (
-                  <span key={f} className={`pill ${f}`}>
-                    <span className="dot"/>{(HFD.FLOWS && HFD.FLOWS[f] && HFD.FLOWS[f].label) || f}: {fmtDur(mins)}
+                  <span key={f} className="kit-chip neutral">
+                    {(HFD.FLOWS && HFD.FLOWS[f] && HFD.FLOWS[f].label) || f}: {fmtDur(mins)}
                   </span>
                 ))}
                 {filterOps.size > 0 && Object.entries(byPerson).sort((a, b) => b[1] - a[1]).map(([opId, mins]) => {
                   const o = operators.find((x) => x.id === opId);
                   if (!o) return null;
                   return (
-                    <span key={opId} style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      fontSize: 11, padding: '2px 8px', borderRadius: 999,
-                      background: 'var(--surface)', border: '1px solid var(--border)',
-                    }}>
+                    <span key={opId} className="kit-chip info" style={{ gap: 5 }}>
                       <span style={{ width: 5, height: 5, borderRadius: '50%', background: o.c1, display: 'inline-block' }}/>
-                      {o.short}: <b className="mono">{fmtDur(mins)}</b>
+                      {o.short}: {fmtDur(mins)}
                     </span>
                   );
                 })}
@@ -1164,8 +1158,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
       {wOn('timeline') && (<section style={{ order: wOrder('timeline') }}>
       <div style={{ marginTop: 12 }}>
         {operators.length === 0 ? (
-          <div className="card" style={{ padding: 30, color: 'var(--text-3)', textAlign: 'center' }}>
-            Sem operadores postando hoje · (admins filtrados, /timeline?date={date} sem eventos)
+          <div className="opa-empty">
+            Sem operadores postando hoje · (admins filtrados, sem eventos em {date})
           </div>
         ) : (
           <Timeline
@@ -1202,9 +1196,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
            conceitos do negócio. Tudo derivado via util/day-stats.cjs com
            UNIÃO de intervalos (wall-clock), sem dupla-contagem. ──────── */}
       {wOn('resumo') && (<section style={{ order: wOrder('resumo') }}>
-      <div className="section-title" style={{ marginTop: 24 }}>
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Resumo do dia</h2><span className="en">· Day summary</span>
+      <div className="opa-section" style={{ marginTop: 26 }}>
+        <span className="kit-mlabel">Resumo do dia</span>
         <div className="rule"/>
       </div>
       {(() => {
@@ -1217,7 +1210,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         const goalsDone = goals.filter((g) => g.completed).length;
         return (
         <div className="day-summary-grid" style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 12 }}>
-          <div className="card" style={{ padding: 16 }}>
+          <div className="kit-card pad">
+            <div className="kit-mlabel" style={{ marginBottom: 6 }}>Números do dia</div>
             <Row label="Data"                value={date}/>
             <Row label="Operadores hoje"     value={`${operators.length} pessoa(s)`}/>
             <Row label="Eventos hoje"        value={`${state.events.length}`}/>
@@ -1225,32 +1219,29 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             <Row label="Tempo parado"        value={fmtDur(prodT.stoppageMin)}/>
             <Row label="Suporte (limpeza)"   value={fmtDur(supB.cleaningTotal)}/>
             <Row label="Tempo médio/ordem"   value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
-            <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : '— sem deadline'}/>
+            <Row label="Corte do correio"    value={correioNotif ? fmtClock(correioNotif._minutes) : 'sem deadline'}/>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
             {/* 1. PESSOAS · presença / ativo / break — wall-clock real */}
-            <ScrollStrip title="Pessoas · presença e ativo" en="People · presence & active">
+            <ScrollStrip title="Pessoas · presença e ativo">
               {operators.slice().map((op) => {
                 const p = dayStats.personPresence(op.id, state.events, now);
                 if (p.firstMin == null) return null;
                 return (
-                  <div key={op.id} className="strip-item" style={{
-                    minWidth: 200, padding: 10, borderRadius: 8,
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
-                  }}>
+                  <div key={op.id} className="opa-strip-item" style={{ minWidth: 208 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: op.c1 }}/>
-                      <b style={{ fontSize: 12.5 }}>{op.name}</b>
+                      <b style={{ fontSize: 12.5, fontWeight: 600 }}>{op.name}</b>
                     </div>
-                    <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 4 }}>
-                      {fmtDur(p.activeMin)} <span style={{ fontSize: 10, color: 'var(--text-3)', fontWeight: 500 }}>ativo</span>
+                    <div className="opa-strip-num">
+                      {fmtDur(p.activeMin)} <span className="kit-mlabel">ativo</span>
                     </div>
-                    <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 2 }}>
-                      <span title="janela primeira→última atividade">presente {fmtDur(p.presenceMin)}</span>
+                    <div style={{ fontSize: 11, color: 'var(--ink-dim)', marginTop: 4 }}>
+                      <span title="janela da primeira à última atividade">presente {fmtDur(p.presenceMin)}</span>
                       {p.breakMin > 0 && <span title="lunch/break"> · break {fmtDur(p.breakMin)}</span>}
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
+                    <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)', marginTop: 2 }}>
                       {fmtClock(p.firstMin)} → {p.lastMin >= now - 1 ? 'agora' : fmtClock(p.lastMin)}
                     </div>
                   </div>
@@ -1259,7 +1250,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </ScrollStrip>
 
             {/* 2. LOTES — produto, fase atual, qty, cowork */}
-            <ScrollStrip title="Lotes em produção" en="Batches in production">
+            <ScrollStrip title="Lotes em produção">
               {lotes.length === 0
                 ? <EmptyStrip msg="Sem lotes produzidos hoje"/>
                 : lotes.slice().sort((a, b) => (b.total_seconds || 0) - (a.total_seconds || 0)).map((lote) => {
@@ -1267,35 +1258,32 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                   const phaseName = lote.current_phase_slug && HFD.activities && HFD.activities[lote.current_phase_slug]
                     ? HFD.activities[lote.current_phase_slug].name : (lote.current_phase_slug || '');
                   return (
-                    <div key={lote.batch_id} className="strip-item" style={{
-                      minWidth: 230, padding: 10, borderRadius: 8,
-                      background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <b style={{ fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div key={lote.batch_id} className="opa-strip-item" style={{ minWidth: 236 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <b style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {lote.product_name}
                         </b>
-                        {lote.is_live && <span title="rodando" style={{ color: 'var(--hf-leaf-600)', fontSize: 11 }}>●</span>}
+                        {lote.is_live && <span title="rodando" style={{ color: 'var(--green)', fontSize: 11 }}>●</span>}
                       </div>
-                      <div className="mono" style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{lote.batch_number || '—'}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>
-                        {phaseName || <span style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>—</span>}
+                      <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-faint)' }}>{lote.batch_number || '—'}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 3 }}>
+                        {phaseName || <span style={{ color: 'var(--ink-faint)', fontStyle: 'italic' }}>—</span>}
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
-                        <b className="mono" style={{ fontSize: 14, color: 'var(--flow-prod)' }}>{fmtDur(dur)}</b>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                        <div className="opa-strip-num" style={{ fontSize: 19 }}>{fmtDur(dur)}</div>
                         {lote.qty > 0 && (
-                          <span className="mono" style={{ fontSize: 11, fontWeight: 700 }}>{lote.qty}</span>
+                          <span className="mono" style={{ fontSize: 11.5, color: 'var(--ink-dim)' }}>{lote.qty}</span>
                         )}
                       </div>
                       {lote.people_ops.length > 0 && (
-                        <div style={{ display: 'flex', gap: 2, marginTop: 4, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 3, marginTop: 6, flexWrap: 'wrap' }}>
                           {lote.people_ops.map((opId) => {
                             const o = operators.find((x) => x.id === opId);
                             if (!o) return null;
                             return (
                               <span key={opId} title={o.name} style={{
-                                fontSize: 9, padding: '1px 5px', borderRadius: 999, fontWeight: 700,
-                                background: o.c1, color: 'white',
+                                font: '500 10px var(--font-mono)', padding: '2px 7px', borderRadius: 'var(--r-pill)',
+                                background: o.c1, color: '#fff',
                               }}>{o.short}</span>
                             );
                           })}
@@ -1307,31 +1295,26 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </ScrollStrip>
 
             {/* 3. PRODUÇÃO real vs paradas */}
-            <div className="card" style={{ padding: 12, background: 'var(--surface-2)' }}>
-              <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700 }}>
-                Produção · efetivo vs parado <span style={{ marginLeft: 4, opacity: 0.7, textTransform: 'none', fontWeight: 500 }}>· Production effective vs stoppage</span>
-              </div>
-              <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', marginTop: 6, flexWrap: 'wrap' }}>
+            <div className="kit-card pad">
+              <div className="kit-mlabel">Produção · efetivo vs parado</div>
+              <div style={{ display: 'flex', gap: 22, alignItems: 'baseline', marginTop: 8, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>efetivo</div>
-                  <b className="mono" style={{ fontSize: 20, color: 'var(--flow-prod)' }}>{fmtDur(prodT.effectiveMin)}</b>
+                  <div className="kit-mlabel">efetivo</div>
+                  <div className="kit-kpi" style={{ fontSize: 26 }}>{fmtDur(prodT.effectiveMin)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>wall-clock total</div>
-                  <b className="mono" style={{ fontSize: 14 }}>{fmtDur(prodT.wallClockMin)}</b>
+                  <div className="kit-mlabel">relógio total</div>
+                  <div className="kit-kpi" style={{ fontSize: 20 }}>{fmtDur(prodT.wallClockMin)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>parado (sobre prod)</div>
-                  <b className="mono" style={{ fontSize: 14, color: 'var(--warn, #d97706)' }}>{fmtDur(prodT.stoppageMin)}</b>
+                  <div className="kit-mlabel">parado (sobre prod)</div>
+                  <div className="kit-kpi" style={{ fontSize: 20, color: 'var(--warn-deep)' }}>{fmtDur(prodT.stoppageMin)}</div>
                 </div>
                 {Object.entries(prodT.stoppageBySlug).length > 0 && (
                   <div style={{ flex: 1, minWidth: 200, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     {Object.entries(prodT.stoppageBySlug).sort((a, b) => b[1] - a[1]).map(([slug, mins]) => (
-                      <span key={slug} style={{
-                        fontSize: 10.5, padding: '2px 8px', borderRadius: 999,
-                        background: 'var(--surface)', border: '1px solid var(--border)',
-                      }}>
-                        {HFD.activities && HFD.activities[slug] ? HFD.activities[slug].name : slug}: <b className="mono">{fmtDur(mins)}</b>
+                      <span key={slug} className="kit-chip warn">
+                        {HFD.activities && HFD.activities[slug] ? HFD.activities[slug].name : slug}: {fmtDur(mins)}
                       </span>
                     ))}
                   </div>
@@ -1340,86 +1323,77 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </div>
 
             {/* 4. SUPORTE breakdown */}
-            <ScrollStrip title="Suporte · breakdown" en="Support breakdown">
+            <ScrollStrip title="Suporte · breakdown">
               {(() => {
                 const cards = [
-                  { key: 'cleaning_day',  label: 'Limpeza · dia',       val: supB.cleaningDay,    color: '#3b82f6' },
-                  { key: 'cleaning_eod',  label: 'Limpeza · fim do dia', val: supB.cleaningEod,    color: '#1e40af' },
-                  { key: 'cleaning_tot',  label: 'Limpeza · total',     val: supB.cleaningTotal,  color: '#2563eb' },
-                  { key: 'organization',  label: 'Organização',         val: supB.organization,   color: '#0ea5e9' },
-                  { key: 'maintenance',   label: 'Manutenção',          val: supB.maintenance,    color: '#d97706' },
-                  { key: 'downtime',      label: 'Downtime (máquina)',  val: supB.downtime,       color: '#dc2626' },
-                  { key: 'material',      label: 'Recebimento/Entrega', val: supB.materialHandling, color: '#7c5cd6' },
-                  { key: 'clinic',        label: 'Clínica · injeções',  val: supB.clinic,         color: '#16a34a' },
-                  { key: 'meeting',       label: 'Reuniões',            val: supB.meeting,        color: '#64748b' },
-                  { key: 'training',      label: 'Treinamento',         val: supB.training,       color: '#475569' },
+                  { key: 'cleaning_day',  label: 'Limpeza · dia',       val: supB.cleaningDay,    color: 'var(--primary)' },
+                  { key: 'cleaning_eod',  label: 'Limpeza · fim do dia', val: supB.cleaningEod,    color: 'var(--primary-deep)' },
+                  { key: 'cleaning_tot',  label: 'Limpeza · total',     val: supB.cleaningTotal,  color: 'var(--primary)' },
+                  { key: 'organization',  label: 'Organização',         val: supB.organization,   color: 'var(--kit-info)' },
+                  { key: 'maintenance',   label: 'Manutenção',          val: supB.maintenance,    color: 'var(--kit-warn)' },
+                  { key: 'downtime',      label: 'Downtime (máquina)',  val: supB.downtime,       color: 'var(--kit-bad)' },
+                  { key: 'material',      label: 'Recebimento/Entrega', val: supB.materialHandling, color: 'var(--dispute)' },
+                  { key: 'clinic',        label: 'Clínica · injeções',  val: supB.clinic,         color: 'var(--green-d)' },
+                  { key: 'meeting',       label: 'Reuniões',            val: supB.meeting,        color: 'var(--ink-faint)' },
+                  { key: 'training',      label: 'Treinamento',         val: supB.training,       color: 'var(--ink-dim)' },
                 ].filter((c) => c.val > 0);
                 if (cards.length === 0) return <EmptyStrip msg="Sem suporte registrado hoje"/>;
                 return cards.map((c) => (
-                  <div key={c.key} className="strip-item" style={{
-                    minWidth: 130, padding: 10, borderRadius: 8,
-                    background: 'var(--surface-2)', border: `1px solid var(--border)`, flex: '0 0 auto',
-                    borderLeft: `4px solid ${c.color}`,
-                  }}>
-                    <div style={{ fontSize: 10.5, color: 'var(--text-3)' }}>{c.label}</div>
-                    <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 2 }}>{fmtDur(c.val)}</div>
+                  <div key={c.key} className="opa-strip-item" style={{ minWidth: 142, borderLeft: `3px solid ${c.color}` }}>
+                    <div className="kit-mlabel">{c.label}</div>
+                    <div className="opa-strip-num" style={{ fontSize: 19 }}>{fmtDur(c.val)}</div>
                   </div>
                 ));
               })()}
             </ScrollStrip>
 
             {/* 5. IDLE ranking — quem ficou mais parado */}
-            <ScrollStrip title={`Idle ranking · gaps ≥${GAP_VISIBLE_MIN}min`} en="Most idle">
+            <ScrollStrip title={`Idle ranking · gaps de ${GAP_VISIBLE_MIN}min ou mais`}>
               {idleR.filter((r) => r.idleMin > 0).length === 0
                 ? <EmptyStrip msg="Sem gaps significativos"/>
                 : idleR.filter((r) => r.idleMin > 0).map((r, i) => (
-                  <div key={r.opId} className="strip-item" style={{
-                    minWidth: 160, padding: 10, borderRadius: 8,
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
-                  }}>
+                  <div key={r.opId} className="opa-strip-item" style={{ minWidth: 168 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 700 }}>{i + 1}.</span>
+                      <span className="kit-mlabel">{i + 1}</span>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: r.opC1 }}/>
-                      <b style={{ fontSize: 12.5 }}>{r.opName}</b>
+                      <b style={{ fontSize: 12.5, fontWeight: 600 }}>{r.opName}</b>
                     </div>
-                    <div className="mono" style={{ fontSize: 16, fontWeight: 700, color: 'var(--warn, #d97706)', marginTop: 4 }}>{fmtDur(r.idleMin)}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)' }}>{r.gapsCount} gap(s)</div>
+                    <div className="opa-strip-num warn">{fmtDur(r.idleMin)}</div>
+                    <div className="kit-mlabel" style={{ marginTop: 2 }}>{r.gapsCount} gap(s)</div>
                   </div>
                 ))}
             </ScrollStrip>
 
             {/* 6a. TAREFAS ABERTAS (LIVE sem F, exceto end_of_day) */}
-            <ScrollStrip title="Tarefas abertas (LIVE sem F)" en="Open tasks">
+            <ScrollStrip title="Tarefas abertas (ao vivo sem fechar)">
               {openT.length === 0
-                ? <EmptyStrip msg="Tudo fechado ✓"/>
+                ? <EmptyStrip msg="Tudo fechado"/>
                 : openT.map((t) => (
-                  <div key={t.opId} className="strip-item" style={{
-                    minWidth: 140, padding: 10, borderRadius: 8,
-                    background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
-                  }}>
+                  <div key={t.opId} className="opa-strip-item" style={{ minWidth: 148 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{ width: 6, height: 6, borderRadius: '50%', background: t.opC1 }}/>
-                      <b style={{ fontSize: 12.5 }}>{t.opName}</b>
+                      <b style={{ fontSize: 12.5, fontWeight: 600 }}>{t.opName}</b>
                     </div>
-                    <div className="mono" style={{ fontSize: 18, fontWeight: 700, color: 'var(--warn, #d97706)', marginTop: 4 }}>{t.count}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-3)' }}>aberta(s)</div>
+                    <div className="opa-strip-num warn">{t.count}</div>
+                    <div className="kit-mlabel" style={{ marginTop: 2 }}>aberta(s)</div>
                   </div>
                 ))}
             </ScrollStrip>
 
             {/* 6c+d+f. COWORK / PRODUTOS / ALERTAS — strip resumida */}
-            <ScrollStrip title="Métricas do dia" en="Day metrics">
-              <MetricCard label="Cowork" value={cowS.total} sub="event(s) colaborativo(s)" color="#7c5cd6"/>
-              <MetricCard label="Lotes completados" value={goalsDone} sub={`/ ${goals.length} meta(s)`} color="#22b35d"/>
+            <ScrollStrip title="Métricas do dia">
+              <MetricCard label="Cowork" value={cowS.total} sub="evento(s) colaborativo(s)" color="var(--dispute)"/>
+              <MetricCard label="Lotes completados" value={goalsDone} sub={`de ${goals.length} meta(s)`} color="var(--green)" tone="ok"/>
               <MetricCard label="Alertas" value={allNotifs.length}
-                          sub={`${badCount} crítico · ${warnCount} warn · ${infoCount} info`}
-                          color={badCount > 0 ? '#dc2626' : warnCount > 0 ? '#d97706' : '#64748b'}/>
+                          sub={`${badCount} crítico · ${warnCount} atenção · ${infoCount} info`}
+                          color={badCount > 0 ? 'var(--kit-bad)' : warnCount > 0 ? 'var(--kit-warn)' : 'var(--ink-faint)'}
+                          tone={badCount > 0 ? 'bad' : warnCount > 0 ? 'warn' : null}/>
               <MetricCard label="Backgrounds ativos"
                           value={state.events.filter((e) => e._is_background && e.ended_min == null).length}
-                          sub="rodando agora" color="#0ea5e9"/>
+                          sub="rodando agora" color="var(--kit-info)"/>
               <MetricCard label="Eventos em andamento"
                           value={state.events.filter((e) => e.ended_min == null).length}
-                          sub="LIVE total" color="#16a34a"/>
+                          sub="ao vivo no total" color="var(--green-d)" tone="ok"/>
             </ScrollStrip>
           </div>
         </div>
@@ -1439,44 +1413,44 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           const op = operators.find((x) => x.id === gapFill.opId);
           return (
             <>
-              <span style={{ color: 'var(--text-3)', fontSize: 14, fontWeight: 700 }}>⋮⋮</span>
+              <span style={{ color: 'var(--ink-faint)', fontSize: 14 }}>⋮⋮</span>
               <Icon name="plus" size={14}/>
-              <b style={{ fontSize: 13, flex: 1 }}>
+              <b style={{ fontSize: 13, flex: 1, fontWeight: 600 }}>
                 Preencher gap · {op?.name || '?'} · {fmtClock(gapFill.gap.start)}→{fmtClock(gapFill.gap.end)} ({fmtDur(gapFill.gap.dur)})
               </b>
-              <button className="icon-btn" onClick={closeGapFill} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
+              <button className="kit-btn xs" onClick={closeGapFill} style={{ padding: '0 8px' }}><Icon name="x" size={11}/></button>
             </>
           );
         })()}>
         {gapFill && (
           <>
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
+            <div style={{ marginBottom: 12 }}>
+              <label className="kit-mlabel" style={{ display: 'block', marginBottom: 5 }}>
                 Tipo de atividade
               </label>
-              <select className="input" value={gapFill.form.reasonCat}
+              <select className="kit-input" style={{ width: '100%' }} value={gapFill.form.reasonCat}
                       onChange={(e) => setGapFill((g) => ({ ...g, form: { ...g.form, reasonCat: e.target.value } }))}>
                 <option value="almoco">Almoço (lunch)</option>
                 <option value="pausa">Pausa curta (break)</option>
                 <option value="limpeza">Limpeza (cleaning)</option>
-                <option value="transicao">Transição/organização</option>
+                <option value="transicao">Transição ou organização</option>
                 <option value="outro">Outro motivo</option>
               </select>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
+            <div style={{ marginBottom: 14 }}>
+              <label className="kit-mlabel" style={{ display: 'block', marginBottom: 5 }}>
                 Descrição livre
               </label>
-              <textarea className="input" rows={3} value={gapFill.form.note}
+              <textarea className="kit-input" style={{ width: '100%' }} rows={3} value={gapFill.form.note}
                         onChange={(e) => setGapFill((g) => ({ ...g, form: { ...g.form, note: e.target.value } }))}
                         placeholder="ex.: foi limpar a linha 2 depois do encapsulamento"/>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn primary" onClick={saveGapFill}>Criar event no gap</button>
-              <button className="btn ghost" onClick={closeGapFill}>Cancelar</button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button className="kit-btn sm primary" onClick={saveGapFill}>Criar evento no gap</button>
+              <button className="kit-btn sm" onClick={closeGapFill}>Cancelar</button>
               <span style={{ flex: 1 }}/>
-              <span style={{ fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic', alignSelf: 'center' }}>
-                {V4_ALLOW_WRITES ? 'persiste em prod (audit)' : 'preview · V4_ALLOW_WRITES=0'}
+              <span className="kit-mlabel">
+                {V4_ALLOW_WRITES ? 'persiste em prod' : 'preview · writes off'}
               </span>
             </div>
           </>
@@ -1493,10 +1467,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         header={
           <>
             <Icon name={drill?.which === 'revisao' ? 'search' : 'factory'} size={14}/>
-            <b style={{ fontSize: 13, flex: 1 }}>
+            <b style={{ fontSize: 13, flex: 1, fontWeight: 600 }}>
               {drill?.which === 'revisao' ? 'Taxa de revisão · por produto' : 'Produção · taxa por lote'}
             </b>
-            <button className="icon-btn" onClick={closeDrill} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
+            <button className="kit-btn xs" onClick={closeDrill} style={{ padding: '0 8px' }}><Icon name="x" size={11}/></button>
           </>
         }>
         {drill?.which === 'producao' && (
@@ -1507,14 +1481,14 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </div>
 
             {/* BLOCO 1 — só a LINHA, por relógio (métrica principal) */}
-            <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 8, marginBottom: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, color: 'var(--flow-prod)', textTransform: 'uppercase', marginBottom: 6 }}>
-                Linha de produção <span style={{ fontWeight: 600, opacity: 0.7, textTransform: 'none' }}>· só a linha, por relógio</span>
+            <div style={{ borderTop: '1px dotted var(--dotline)', paddingTop: 10, marginBottom: 12 }}>
+              <div className="kit-mlabel" style={{ color: 'var(--green-d)', marginBottom: 7 }}>
+                Linha de produção · só a linha, por relógio
               </div>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                <DrillStat label="Tempo de linha (relógio)" value={lineWall > 0 ? fmtDurSec(lineWall) : '—'} unit="produzindo" color="var(--flow-prod)"/>
-                <DrillStat label="Garrafas / min" value={prodPerMin != null ? prodPerMin : '—'} unit="/min" color="var(--flow-prod)"/>
-                <DrillStat label="Tempo / garrafa" value={secPerBottle != null ? secPerBottle : '—'} unit="seg" color="var(--flow-prod)"/>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                <DrillStat label="Tempo de linha (relógio)" value={lineWall > 0 ? fmtDurSec(lineWall) : '—'} unit="produzindo"/>
+                <DrillStat label="Garrafas / min" value={prodPerMin != null ? prodPerMin : '—'} unit="/min"/>
+                <DrillStat label="Tempo / garrafa" value={secPerBottle != null ? secPerBottle : '—'} unit="seg"/>
                 {ln && Number(ln.person_seconds) > 0 && (
                   <DrillStat label="Trabalho (pessoa-hora)" value={fmtDurSec(ln.person_seconds)} unit={`${ln.event_count || 0} eventos`}/>
                 )}
@@ -1526,61 +1500,61 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
 
             {/* BLOCO 2 — PRODUÇÃO TOTAL (linha+revisão+labeling…), pessoa-hora (a antiga) */}
             {ft && Number(ft.person_seconds) > 0 && (
-              <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', paddingTop: 8, marginBottom: 10 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, color: 'var(--text-2, #4b5563)', textTransform: 'uppercase', marginBottom: 6 }}>
-                  Produção total <span style={{ fontWeight: 600, opacity: 0.7, textTransform: 'none' }}>· linha + revisão + labeling…, pessoa-hora</span>
+              <div style={{ borderTop: '1px dotted var(--dotline)', paddingTop: 10, marginBottom: 12 }}>
+                <div className="kit-mlabel" style={{ marginBottom: 7 }}>
+                  Produção total · linha + revisão + labeling, pessoa-hora
                 </div>
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 8 }}>
                   <DrillStat label="Tempo total (pessoa-hora)" value={fmtDurSec(ft.person_seconds)} unit="todo o fluxo"/>
                   <DrillStat label="Garrafas / min" value={flowPerMin != null ? flowPerMin : '—'} unit="/min"/>
                   <DrillStat label="Tempo / garrafa" value={ft.sec_per_bottle != null ? ft.sec_per_bottle : '—'} unit="seg"/>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {(ft.by_phase || []).filter((p) => p.seconds > 0).map((p) => (
-                    <span key={p.slug} className="pill" style={{ fontSize: 11, background: 'var(--surface-2, #f3f4f6)', color: 'var(--text-2, #4b5563)' }}>
-                      {p.name}: <b>{fmtDurSec(p.seconds)}</b>
+                    <span key={p.slug} className="kit-chip neutral">
+                      {p.name}: {fmtDurSec(p.seconds)}
                     </span>
                   ))}
                 </div>
               </div>
             )}
 
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 10, lineHeight: 1.5 }}>
-              <b>Linha (relógio)</b> = tempo real em que a linha esteve produzindo (sem contar 2× quando juntos) — é o ritmo de verdade.
-              <b> Produção total (pessoa-hora)</b> = soma do tempo de TODOS (linha + revisão + labeling…); maior porque empilha as pessoas e inclui as outras fases.
+            <div style={{ fontSize: 12, color: 'var(--ink-dim)', marginBottom: 12, lineHeight: 1.55 }}>
+              <b>Linha (relógio)</b> = tempo real em que a linha esteve produzindo, sem contar duas vezes quando tem gente junto. É o ritmo de verdade.
+              <b> Produção total (pessoa-hora)</b> = soma do tempo de todos (linha + revisão + labeling). Maior porque empilha as pessoas e inclui as outras fases.
             </div>
             {(prod.lotes || []).filter((l) => (l.bottles || 0) > 0).length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>
                 Sem garrafas contadas hoje. Quando os operadores informarem as bottles, a taxa por lote aparece aqui.
               </div>
             ) : (
-              <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <table className="kit-table">
                 <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 }}>
-                    <th style={{ padding: '4px 6px 4px 0' }}>Lote</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Garrafas</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>/min</th>
-                    <th style={{ padding: '4px 0 4px 6px', textAlign: 'right' }}>/seg</th>
+                  <tr>
+                    <th>Lote</th>
+                    <th className="num">Garrafas</th>
+                    <th className="num">/min</th>
+                    <th className="num">/seg</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(prod.lotes || []).filter((l) => (l.bottles || 0) > 0)
                     .sort((a, b) => (b.bottles || 0) - (a.bottles || 0)).map((l, i) => (
-                    <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
-                      <td style={{ padding: '5px 6px 5px 0' }}>
-                        <b>{l.product}</b>
-                        <span className="mono" style={{ color: 'var(--text-3)', marginLeft: 4 }}>{l.batch_number || ''}</span>
+                    <tr key={i}>
+                      <td>
+                        <b style={{ fontWeight: 600 }}>{l.product}</b>
+                        <span className="mono" style={{ color: 'var(--ink-faint)', marginLeft: 5 }}>{l.batch_number || ''}</span>
                       </td>
-                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700 }}>{l.bottles}</td>
-                      <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{l.bottles_per_min != null ? l.bottles_per_min : '—'}</td>
-                      <td className="mono" style={{ padding: '5px 0 5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{l.bottles_per_sec != null ? l.bottles_per_sec : '—'}</td>
+                      <td className="num">{l.bottles}</td>
+                      <td className="num" style={{ color: 'var(--primary)' }}>{l.bottles_per_min != null ? l.bottles_per_min : '—'}</td>
+                      <td className="num" style={{ color: 'var(--primary)' }}>{l.bottles_per_sec != null ? l.bottles_per_sec : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
-            <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>
-              Taxa = garrafas ÷ tempo efetivo de produção do lote (descontando paradas).
+            <div className="kit-mlabel" style={{ marginTop: 10 }}>
+              Taxa = garrafas dividido pelo tempo efetivo de produção do lote, descontando paradas.
             </div>
           </div>
         )}
@@ -1620,23 +1594,23 @@ function ReviewDetail({ date, today }) {
 
   const d = data || {};
   const Tbl = ({ rows, firstLabel, firstKey }) => (
-    (!rows || rows.length === 0) ? <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '6px 0' }}>—</div> : (
-      <table className="drill-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead><tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 }}>
-          <th style={{ padding: '4px 6px 4px 0' }}>{firstLabel}</th>
-          <th style={{ padding: '4px 6px', textAlign: 'right' }}>n</th>
-          <th style={{ padding: '4px 6px', textAlign: 'right' }}>cáps/seg</th>
-          <th style={{ padding: '4px 6px', textAlign: 'right' }}>frasco/min</th>
-          <th style={{ padding: '4px 0 4px 6px', textAlign: 'right' }}>seg/frasco</th>
+    (!rows || rows.length === 0) ? <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '6px 0' }}>—</div> : (
+      <table className="kit-table">
+        <thead><tr>
+          <th>{firstLabel}</th>
+          <th className="num">n</th>
+          <th className="num">cáps/seg</th>
+          <th className="num">frasco/min</th>
+          <th className="num">seg/frasco</th>
         </tr></thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} style={{ borderTop: '1px dashed var(--border)' }}>
-              <td style={{ padding: '5px 6px 5px 0' }}><b>{r[firstKey] || '(?)'}</b></td>
-              <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--text-3)' }}>{r.n}</td>
-              <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: 'var(--flow-prod)' }}>{r.avg_capsules_per_sec != null ? r.avg_capsules_per_sec : '—'}</td>
-              <td className="mono" style={{ padding: '5px 6px', textAlign: 'right', color: 'var(--flow-prod)' }}>{r.avg_bottles_per_min != null ? r.avg_bottles_per_min : '—'}</td>
-              <td className="mono" style={{ padding: '5px 0 5px 6px', textAlign: 'right' }}>{r.avg_sec_per_bottle != null ? r.avg_sec_per_bottle : '—'}</td>
+            <tr key={i}>
+              <td><b style={{ fontWeight: 600 }}>{r[firstKey] || '(?)'}</b></td>
+              <td className="num" style={{ color: 'var(--ink-faint)' }}>{r.n}</td>
+              <td className="num" style={{ color: 'var(--primary)' }}>{r.avg_capsules_per_sec != null ? r.avg_capsules_per_sec : '—'}</td>
+              <td className="num" style={{ color: 'var(--primary)' }}>{r.avg_bottles_per_min != null ? r.avg_bottles_per_min : '—'}</td>
+              <td className="num">{r.avg_sec_per_bottle != null ? r.avg_sec_per_bottle : '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -1646,36 +1620,36 @@ function ReviewDetail({ date, today }) {
 
   return (
     <div>
-      <div className="filters" style={{ marginBottom: 10 }}>
+      <div className="kit-seg" style={{ marginBottom: 12 }}>
         {[['today', 'Hoje'], ['7d', '7d'], ['30d', '30d'], ['custom', 'Custom']].map(([id, label]) => (
-          <button key={id} className={`filter-chip ${scope === id ? 'on' : ''}`} onClick={() => setScope(id)}>{label}</button>
+          <button key={id} className={scope === id ? 'on' : ''} onClick={() => setScope(id)}>{label}</button>
         ))}
       </div>
       {scope === 'custom' && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }}/>
-          <span style={{ color: 'var(--text-3)' }}>→</span>
-          <input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }}/>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input className="kit-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: 150 }}/>
+          <span style={{ color: 'var(--ink-faint)' }}>→</span>
+          <input className="kit-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: 150 }}/>
         </div>
       )}
-      {loading ? <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>Carregando…</div>
-        : err ? <div style={{ fontSize: 12, color: 'var(--bad)', padding: '8px 0' }}>Erro: {err.message}</div>
+      {loading ? <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>Carregando…</div>
+        : err ? <div style={{ fontSize: 12.5, color: 'var(--bad-deep)', padding: '8px 0' }}>Erro: {err.message}</div>
         : (
         <>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 10, flexWrap: 'wrap' }}>
-            <DrillStat label="Cápsulas/seg" value={d.avg_capsules_per_sec != null ? d.avg_capsules_per_sec : '—'} unit="média" color="var(--flow-prod)"/>
-            <DrillStat label="Frascos/min" value={d.avg_bottles_per_min != null ? d.avg_bottles_per_min : '—'} unit="média" color="var(--flow-prod)"/>
+          <div style={{ display: 'flex', gap: 18, marginBottom: 12, flexWrap: 'wrap' }}>
+            <DrillStat label="Cápsulas/seg" value={d.avg_capsules_per_sec != null ? d.avg_capsules_per_sec : '—'} unit="média"/>
+            <DrillStat label="Frascos/min" value={d.avg_bottles_per_min != null ? d.avg_bottles_per_min : '—'} unit="média"/>
             <DrillStat label="Tempo/frasco" value={d.avg_sec_per_bottle != null ? d.avg_sec_per_bottle : '—'} unit="seg médio"/>
             <DrillStat label="Revisões" value={d.n || 0} unit={scope === 'today' ? 'no dia' : (d.scope || '')}/>
           </div>
-          <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, margin: '4px 0' }}>Por pessoa</div>
+          <div className="kit-mlabel" style={{ margin: '6px 0' }}>Por pessoa</div>
           <Tbl rows={d.operators} firstLabel="Operador" firstKey="operator"/>
-          <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700, margin: '10px 0 4px' }}>Por produto</div>
+          <div className="kit-mlabel" style={{ margin: '14px 0 6px' }}>Por produto</div>
           <Tbl rows={d.products} firstLabel="Produto" firstKey="product"/>
         </>
       )}
-      <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 8, fontStyle: 'italic' }}>
-        Cápsulas = garrafas × cápsulas-por-frasco do lote; tempo desconta pausas. Card mostra o dia; aqui dá pra ver 30d ou datas custom.
+      <div className="kit-mlabel" style={{ marginTop: 10 }}>
+        Cápsulas = garrafas vezes cápsulas por frasco do lote. O tempo desconta pausas.
       </div>
     </div>
   );
@@ -1685,9 +1659,9 @@ function ReviewDetail({ date, today }) {
 function DrillStat({ label, value, unit, color }) {
   return (
     <div>
-      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700 }}>{label}</div>
-      <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: color || 'var(--hf-navy-700)', marginTop: 2 }}>
-        {value}{unit && <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500, marginLeft: 4 }}>{unit}</span>}
+      <div className="kit-mlabel">{label}</div>
+      <div className="kit-kpi" style={{ fontSize: 24, color: color || 'var(--primary-deep)', marginTop: 3 }}>
+        {value}{unit && <span className="kit-mlabel" style={{ marginLeft: 5 }}>{unit}</span>}
       </div>
     </div>
   );
@@ -1695,39 +1669,25 @@ function DrillStat({ label, value, unit, color }) {
 
 /* Bloco 28/mai noite — placeholder pra strip sem dados. */
 function EmptyStrip({ msg }) {
-  return (
-    <div className="strip-item" style={{
-      minWidth: 200, padding: 12, borderRadius: 8,
-      background: 'var(--surface-2)', border: '1px dashed var(--border)', flex: '0 0 auto',
-      color: 'var(--text-3)', fontSize: 11, fontStyle: 'italic',
-    }}>{msg}</div>
-  );
+  return <div className="opa-strip-empty">{msg}</div>;
 }
 
 /* Bloco 28/mai noite — card genérico pra strip "Métricas do dia". */
-function MetricCard({ label, value, sub, color = '#64748b' }) {
+function MetricCard({ label, value, sub, color = 'var(--ink-faint)', tone }) {
   return (
-    <div className="strip-item" style={{
-      minWidth: 150, padding: 10, borderRadius: 8,
-      background: 'var(--surface-2)', border: '1px solid var(--border)', flex: '0 0 auto',
-      borderLeft: `4px solid ${color}`,
-    }}>
-      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06, fontWeight: 700 }}>
-        {label}
-      </div>
-      <div className="mono" style={{ fontSize: 22, fontWeight: 700, color: 'var(--hf-navy-700)', marginTop: 2 }}>{value}</div>
-      {sub && <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
+    <div className="opa-strip-item" style={{ minWidth: 158, borderLeft: `3px solid ${color}` }}>
+      <div className="kit-mlabel">{label}</div>
+      <div className={`opa-strip-num ${tone || ''}`}>{value}</div>
+      {sub && <div className="kit-mlabel" style={{ marginTop: 3 }}>{sub}</div>}
     </div>
   );
 }
 
 /* E6 #8 — barra horizontal scrollável p/ tirinhas de info. */
-function ScrollStrip({ title, en, children }) {
+function ScrollStrip({ title, children }) {
   return (
-    <div className="card" style={{ padding: 10 }}>
-      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700, marginBottom: 6 }}>
-        {title}{en && <span style={{ marginLeft: 6, opacity: 0.7, textTransform: 'none', fontWeight: 500 }}>· {en}</span>}
-      </div>
+    <div className="kit-card pad" style={{ padding: '14px 16px' }}>
+      <div className="kit-mlabel" style={{ marginBottom: 8 }}>{title}</div>
       <div style={{
         display: 'flex', gap: 8, overflowX: 'auto', overflowY: 'hidden',
         paddingBottom: 4,
@@ -1743,20 +1703,20 @@ function ScrollStrip({ title, en, children }) {
 // ────────────────────────────────────────────────────────────
 
 const Row = ({ label, value }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px dashed var(--border)', fontSize: 13 }}>
-    <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{label}</span>
-    <b className="mono tabnum">{value}</b>
+  <div className="kit-dotted-row" style={{ justifyContent: 'space-between', fontSize: 13.5 }}>
+    <span style={{ color: 'var(--ink-dim)' }}>{label}</span>
+    <b className="mono tabnum" style={{ color: 'var(--primary-deep)', fontWeight: 500 }}>{value}</b>
   </div>
 );
 
 function GearButton({ onClick, active }) {
   return (
     <button onClick={onClick}
-            className="icon-btn gear-btn"
+            className="gear-btn"
             style={{
-              width: 22, height: 22, fontSize: 14, padding: 0,
-              background: active ? 'var(--surface-2)' : 'transparent',
-              border: 'none', cursor: 'pointer', color: 'var(--text-3)',
+              width: 22, height: 22, fontSize: 13, padding: 0, borderRadius: 'var(--r-pill)',
+              background: active ? 'var(--primary-soft)' : 'transparent',
+              border: 'none', cursor: 'pointer', color: active ? 'var(--primary)' : 'var(--ink-faint)',
             }}
             title="Editar">
       ⚙
@@ -1776,16 +1736,16 @@ function EditPopover({ open, anchor, onClose, title, children }) {
       anchorSelector=".gear-btn"
       header={
         <>
-          <b style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', flex: 1 }}>{title}</b>
-          <button className="icon-btn" onClick={onClose} style={{ padding: 4 }}><Icon name="x" size={11}/></button>
+          <span className="kit-mlabel" style={{ flex: 1 }}>{title}</span>
+          <button className="kit-btn xs" onClick={onClose} style={{ padding: '0 8px' }}><Icon name="x" size={11}/></button>
         </>
       }>
       {children}
-      <div style={{
-        fontSize: 10.5, color: 'var(--text-3)', marginTop: 10, padding: '6px 8px',
-        background: 'var(--surface-2)', borderRadius: 6, fontStyle: 'italic',
+      <div className="kit-mlabel" style={{
+        marginTop: 12, padding: '7px 9px',
+        background: 'var(--kit-surface-2)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)',
       }}>
-        {V4_ALLOW_WRITES ? 'Edits persistem em prod (auditados via PIN)' : 'V4_ALLOW_WRITES=0 — save toasta preview'}
+        {V4_ALLOW_WRITES ? 'Edições persistem em prod, auditadas via PIN' : 'V4_ALLOW_WRITES=0 · salvar só toasta preview'}
       </div>
     </FloatingPopover>
   );
@@ -1795,22 +1755,19 @@ function EditList({ items, emptyMsg, onAdd, onEdit, onDelete }) {
   return (
     <div>
       {items.length === 0
-        ? <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0' }}>{emptyMsg}</div>
+        ? <div style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 0' }}>{emptyMsg}</div>
         : items.map((it) => (
-          <div key={it.id} style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0',
-            borderBottom: '1px dashed var(--border)',
-          }}>
-            <span style={{ flex: 1, fontSize: 12 }}>{it.label}</span>
-            <button className="icon-btn" onClick={() => onEdit(it)} title="Editar" style={{ padding: 4 }}>
+          <div key={it.id} className="kit-dotted-row" style={{ padding: '8px 0' }}>
+            <span style={{ flex: 1, fontSize: 12.5 }}>{it.label}</span>
+            <button className="kit-btn xs" onClick={() => onEdit(it)} title="Editar" style={{ padding: '0 8px' }}>
               <Icon name="edit" size={12}/>
             </button>
-            <button className="icon-btn" onClick={() => onDelete(it)} title="Apagar" style={{ padding: 4 }}>
+            <button className="kit-btn xs" onClick={() => onDelete(it)} title="Apagar" style={{ padding: '0 8px' }}>
               <Icon name="trash" size={12}/>
             </button>
           </div>
         ))}
-      <button className="btn sm primary" onClick={onAdd} style={{ marginTop: 8, width: '100%' }}>
+      <button className="kit-btn sm primary" onClick={onAdd} style={{ marginTop: 10, width: '100%' }}>
         + Adicionar
       </button>
     </div>
@@ -1842,8 +1799,8 @@ function GoalsEditorModal({ open, onClose, goals, products, writes, refresh, ack
     return () => { alive = false; };
   }, [open]);
   if (!open) return null;
-  const INPUT = { width: '100%', padding: '11px 13px', fontSize: 15, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--surface)', color: 'var(--text)', outline: 'none' };
-  const ROW = { display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', fontSize: 13.5, border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'var(--text)', cursor: 'pointer' };
+  const INPUT = { width: '100%', padding: '11px 13px', fontSize: 14.5, border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--kit-surface-2)', color: 'var(--ink)', outline: 'none', fontFamily: 'var(--font)' };
+  const ROW = { display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', fontSize: 13.5, border: 'none', borderBottom: '1px dotted var(--dotline)', background: 'transparent', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'var(--font)' };
   const ql = q.trim().toLowerCase();
   const prodList = (products || []).filter((p) => p && p.id != null && (!ql || String(p.canonical_name || '').toLowerCase().includes(ql))).slice(0, 50);
   const lotsForSel = sel ? batches.filter((b) => b.product_id === sel.product_id) : [];
@@ -1860,7 +1817,7 @@ function GoalsEditorModal({ open, onClose, goals, products, writes, refresh, ack
     if (!res.ok) { ack(`Erro: ${errMsg(res.error)}`); return; }
     setSel(null); setLotText(''); setQty(''); setQ('');
     if (refresh) refresh();
-    ack(`Meta criada ✓ — ${sel.product_name}${batch ? ' · ' + batch : ' (sem lote)'} = ${n}`);
+    ack(`Meta criada ✓ ${sel.product_name}${batch ? ' · ' + batch : ' (sem lote)'} = ${n}`);
   };
   const editQty = async (g) => {
     const v = window.prompt(`Nova meta (bottles) pra ${g._product_name || g.product || '?'}:`, String(g.target || 0));
@@ -1880,21 +1837,21 @@ function GoalsEditorModal({ open, onClose, goals, products, writes, refresh, ack
     if (refresh) refresh(); ack('Apagado ✓');
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(8,15,38,0.5)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 12px', overflowY: 'auto' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(520px, 96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+    <div onClick={onClose} className="opa-modal-back" style={{ alignItems: 'flex-start' }}>
+      <div onClick={(e) => e.stopPropagation()} className="opa-modal">
+        <div className="opa-modal-head">
           <Icon name="target" size={16}/>
-          <b style={{ flex: 1, fontSize: 14 }}>Editar metas do dia</b>
-          <button className="icon-btn" onClick={onClose} style={{ padding: 4 }}><Icon name="x" size={13}/></button>
+          <span className="opa-modal-title">Editar metas do dia</span>
+          <button className="kit-btn xs" onClick={onClose} style={{ padding: '0 8px' }}><Icon name="x" size={12}/></button>
         </div>
-        <div style={{ padding: 16, overflowY: 'auto' }}>
-          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 }}>Adicionar meta</div>
+        <div style={{ padding: 18, overflowY: 'auto' }}>
+          <div className="kit-mlabel" style={{ marginBottom: 8 }}>Adicionar meta</div>
           {!sel ? (
             <>
               <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar produto…" style={INPUT}/>
-              <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8, border: '1px solid var(--border)', borderRadius: 10 }}>
+              <div style={{ maxHeight: 240, overflowY: 'auto', marginTop: 8, border: '1px solid var(--line)', borderRadius: 'var(--r-md)' }}>
                 {prodList.length === 0
-                  ? <div style={{ padding: 12, fontSize: 12.5, color: 'var(--text-3)' }}>{q ? 'Nenhum produto com esse nome.' : 'Carregando catálogo…'}</div>
+                  ? <div style={{ padding: 12, fontSize: 12.5, color: 'var(--ink-faint)' }}>{q ? 'Nenhum produto com esse nome.' : 'Carregando catálogo…'}</div>
                   : prodList.map((p) => (
                     <button key={p.id} onClick={() => { setSel({ product_id: p.id, product_name: p.canonical_name }); setQ(''); }} style={ROW}>
                       {p.canonical_name}
@@ -1903,41 +1860,43 @@ function GoalsEditorModal({ open, onClose, goals, products, writes, refresh, ack
               </div>
             </>
           ) : (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-md)', padding: 14, background: 'var(--kit-surface-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <b style={{ flex: 1, fontSize: 14 }}>{sel.product_name}</b>
-                <button className="btn sm ghost" onClick={() => { setSel(null); setLotText(''); }}>trocar</button>
+                <b style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{sel.product_name}</b>
+                <button className="kit-btn xs" onClick={() => { setSel(null); setLotText(''); }}>trocar</button>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6 }}>Lote (opcional — vazio = sem lote):</div>
+              <div className="kit-mlabel" style={{ marginBottom: 7 }}>Lote (opcional, vazio = sem lote)</div>
               {lotsForSel.length > 0 && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                   {lotsForSel.map((b) => (
-                    <button key={b.batch_number} onClick={() => setLotText(b.batch_number)} className="pill" style={{ cursor: 'pointer', border: lotText === b.batch_number ? '1px solid var(--flow-prod)' : '1px solid var(--border)' }}>{b.batch_number}</button>
+                    <button key={b.batch_number} onClick={() => setLotText(b.batch_number)}
+                            className={`kit-chip ${lotText === b.batch_number ? 'solid' : 'neutral'}`} style={{ cursor: 'pointer', border: 'none' }}>{b.batch_number}</button>
                   ))}
-                  <button onClick={() => setLotText('')} className="pill" style={{ cursor: 'pointer', border: !lotText ? '1px solid var(--flow-prod)' : '1px solid var(--border)' }}>sem lote</button>
+                  <button onClick={() => setLotText('')}
+                          className={`kit-chip ${!lotText ? 'solid' : 'neutral'}`} style={{ cursor: 'pointer', border: 'none' }}>sem lote</button>
                 </div>
               )}
               <input value={lotText} onChange={(e) => setLotText(e.target.value)} placeholder="ou digite o lote (ex: BR-2026-0231)" style={INPUT}/>
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                 <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="numeric" placeholder="bottles (ex: 500)" style={{ ...INPUT, flex: 1 }}/>
-                <button className="btn primary" disabled={busy} onClick={add}>{busy ? '…' : 'Adicionar'}</button>
+                <button className="kit-btn primary" disabled={busy} onClick={add}>{busy ? '…' : 'Adicionar'}</button>
               </div>
             </div>
           )}
-          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--text-3)', margin: '18px 0 8px' }}>Metas de hoje</div>
+          <div className="kit-mlabel" style={{ margin: '20px 0 6px' }}>Metas de hoje</div>
           {(goals || []).length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>Sem metas registradas.</div>
+            ? <div style={{ fontSize: 12.5, color: 'var(--ink-faint)' }}>Sem metas registradas.</div>
             : (goals || []).map((g) => (
-              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: '1px dashed var(--border)' }}>
+              <div key={g.id} className="kit-dotted-row">
                 <span style={{ flex: 1, fontSize: 13 }}>
                   {g._product_name || g.product || '(?)'}{g.batch ? ' · ' + g.batch : ''}
-                  <span style={{ color: 'var(--text-3)' }}> — {g.target} bottles (feito {g.done})</span>
+                  <span style={{ color: 'var(--ink-dim)' }}> · {g.target} bottles (feito {g.done})</span>
                 </span>
-                <button className="icon-btn" onClick={() => editQty(g)} title="Editar quantidade" style={{ padding: 4 }}><Icon name="edit" size={12}/></button>
-                <button className="icon-btn" onClick={() => del(g)} title="Apagar" style={{ padding: 4 }}><Icon name="trash" size={12}/></button>
+                <button className="kit-btn xs" onClick={() => editQty(g)} title="Editar quantidade" style={{ padding: '0 8px' }}><Icon name="edit" size={12}/></button>
+                <button className="kit-btn xs" onClick={() => del(g)} title="Apagar" style={{ padding: '0 8px' }}><Icon name="trash" size={12}/></button>
               </div>
             ))}
-          {!V4_ALLOW_WRITES && <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 10, fontStyle: 'italic' }}>V4_ALLOW_WRITES=0 — preview, não grava.</div>}
+          {!V4_ALLOW_WRITES && <div className="kit-mlabel" style={{ marginTop: 12 }}>V4_ALLOW_WRITES=0 · preview, não grava.</div>}
         </div>
       </div>
     </div>

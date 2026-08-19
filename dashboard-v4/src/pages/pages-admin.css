@@ -1,0 +1,97 @@
+/* ═══════════════════════════════════════════════════════════════════
+   PAGE GROUP C — Admin, Operadores, Usuários, Sistema, Impressão, Câmeras.
+   STYLE-KIT 100% (S15 Fase 2). Só recipes NOVAS destas páginas; tudo que já
+   existe em kit.css (kit-card / kit-table / kit-chip / kit-btn / kit-input /
+   kit-seg / kit-modal / kit-h1 / kit-eyebrow / kit-mlabel) é REUSADO, não
+   redefinido nem renomeado.
+
+   Regras duras herdadas: sem travessão (em dash) em texto de UI, cor semântica
+   só pra status (ok verde / warn âmbar / bad vermelho / dispute roxo / info
+   teal / neutral azulado), tema claro é prioridade e o escuro segue os tokens.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Cabeçalho padrão das páginas do grupo ─────────────────────── */
+.adm-head { display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+.adm-head > .lead { flex:1; min-width:260px; }
+.adm-head .acts { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+/* ── Barra de filtros / sub-nav (substitui .filters antigo) ────── */
+.adm-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.adm-bar .grow { flex:1; }
+
+/* ── Grid de KPIs do kit ──────────────────────────────────────── */
+.adm-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:14px; }
+.adm-kpi { background:var(--kit-surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); padding:13px 16px; }
+.adm-kpi .v { font-family:var(--font-display); font-size:28px; color:var(--primary-deep);
+  font-variant-numeric:tabular-nums; line-height:1.05; }
+.adm-kpi .v small { font:500 11px var(--font-mono); color:var(--ink-faint); margin-left:6px; letter-spacing:.04em; }
+.adm-kpi .v.ok { color:var(--ok-deep); } .adm-kpi .v.warn { color:var(--warn-deep); } .adm-kpi .v.bad { color:var(--bad-deep); }
+
+/* ── Grades de cards ──────────────────────────────────────────── */
+.adm-grid { display:grid; gap:12px; }
+.adm-grid.two { grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
+.adm-grid.three { grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+.adm-grid.tiles { grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); }
+
+/* ── Título de seção dentro do card ───────────────────────────── */
+.adm-sec { display:flex; align-items:baseline; gap:8px; margin-bottom:10px; }
+.adm-sec .rule { flex:1; height:1px; background:var(--line); }
+
+/* ── Barra proporcional (top operadores, breakdown de impressão) ─ */
+.adm-bar-track { height:8px; border-radius:var(--r-pill); background:var(--primary-soft);
+  border:1px solid var(--primary-soft-line); overflow:hidden; }
+.adm-bar-fill { height:100%; border-radius:var(--r-pill); background:var(--primary-grad); }
+
+/* ── Blocos de estado (loading / vazio / erro) ─────────────────── */
+.adm-note { font-size:12.5px; color:var(--ink-dim); }
+.adm-note.faint { color:var(--ink-faint); font-size:11.5px; }
+.adm-empty { font-size:12.5px; color:var(--ink-faint); padding:10px 0; }
+.adm-state { background:var(--kit-surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); padding:28px; text-align:center; color:var(--ink-dim); font-size:13.5px; }
+.adm-state.bad { border-color:var(--bad-line); background:var(--bad-bg); color:var(--bad-deep); text-align:left; padding:18px 20px; }
+
+/* ── Campo de formulário rotulado ─────────────────────────────── */
+.adm-field { display:flex; flex-direction:column; gap:5px; }
+.adm-field > .kit-input { width:100%; }
+.adm-check { display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink); }
+.adm-check input { accent-color:var(--primary-deep); width:16px; height:16px; cursor:pointer; }
+
+/* ── Launcher de ferramentas (abas ainda no /admin completo) ───── */
+.adm-launch { display:flex; gap:10px; align-items:flex-start; padding:13px 15px; text-decoration:none;
+  color:inherit; background:var(--kit-surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); transition:box-shadow var(--t-base) var(--ease), transform var(--t-base) var(--ease); }
+.adm-launch:hover { box-shadow:var(--shadow-lift); transform:var(--lift); }
+.adm-launch .ico { color:var(--primary); margin-top:2px; flex:none; }
+.adm-launch .t { font-weight:700; font-size:13px; color:var(--primary-deep); }
+
+/* ── Sistema: linha de processo ───────────────────────────────── */
+.sys-dot { width:9px; height:9px; border-radius:50%; flex:none; display:inline-block; }
+.sys-dot.ok { background:var(--dot-ok); } .sys-dot.warn { background:var(--dot-warn); }
+.sys-dot.bad { background:var(--dot-bad); } .sys-dot.off { background:var(--ink-faint); }
+.sys-detail { background:var(--kit-surface-2); border-top:1px solid var(--line);
+  padding:12px 16px 14px; font-size:12.5px; color:var(--ink-dim); }
+
+/* ── Impressão: barra de tinta ────────────────────────────────── */
+.ink-row { margin-bottom:9px; }
+.ink-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
+.ink-name { font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:7px; color:var(--ink); }
+.ink-swatch { width:11px; height:11px; border-radius:3px; border:1px solid var(--line-strong); display:inline-block; flex:none; }
+.ink-track { height:9px; border-radius:var(--r-pill); background:var(--kit-surface-2);
+  border:1px solid var(--line); overflow:hidden; }
+.ink-fill { height:100%; border-radius:var(--r-pill); }
+
+/* ── Câmeras: chrome dos tiles ────────────────────────────────── */
+.cam-head { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:9px 13px; cursor:grab; flex:none;
+  border-bottom:1px solid var(--line); background:var(--kit-surface); }
+.cam-head .caret { color:var(--ink-faint); font-size:11px; width:12px; text-align:center; flex:none; }
+.cam-head .nm { font:600 13px var(--font); color:var(--primary-deep); flex:1; min-width:80px; }
+.cam-stage { position:relative; flex:1; min-height:120px; overflow:hidden; background:#0d1f3c; cursor:grab; touch-action:none; }
+.cam-off { position:absolute; inset:0; display:grid; place-items:center; font:500 12.5px var(--font);
+  color:#e6eef8; background:rgba(13,31,60,.66); text-align:center; padding:12px; }
+
+/* ── Tema escuro: só remapeia o que é branco fixo ──────────────── */
+:root[data-theme="dark"] .adm-kpi,
+:root[data-theme="dark"] .adm-launch,
+:root[data-theme="dark"] .cam-head { background:var(--surface, #16202c); }
+:root[data-theme="dark"] .adm-state { background:var(--surface, #16202c); }

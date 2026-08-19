@@ -152,8 +152,10 @@ describe('drift: writer sets for tracked tables match the verified findings', ()
     {
       table: 'v3.stock_movements',
       matcher: (t) => /INSERT\s+INTO\s+v3\.stock_movements/i.test(t),
+      // S15 Fase 2 (2026-08-18): o INSERT cru do kiosk (op.js, R076) FOI REMOVIDO.
+      // "Peguei do estoque" virou proposta (StockRequestService) e só o
+      // StockService escreve o livro-razão. Porta única de escrita = UMA agora.
       expected: [
-        'src/routes/op.js',
         'src/v3/services/StockService.js',
       ],
     },

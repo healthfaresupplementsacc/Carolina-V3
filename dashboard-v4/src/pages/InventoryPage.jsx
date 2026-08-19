@@ -7,68 +7,68 @@
      (5) Separadas — garrafas com problema (label/lacre) até resolver
      (6+) SKUs     — o mapeamento antigo (agora com botão CONFIRMAR → v3.product_skus)
    Fontes: /api/v3/data/stock/* + /api/v3/data/inventory (matcher legado).
-   Admin-only (dashboard); operadores não veem nada disso (zero-disrupção). */
+   Admin-only (dashboard); operadores não veem nada disso (zero-disrupção).
+
+   Pele: STYLE-KIT 100% (S15 fase 2). Classes .kit-* de kit.css + os
+   complementos .pgi-* de pages-inventory.css. Lógica e endpoints iguais. */
 import React from 'react';
-import { Icon, Leaf } from '../components/Icons.jsx';
 import { usePoll, apiPost } from '../adapters/from-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import './pages-inventory.css';
 
 const MATCH_LABEL = { exato: 'SKU exato', base: 'SKU base', nome: 'só por nome' };
-const MATCH_COLOR = { exato: 'var(--hf-leaf-600)', base: 'var(--hf-navy-500)', nome: 'var(--warn, #d97706)' };
+const MATCH_TONE = { exato: 'ok', base: 'neutral', nome: 'warn' };
 const ZONE = {
-  out: { label: 'ZERADO', color: 'var(--bad)' },
-  low: { label: 'BAIXO', color: 'var(--warn, #d97706)' },
-  plan: { label: 'PLANEJAR', color: 'var(--hf-navy-500)' },
-  ok: { label: 'ok', color: 'var(--hf-leaf-600)' },
+  out: { label: 'zerado', tone: 'bad' },
+  low: { label: 'baixo', tone: 'bad' },
+  plan: { label: 'planejar', tone: 'warn' },
+  ok: { label: 'ok', tone: 'ok' },
 };
 
+/** Aba do segmented control do kit, com contador tonal. */
 function Tab({ id, active, onClick, children, count, tone }) {
   const on = active === id;
   return (
-    <button onClick={() => onClick(id)} style={{
-      padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border)', cursor: 'pointer',
-      background: on ? 'var(--hf-navy-700)' : 'var(--surface-2)', color: on ? '#fff' : 'var(--text-2)',
-      fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 7,
-    }}>
+    <button className={on ? 'on' : ''} onClick={() => onClick(id)} data-tab={id}>
       {children}
-      {count != null && (
-        <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999,
-          background: on ? 'rgba(255,255,255,0.22)' : (tone === 'bad' ? 'color-mix(in srgb, var(--bad) 16%, transparent)' : 'var(--surface)'),
-          color: on ? '#fff' : (tone === 'bad' ? 'var(--bad)' : 'var(--text-3)') }}>{count}</span>
-      )}
+      {count != null && <span className={'n' + (tone === 'bad' ? ' bad' : '')}>{count}</span>}
     </button>
   );
 }
 
 function StatChip({ label, value, tone }) {
   return (
-    <div className="card" style={{ padding: '10px 14px', minWidth: 120 }}>
-      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.05, fontWeight: 700 }}>{label}</div>
-      <div className="mono" style={{ fontSize: 20, fontWeight: 800, color: tone === 'bad' ? 'var(--bad)' : tone === 'good' ? 'var(--hf-leaf-700)' : 'var(--hf-navy-700)' }}>{value}</div>
+    <div className="kit-kpi-card pgi-kpi-card">
+      <span className="kit-mlabel pgi-kpi-label">{label}</span>
+      <div className={'kit-kpi' + (tone === 'bad' ? ' bad' : tone === 'good' ? ' ok' : '')}>{value}</div>
     </div>
   );
 }
 
 function Th({ children, right }) {
-  return <th style={{ padding: '9px 12px', textAlign: right ? 'right' : 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{children}</th>;
+  return <th className={right ? 'num' : undefined}>{children}</th>;
 }
-function Td({ children, right, mono, bold, color }) {
-  return <td style={{ padding: '8px 12px', textAlign: right ? 'right' : 'left', fontFamily: mono ? 'var(--mono, monospace)' : 'inherit', fontWeight: bold ? 700 : 400, color: color || 'inherit', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{children}</td>;
+function Td({ children, right, mono, bold, cls }) {
+  const c = [right ? 'num' : 'wrapmax', mono && !right ? 'mono' : '', bold ? 'strong' : '', cls || '']
+    .filter(Boolean).join(' ');
+  return <td className={c}>{children}</td>;
 }
 
-function Table({ children }) {
+function Table({ children, name }) {
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>{children}</table>
-      </div>
+    <div className="kit-card pgi-tablecard">
+      <table className="kit-table" data-table={name}>{children}</table>
     </div>
   );
 }
 
+function Empty({ children }) {
+  return <div className="kit-card pad" style={{ marginTop: 4 }}><div className="pgi-empty">{children}</div></div>;
+}
+
 function ZonePill({ zone }) {
   const z = ZONE[zone] || ZONE.ok;
-  return <span className="pill" style={{ fontSize: 10.5, fontWeight: 800, color: z.color, background: `color-mix(in srgb, ${z.color} 12%, transparent)` }}><span className="dot" style={{ background: z.color }}/>{z.label}</span>;
+  return <span className={'kit-chip ' + z.tone}>{z.label}</span>;
 }
 
 /** Infere casepack do sufixo do SKU (-C2/-C3/…): garrafas por unidade vendida. */
@@ -173,7 +173,6 @@ function InventoryPage() {
   }
   const tiers = (supplies.data && supplies.data.tiers) || [];   // tamanhos possíveis
 
-  const st = (inv.data && inv.data.stats) || {};
   const matched = (inv.data && inv.data.matched) || [];
   const oursUn = (inv.data && inv.data.ours_unmatched) || [];
   const veeqoUn = (inv.data && inv.data.veeqo_unmatched) || [];
@@ -193,17 +192,22 @@ function InventoryPage() {
   const totalWh = sumRows.reduce((n, r) => n + Number(r.total_qty || 0), 0);
 
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Estoque · armazém</h2><span className="en">· bins, caixas, planner, SKUs</span>
-        <div className="rule"/>
+    <div className="pgi-page" data-page="inv-armazem">
+      <div className="pgi-head">
+        <div className="pgi-head-main">
+          <span className="kit-eyebrow">● HEALTHFARE · CENTRO DE ESTOQUE</span>
+          <h1 className="kit-h1">Estoque do <em>armazém</em></h1>
+          <p className="kit-sub">Bins, caixas, planner de produção, garrafas separadas, suprimentos e o mapa de SKUs por canal.</p>
+        </div>
+        <div className="pgi-head-actions">
+          <a className="kit-btn sm sec" href="#estoque">Abrir o hub novo</a>
+        </div>
       </div>
 
       {/* stats */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div className="pgi-kpis">
         <StatChip label="Garrafas no armazém" value={totalWh || '—'} tone="good"/>
-        <StatChip label="Bins p/ restock" value={needRestock.length} tone={needRestock.length ? 'bad' : undefined}/>
+        <StatChip label="Bins p/ repor" value={needRestock.length} tone={needRestock.length ? 'bad' : undefined}/>
         <StatChip label="Separadas (abertas)" value={openIssues.length} tone={openIssues.length ? 'bad' : undefined}/>
         <StatChip label="Urgentes (planner)" value={urgent.length} tone={urgent.length ? 'bad' : undefined}/>
         <StatChip label="SKUs confirmados" value={(skus.data || []).filter((r) => r.confirmed_at).length + '/' + (skus.data || []).length} tone="good"/>
@@ -211,26 +215,26 @@ function InventoryPage() {
       </div>
 
       {/* abas + busca */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-        <Tab id="stock" active={tab} onClick={setTab} count={ovRows.length}><Icon name="product" size={14}/> Estoque</Tab>
-        <Tab id="bins" active={tab} onClick={setTab} count={binRows.length} tone={needRestock.length ? 'bad' : undefined}>Bins</Tab>
-        <Tab id="boxes" active={tab} onClick={setTab} count={boxRows.filter((b) => b.status === 'in_storage').length}>Caixas</Tab>
-        <Tab id="planner" active={tab} onClick={setTab} count={urgent.length} tone={urgent.length ? 'bad' : undefined}>Planner</Tab>
-        <Tab id="issues" active={tab} onClick={setTab} count={openIssues.length} tone={openIssues.length ? 'bad' : undefined}>Separadas</Tab>
-        <Tab id="supplies" active={tab} onClick={setTab} count={supplyItems.length} tone={lowSupplies.length ? 'bad' : undefined}><Icon name="product" size={14}/> Suprimentos</Tab>
-        <Tab id="matched" active={tab} onClick={setTab} count={matched.length}><Icon name="link" size={14}/> SKUs</Tab>
-        <Tab id="ours" active={tab} onClick={setTab} count={oursUn.length} tone="bad">Nossos s/ Veeqo</Tab>
-        <Tab id="veeqo" active={tab} onClick={setTab} count={veeqoUn.length} tone="bad">Veeqo s/ nosso</Tab>
-        <Tab id="plans" active={tab} onClick={setTab} count={plans.length}>Planos</Tab>
+      <div className="pgi-toolbar">
+        <div className="kit-seg pgi-seg">
+          <Tab id="stock" active={tab} onClick={setTab} count={ovRows.length}>Estoque</Tab>
+          <Tab id="bins" active={tab} onClick={setTab} count={binRows.length} tone={needRestock.length ? 'bad' : undefined}>Bins</Tab>
+          <Tab id="boxes" active={tab} onClick={setTab} count={boxRows.filter((b) => b.status === 'in_storage').length}>Caixas</Tab>
+          <Tab id="planner" active={tab} onClick={setTab} count={urgent.length} tone={urgent.length ? 'bad' : undefined}>Planner</Tab>
+          <Tab id="issues" active={tab} onClick={setTab} count={openIssues.length} tone={openIssues.length ? 'bad' : undefined}>Separadas</Tab>
+          <Tab id="supplies" active={tab} onClick={setTab} count={supplyItems.length} tone={lowSupplies.length ? 'bad' : undefined}>Suprimentos</Tab>
+          <Tab id="matched" active={tab} onClick={setTab} count={matched.length}>SKUs</Tab>
+          <Tab id="ours" active={tab} onClick={setTab} count={oursUn.length} tone="bad">Nossos s/ Veeqo</Tab>
+          <Tab id="veeqo" active={tab} onClick={setTab} count={veeqoUn.length} tone="bad">Veeqo s/ nosso</Tab>
+          <Tab id="plans" active={tab} onClick={setTab} count={plans.length}>Planos</Tab>
+        </div>
         <span style={{ flex: 1 }}/>
         {/* TikTok interim (Bruno 08-04): sem API por ora → export do Seller
             Center entra aqui. Encapsulado: quando a API chegar (TIKTOK_SOURCE
             =api), o backend recusa o upload e este botão avisa — nada mais muda. */}
-        <label title="Seller Center → Orders → Export → sobe o arquivo aqui"
-          style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 9, cursor: 'pointer',
-            border: '1px dashed var(--border)', color: 'var(--text-2)', background: 'var(--surface-2)' }}>
-          ⬆ TikTok CSV
-          <input type="file" accept=".csv,.txt,.tsv" style={{ display: 'none' }}
+        <label className="pgi-upload" title="Seller Center, Orders, Export, sobe o arquivo aqui">
+          Subir CSV do TikTok
+          <input type="file" accept=".csv,.txt,.tsv"
             onChange={async (e) => {
               const f = e.target.files && e.target.files[0];
               e.target.value = '';
@@ -241,47 +245,47 @@ function InventoryPage() {
               const r = await apiPost('/stock/tiktok-orders-csv', { csv }).catch((err) => ({ error: err.message }));
               if (r && !r.error) {
                 const d = r.data || r;
-                ack('✓ TikTok: ' + d.imported + ' linhas (' + (d.unmapped || 0) + ' sem SKU mapeado — mapear em Product Setup, canal tiktok)');
+                ack('✓ TikTok: ' + d.imported + ' linhas (' + (d.unmapped || 0) + ' sem SKU mapeado, mapear em Product Setup, canal tiktok)');
               } else ack('erro: ' + (r && r.error));
             }}/>
         </label>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrar…"
-               style={{ padding: '7px 12px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: 13, minWidth: 160 }}/>
+        <input className="kit-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrar…"
+               style={{ minWidth: 170 }}/>
       </div>
 
-      {ackMsg && <div className="card" style={{ padding: '8px 14px', marginBottom: 10, fontSize: 12.5, color: 'var(--hf-navy-700)', fontWeight: 600 }}>{ackMsg}</div>}
+      {ackMsg && <div className="kit-card pad pgi-loading" style={{ marginTop: 0, marginBottom: 12, color: 'var(--primary-deep)', fontWeight: 600 }}>{ackMsg}</div>}
 
       {/* ESTOQUE por produto — agora com estoque VEEQO ao lado do armazém (Bruno 08-04) */}
       {tab === 'stock' && (
         <>
           {(overview.loading || (overview.meta && overview.meta.stock_loading)) && (
-            <div className="card" style={{ padding: 10, color: 'var(--text-3)', marginBottom: 10, fontSize: 12.5 }}>
-              Carregando estoque do Veeqo em segundo plano — aparece em alguns segundos.
+            <div className="kit-card pad pgi-loading" style={{ marginTop: 0, marginBottom: 12 }}>
+              Carregando estoque do Veeqo em segundo plano, aparece em alguns segundos.
             </div>
           )}
           {ovRows.length === 0
-            ? <div className="card" style={{ padding: 24, color: 'var(--text-3)' }}>Sem produtos.</div>
-            : <Table>
+            ? <Empty>Sem produtos.</Empty>
+            : <Table name="inv-stock">
                 {/* Bins+Caixas SOMAM no Armazém(=Total). Veeqo é SEPARADO, DEPOIS. */}
-                <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <thead><tr>
                   <Th>Produto</Th><Th right>Bins</Th><Th right>Caixas</Th><Th right>Armazém (total)</Th><Th right>Veeqo</Th>
                 </tr></thead>
                 <tbody>
                   {filt(ovRows, ['product', 'nickname']).map((r) => {
                     const low = r.has_veeqo_sku && r.veeqo_stock != null && r.veeqo_stock <= 10;
                     return (
-                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)', opacity: r.active ? 1 : 0.5 }}>
-                        <Td bold>{r.product}{low && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--bad)', fontWeight: 700 }}>BAIXO</span>}</Td>
-                        <Td right mono>{r.bin_qty}</Td>
-                        <Td right mono>{r.box_qty}</Td>
-                        <Td right mono bold>{r.warehouse_stock}</Td>
-                        <Td right mono bold color={low ? 'var(--bad)' : undefined}>{r.veeqo_stock == null ? (r.has_veeqo_sku ? '…' : '—') : r.veeqo_stock}</Td>
+                      <tr key={r.id} className={r.active === false ? 'off' : undefined}>
+                        <Td bold>{r.product}{low && <span className="kit-chip bad" style={{ marginLeft: 8 }}>baixo</span>}</Td>
+                        <Td right>{r.bin_qty}</Td>
+                        <Td right>{r.box_qty}</Td>
+                        <Td right bold>{r.warehouse_stock}</Td>
+                        <Td right bold cls={low ? 'badnum' : undefined}>{r.veeqo_stock == null ? (r.has_veeqo_sku ? '…' : '—') : r.veeqo_stock}</Td>
                       </tr>
                     );
                   })}
                 </tbody>
               </Table>}
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>
+          <div className="pgi-note">
             Para editar o estoque do Veeqo, use a página <b>Ver estoque</b> (com confirmação à prova de erro).
           </div>
         </>
@@ -290,23 +294,23 @@ function InventoryPage() {
       {/* BINS */}
       {tab === 'bins' && (
         binRows.length === 0
-          ? <div className="card" style={{ padding: 24, color: 'var(--text-3)' }}>Nenhum bin cadastrado. Cadastre via POST /stock/bins (ou a tela de admin que vem na Fase B).</div>
-          : <Table>
-              <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <Th>Bin</Th><Th>Prateleira</Th><Th>Área</Th><Th>Produto</Th><Th right>Qty</Th><Th right>Mín</Th><Th>Status</Th>
+          ? <Empty>Nenhum bin cadastrado. Cadastre na página Locais (Estoque, Locais).</Empty>
+          : <Table name="inv-bins">
+              <thead><tr>
+                <Th>Bin</Th><Th>Prateleira</Th><Th>Área</Th><Th>Produto</Th><Th right>Qtd</Th><Th right>Mín</Th><Th>Status</Th>
               </tr></thead>
               <tbody>
                 {filt(binRows, ['bin_code', 'shelf_code', 'product', 'area']).map((b) => (
-                  <tr key={b.id} style={{ borderTop: '1px solid var(--border)' }}>
+                  <tr key={b.id}>
                     <Td mono bold>{b.bin_code}</Td>
                     <Td mono>{b.shelf_code || '—'}</Td>
-                    <Td>{b.area || '—'}</Td>
-                    <Td>{b.product || <span style={{ color: 'var(--text-3)' }}>vazio</span>}</Td>
-                    <Td right mono bold>{b.qty}</Td>
-                    <Td right mono color="var(--text-3)">{b.min_qty || '—'}</Td>
+                    <Td cls="dim">{b.area || '—'}</Td>
+                    <Td>{b.product || <span style={{ color: 'var(--ink-faint)' }}>vazio</span>}</Td>
+                    <Td right bold>{b.qty}</Td>
+                    <Td right>{b.min_qty || '—'}</Td>
                     <Td>{b.needs_restock
-                      ? <span className="pill" style={{ fontSize: 10.5, color: 'var(--bad)', background: 'color-mix(in srgb, var(--bad) 12%, transparent)' }}><span className="dot" style={{ background: 'var(--bad)' }}/>RESTOCK</span>
-                      : <span style={{ color: 'var(--text-3)', fontSize: 11 }}>ok</span>}</Td>
+                      ? <span className="kit-chip bad">repor</span>
+                      : <span className="kit-chip ok">ok</span>}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -316,19 +320,21 @@ function InventoryPage() {
       {/* CAIXAS */}
       {tab === 'boxes' && (
         boxRows.length === 0
-          ? <div className="card" style={{ padding: 24, color: 'var(--text-3)' }}>Nenhuma caixa registrada.</div>
-          : <Table>
-              <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <Th>Caixa</Th><Th>Área / palete</Th><Th>Produto</Th><Th right>Qty</Th><Th>Status</Th>
+          ? <Empty>Nenhuma caixa registrada.</Empty>
+          : <Table name="inv-boxes">
+              <thead><tr>
+                <Th>Caixa</Th><Th>Área / palete</Th><Th>Produto</Th><Th right>Qtd</Th><Th>Status</Th>
               </tr></thead>
               <tbody>
                 {filt(boxRows, ['box_number', 'product', 'area']).map((x) => (
-                  <tr key={x.id} style={{ borderTop: '1px solid var(--border)', opacity: x.status === 'empty' ? 0.5 : 1 }}>
+                  <tr key={x.id} className={x.status === 'empty' ? 'off' : undefined}>
                     <Td mono bold>{x.box_number}</Td>
-                    <Td>{x.area || '—'}</Td>
+                    <Td cls="dim">{x.area || '—'}</Td>
                     <Td>{x.product || '—'}</Td>
-                    <Td right mono bold>{x.qty}</Td>
-                    <Td>{x.status === 'empty' ? 'vazia' : 'em estoque'}</Td>
+                    <Td right bold>{x.qty}</Td>
+                    <Td>{x.status === 'empty'
+                      ? <span className="kit-chip neutral">vazia</span>
+                      : <span className="kit-chip ok">em estoque</span>}</Td>
                   </tr>
                 ))}
               </tbody>
@@ -338,26 +344,26 @@ function InventoryPage() {
       {/* PLANNER */}
       {tab === 'planner' && (
         planRows.length === 0
-          ? <div className="card" style={{ padding: 24, color: 'var(--text-3)' }}>Planner sem dados ainda — precisa de estoque registrado + histórico de vendas (o sync coleta ~2 semanas de linhas shipped antes da velocidade ficar confiável).</div>
+          ? <Empty>Planner sem dados ainda. Precisa de estoque registrado + histórico de vendas (o sync coleta cerca de 2 semanas de linhas shipped antes da velocidade ficar confiável).</Empty>
           : <>
-              <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 8 }}>
-                Dias de estoque = (armazém + marketplace) ÷ velocidade 14d. Lead = tempo medido da fórmula no EMS. Zona PLANEJAR = começar a planejar produção AGORA.
+              <div className="pgi-hint">
+                Dias de estoque = (armazém + marketplace) ÷ velocidade 14d. Lead = tempo medido da fórmula no EMS. Zona <b>planejar</b> = começar a planejar produção agora.
               </div>
-              <Table>
-                <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <Table name="inv-planner">
+                <thead><tr>
                   <Th>Zona</Th><Th>Produto</Th><Th right>Armazém</Th><Th right>Marketplace</Th><Th right>Vende/dia</Th><Th right>Dias</Th><Th right>Lead (d)</Th><Th>Batch EMS</Th>
                 </tr></thead>
                 <tbody>
                   {filt(planRows, ['name']).map((p) => (
-                    <tr key={p.product_id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <tr key={p.product_id}>
                       <Td><ZonePill zone={p.zone}/></Td>
-                      <Td bold>{p.name}{!p.velocity_reliable && <span title="pouco histórico de venda ainda" style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-3)' }}>~</span>}</Td>
-                      <Td right mono>{p.warehouse_qty}</Td>
-                      <Td right mono>{p.marketplace_qty != null ? p.marketplace_qty : '—'}</Td>
-                      <Td right mono>{p.per_day || '—'}</Td>
-                      <Td right mono bold color={p.zone === 'out' || p.zone === 'low' ? 'var(--bad)' : undefined}>{p.days_of_stock != null ? p.days_of_stock : '∞'}</Td>
-                      <Td right mono color="var(--text-3)">{p.lead_days}</Td>
-                      <Td color="var(--text-2)">{p.ems_batch ? (p.ems_batch.batch + ' · ' + p.ems_batch.stage) : <span style={{ color: 'var(--bad)', fontWeight: 600 }}>sem batch</span>}</Td>
+                      <Td bold>{p.name}{!p.velocity_reliable && <span title="pouco histórico de venda ainda" style={{ marginLeft: 6, color: 'var(--ink-faint)' }}>~</span>}</Td>
+                      <Td right>{p.warehouse_qty}</Td>
+                      <Td right>{p.marketplace_qty != null ? p.marketplace_qty : '—'}</Td>
+                      <Td right>{p.per_day || '—'}</Td>
+                      <Td right bold cls={p.zone === 'out' || p.zone === 'low' ? 'badnum' : undefined}>{p.days_of_stock != null ? p.days_of_stock : '∞'}</Td>
+                      <Td right>{p.lead_days}</Td>
+                      <Td cls="dim">{p.ems_batch ? (p.ems_batch.batch + ' · ' + p.ems_batch.stage) : <span className="kit-chip bad">sem batch</span>}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -368,27 +374,29 @@ function InventoryPage() {
       {/* SEPARADAS */}
       {tab === 'issues' && (
         issueRows.length === 0
-          ? <div className="card" style={{ padding: 24, color: 'var(--text-3)' }}>Nenhuma garrafa separada. (Quando o kiosk lançar, "garrafa com problema" cai aqui até resolver.)</div>
-          : <Table>
-              <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <Th>Produto</Th><Th right>Qty</Th><Th>Motivo</Th><Th>Bin</Th><Th>Quem</Th><Th>Quando</Th><Th>Status</Th><Th>Ação</Th>
+          ? <Empty>Nenhuma garrafa separada. (Quando o kiosk lançar, "garrafa com problema" cai aqui até resolver.)</Empty>
+          : <Table name="inv-issues">
+              <thead><tr>
+                <Th>Produto</Th><Th right>Qtd</Th><Th>Motivo</Th><Th>Bin</Th><Th>Quem</Th><Th>Quando</Th><Th>Status</Th><Th>Ação</Th>
               </tr></thead>
               <tbody>
                 {filt(issueRows, ['product', 'reason']).map((i) => (
-                  <tr key={i.id} style={{ borderTop: '1px solid var(--border)', opacity: i.status === 'separated' ? 1 : 0.55 }}>
+                  <tr key={i.id} className={i.status === 'separated' ? undefined : 'off'}>
                     <Td bold>{i.product}</Td>
-                    <Td right mono>{i.qty}</Td>
+                    <Td right>{i.qty}</Td>
                     <Td>{i.reason === 'label' ? 'label' : i.reason === 'seal' ? 'lacre' : 'outro'}</Td>
                     <Td mono>{i.bin_code || '—'}</Td>
                     <Td>{i.person || '—'}</Td>
-                    <Td color="var(--text-3)">{String(i.created_at || '').slice(0, 10)}</Td>
-                    <Td>{i.status}</Td>
+                    <Td cls="dim">{String(i.created_at || '').slice(0, 10)}</Td>
+                    <Td>{i.status === 'separated'
+                      ? <span className="kit-chip warn">separada</span>
+                      : <span className="kit-chip neutral">{i.status}</span>}</Td>
                     <Td>
                       {i.status === 'separated' && (
                         <span style={{ display: 'inline-flex', gap: 6 }}>
-                          <button onClick={() => resolveIssue(i, 'restocked')} title="voltou pro bin" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface-2)' }}>↩ estoque</button>
-                          <button onClick={() => resolveIssue(i, 'relabeled')} title="re-etiquetada" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface-2)' }}>label ok</button>
-                          <button onClick={() => resolveIssue(i, 'discarded')} title="descartada" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface-2)', color: 'var(--bad)' }}>descarte</button>
+                          <button className="kit-btn xs sec" onClick={() => resolveIssue(i, 'restocked')} title="voltou pro bin">voltou pro bin</button>
+                          <button className="kit-btn xs sec" onClick={() => resolveIssue(i, 'relabeled')} title="re-etiquetada">label ok</button>
+                          <button className="kit-btn xs sec" onClick={() => resolveIssue(i, 'discarded')} title="descartada" style={{ color: 'var(--bad-deep)' }}>descarte</button>
                         </span>
                       )}
                     </Td>
@@ -401,43 +409,42 @@ function InventoryPage() {
       {/* SUPRIMENTOS (envelopes/caixas) — consumidos a cada label impressa (Bruno 08-03) */}
       {tab === 'supplies' && (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 10 }}>
-            Cadastre seus envelopes/caixas REAIS (um a um) e diga qual cada tamanho de pacote usa.
-            {' '}Cada shipping label impressa deduz <b>1</b> do suprimento do tamanho. Baixo estoque avisa no admin-orin.
+          <div className="pgi-hint">
+            Cadastre seus envelopes e caixas reais (um a um) e diga qual cada tamanho de pacote usa.
+            {' '}Cada shipping label impressa deduz <b>1</b> do suprimento do tamanho. Estoque baixo avisa no admin-orin.
           </div>
 
           {/* adicionar suprimento real */}
-          <div className="card" style={{ padding: '12px 14px', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <b style={{ fontSize: 13 }}>Adicionar suprimento:</b>
-            <input value={newSupply.name} onChange={(e) => setNewSupply((s) => ({ ...s, name: e.target.value }))}
+          <div className="kit-card pad" style={{ marginBottom: 14, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className="kit-mlabel">Adicionar suprimento</span>
+            <input className="kit-input" value={newSupply.name} onChange={(e) => setNewSupply((s) => ({ ...s, name: e.target.value }))}
               placeholder="nome real (ex.: Poly Mailer 6x9, Bubble 10x13…)"
               onKeyDown={(e) => { if (e.key === 'Enter') addSupply(); }}
-              style={{ flex: '1 1 260px', padding: '7px 11px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }} />
-            <select value={newSupply.kind} onChange={(e) => setNewSupply((s) => ({ ...s, kind: e.target.value }))}
-              style={{ padding: '7px 10px', borderRadius: 9, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }}>
+              style={{ flex: '1 1 260px' }} />
+            <select className="kit-input" value={newSupply.kind} onChange={(e) => setNewSupply((s) => ({ ...s, kind: e.target.value }))}>
               <option value="envelope">envelope</option>
               <option value="box">caixa</option>
               <option value="other">outro</option>
             </select>
-            <button onClick={addSupply} style={{ padding: '7px 14px', borderRadius: 9, border: 'none', background: 'var(--hf-navy-700)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ adicionar</button>
+            <button className="kit-btn sm primary" onClick={addSupply}>Adicionar</button>
           </div>
 
           {/* mapa tamanho → supply (Bruno escolhe) */}
           {tiers.length > 0 && (
-            <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
-              <b style={{ fontSize: 13 }}>Qual suprimento cada tamanho de pacote usa</b>
-              <div style={{ fontSize: 11.5, color: 'var(--text-3)', margin: '3px 0 10px' }}>
-                O tamanho vem da cor da garrafa + nº de garrafas (1→A · 2–6→Y · 7–9→B · 10+→BX caixa). Escolha o envelope/caixa de cada um.
+            <div className="kit-card pad" style={{ marginBottom: 14 }}>
+              <div className="kit-mlabel" style={{ marginBottom: 4 }}>Qual suprimento cada tamanho de pacote usa</div>
+              <div className="pgi-hint" style={{ marginBottom: 12 }}>
+                O tamanho vem da cor da garrafa + nº de garrafas (1 → A · 2 a 6 → Y · 7 a 9 → B · 10+ → BX caixa). Escolha o envelope ou a caixa de cada um.
               </div>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <div className="pgi-fieldgrid">
                 {tiers.map((t) => {
                   const cur = supplyMap.find((m) => m.package_size === t.package_size);
                   return (
-                    <label key={t.package_size} style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-                      <span style={{ fontWeight: 700 }}>{t.package_size}{t.is_box ? ' (caixa)' : ''}</span>
-                      <select value={cur ? cur.supply_item_id : ''} onChange={(e) => mapSize(t.package_size, e.target.value)}
-                        style={{ padding: '6px 9px', borderRadius: 8, border: '1px solid ' + (cur ? 'var(--border)' : 'var(--warn, #d97706)'), background: 'var(--surface)', color: 'var(--text)', fontSize: 13, minWidth: 150 }}>
-                        <option value="">— escolher —</option>
+                    <label key={t.package_size} className="pgi-field">
+                      <span className="kit-mlabel">{t.package_size}{t.is_box ? ' (caixa)' : ''}</span>
+                      <select className={'kit-input' + (cur ? '' : ' unset')} value={cur ? cur.supply_item_id : ''}
+                        onChange={(e) => mapSize(t.package_size, e.target.value)}>
+                        <option value="">escolher…</option>
                         {supplyItems.map((si) => <option key={si.id} value={si.id}>{si.name}</option>)}
                       </select>
                     </label>
@@ -448,27 +455,27 @@ function InventoryPage() {
           )}
 
           {supplyItems.length === 0
-            ? <div className="card" style={{ padding: 24, color: 'var(--text-3)' }}>Nenhum suprimento cadastrado ainda — adicione o primeiro acima.</div>
-            : <Table>
-                <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  <Th>Suprimento</Th><Th>Tipo</Th><Th>Tamanhos</Th><Th right>Qty</Th><Th right>Mín</Th><Th>Status</Th><Th>Ações</Th>
+            ? <Empty>Nenhum suprimento cadastrado ainda, adicione o primeiro acima.</Empty>
+            : <Table name="inv-supplies">
+                <thead><tr>
+                  <Th>Suprimento</Th><Th>Tipo</Th><Th>Tamanhos</Th><Th right>Qtd</Th><Th right>Mín</Th><Th>Status</Th><Th>Ações</Th>
                 </tr></thead>
                 <tbody>
                   {filt(supplyItems, ['name', 'kind']).map((s) => (
-                    <tr key={s.id} style={{ borderTop: '1px solid var(--border)', opacity: s.active ? 1 : 0.5 }}>
+                    <tr key={s.id} className={s.active ? undefined : 'off'}>
                       <Td bold>{s.name}</Td>
-                      <Td color="var(--text-3)">{s.kind === 'box' ? 'caixa' : s.kind === 'envelope' ? 'envelope' : s.kind}</Td>
+                      <Td cls="dim">{s.kind === 'box' ? 'caixa' : s.kind === 'envelope' ? 'envelope' : s.kind}</Td>
                       <Td mono>{(s.sizes || []).join(', ') || '—'}</Td>
-                      <Td right mono bold color={s.low ? 'var(--bad)' : undefined}>{s.qty}</Td>
-                      <Td right mono color="var(--text-3)">{s.min_qty || '—'}</Td>
+                      <Td right bold cls={s.low ? 'badnum' : undefined}>{s.qty}</Td>
+                      <Td right>{s.min_qty || '—'}</Td>
                       <Td>{s.low
-                        ? <span className="pill" style={{ fontSize: 10.5, color: 'var(--bad)', background: 'color-mix(in srgb, var(--bad) 12%, transparent)' }}><span className="dot" style={{ background: 'var(--bad)' }}/>BAIXO</span>
-                        : <span style={{ color: 'var(--text-3)', fontSize: 11 }}>ok</span>}</Td>
+                        ? <span className="kit-chip bad">baixo</span>
+                        : <span className="kit-chip ok">ok</span>}</Td>
                       <Td>
                         <span style={{ display: 'inline-flex', gap: 6 }}>
-                          <button onClick={() => changeSupply(s, 'restock', 'Reabastecer (+quantos)')} title="somar ao estoque" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface-2)' }}>+ reabastecer</button>
-                          <button onClick={() => changeSupply(s, 'count', 'Contagem (valor exato)')} title="setar contagem exata" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface-2)' }}>contar</button>
-                          <button onClick={() => setSupplyMin(s)} title="nível de alerta" style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--surface-2)' }}>mín</button>
+                          <button className="kit-btn xs sec" onClick={() => changeSupply(s, 'restock', 'Reabastecer (+quantos)')} title="somar ao estoque">reabastecer</button>
+                          <button className="kit-btn xs sec" onClick={() => changeSupply(s, 'count', 'Contagem (valor exato)')} title="setar contagem exata">contar</button>
+                          <button className="kit-btn xs sec" onClick={() => setSupplyMin(s)} title="nível de alerta">mín</button>
                         </span>
                       </Td>
                     </tr>
@@ -482,15 +489,15 @@ function InventoryPage() {
       {tab === 'matched' && (
         <>
           {invLoading && matched.length === 0 && (
-            <div className="card" style={{ padding: 16, color: 'var(--text-3)', marginBottom: 10 }}>
-              Carregando SKUs do Veeqo… (a lista do Veeqo é externa e lenta; roda em segundo plano — aparece em alguns segundos, não trava a página.)
+            <div className="kit-card pad pgi-loading" style={{ marginTop: 0, marginBottom: 12 }}>
+              Carregando SKUs do Veeqo. A lista do Veeqo é externa e lenta, roda em segundo plano e aparece em alguns segundos sem travar a página.
             </div>
           )}
-          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 8 }}>
-            Confirmar grava o mapa em v3.product_skus — só SKUs confirmados movem estoque (dedução automática nunca chuta). Sufixo -C2/-C3 vira garrafas/un automaticamente.
+          <div className="pgi-hint">
+            Confirmar grava o mapa em v3.product_skus. Só SKU confirmado move estoque, a dedução automática nunca chuta. Sufixo -C2 ou -C3 vira garrafas por unidade automaticamente.
           </div>
-          <Table>
-            <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+          <Table name="inv-matched">
+            <thead><tr>
               <Th>Nosso produto</Th><Th>SKU Veeqo</Th><Th>Título no Veeqo</Th><Th>Match</Th><Th>Confirmação</Th>
             </tr></thead>
             <tbody>
@@ -498,15 +505,15 @@ function InventoryPage() {
                 const done = confirmedSkus.has(m.veeqo_sku);
                 const pack = inferPack(m.veeqo_sku);
                 return (
-                  <tr key={m.product_id + '|' + m.veeqo_sku} style={{ borderTop: '1px solid var(--border)', opacity: m.active ? 1 : 0.55 }}>
-                    <Td bold>{m.product}{!m.active && <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 6 }}>inativo</span>}</Td>
+                  <tr key={m.product_id + '|' + m.veeqo_sku} className={m.active ? undefined : 'off'}>
+                    <Td bold>{m.product}{!m.active && <span className="kit-chip neutral" style={{ marginLeft: 8 }}>inativo</span>}</Td>
                     <Td mono>{m.veeqo_sku}</Td>
-                    <Td color="var(--text-2)">{(m.veeqo_title || '').split('|')[0].trim()}</Td>
-                    <Td><span className="pill" style={{ fontSize: 10.5, color: MATCH_COLOR[m.match], background: `color-mix(in srgb, ${MATCH_COLOR[m.match]} 12%, transparent)` }}><span className="dot" style={{ background: MATCH_COLOR[m.match] }}/>{MATCH_LABEL[m.match]}</span></Td>
+                    <Td cls="dim">{(m.veeqo_title || '').split('|')[0].trim()}</Td>
+                    <Td><span className={'kit-chip ' + (MATCH_TONE[m.match] || 'neutral')}>{MATCH_LABEL[m.match] || m.match}</span></Td>
                     <Td>
                       {done
-                        ? <span style={{ color: 'var(--hf-leaf-700)', fontWeight: 700, fontSize: 12 }}>✓ confirmado</span>
-                        : <button onClick={() => confirmSku(m)} style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', background: 'var(--hf-navy-700)', color: '#fff', fontWeight: 700 }}>
+                        ? <span className="kit-chip ok">confirmado</span>
+                        : <button className="kit-btn xs primary" onClick={() => confirmSku(m)}>
                             confirmar{pack > 1 ? ' · ' + pack + ' grf/un' : ''}
                           </button>}
                     </Td>
@@ -521,15 +528,15 @@ function InventoryPage() {
       {/* NOSSOS SEM VEEQO */}
       {tab === 'ours' && (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 8 }}>Produtos nossos que NÃO achamos no Veeqo (SKU não bate / não existe lá). Confirmar.</div>
-          <Table>
-            <thead><tr><Th>Nosso produto</Th><Th>Nossos SKUs/códigos</Th><Th>Ativo</Th></tr></thead>
+          <div className="pgi-hint">Produtos nossos que não achamos no Veeqo (SKU não bate ou não existe lá). Confirmar.</div>
+          <Table name="inv-ours">
+            <thead><tr><Th>Nosso produto</Th><Th>Nossos SKUs / códigos</Th><Th>Ativo</Th></tr></thead>
             <tbody>
               {filt(oursUn, ['product']).map((o) => (
-                <tr key={o.product_id} style={{ borderTop: '1px solid var(--border)', opacity: o.active ? 1 : 0.55 }}>
+                <tr key={o.product_id} className={o.active ? undefined : 'off'}>
                   <Td bold>{o.product}</Td>
-                  <Td mono color="var(--text-3)">{(o.our_skus || []).join(', ') || '—'}</Td>
-                  <Td>{o.active ? '✅' : '—'}</Td>
+                  <Td mono cls="dim">{(o.our_skus || []).join(', ') || '—'}</Td>
+                  <Td>{o.active ? <span className="kit-chip ok">ativo</span> : <span className="kit-chip neutral">inativo</span>}</Td>
                 </tr>
               ))}
             </tbody>
@@ -540,14 +547,14 @@ function InventoryPage() {
       {/* VEEQO SEM NOSSO */}
       {tab === 'veeqo' && (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 8 }}>SKUs de suplemento no Veeqo que NÃO casam com nenhum produto nosso. Buraco a verificar.</div>
-          <Table>
+          <div className="pgi-hint">SKUs de suplemento no Veeqo que não casam com nenhum produto nosso. Buraco a verificar.</div>
+          <Table name="inv-veeqo">
             <thead><tr><Th>SKU Veeqo</Th><Th>Título</Th></tr></thead>
             <tbody>
               {filt(veeqoUn, ['sku', 'title']).map((v) => (
-                <tr key={v.sku} style={{ borderTop: '1px solid var(--border)' }}>
+                <tr key={v.sku}>
                   <Td mono bold>{v.sku}</Td>
-                  <Td color="var(--text-2)">{(v.title || '').split('|')[0].trim()}</Td>
+                  <Td cls="dim">{(v.title || '').split('|')[0].trim()}</Td>
                 </tr>
               ))}
             </tbody>
@@ -558,14 +565,14 @@ function InventoryPage() {
       {/* PLANOS / MEDICAÇÃO */}
       {tab === 'plans' && (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 8 }}>Assinaturas, planos e medicação (HF-PLN / HF-MED) + clínica — não são itens físicos da linha de produção.</div>
-          <Table>
+          <div className="pgi-hint">Assinaturas, planos e medicação (HF-PLN / HF-MED) mais clínica. Não são itens físicos da linha de produção.</div>
+          <Table name="inv-plans">
             <thead><tr><Th>SKU</Th><Th>Título</Th></tr></thead>
             <tbody>
               {filt(plans, ['sku', 'title']).map((v) => (
-                <tr key={v.sku} style={{ borderTop: '1px solid var(--border)' }}>
+                <tr key={v.sku}>
                   <Td mono>{v.sku}</Td>
-                  <Td color="var(--text-2)">{(v.title || '').split('|')[0].trim()}</Td>
+                  <Td cls="dim">{(v.title || '').split('|')[0].trim()}</Td>
                 </tr>
               ))}
             </tbody>

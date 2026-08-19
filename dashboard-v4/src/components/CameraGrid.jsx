@@ -3,8 +3,13 @@
    GET /api/cam/:name/mp4 — 15× mais eficiente que MJPEG. Fallback automático
    pra MJPEG (<img>) se o mp4 falhar 3× (gateway antigo/transição).
    Mantém: auto-reconexão com backoff, tamanho ajustável, fullscreen,
-   PIP nativo (no mp4 é DIRETO no <video> — sem canvas pump) e ⧉ PIP tudo. */
+   PIP nativo (no mp4 é DIRETO no <video> — sem canvas pump) e ⧉ PIP tudo.
+
+   S15 Fase 2 (grupo C): só o CHROME foi levado pro STYLE-KIT (header do tile,
+   badges, botões, form do PIN). Toda a mecânica de vídeo, fallback MJPEG,
+   watchdogs, docPIP, pan, resize e reorder está INTACTA. */
 import React from 'react';
+import '../pages/pages-admin.css';
 
 const CAMS = [
   { id: 'warehouse', label: '🏭 Warehouse Floor' },
@@ -179,7 +184,7 @@ function CameraGrid({ compact = false }) {
         try { localStorage.setItem(TOK_KEY, j.token); } catch {}
         setToken(j.token); setPin('');
       } else if (r.status === 403) setPinErr('PIN incorreto');
-      else if (r.status === 429) setPinErr('Muitas tentativas — aguarde um pouco');
+      else if (r.status === 429) setPinErr('Muitas tentativas, aguarde um pouco');
       else setPinErr('Câmeras offline no momento');
     } catch { setPinErr('Sem conexão com o servidor'); }
   };
@@ -194,7 +199,7 @@ function CameraGrid({ compact = false }) {
   const popOut = (id) => {
     const w = window.open('/cameras/pip?cam=' + encodeURIComponent(id) + '#t=' + encodeURIComponent(token),
       'hf_win_' + id, 'width=760,height=480');
-    if (!w) alert('O navegador bloqueou a janela — permita popups pra este site.');
+    if (!w) alert('O navegador bloqueou a janela. Permita popups pra este site.');
   };
 
   // ── PIP cross-browser: Chrome/Edge usam requestPictureInPicture; o iPhone
@@ -210,7 +215,7 @@ function CameraGrid({ compact = false }) {
     let t = null;
     const on = () => { cleanup(); resolve(); };
     const cleanup = () => { clearTimeout(t); v.removeEventListener('loadedmetadata', on); };
-    t = setTimeout(() => { cleanup(); reject(new Error('A câmera ainda está conectando — espere o vídeo aparecer no card e tente de novo.')); }, ms);
+    t = setTimeout(() => { cleanup(); reject(new Error('A câmera ainda está conectando. Espere o vídeo aparecer no card e tente de novo.')); }, ms);
     v.addEventListener('loadedmetadata', on);
     try { if (v.play) v.play().catch(() => {}); } catch {}
   });
@@ -373,7 +378,7 @@ function CameraGrid({ compact = false }) {
             const s = Math.min(cw / sw, ch / sh), w = sw * s, h = sh * s;
             ctx.drawImage(el, ix * cw + (cw - w) / 2, (ch - h) / 2, w, h);
           } else {
-            ctx.fillStyle = '#8b949e'; ctx.font = '26px system-ui'; ctx.fillText('câmera offline — reconectando…', ix * cw + 40, ch / 2);
+            ctx.fillStyle = '#8b949e'; ctx.font = '26px system-ui'; ctx.fillText('câmera offline, reconectando…', ix * cw + 40, ch / 2);
           }
           ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(ix * cw, 0, 250, 34);
           ctx.fillStyle = '#fff'; ctx.font = 'bold 19px system-ui'; ctx.fillText(cam.label.replace(/^\S+\s/, ''), ix * cw + 12, 24);
@@ -456,53 +461,59 @@ function CameraGrid({ compact = false }) {
 
   if (!token) {
     return (
-      <form onSubmit={doPin} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: 14 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>🎥 PIN das câmeras:</span>
-        <input className="input" type="password" inputMode="numeric" autoComplete="off" placeholder="••••••"
-               value={pin} onChange={(e) => setPin(e.target.value)} style={{ width: 120 }}/>
-        <button className="btn sm primary" type="submit" disabled={!pin.trim()}>Entrar</button>
-        {pinErr && <span style={{ color: 'var(--bad)', fontSize: 12 }}>{pinErr}</span>}
-      </form>
+      <div className="kit-card pad" style={{ maxWidth: 420 }}>
+        <span className="kit-eyebrow">● HEALTHFARE · CÂMERAS</span>
+        <h1 className="kit-h1" style={{ fontSize: 26 }}>Ver a <em>produção</em></h1>
+        <p className="kit-sub" style={{ margin: '4px 0 16px' }}>Informe o PIN das câmeras. Somente visualização.</p>
+        <form onSubmit={doPin} className="adm-field">
+          <span className="kit-mlabel">PIN das câmeras</span>
+          <input className="kit-input mono" type="password" inputMode="numeric" autoComplete="off" placeholder="••••••"
+                 value={pin} onChange={(e) => setPin(e.target.value)}/>
+          {pinErr && <span className="kit-chip bad" style={{ alignSelf: 'flex-start' }}>{pinErr}</span>}
+          <button className="kit-btn primary" type="submit" disabled={!pin.trim()} style={{ width: '100%', marginTop: 6 }}>Entrar</button>
+        </form>
+      </div>
     );
   }
 
   const badge = (id) => {
     const s = status[id];
     const map = {
-      live:  { txt: camMode(id) === 'mp4' ? 'ao vivo · HD' : 'ao vivo', bg: 'rgba(34,179,93,0.14)', fg: 'var(--hf-leaf-600)' },
-      retry: { txt: 'conectando…', bg: 'rgba(217,119,6,0.14)', fg: '#b45309' },
-      off:   { txt: 'offline · re-tentando', bg: 'rgba(220,38,38,0.12)', fg: '#dc2626' },
+      live:  { txt: camMode(id) === 'mp4' ? 'ao vivo · HD' : 'ao vivo', tone: 'ok' },
+      retry: { txt: 'conectando', tone: 'warn' },
+      off:   { txt: 'offline, re-tentando', tone: 'bad' },
     };
-    const m = map[s] || { txt: '—', bg: 'var(--surface-2)', fg: 'var(--text-3)' };
-    return <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.bg, color: m.fg, flex: 'none', fontWeight: 700 }}>{m.txt}</span>;
+    const m = map[s] || { txt: 'sem sinal', tone: 'neutral' };
+    return <span className={'kit-chip ' + m.tone} style={{ flex: 'none' }}>{m.txt}</span>;
   };
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-        <span title={gwUp == null ? 'gateway: verificando' : gwUp ? 'gateway das câmeras no ar' : 'gateway fora do ar (PC das câmeras/túnel)'}
-              style={{ width: 9, height: 9, borderRadius: '50%', flex: 'none',
-                       background: gwUp == null ? 'var(--text-3)' : gwUp ? 'var(--hf-leaf-500)' : 'var(--bad)' }}/>
-        <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>ao vivo · somente visualização</span>
-        <span style={{ flex: 1 }}/>
+      <div className="adm-bar" data-bar="cameras">
+        <span className={'sys-dot ' + (gwUp == null ? 'off' : gwUp ? 'ok' : 'bad')}
+              title={gwUp == null ? 'gateway: verificando' : gwUp ? 'gateway das câmeras no ar' : 'gateway fora do ar (PC das câmeras ou túnel)'}/>
+        <span className="adm-note faint">ao vivo · somente visualização</span>
+        <span className="grow"/>
         {CAMS.map((cam) => (
-          <button key={'vis-' + cam.id} className="btn sm ghost" onClick={() => toggleVisible(cam.id)}
-                  title={(isVisible(cam.id) ? 'Ocultar ' : 'Mostrar ') + cam.label}
-                  style={{ opacity: isVisible(cam.id) ? 1 : 0.4 }}>
-            {isVisible(cam.id) ? '👁' : '🚫'} {cam.label.replace(/^\S+\s/, '')}
+          <button key={'vis-' + cam.id} className={'kit-btn xs ' + (isVisible(cam.id) ? 'primary' : 'sec')}
+                  onClick={() => toggleVisible(cam.id)}
+                  title={(isVisible(cam.id) ? 'Ocultar ' : 'Mostrar ') + cam.label}>
+            {cam.label.replace(/^\S+\s/, '')}
           </button>
         ))}
-        <button className="btn sm ghost" onClick={togglePipAll}
-                title="As câmeras numa janela flutuante SEMPRE-NO-TOPO (redimensionável). O Chrome só permite 1 janela PIP no total, então vão juntas nela.">📌 Ambas no topo</button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--text-3)' }}
+        <button className="kit-btn sec xs" onClick={togglePipAll}
+                title="As câmeras numa janela flutuante SEMPRE-NO-TOPO (redimensionável). O Chrome só permite 1 janela PIP no total, então vão juntas nela.">Ambas no topo</button>
+        <label className="adm-note faint" style={{ display: 'flex', alignItems: 'center', gap: 7 }}
                title="Iguala a largura de TODAS as câmeras. Cada card também dá pra redimensionar sozinho puxando o canto inferior-direito.">
-          tamanho (todas) <input type="range" min={280} max={1200} step={20} value={widthOf(order[0] || CAMS[0].id)} onChange={(e) => setAllWidths(+e.target.value)} style={{ width: 110, accentColor: 'var(--hf-navy-500)' }}/>
+          tamanho (todas)
+          <input type="range" min={280} max={1200} step={20} value={widthOf(order[0] || CAMS[0].id)}
+                 onChange={(e) => setAllWidths(+e.target.value)} style={{ width: 110, accentColor: 'var(--primary-deep)' }}/>
         </label>
-        <a className="btn sm ghost" href="/cameras" target="_blank" rel="noreferrer" title="Página standalone (pra TV/2º monitor)">abrir solto ↗</a>
+        <a className="kit-btn sec xs" href="/cameras" target="_blank" rel="noreferrer" title="Página standalone (pra TV ou 2º monitor)">abrir solto</a>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
         {order.map((id) => CAMS.find((c) => c.id === id)).filter(Boolean).filter((cam) => isVisible(cam.id)).map((cam) => (
-          <div key={cam.id} className="card"
+          <div key={cam.id} className="kit-card" data-cam={cam.id}
                style={{ overflow: 'hidden', padding: 0, maxWidth: '100%', minWidth: 220, display: 'flex', flexDirection: 'column',
                         resize: isCollapsed(cam.id) ? 'none' : 'both' }}
                ref={(el) => { st(cam.id).wrap = el; }}
@@ -510,20 +521,20 @@ function CameraGrid({ compact = false }) {
                onDragOver={(e) => e.preventDefault()}
                onDrop={() => onDropAt(cam.id)}>
             {/* HEADER — arrasta pra mover/reordenar · clique pra minimizar */}
-            <div draggable onDragStart={() => { dragId.current = cam.id; }} onDragEnd={() => { dragId.current = null; }}
+            <div className="cam-head" draggable
+                 onDragStart={() => { dragId.current = cam.id; }} onDragEnd={() => { dragId.current = null; }}
                  onClick={() => toggleCollapsed(cam.id)}
-                 title="Arraste pra mover/reordenar · clique pra minimizar/expandir"
-                 style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '8px 12px', cursor: 'grab', flex: 'none' }}>
-              <span style={{ color: 'var(--text-3)', fontSize: 11, flex: 'none', width: 12, textAlign: 'center' }}>{isCollapsed(cam.id) ? '▸' : '▾'}</span>
-              <b style={{ fontSize: 12.5, flex: 1, minWidth: 80 }}>{cam.label}</b>
+                 title="Arraste pra mover ou reordenar · clique pra minimizar e expandir">
+              <span className="caret">{isCollapsed(cam.id) ? '▸' : '▾'}</span>
+              <span className="nm">{cam.label}</span>
               {badge(cam.id)}
-              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); togglePip(cam.id); }} title="PIP — flutua SÓ esta câmera, sempre no topo (o Chrome permite 1 PIP por vez; clicar noutra troca)">⧉ PIP</button>
-              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); popOut(cam.id); }} title="Abrir esta câmera numa janela separada (redimensionável, pra outro monitor)">⧉↗</button>
-              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); goFullscreen(cam.id); }} title="Tela cheia">⛶</button>
-              <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); toggleVisible(cam.id); }} title="Fechar (ocultar — reabre no 👁 lá em cima)">✕</button>
+              <button className="kit-btn sec xs" onClick={(e) => { e.stopPropagation(); togglePip(cam.id); }} title="PIP: flutua SÓ esta câmera, sempre no topo (o Chrome permite 1 PIP por vez; clicar noutra troca)">⧉ PIP</button>
+              <button className="kit-btn sec xs" onClick={(e) => { e.stopPropagation(); popOut(cam.id); }} title="Abrir esta câmera numa janela separada (redimensionável, pra outro monitor)">⧉↗</button>
+              <button className="kit-btn sec xs" onClick={(e) => { e.stopPropagation(); goFullscreen(cam.id); }} title="Tela cheia">⛶</button>
+              <button className="kit-btn sec xs" onClick={(e) => { e.stopPropagation(); toggleVisible(cam.id); }} title="Fechar (ocultar; reabre no botão lá em cima)">✕</button>
             </div>
             {!isCollapsed(cam.id) && (
-              <div style={{ position: 'relative', flex: 1, minHeight: 120, overflow: 'hidden', background: '#000', cursor: 'grab', touchAction: 'none' }}
+              <div className="cam-stage"
                    onPointerDown={panStart(cam.id)} onDoubleClick={() => resetPan(cam.id)}
                    title="Arraste a imagem pra escolher a área · 2 cliques recentra">
                 {camMode(cam.id) === 'mp4' ? (
@@ -536,9 +547,7 @@ function CameraGrid({ compact = false }) {
                        style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover', background: '#000' }}/>
                 )}
                 {status[cam.id] === 'off' && (
-                  <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--text-3)', fontSize: 12.5, background: 'rgba(0,0,0,0.6)' }}>
-                    câmera offline — reconectando sozinho…
-                  </div>
+                  <div className="cam-off">câmera offline, reconectando sozinho…</div>
                 )}
               </div>
             )}

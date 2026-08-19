@@ -1,17 +1,22 @@
 /* HEALTHFARE V4 — primitivos compartilhados do painel admin.
 
    Estavam privados dentro de pages/AdminPanel.jsx. Foram movidos pra cá
-   (VERBATIM, mesmo markup e mesmos estilos) quando a aba Operadores virou
-   arquivo próprio: assim as abas portadas reusam EXATAMENTE os mesmos
-   componentes do resto do painel, sem duplicar visual e sem import circular
-   (AdminPanel importa OperatorsTab, que importaria AdminPanel de volta).
+   quando a aba Operadores virou arquivo próprio: assim as abas portadas
+   reusam EXATAMENTE os mesmos componentes do resto do painel, sem duplicar
+   visual e sem import circular (AdminPanel importa OperatorsTab, que
+   importaria AdminPanel de volta).
+
+   S15 Fase 2 (grupo C): o markup foi trocado pras classes do STYLE-KIT
+   (kit.css + pages/pages-admin.css). A API dos componentes é a MESMA — nenhum
+   prop mudou, nenhuma chamada mudou. Quem importava continua importando igual.
 
    Regra pra próximas levas de port: use estes — não redesenhe loading, erro,
    título de seção ou KPI na sua aba.
 */
 import React from 'react';
-import { Icon, Leaf } from './Icons.jsx';
+import { Icon } from './Icons.jsx';
 import { adminGet, adminLogin, adminLogout, getAdminMe } from '../adapters/admin-api.js';
+import '../pages/pages-admin.css';
 
 // Hook de fetch admin (cookie auth). pollMs>0 = auto-refresh.
 export function useAdmin(path, deps = [], pollMs = 0) {
@@ -31,31 +36,49 @@ export function useAdmin(path, deps = [], pollMs = 0) {
   return st;
 }
 
+/* Título de seção: micro-label DM Mono do kit + régua fina. */
 export const SecTitle = ({ children }) => (
-  <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700, marginBottom: 8 }}>{children}</div>
-);
-export const Tr = ({ head, cols }) => (
-  <tr style={head ? { textAlign: 'left', color: 'var(--text-3)', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.05 } : {}}>
-    {cols.map((c, i) => <th key={i} style={{ padding: '4px 6px', textAlign: i === 0 ? 'left' : 'right' }}>{c}</th>)}
-  </tr>
-);
-export const Empty = ({ msg }) => <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '8px 0', fontStyle: 'italic' }}>{msg}</div>;
-export const Loading = () => <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando do painel admin…</div>;
-export const ErrBox = ({ error }) => (
-  <div className="card" style={{ padding: 20, color: 'var(--bad)' }}>
-    <b>Erro:</b> {error.message || String(error)}
-    {error.unauthorized && <div style={{ marginTop: 6, fontSize: 12 }}>Faça login admin de novo.</div>}
+  <div className="adm-sec">
+    <span className="kit-mlabel">{children}</span>
+    <span className="rule"/>
   </div>
 );
+
+/* Cabeçalho de tabela do kit.
+   `cols` aceita string (coluna de texto) ou { t, num:true } (coluna numérica,
+   que ganha a fonte mono tabular e alinha à direita, como manda o kit). */
+export const Tr = ({ head, cols }) => (
+  <tr>
+    {cols.map((c, i) => {
+      const o = (c && typeof c === 'object') ? c : { t: c, num: false };
+      return <th key={i} className={o.num ? 'num' : ''}>{o.t}</th>;
+    })}
+  </tr>
+);
+
+export const Empty = ({ msg }) => <div className="adm-empty">{msg}</div>;
+
+export const Loading = () => <div className="adm-state">Carregando do painel admin…</div>;
+
+export const ErrBox = ({ error }) => (
+  <div className="adm-state bad">
+    <b>Erro:</b> {error.message || String(error)}
+    {error.unauthorized && <div style={{ marginTop: 6, fontSize: 12.5 }}>Faça login admin de novo.</div>}
+  </div>
+);
+
 export const RefreshErr = ({ error }) => (
-  <div style={{ fontSize: 11, color: 'var(--warn,#d97706)', marginTop: 8 }}>Refresh falhou: {error.message}. Mostrando última leitura.</div>
+  <div style={{ marginTop: 10 }}>
+    <span className="kit-chip warn">refresh falhou · mostrando última leitura</span>
+    <span className="adm-note faint" style={{ marginLeft: 8 }}>{error.message}</span>
+  </div>
 );
 
 export function MiniKPI({ label, value, suffix }) {
   return (
-    <div className="card kpi">
-      <div className="label"><Leaf size={11} color="var(--hf-leaf-500)"/><span>{label}</span></div>
-      <div className="value">{value}{suffix && <small>{suffix}</small>}</div>
+    <div className="adm-kpi">
+      <div className="kit-mlabel">{label}</div>
+      <div className="v">{value}{suffix ? <small>{suffix}</small> : null}</div>
     </div>
   );
 }
@@ -64,7 +87,7 @@ export function MiniKPI({ label, value, suffix }) {
 // Estava dentro de AdminPanel.jsx; virou wrapper pra que CADA página do menu
 // Admin (Admin, Operadores, …) tenha o MESMO login sem duplicar o form.
 // Uso: <AdminGate>{(me) => <SuaPagina/>}</AdminGate>
-export function AdminGate({ title, children }) {
+export function AdminGate({ title, eyebrow, h1, sub, children }) {
   const [me, setMe] = React.useState(() => getAdminMe());
   const [autoTried, setAutoTried] = React.useState(false);
 
@@ -83,24 +106,27 @@ export function AdminGate({ title, children }) {
   }, [me, autoTried]);
 
   if (!me) {
-    if (!autoTried) return <div style={{ padding: 24, color: 'var(--text-3)' }}>Entrando no painel admin…</div>;
+    if (!autoTried) return <div className="adm-state">Entrando no painel admin…</div>;
     return <AdminLogin onLogin={setMe}/>;
   }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.08, fontWeight: 700 }}>
-            {title || 'Painel Admin'} · sincronizado com o dashboard
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 2 }}>
-            Logado como <b>{me.name}</b> · <span className="pill" style={{ background: me.role === 'owner' ? 'rgba(217,119,6,0.15)' : 'var(--surface-2)', color: me.role === 'owner' ? '#b45309' : 'var(--text-2)' }}>{me.role}</span>
-          </div>
+      <div className="adm-head">
+        <div className="lead">
+          <span className="kit-eyebrow">● HEALTHFARE · {(eyebrow || title || 'PAINEL ADMIN').toUpperCase()}</span>
+          <h1 className="kit-h1">{h1 || <>Painel <em>admin</em></>}</h1>
+          <p className="kit-sub">
+            {sub || 'Tudo do /admin dentro do dashboard, mesma sessão e mesma auditoria.'}
+          </p>
         </div>
-        <button className="btn sm ghost" onClick={async () => { await adminLogout(); setMe(null); }}>
-          <Icon name="x" size={13}/> Sair do admin
-        </button>
+        <div className="acts">
+          <span className="adm-note">Logado como <b>{me.name}</b></span>
+          <span className={'kit-chip ' + (me.role === 'owner' ? 'warn' : 'neutral')}>{me.role}</span>
+          <button className="kit-btn sec sm" onClick={async () => { await adminLogout(); setMe(null); }}>
+            <Icon name="x" size={13}/> Sair do admin
+          </button>
+        </div>
       </div>
       {typeof children === 'function' ? children(me) : children}
     </div>
@@ -125,27 +151,23 @@ export function AdminLogin({ onLogin }) {
   };
 
   return (
-    <div className="card" style={{ maxWidth: 380, margin: '40px auto', padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <Icon name="config" size={18}/>
-        <h2 style={{ margin: 0, fontSize: 16 }}>Painel Admin</h2>
-      </div>
-      <p style={{ fontSize: 12.5, color: 'var(--text-3)', margin: '0 0 16px' }}>
-        Login admin próprio (PIN por usuário · owner/manager). Separado do PIN do dashboard.
+    <div className="kit-card pad" style={{ maxWidth: 400, margin: '48px auto' }}>
+      <span className="kit-eyebrow">● HEALTHFARE · ACESSO ADMIN</span>
+      <h1 className="kit-h1" style={{ fontSize: 26 }}>Painel <em>admin</em></h1>
+      <p className="kit-sub" style={{ margin: '4px 0 18px' }}>
+        Login admin próprio (PIN por usuário, owner ou manager). Separado do PIN do dashboard.
       </p>
-      <form onSubmit={submit}>
-        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', marginBottom: 4 }}>
-          {mode === 'pin' ? 'PIN do admin' : 'Senha de emergência'}
-        </label>
-        <input className="input" type="password" inputMode={mode === 'pin' ? 'numeric' : 'text'}
+      <form onSubmit={submit} className="adm-field">
+        <span className="kit-mlabel">{mode === 'pin' ? 'PIN do admin' : 'Senha de emergência'}</span>
+        <input className="kit-input mono" type="password" inputMode={mode === 'pin' ? 'numeric' : 'text'}
                autoFocus value={val} onChange={(e) => setVal(e.target.value)}
-               placeholder={mode === 'pin' ? '4–8 dígitos' : 'senha'} style={{ width: '100%' }}/>
-        {err && <div style={{ color: 'var(--bad)', fontSize: 12, marginTop: 8 }}>{err}</div>}
-        <button className="btn primary" type="submit" disabled={busy || !val} style={{ width: '100%', marginTop: 12 }}>
+               placeholder={mode === 'pin' ? '4 a 8 dígitos' : 'senha'}/>
+        {err && <span className="kit-chip bad" style={{ alignSelf: 'flex-start' }}>{err}</span>}
+        <button className="kit-btn primary" type="submit" disabled={busy || !val} style={{ width: '100%', marginTop: 6 }}>
           {busy ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
-      <button className="btn sm ghost" style={{ marginTop: 10, width: '100%' }}
+      <button className="kit-btn sec sm" style={{ marginTop: 10, width: '100%' }}
               onClick={() => { setMode((m) => m === 'pin' ? 'password' : 'pin'); setErr(null); setVal(''); }}>
         {mode === 'pin' ? 'Usar senha de emergência' : 'Usar PIN'}
       </button>

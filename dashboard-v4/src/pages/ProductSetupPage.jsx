@@ -4,16 +4,16 @@
    cor da garrafa (Black / White / Other→texto), e TODOS os SKUs mapeados por canal
    (eBay/Amazon/Walmart/TikTok/Veeqo — vários SKUs podem apontar pro MESMO produto).
    A cor + nº de garrafas → tamanho do pacote (v3.bottle_size_tiers).
-   Admin-only. Fontes: /api/v3/data/product-setup* . */
+   Admin-only. Fontes: /api/v3/data/product-setup* .
+
+   Pele: STYLE-KIT 100% (S15 fase 2). Classes .kit-* + complementos .pgi-*
+   de pages-inventory.css. Lógica, endpoints e props iguais. */
 import React from 'react';
 import { usePoll, apiPost, apiGet } from '../adapters/from-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import './pages-inventory.css';
 
 const CHANNELS = ['veeqo', 'amazon', 'ebay', 'walmart', 'tiktok', 'shopify', 'other'];
-const CH_COLOR = {
-  veeqo: 'var(--hf-navy-500)', amazon: '#d97706', ebay: '#2563eb',
-  walmart: '#0071dc', tiktok: '#111', shopify: 'var(--hf-leaf-600)', other: 'var(--text-3)',
-};
 // nickname sugerido = SKU sem HF-/HFC- (regra do Bruno), do 1º SKU veeqo/HF
 function suggestNick(skus) {
   const pick = (skus || []).find((s) => /^HFC?-/i.test(s.sku)) || (skus || [])[0];
@@ -22,20 +22,16 @@ function suggestNick(skus) {
   return m ? m[1] : '';
 }
 
-function Th({ children, right }) {
-  return <th style={{ padding: '9px 12px', textAlign: right ? 'right' : 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{children}</th>;
-}
-
 function ColorPicker({ value, onChange, disabled }) {
   const known = value === 'black' || value === 'white' || !value;
   const [mode, setMode] = React.useState(known ? (value || '') : 'other');
   React.useEffect(() => { setMode(value === 'black' || value === 'white' || !value ? (value || '') : 'other'); }, [value]);
   const sel = (
-    <select value={mode} disabled={disabled} onChange={(e) => {
+    <select className="kit-input" value={mode} disabled={disabled} onChange={(e) => {
       const v = e.target.value; setMode(v);
       if (v === 'other') return;             // espera o texto
       onChange(v || null);
-    }} style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }}>
+    }} style={{ padding: '5px 9px' }}>
       <option value="">—</option>
       <option value="black">Black</option>
       <option value="white">White</option>
@@ -46,10 +42,10 @@ function ColorPicker({ value, onChange, disabled }) {
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
       {sel}
-      <input defaultValue={known ? '' : value} placeholder="cor…" disabled={disabled}
+      <input className="kit-input" defaultValue={known ? '' : value} placeholder="cor…" disabled={disabled}
         onKeyDown={(e) => { if (e.key === 'Enter') onChange(e.target.value.trim() || null); }}
         onBlur={(e) => onChange(e.target.value.trim() || null)}
-        style={{ width: 90, padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 13 }} />
+        style={{ width: 92, padding: '5px 9px' }} />
     </span>
   );
 }
@@ -93,43 +89,34 @@ function SkuPicker({ channel, onPick, onFree, onClose }) {
     else if (q.trim() && !exact) onFree(q.trim());
   };
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)}
+    <div className="pgi-picker">
+      <input className="kit-input mono" autoFocus value={q} onChange={(e) => setQ(e.target.value)}
         placeholder={items === null ? 'carregando SKUs…' : 'filtrar ' + (items || []).length + ' SKUs…'}
         onKeyDown={(e) => { if (e.key === 'Enter') pickFirst(); if (e.key === 'Escape') onClose(); }}
-        style={{ width: 190, fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--hf-navy-500)', background: 'var(--surface)', color: 'var(--text)' }} />
-      <div style={{ position: 'absolute', zIndex: 40, top: '110%', left: 0, minWidth: 320, maxWidth: 460,
-        maxHeight: 300, overflowY: 'auto', background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 10, boxShadow: '0 12px 32px -12px rgba(0,0,0,.35)', padding: 4 }}>
-        {items === null && <div style={{ padding: 10, fontSize: 12, color: 'var(--text-3)' }}>carregando catálogo do canal…</div>}
-        {err && <div style={{ padding: 10, fontSize: 12, color: 'var(--bad)' }}>{err}</div>}
+        style={{ width: 200, padding: '5px 9px', fontSize: 12.5 }} />
+      <div className="pgi-picker-list">
+        {items === null && <div className="pgi-picker-msg">carregando catálogo do canal…</div>}
+        {err && <div className="pgi-picker-msg bad">{err}</div>}
         {items !== null && !err && shown.length === 0 && (
-          <div style={{ padding: 10, fontSize: 12, color: 'var(--text-3)' }}>
+          <div className="pgi-picker-msg">
             {t ? 'nenhum SKU com "' + q + '"' : 'nenhum SKU conhecido neste canal ainda'}
           </div>
         )}
         {shown.map((i) => {
           const taken = !!i.attached_product_id;
           return (
-            <div key={i.sku}
+            <div key={i.sku} className={'pgi-picker-item' + (taken ? ' taken' : '')}
               onClick={() => { if (!taken) onPick(i.sku); }}
-              title={taken ? 'já ligado a ' + i.attached_product : (i.title || i.sku)}
-              style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '5px 8px', borderRadius: 7,
-                cursor: taken ? 'not-allowed' : 'pointer', opacity: taken ? 0.5 : 1 }}
-              onMouseEnter={(e) => { if (!taken) e.currentTarget.style.background = 'var(--surface-2)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
-              <span className="mono" style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{i.sku}</span>
-              <span style={{ fontSize: 11.5, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                {(i.title || '').split('|')[0].trim()}
-              </span>
-              {taken && <span style={{ fontSize: 10, color: 'var(--warn, #d97706)', whiteSpace: 'nowrap' }}>já → {i.attached_product}</span>}
+              title={taken ? 'já ligado a ' + i.attached_product : (i.title || i.sku)}>
+              <span className="sku">{i.sku}</span>
+              <span className="ttl">{(i.title || '').split('|')[0].trim()}</span>
+              {taken && <span className="flag">já em {i.attached_product}</span>}
             </div>
           );
         })}
-        {filt.length > 60 && <div style={{ padding: '5px 8px', fontSize: 11, color: 'var(--text-3)' }}>… +{filt.length - 60} — continue digitando pra afinar</div>}
+        {filt.length > 60 && <div className="pgi-picker-msg">mais {filt.length - 60}, continue digitando pra afinar</div>}
         {q.trim() && !exact && (
-          <div onClick={() => onFree(q.trim())}
-            style={{ padding: '6px 8px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--hf-navy-500)', cursor: 'pointer', fontWeight: 600 }}>
+          <div className="pgi-picker-free" onClick={() => onFree(q.trim())}>
             + usar “{q.trim()}” como SKU novo deste canal
           </div>
         )}
@@ -144,25 +131,22 @@ function SkuChips({ skus, onDetach, onAdd, disabled }) {
   const close = () => setAdding(false);
   const add = (sku) => { onAdd(sku, ch); setAdding(false); };
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+    <div className="pgi-skuwrap">
       {(skus || []).map((s) => (
-        <span key={s.id} title={s.channel + (s.units_per_pack > 1 ? ' · casepack ' + s.units_per_pack : '')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600,
-            padding: '2px 7px', borderRadius: 999, border: '1px solid var(--border)',
-            background: 'color-mix(in srgb, ' + (CH_COLOR[s.channel] || 'var(--text-3)') + ' 12%, transparent)',
-            color: CH_COLOR[s.channel] || 'var(--text-2)' }}>
-          <span className="mono">{s.sku}</span>
-          {!disabled && <button onClick={() => onDetach(s)} title="remover" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 800, lineHeight: 1, padding: 0 }}>×</button>}
+        <span key={s.id} className={'pgi-ch ' + (CHANNELS.includes(s.channel) ? s.channel : 'other')}
+          title={s.channel + (s.units_per_pack > 1 ? ' · casepack ' + s.units_per_pack : '')}>
+          {s.sku}
+          {!disabled && <button className="x" onClick={() => onDetach(s)} title="remover">×</button>}
         </span>
       ))}
-      {!disabled && !adding && <button onClick={() => setAdding(true)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, border: '1px dashed var(--border)', background: 'none', color: 'var(--text-3)', cursor: 'pointer' }}>+ SKU</button>}
+      {!disabled && !adding && <button className="pgi-addsku" onClick={() => setAdding(true)}>+ SKU</button>}
       {!disabled && adding && (
-        <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-          <select value={ch} onChange={(e) => setCh(e.target.value)} style={{ fontSize: 12, padding: '3px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }}>
+        <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+          <select className="kit-input" value={ch} onChange={(e) => setCh(e.target.value)} style={{ padding: '5px 8px', fontSize: 12.5 }}>
             {CHANNELS.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <SkuPicker channel={ch} onPick={add} onFree={add} onClose={close} />
-          <button onClick={close} title="fechar" style={{ fontSize: 11, padding: '3px 7px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', color: 'var(--text-3)', cursor: 'pointer' }}>×</button>
+          <button className="kit-btn xs sec" onClick={close} title="fechar">fechar</button>
         </span>
       )}
     </div>
@@ -182,48 +166,46 @@ function Row({ p, ro, onSave, onAddSku, onDetachSku }) {
     setSaving('');
   };
   return (
-    <tr style={{ borderTop: '1px solid var(--border)' }}>
-      <td style={{ padding: '8px 12px', fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+    <tr className={p.active === false ? 'off' : undefined}>
+      <td className="wrapmax strong">
         {p.canonical_name}
-        {!p.active && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-3)' }}>(inativo)</span>}
-        {p.on_hold && <span title="Catálogo 08-04: HOLD — NÃO IMPRIMIR" style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: 'color-mix(in srgb, var(--bad) 16%, transparent)', color: 'var(--bad)' }}>HOLD — NÃO IMPRIMIR</span>}
+        {!p.active && <span className="kit-chip neutral" style={{ marginLeft: 8 }}>inativo</span>}
+        {p.on_hold && <span className="kit-chip bad" style={{ marginLeft: 8 }} title="Catálogo 08-04: HOLD, não imprimir">hold, não imprimir</span>}
       </td>
-      <td style={{ padding: '8px 12px' }}>
+      <td>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          <input value={nick} disabled={ro} onChange={(e) => setNick(e.target.value)}
+          <input className="kit-input mono" value={nick} disabled={ro} onChange={(e) => setNick(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') saveNick(); }} onBlur={saveNick}
             placeholder={suggested || 'nickname…'}
-            className="mono"
-            style={{ width: 150, padding: '5px 8px', borderRadius: 8, fontSize: 13,
-              border: '1px solid ' + (dirty ? 'var(--hf-navy-500)' : 'var(--border)'),
-              background: 'var(--surface)', color: 'var(--text)' }} />
-          {saving === 'nick' && <span style={{ fontSize: 11, color: 'var(--text-3)' }}>…</span>}
-          {!ro && !nick && suggested && <button onClick={() => { setNick(suggested); onSave(p.id, { nickname: suggested }); }} title="usar sugestão" style={{ fontSize: 10.5, padding: '2px 6px', borderRadius: 6, border: '1px dashed var(--border)', background: 'none', color: 'var(--text-3)', cursor: 'pointer' }}>← {suggested}</button>}
+            style={{ width: 150, padding: '5px 9px', borderColor: dirty ? 'var(--primary-line)' : undefined }} />
+          {saving === 'nick' && <span style={{ color: 'var(--ink-faint)', fontSize: 11 }}>…</span>}
+          {!ro && !nick && suggested && (
+            <button className="pgi-addsku" title="usar sugestão"
+              onClick={() => { setNick(suggested); onSave(p.id, { nickname: suggested }); }}>← {suggested}</button>
+          )}
         </span>
       </td>
-      <td style={{ padding: '8px 12px' }}>
+      <td>
         <ColorPicker value={p.bottle_color} disabled={ro} onChange={(v) => onSave(p.id, { bottle_color: v })} />
       </td>
-      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-        {p.veeqo_stock == null
-          ? <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>
-          : <span className="mono" style={{ fontWeight: 700, color: p.veeqo_stock <= 0 ? 'var(--bad)' : 'inherit' }}>{p.veeqo_stock}</span>}
+      <td className={'num' + (p.veeqo_stock != null && p.veeqo_stock <= 0 ? ' badnum strong' : '')}>
+        {p.veeqo_stock == null ? <span style={{ color: 'var(--ink-faint)' }}>—</span> : p.veeqo_stock}
       </td>
       {/* Validade do rótulo (catálogo 08-04, mig 066) — MIN entre as variantes.
           <12 meses = âmbar, <6 = vermelho. Título mostra caps/porções. */}
-      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}
+      <td style={{ whiteSpace: 'nowrap' }}
         title={(p.content_desc ? p.content_desc + ' · ' : '') + (p.servings_per_container ? p.servings_per_container + ' porções' : '')}>
         {(() => {
-          if (!p.expiry_date) return <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>;
+          if (!p.expiry_date) return <span style={{ color: 'var(--ink-faint)' }}>—</span>;
           const d = new Date(p.expiry_date);
           const months = (d - Date.now()) / (30.44 * 24 * 3600 * 1000);
-          const color = months < 6 ? 'var(--bad)' : months < 12 ? 'var(--warn, #d97706)' : 'var(--text-2)';
-          return <span className="mono" style={{ fontSize: 12.5, fontWeight: 600, color }}>
+          const tone = months < 6 ? 'bad' : months < 12 ? 'warn' : 'neutral';
+          return <span className={'kit-chip ' + tone}>
             {String(d.getUTCMonth() + 1).padStart(2, '0')}/{d.getUTCFullYear()}
           </span>;
         })()}
       </td>
-      <td style={{ padding: '8px 12px' }}>
+      <td>
         <SkuChips skus={p.skus} disabled={ro}
           onAdd={(sku, ch) => onAddSku(p.id, sku, ch)}
           onDetach={(s) => onDetachSku(s)} />
@@ -261,8 +243,12 @@ export function ProductSetupPage() {
     else setFlash('erro: ' + (r && r.error));
   };
 
-  if (setup.loading && !rows) return <div style={{ padding: 24, color: 'var(--text-3)' }}>Carregando produtos…</div>;
-  if (setup.error) return <div style={{ padding: 24, color: 'var(--bad)' }}>Erro: {String(setup.error)}</div>;
+  if (setup.loading && !rows) {
+    return <div className="pgi-page" data-page="inv-produto-setup"><div className="kit-card pad pgi-loading">Carregando produtos…</div></div>;
+  }
+  if (setup.error) {
+    return <div className="pgi-page" data-page="inv-produto-setup"><div className="kit-card pad bad" style={{ color: 'var(--bad-deep)' }}>Erro: {String(setup.error)}</div></div>;
+  }
 
   const list = (rows || []).filter((p) => {
     if (!q) return true;
@@ -273,38 +259,53 @@ export function ProductSetupPage() {
   const noColor = (rows || []).filter((p) => !p.bottle_color).length;
 
   return (
-    <div style={{ padding: '18px 22px', maxWidth: 1100 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
-        <h2 style={{ margin: 0 }}>Product Setup</h2>
-        <span style={{ color: 'var(--text-3)', fontSize: 13 }}>Nickname · cor da garrafa · SKUs por canal — base do rodapé da shipping label.</span>
+    <div className="pgi-page" data-page="inv-produto-setup">
+      <div className="pgi-head">
+        <div className="pgi-head-main">
+          <span className="kit-eyebrow">● HEALTHFARE · PRODUCT SETUP</span>
+          <h1 className="kit-h1">Nickname, cor e <em>SKUs</em> por canal</h1>
+          <p className="kit-sub">
+            É a base do rodapé da shipping label. A cor da garrafa mais o número de garrafas decidem o tamanho do pacote.
+          </p>
+        </div>
+        <div className="pgi-head-actions">
+          {flash && <span className={'pgi-flash' + (flash.startsWith('erro') ? ' bad' : '')}>{flash}</span>}
+          <a className="kit-btn sm sec" href="#config-estoque">Configurações de inventário</a>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0 14px' }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="buscar produto / nickname / SKU…"
-          style={{ flex: '1 1 260px', padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 14 }} />
-        <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{list.length} produtos</span>
-        {noNick > 0 && <span style={{ fontSize: 12, color: 'var(--warn, #d97706)', fontWeight: 600 }}>{noNick} sem nickname</span>}
-        {noColor > 0 && <span style={{ fontSize: 12, color: 'var(--warn, #d97706)', fontWeight: 600 }}>{noColor} sem cor</span>}
-        {flash && <span style={{ fontSize: 12, color: flash.startsWith('erro') ? 'var(--bad)' : 'var(--hf-leaf-700)', fontWeight: 600 }}>{flash}</span>}
-        {ro && <span style={{ fontSize: 12, color: 'var(--text-3)' }}>(somente leitura)</span>}
+
+      <div className="pgi-toolbar">
+        <input className="kit-input grow" value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder="buscar produto / nickname / SKU…" />
+        <span className="pgi-count">{list.length} produtos</span>
+        {noNick > 0 && <span className="kit-chip warn">{noNick} sem nickname</span>}
+        {noColor > 0 && <span className="kit-chip warn">{noColor} sem cor</span>}
+        {ro && <span className="kit-chip neutral">somente leitura</span>}
       </div>
 
       {tiers.length > 0 && (
-        <div className="card" style={{ padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: 'var(--text-2)' }}>
-          <b>Tamanho do pacote</b> (por nº de garrafas):{' '}
-          {tiers.filter((t) => !t.bottle_color).map((t) => `${t.min_bottles}${t.max_bottles ? '–' + t.max_bottles : '+'} → ${t.package_size}`).join(' · ')}
-          <span style={{ color: 'var(--text-3)' }}> · BX = caixa</span>
+        <div className="kit-card pad" style={{ marginBottom: 14 }}>
+          <div className="kit-mlabel" style={{ marginBottom: 6 }}>Tamanho do pacote por nº de garrafas</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-dim)' }}>
+            {tiers.filter((t) => !t.bottle_color).map((t) => `${t.min_bottles}${t.max_bottles ? ' a ' + t.max_bottles : '+'} → ${t.package_size}`).join(' · ')}
+            <span style={{ color: 'var(--ink-faint)' }}> · BX = caixa</span>
+          </div>
         </div>
       )}
 
-      <div className="card" style={{ overflowX: 'auto', padding: 0 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead><tr style={{ background: 'var(--surface-2)' }}>
-            <Th>Produto</Th><Th>Nickname</Th><Th>Cor da garrafa</Th><Th right>Estoque Veeqo</Th><Th>Validade (rótulo)</Th><Th>SKUs (por canal)</Th>
+      <div className="kit-card pgi-tablecard">
+        <table className="kit-table" data-table="produto-setup">
+          <thead><tr>
+            <th>Produto</th><th>Nickname</th><th>Cor da garrafa</th>
+            <th className="num">Estoque Veeqo</th><th>Validade (rótulo)</th><th>SKUs (por canal)</th>
           </tr></thead>
           <tbody>
             {list.map((p) => (
               <Row key={p.id} p={p} ro={ro} onSave={onSave} onAddSku={onAddSku} onDetachSku={onDetachSku} />
             ))}
+            {!list.length && (
+              <tr><td colSpan={6} className="pgi-empty">Nenhum produto com esse filtro.</td></tr>
+            )}
           </tbody>
         </table>
       </div>

@@ -1,0 +1,135 @@
+{
+  "data": {
+    "date": "2026-08-18",
+    "people": [
+      {
+        "person_id": 5,
+        "display_name": "Simone Alves",
+        "role": "Operadora",
+        "idle_seconds": 1620,
+        "unreported_seconds": 900,
+        "unreported_since": null,
+        "events": [
+          {
+            "event_id": 9101,
+            "started_at": "2026-08-18T08:15:00-04:00",
+            "ended_at": "2026-08-18T10:05:00-04:00",
+            "activity": { "id": 3, "slug": "production_line", "display_name": "Linha de produção", "flow": "production", "expected_seconds": 7200, "is_background": false },
+            "product_batch_id": 41,
+            "cowork_with": [6],
+            "quantity": 640,
+            "quantity_unit": "bottle",
+            "description": "Linha 1 rodando",
+            "confidence": "high",
+            "flow": "production"
+          },
+          {
+            "event_id": 9102,
+            "started_at": "2026-08-18T10:40:00-04:00",
+            "ended_at": "2026-08-18T12:10:00-04:00",
+            "activity": { "id": 7, "slug": "review", "display_name": "Revisão", "flow": "production", "expected_seconds": 3600, "is_background": false },
+            "product_batch_id": 41,
+            "cowork_with": [],
+            "quantity": null,
+            "description": "Revisão do lote",
+            "confidence": "high",
+            "flow": "production"
+          },
+          {
+            "event_id": 9103,
+            "started_at": "2026-08-18T13:00:00-04:00",
+            "ended_at": null,
+            "activity": { "id": 11, "slug": "pick_pack", "display_name": "Pick & Pack", "flow": "pnp", "expected_seconds": null, "is_background": false },
+            "product_batch_id": null,
+            "cowork_with": [],
+            "quantity": null,
+            "description": "P&P do dia",
+            "confidence": "high",
+            "flow": "pnp"
+          }
+        ]
+      },
+      {
+        "person_id": 6,
+        "display_name": "Ana Kesya",
+        "role": "Operadora",
+        "idle_seconds": 480,
+        "unreported_seconds": 0,
+        "unreported_since": null,
+        "events": [
+          {
+            "event_id": 9201,
+            "started_at": "2026-08-18T08:30:00-04:00",
+            "ended_at": "2026-08-18T11:20:00-04:00",
+            "activity": { "id": 3, "slug": "production_line", "display_name": "Linha de produção", "flow": "production", "expected_seconds": 7200, "is_background": false },
+            "product_batch_id": 41,
+            "cowork_with": [5],
+            "quantity": null,
+            "description": "",
+            "confidence": "high",
+            "flow": "production"
+          },
+          {
+            "event_id": 9202,
+            "started_at": "2026-08-18T11:40:00-04:00",
+            "ended_at": "2026-08-18T12:35:00-04:00",
+            "activity": { "id": 21, "slug": "cleaning", "display_name": "Limpeza", "flow": "support", "expected_seconds": null, "is_background": false },
+            "product_batch_id": null,
+            "cowork_with": [],
+            "quantity": null,
+            "description": "Limpeza da linha 2",
+            "confidence": "high",
+            "flow": "support"
+          },
+          {
+            "event_id": 9203,
+            "started_at": "2026-08-18T09:00:00-04:00",
+            "ended_at": null,
+            "activity": { "id": 30, "slug": "machine_bg", "display_name": "Máquina em background", "flow": "production", "expected_seconds": null, "is_background": true },
+            "product_batch_id": 42,
+            "cowork_with": [],
+            "quantity": null,
+            "description": "",
+            "confidence": "high",
+            "flow": "production"
+          }
+        ]
+      },
+      {
+        "person_id": 4,
+        "display_name": "Vitor Ramos",
+        "role": "Operador",
+        "idle_seconds": 0,
+        "unreported_seconds": 0,
+        "unreported_since": null,
+        "events": [
+          {
+            "event_id": 9301,
+            "started_at": "2026-08-18T09:10:00-04:00",
+            "ended_at": "2026-08-18T10:45:00-04:00",
+            "activity": { "id": 15, "slug": "fnsku", "display_name": "FNSKU", "flow": "production", "expected_seconds": null, "is_background": false },
+            "product_batch_id": 42,
+            "cowork_with": [],
+            "quantity": 480,
+            "quantity_unit": "label",
+            "description": "",
+            "confidence": "high",
+            "flow": "production"
+          },
+          {
+            "event_id": 9302,
+            "started_at": "2026-08-18T11:30:00-04:00",
+            "ended_at": "2026-08-18T12:00:00-04:00",
+            "activity": { "id": 24, "slug": "repair", "display_name": "Conserto", "flow": "support", "expected_seconds": null, "is_background": false },
+            "product_batch_id": null,
+            "cowork_with": [],
+            "quantity": null,
+            "description": "Encapsuladora travou",
+            "confidence": "high",
+            "flow": "support"
+          }
+        ]
+      }
+    ]
+  }
+}

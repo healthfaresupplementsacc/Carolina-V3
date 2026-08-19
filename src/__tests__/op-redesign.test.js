@@ -6,6 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 const APP = fs.readFileSync(path.join(__dirname, '..', 'op', 'app.js'), 'utf8');
+// S15 Fase 2: o workspace (picklist/estoque) saiu do app.js pro ws.js — os fetches
+// de /api/v3/op/stock/* vivem lá, então o guard de endpoints varre OS DOIS.
+const WSJS = fs.readFileSync(path.join(__dirname, '..', 'op', 'ws.js'), 'utf8');
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'op', 'index.html'), 'utf8');
 const SW = fs.readFileSync(path.join(__dirname, '..', 'op', 'sw.js'), 'utf8');
 
@@ -24,6 +27,8 @@ const REAL = [
   '/api/v3/op/machine/confirm-return', // custódia (Bruno 07-08): dono confirma no retorno
   // P&P Workspace (Bruno 08-06) — todas registradas em src/routes/op.js:293-332
   '/api/v3/op/picklist', '/api/v3/op/stock-gaps', '/api/v3/op/stock/recent', '/api/v3/op/stock/take',
+  // S15 Fase 2 — propostas do operador + contexto/reposição de prateleira
+  '/api/v3/op/stock/propose', '/api/v3/op/stock/context', '/api/v3/op/stock/restock',
   '/api/v3/architect/person/',
 ];
 
@@ -96,8 +101,8 @@ describe('op v4 — wiring de API (sem inventar endpoint)', () => {
     expect(APP).toContain("'/api/v3/op/event/start'");
     expect(APP).toContain('startedAt ? '); // ternário escolhe o path
   });
-  test('todo /api/v3/op/ usado é endpoint REAL', () => {
-    const used = APP.match(/\/api\/v3\/(op|architect)\/[a-z0-9/_:+.${}'"\- ]*/gi) || [];
+  test('todo /api/v3/op/ usado é endpoint REAL (app.js + ws.js)', () => {
+    const used = (APP + '\n' + WSJS).match(/\/api\/v3\/(op|architect)\/[a-z0-9/_:+.${}'"\- ]*/gi) || [];
     used.forEach((u) => {
       // normaliza: corta em template/interpolação/aspas
       const base = u.replace(/['"`].*$/, '').replace(/\$\{.*$/, '').replace(/' \+.*$/, '');
@@ -113,14 +118,17 @@ describe('op v4 — wiring de API (sem inventar endpoint)', () => {
 });
 
 describe('op v4 — html + sw', () => {
-  test('index.v4 carrega fontes + hf-design + app.v4 + theme azul', () => {
+  test('index.v4 carrega fontes + hf-design + ws.js antes do app.v4 + theme azul', () => {
     expect(HTML).toContain('Manrope');
     expect(HTML).toContain('/shared/hf-design.css');
     expect(HTML).toContain('/op/app.js');
+    expect(HTML).toContain('/op/ws.js');
+    expect(HTML.indexOf('/op/ws.js')).toBeLessThan(HTML.indexOf('/op/app.js"'));
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v39 network-first', () => {
-    expect(SW).toContain("'hf-op-v39'");
+  test('sw é hf-op-v40 network-first e cacheia ws.js', () => {
+    expect(SW).toContain("'hf-op-v40'");
+    expect(SW).toContain("'/op/ws.js'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

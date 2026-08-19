@@ -1,0 +1,1007 @@
+{
+  "at": "2026-08-19T01:33:26.530Z",
+  "results": [
+    {
+      "group": "hoje",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "158 KB → theme-hoje.png"
+    },
+    {
+      "group": "hoje",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "hoje",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "5 cards"
+    },
+    {
+      "group": "hoje",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "producao",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "80 KB → theme-producao.png"
+    },
+    {
+      "group": "producao",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "producao",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "producao",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "metas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "77 KB → theme-metas.png"
+    },
+    {
+      "group": "metas",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "metas",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "metas",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "pessoas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "76 KB → theme-pessoas.png"
+    },
+    {
+      "group": "pessoas",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "pessoas",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "pessoas",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "pp",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "103 KB → theme-pp.png"
+    },
+    {
+      "group": "pp",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "pp",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "4 cards"
+    },
+    {
+      "group": "pp",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "picklist",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "116 KB → theme-picklist.png"
+    },
+    {
+      "group": "picklist",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "picklist",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "picklist",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "estoque",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "204 KB → theme-estoque.png"
+    },
+    {
+      "group": "estoque",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "estoque",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "estoque",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "130 KB → theme-estoque-aprovacoes.png"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "159 KB → theme-estoque-locais.png"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "143 KB → theme-estoque-geral.png"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "inventory",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "137 KB → theme-inventory.png"
+    },
+    {
+      "group": "inventory",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "inventory",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "inventory",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "produto-setup",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "142 KB → theme-produto-setup.png"
+    },
+    {
+      "group": "produto-setup",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "produto-setup",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "produto-setup",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "config-estoque",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "167 KB → theme-config-estoque.png"
+    },
+    {
+      "group": "config-estoque",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "config-estoque",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "config-estoque",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "impressao",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "105 KB → theme-impressao.png"
+    },
+    {
+      "group": "impressao",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "impressao",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "impressao",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "floor",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "79 KB → theme-floor.png"
+    },
+    {
+      "group": "floor",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "floor",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "floor",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "cameras",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "86 KB → theme-cameras.png"
+    },
+    {
+      "group": "cameras",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "cameras",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "cameras",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "roadmap",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "92 KB → theme-roadmap.png"
+    },
+    {
+      "group": "roadmap",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "roadmap",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "roadmap",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "admin",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "81 KB → theme-admin.png"
+    },
+    {
+      "group": "admin",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "admin",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "admin",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "operadores",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "82 KB → theme-operadores.png"
+    },
+    {
+      "group": "operadores",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "operadores",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "operadores",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "usuarios",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "104 KB → theme-usuarios.png"
+    },
+    {
+      "group": "usuarios",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "usuarios",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "usuarios",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "sistema",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "100 KB → theme-sistema.png"
+    },
+    {
+      "group": "sistema",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "sistema",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "sistema",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "config",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "90 KB → theme-config.png"
+    },
+    {
+      "group": "config",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "config",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "config",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "suporte",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "78 KB → theme-suporte.png"
+    },
+    {
+      "group": "suporte",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "suporte",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "suporte",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "produto",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "77 KB → theme-produto.png"
+    },
+    {
+      "group": "produto",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "produto",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "produto",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "falar",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "111 KB → theme-falar.png"
+    },
+    {
+      "group": "falar",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "falar",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "falar",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "planejamento",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "82 KB → theme-planejamento.png"
+    },
+    {
+      "group": "planejamento",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "planejamento",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "planejamento",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "carolina",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "74 KB → theme-carolina.png"
+    },
+    {
+      "group": "carolina",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "carolina",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "carolina",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "dark",
+      "name": "fundo escuro",
+      "pass": true,
+      "detail": "rgb(10, 17, 36) L=0.07"
+    },
+    {
+      "group": "dark",
+      "name": "texto claro",
+      "pass": true,
+      "detail": "rgb(233, 238, 249) L=0.93"
+    },
+    {
+      "group": "dark",
+      "name": "card escuro (nao branco)",
+      "pass": true,
+      "detail": "rgb(19, 28, 54) L=0.11"
+    },
+    {
+      "group": "dark",
+      "name": "card sem gradiente",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "dark",
+      "name": "fonte do kit tambem no dark",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    }
+  ]
+}

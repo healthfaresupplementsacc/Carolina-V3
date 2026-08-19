@@ -92,7 +92,7 @@ IDs refer to `STRUCTURE_INDEX.md`. Mermaid uses the same R-ids as edge labels wh
 | R073 | S06.13 CommandHandler → `v3.events` raw | VERIFIED | `CommandHandler.js` |
 | R074 | R070+R071+R072+R073 = multiple writers to one table | DUPLICATE-PATH | ARCHITECTURE.md BROKEN LINKS Claim 1 |
 | R075 | S05.03 + S02.08 (×4) + S02.09 → `v3.production_counts` (6 writers) | DUPLICATE-PATH | Claim 2 |
-| R076 | S05.08 StockService + S02.08 raw INSERT (`op.js:324`) → `v3.stock_movements` | DUPLICATE-PATH | Claim 3 |
+| R076 | ~~S05.08 StockService + S02.08 raw INSERT (`op.js:324`) → `v3.stock_movements`~~ **RESOLVED 08-18 (Phase 2): raw INSERT removed; `stock/take` now creates a request via `op-stock.js` → StockRequestService; StockService is the only writer again** | RESOLVED | `op.js` grep = none |
 | R077 | S05.09 `consumeForSize` ← (no production caller) | DISCONNECTED | Claim 4 |
 | R078 | S02.08 `orders` count (`production_counts kind='orders'`) vs S04.08 `v3.pnp_order_lines` (Veeqo mirror), reconciled by S04.11 at noon | DUPLICATE-PATH | Claim 5 |
 | R079 | S05.02 → `v3.product_batches`, `events.product_batch_id` | VERIFIED | `BatchService.js:159,195` |
@@ -184,6 +184,8 @@ IDs refer to `STRUCTURE_INDEX.md`. Mermaid uses the same R-ids as edge labels wh
 | R163 | S15.18 approve → S15.19 StockService (source 'request', source_ref request:<id>) | VERIFIED | `StockRequestService.js:120-175` |
 | R164 | S04.08 veeqo-order-sync → `pick({allow_box:true})` shelf first, box second | VERIFIED | `veeqo-order-sync.js:124` |
 | R165 | S15.20 migration 071 → S08.05.05 (+2 tables, widened CHECKs) | VERIFIED | migration file |
+| R167 | S02.08 op.js `stock/take|propose|recent` → S15 `src/v3/warehouse/op-stock.js` → S15.18 StockRequestService / S15.19 StockService.separate; `stock/context`+`stock/restock` session-only | VERIFIED | `op-stock.js`; `op.js:311-345` |
+| R168 | S03.02 /op `ws.js` (workspace) → `/api/v3/op/stock/take|propose|restock|context|recent` | VERIFIED | `src/op/ws.js`; `op-redesign.test.js` REAL list |
 | R166 | S03.01 Shell nav: P&P + Picklist moved under Estoque; Planejamento + Produto after Metas | VERIFIED | `Shell.jsx`; `v4-nav-warehouse.test.js` |
 
 **Totals after 2nd pass (machine-counted):** **134 unique R-ids** (R001–R152 with intentional gaps in numbering; R003 and R067 corrected in place, not renumbered) — VERIFIED 106 · PARTIAL 10 · SHARED-DEP 6 · DUPLICATE-PATH 12 · AMBIGUOUS 5 · DISCONNECTED 12 · UNKNOWN 1 (by primary tag; a few edges carry two tags).

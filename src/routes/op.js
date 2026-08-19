@@ -308,38 +308,34 @@ function createOpRouter(deps = {}) {
     res.json({ ok: true, ...out.data });
   }));
 
-  // Registrar SAÍDA de estoque — camada 1 anti-shrinkage ("peguei do estoque")
-  // + garrafa danificada. Ledger append-only (v3.stock_movements), RULE #0:
-  // nunca bloqueia, só registra. Sandbox → is_test (não contamina o real).
+  // Registrar estoque (S15 Fase 2) — "peguei do estoque" = PROPOSTA pendente,
+  // "danificada" = Separadas na hora, entrada/contagem/devolução = proposta.
+  // TODA a lógica vive em src/v3/warehouse/op-stock.js (op.js não cresce).
+  // O INSERT cru em v3.stock_movements (R076) saiu daqui: escrita só pelo service.
+  const _opStockMod = require('../v3/warehouse/op-stock');
+  const { StockRequestService: _StockRequestSvc } = require('../v3/services/StockRequestService');
+  let _opStock = null;
+  const opStock = () => (_opStock || (_opStock = _opStockMod.createOpStock({
+    db, stock: stockKiosk,
+    requests: deps.stockRequests || new _StockRequestSvc({ db, stock: stockKiosk }),
+  })));
+  const sendStock = (res, out) => res.status(out.status || 200).json(out.body);
+
   router.post('/api/v3/op/stock/take', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
-    const b = req.body || {};
-    const productId = parseInt(b.product_id, 10);
-    const qty = parseInt(b.qty, 10);
-    const kind = b.kind === 'damaged' ? 'damaged' : 'pick';
-    if (!Number.isFinite(productId)) return res.status(400).json({ error: 'product_id obrigatório' });
-    if (!Number.isFinite(qty) || qty <= 0 || qty > 5000) return res.status(400).json({ error: 'quantidade inválida' });
-    const reason = (b.reason ? String(b.reason) : '').slice(0, 300) || null;
-    const r = await db.query(
-      `INSERT INTO v3.stock_movements (kind, product_id, qty, person_id, source, note, is_test)
-       VALUES ($1, $2, $3, $4, 'op_kiosk', $5, $6)
-       RETURNING id, created_at`,
-      [kind, productId, -qty, s.person_id, reason, !!s.is_sandbox]);
-    res.json({ ok: true, movement_id: r.rows[0].id });
+    sendStock(res, await opStock().take(s, req.body));
   }));
 
-  // Saídas recentes do operador (hoje) — pro workspace mostrar o que já registrou
+  // entrada / contagem / devolução recebida → fila de aprovação do admin
+  router.post('/api/v3/op/stock/propose', h(async (req, res) => {
+    const s = await requireSession(req, res); if (!s) return;
+    sendStock(res, await opStock().propose(s, req.body));
+  }));
+
+  // Registrado hoje (16h) — propostas + danificadas + reposições, com estado
   router.get('/api/v3/op/stock/recent', h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
-    const r = await db.query(
-      `SELECT m.id, m.kind, -m.qty AS qty, m.note, m.created_at, p.canonical_name AS product, p.nickname
-         FROM v3.stock_movements m JOIN v3.products p ON p.id = m.product_id
-        WHERE m.person_id = $1 AND m.source = 'op_kiosk'
-          AND m.created_at > NOW() - INTERVAL '16 hours'
-          AND m.is_test = $2
-        ORDER BY m.created_at DESC LIMIT 20`,
-      [s.person_id, !!s.is_sandbox]);
-    res.json({ ok: true, items: r.rows });
+    sendStock(res, await opStock().recent(s));
   }));
 
   // HEARTBEAT do lock: reporta o TEMPO ATIVO (teclado/mouse) da pessoa na estação
@@ -2190,14 +2186,12 @@ function createOpRouter(deps = {}) {
               // os DOIS saíram → aí sim avisa: máquina sem ninguém
               await machineSlack(`:warning: ${s.display_name} terminou a máquina${prod} e ${goneWord}. Precisa de alguém pra continuar, definam quem assume.`);
             }
-          } else if (ownerLeft) {
-            // O OUTRO já saiu. Bruno vira responsável automaticamente e já sabe disso.
-            // NÃO manda mensagem (Bruno 08-10: se o colega saiu, o que ficou já sabe as
-            // obrigações dele; notificar é só ruído). Silêncio de propósito.
-          } else {
-            // os dois presentes: quem terminou continua responsável, volta pro outro quando trocar
-            await machineSlack(`${s.display_name} terminou a máquina${prod}. Continua com ele até *${ownerName}* assumir de novo.`);
           }
+          // Bruno 08-11: SILÊNCIO nos outros dois casos.
+          //  - ownerLeft (o outro já saiu): quem ficou é responsável e já sabe, notificar é ruído.
+          //  - ambos presentes: estão se revezando na máquina, cooperação normal. NÃO narra cada
+          //    troca ("Vitor terminou, continua com ele até Bruno assumir" a cada 15min era spam).
+          // Só falamos quando faz FALTA: quem terminou saiu/tá saindo (bloco acima).
         }
       } catch (e) { console.error('[machine] notify conclusão falhou:', e.message); }
     }
@@ -2963,8 +2957,7 @@ function createOpRouter(deps = {}) {
   }
 
   router.get('/api/v3/op/stock/context', h(async (req, res) => {
-    const s = await requireSession(req, res); if (!s) return;
-    if (!stockUiAllowed(s)) return res.json({ enabled: false });
+    const s = await requireSession(req, res); if (!s) return;   // S15 F2: gate = sessão (leitura)
     const [products, bins, boxes] = await Promise.all([
       db.query(`SELECT id, canonical_name AS name FROM v3.products WHERE active ORDER BY canonical_name`),
       db.query(`SELECT b.id, b.bin_code, b.shelf_code, b.area, b.qty, b.min_qty, b.product_id,
@@ -3016,8 +3009,7 @@ function createOpRouter(deps = {}) {
 
   // restock: caixa → bin ("shelves x,y,z precisam de restock; caixas x,y,z")
   router.post('/api/v3/op/stock/restock', h(async (req, res) => {
-    const s = await requireSession(req, res); if (!s) return;
-    if (!stockUiAllowed(s)) return res.status(403).json({ error: 'stock_ui_disabled' });
+    const s = await requireSession(req, res); if (!s) return;   // S15 F2: gate = sessão
     const b = req.body || {};
     const qty = parseInt(b.qty, 10);
     if (!b.bin_id || !b.box_id) return res.status(400).json({ error: 'bin_box_required', detail: 'Escolha o bin e a caixa.' });

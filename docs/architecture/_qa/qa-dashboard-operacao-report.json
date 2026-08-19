@@ -1,0 +1,755 @@
+{
+  "at": "2026-08-19T01:29:36.072Z",
+  "results": [
+    {
+      "group": "screenshot",
+      "name": "hoje",
+      "pass": true,
+      "detail": "233 KB → theme-A-hoje.png"
+    },
+    {
+      "group": "hoje",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "renderizou ([data-page-op=\"hoje\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "O dia da fábrica agora"
+    },
+    {
+      "group": "hoje",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "hoje",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"fábrica\""
+    },
+    {
+      "group": "hoje",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "hoje",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · HOJE"
+    },
+    {
+      "group": "screenshot",
+      "name": "producao",
+      "pass": true,
+      "detail": "136 KB → theme-A-producao.png"
+    },
+    {
+      "group": "producao",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "renderizou ([data-page-op=\"producao\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "Lotes em produção"
+    },
+    {
+      "group": "producao",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "producao",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"produção\""
+    },
+    {
+      "group": "producao",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "producao",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · PRODUÇÃO"
+    },
+    {
+      "group": "screenshot",
+      "name": "metas",
+      "pass": true,
+      "detail": "114 KB → theme-A-metas.png"
+    },
+    {
+      "group": "metas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "renderizou ([data-page-op=\"metas\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "As metas de hoje"
+    },
+    {
+      "group": "metas",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "metas",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"hoje\""
+    },
+    {
+      "group": "metas",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "metas",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · METAS"
+    },
+    {
+      "group": "screenshot",
+      "name": "pessoas",
+      "pass": true,
+      "detail": "131 KB → theme-A-pessoas.png"
+    },
+    {
+      "group": "pessoas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "renderizou ([data-page-op=\"pessoas\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "A equipe hoje"
+    },
+    {
+      "group": "pessoas",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "pessoas",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"equipe\""
+    },
+    {
+      "group": "pessoas",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "pessoas",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · PESSOAS"
+    },
+    {
+      "group": "screenshot",
+      "name": "pp",
+      "pass": true,
+      "detail": "139 KB → theme-A-pp.png"
+    },
+    {
+      "group": "pp",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "renderizou ([data-page-op=\"pp\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "O bloco de P&P do dia"
+    },
+    {
+      "group": "pp",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "pp",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"P&P\""
+    },
+    {
+      "group": "pp",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "pp",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · PICK & PACK"
+    },
+    {
+      "group": "screenshot",
+      "name": "suporte",
+      "pass": true,
+      "detail": "101 KB → theme-A-suporte.png"
+    },
+    {
+      "group": "suporte",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "renderizou ([data-page-op=\"suporte\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "Ocorrências de suporte"
+    },
+    {
+      "group": "suporte",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "suporte",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"suporte\""
+    },
+    {
+      "group": "suporte",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "suporte",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · SUPORTE"
+    },
+    {
+      "group": "screenshot",
+      "name": "produto",
+      "pass": true,
+      "detail": "130 KB → theme-A-produto.png"
+    },
+    {
+      "group": "produto",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "renderizou ([data-page-op=\"produto\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "Produtos do dia"
+    },
+    {
+      "group": "produto",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "produto",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"dia\""
+    },
+    {
+      "group": "produto",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "produto",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · PRODUTO"
+    },
+    {
+      "group": "screenshot",
+      "name": "falar",
+      "pass": true,
+      "detail": "111 KB → theme-A-falar.png"
+    },
+    {
+      "group": "falar",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "renderizou ([data-page-op=\"falar\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "Falar como Carolina"
+    },
+    {
+      "group": "falar",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "falar",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"Carolina\""
+    },
+    {
+      "group": "falar",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "falar",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · FALAR"
+    },
+    {
+      "group": "screenshot",
+      "name": "planejamento",
+      "pass": true,
+      "detail": "83 KB → theme-A-planejamento.png"
+    },
+    {
+      "group": "planejamento",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "renderizou ([data-page-op=\"placeholder\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "O que vem pela frente"
+    },
+    {
+      "group": "planejamento",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "planejamento",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"frente\""
+    },
+    {
+      "group": "planejamento",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "planejamento",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · PLANEJAMENTO"
+    },
+    {
+      "group": "screenshot",
+      "name": "carolina",
+      "pass": true,
+      "detail": "75 KB → theme-A-carolina.png"
+    },
+    {
+      "group": "carolina",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "renderizou ([data-page-op=\"placeholder\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "Aprendizado da Carolina"
+    },
+    {
+      "group": "carolina",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "carolina",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"Carolina\""
+    },
+    {
+      "group": "carolina",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "carolina",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · CAROLINA"
+    },
+    {
+      "group": "screenshot",
+      "name": "config",
+      "pass": true,
+      "detail": "100 KB → theme-A-config.png"
+    },
+    {
+      "group": "config",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "renderizou ([data-page-op=\"config\"])",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "Ajustes do sistema"
+    },
+    {
+      "group": "config",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "config",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"sistema\""
+    },
+    {
+      "group": "config",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "config",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · CONFIGURAÇÕES"
+    },
+    {
+      "group": "screenshot",
+      "name": "floor",
+      "pass": true,
+      "detail": "140 KB → theme-A-floor.png"
+    },
+    {
+      "group": "floor",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": "renderizou (.fd-shell.opa-fd)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "roadmap",
+      "pass": true,
+      "detail": "93 KB → theme-A-roadmap.png"
+    },
+    {
+      "group": "roadmap",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "renderizou (.rm-root)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "tem h1 de pagina",
+      "pass": true,
+      "detail": "O plano do sistema inteiro"
+    },
+    {
+      "group": "roadmap",
+      "name": "h1 usa DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", \"Iowan Old Style\", Georgia, serif"
+    },
+    {
+      "group": "roadmap",
+      "name": "h1 tem exatamente 1 <em>",
+      "pass": true,
+      "detail": "em=1 \"sistema inteiro\""
+    },
+    {
+      "group": "roadmap",
+      "name": "<em> italico e verde",
+      "pass": true,
+      "detail": "italic / rgb(46, 139, 60)"
+    },
+    {
+      "group": "roadmap",
+      "name": "eyebrow ● HEALTHFARE presente",
+      "pass": true,
+      "detail": "● HEALTHFARE · ROADMAP"
+    },
+    {
+      "group": "hoje",
+      "name": "KPI cards renderizados",
+      "pass": true,
+      "detail": "kpis=6"
+    },
+    {
+      "group": "hoje",
+      "name": "faixa de Ponto com 3 pessoas",
+      "pass": true,
+      "detail": "cards=3"
+    },
+    {
+      "group": "hoje",
+      "name": "incidente + 2 pendencias em caixa tonal do kit",
+      "pass": true,
+      "detail": "boxes=3"
+    },
+    {
+      "group": "hoje",
+      "name": "Resumo do dia usa opa-strip-item",
+      "pass": true,
+      "detail": "strips=17"
+    },
+    {
+      "group": "hoje",
+      "name": "usa kit-chip e kit-mlabel",
+      "pass": true,
+      "detail": "chips=14 mlabels=51"
+    },
+    {
+      "group": "hoje",
+      "name": "section-title antiga removida",
+      "pass": true,
+      "detail": "restantes=0"
+    },
+    {
+      "group": "hoje",
+      "name": "valor do KPI em DM Serif",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "producao",
+      "name": "lista os 2 lotes da fixture",
+      "pass": true,
+      "detail": "lotes=2"
+    },
+    {
+      "group": "metas",
+      "name": "lista as 2 metas",
+      "pass": true,
+      "detail": "metas=2"
+    },
+    {
+      "group": "metas",
+      "name": "chip \"batido\" na meta completa",
+      "pass": true,
+      "detail": "quase lá,batido,1 contagem(ns) duplicada(s)"
+    },
+    {
+      "group": "metas",
+      "name": "numero da meta em DM Serif",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "pessoas",
+      "name": "lista as 3 pessoas",
+      "pass": true,
+      "detail": "cards=3"
+    },
+    {
+      "group": "suporte",
+      "name": "tabela lista as 3 ocorrencias",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "suporte",
+      "name": "thead da kit-table em DM Mono",
+      "pass": true,
+      "detail": "\"DM Mono\", ui-monospace, monospace"
+    },
+    {
+      "group": "suporte",
+      "name": "nenhuma tabela fora do kit",
+      "pass": true,
+      "detail": "tabelas antigas=0"
+    },
+    {
+      "group": "pp",
+      "name": "lista os 3 sub-passos",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "pp",
+      "name": "3 KPIs do bloco",
+      "pass": true,
+      "detail": "kpis=3"
+    },
+    {
+      "group": "produto",
+      "name": "lista os 2 produtos com atividade",
+      "pass": true,
+      "detail": "cards=2"
+    },
+    {
+      "group": "config",
+      "name": "lista os 2 deadlines",
+      "pass": true,
+      "detail": "linhas=2"
+    },
+    {
+      "group": "floor",
+      "name": "3 cards de operador",
+      "pass": true,
+      "detail": "cards=3"
+    },
+    {
+      "group": "floor",
+      "name": "fundo navy-deep chapado do kit",
+      "pass": true,
+      "detail": "rgb(13, 31, 60)"
+    },
+    {
+      "group": "floor",
+      "name": "sem gradiente water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "floor",
+      "name": "cronometro em DM Serif e grande (TV)",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif @ 30px"
+    },
+    {
+      "group": "floor",
+      "name": "relogio NY em DM Serif",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "floor",
+      "name": "rodape com chips do kit",
+      "pass": true,
+      "detail": "chips=4"
+    },
+    {
+      "group": "roadmap",
+      "name": "h1 DM Serif com 1 <em> (ja era kit)",
+      "pass": true,
+      "detail": "\"DM Serif Display\", \"Iowan Old Style\", Georgia, serif em=1"
+    }
+  ]
+}

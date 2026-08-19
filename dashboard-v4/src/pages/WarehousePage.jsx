@@ -43,6 +43,7 @@ const STATUS_TONE = {
 const statusLabel = (s) => STATUS_LABEL[s] || String(s).replace(/_/g, ' ');
 const statusTone = (s) => STATUS_TONE[s] || 'neutral';
 
+const ATTN_LIMIT = 8;
 const ATTENTION_TONE = {
   out: 'bad', negative: 'bad', drift: 'bad',
   low: 'warn', pending: 'warn', organizar: 'warn', sem_local: 'neutral',
@@ -654,7 +655,8 @@ function RowMenu({ row, onAction, writable }) {
 // ═══ página ═══════════════════════════════════════════════════════
 export function WarehousePage() {
   const [modal, setModal] = React.useState(null);       // { action, row }
-  const [panel, setPanel] = React.useState(null);       // row
+  const [panel, setPanel] = React.useState(null);
+  const [attnAll, setAttnAll] = React.useState(false);      // "ver todos" da caixa de atenção
   const [toast, setToast] = React.useState(null);
   const [rowsPatch, setRowsPatch] = React.useState({}); // product_id → Row atualizado
   const [q, setQ] = React.useState('');
@@ -797,11 +799,19 @@ export function WarehousePage() {
         </div>
       )}
 
-      {/* Precisa de atenção hoje */}
+      {/* Precisa de atenção hoje: os mais graves primeiro; no dia 1 (tudo zerado) seriam 190+ linhas, então mostra 8 e um botão pra abrir o resto */}
       {(data.attention || []).length > 0 && (
         <div className="kit-card pad" style={{ marginTop: 16 }} data-attention>
-          <div className="kit-mlabel" style={{ marginBottom: 6 }}>Precisa de atenção hoje</div>
-          {(data.attention || []).map((a, i) => {
+          <div className="kit-mlabel" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>Precisa de atenção hoje</span>
+            <span className="kit-chip neutral">{(data.attention || []).length}</span>
+            {(data.attention || []).length > ATTN_LIMIT && (
+              <button className="kit-btn xs sec" style={{ marginLeft: 'auto' }} onClick={() => setAttnAll((v) => !v)}>
+                {attnAll ? 'mostrar menos' : 'ver todos (' + (data.attention || []).length + ')'}
+              </button>
+            )}
+          </div>
+          {(attnAll ? (data.attention || []) : (data.attention || []).slice(0, ATTN_LIMIT)).map((a, i) => {
             const row = rows.find((r) => r.product_id === a.product_id);
             return (
               <div key={i} className="kit-dotted-row">

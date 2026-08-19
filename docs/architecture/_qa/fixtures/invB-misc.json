@@ -1,0 +1,125 @@
+{
+  "_note": "Fixture do GRUPO B: o resto dos endpoints legados que o #inventory, #produto-setup e #config-estoque consomem. Uma chave por endpoint (o harness pega pelo nome).",
+
+  "stock_summary": [
+    { "product_id": 1, "name": "Benfotiamine 300 mg", "total_qty": 226 },
+    { "product_id": 2, "name": "Berberine 500 mg", "total_qty": 110 },
+    { "product_id": 3, "name": "Chlorophyll Liquid", "total_qty": 41 },
+    { "product_id": 6, "name": "L-Carnitine 1500 mg", "total_qty": 168 }
+  ],
+
+  "stock_bins": [
+    { "id": 1, "bin_code": "A03", "shelf_code": "S2", "area": "P&P", "product": "Benfotiamine 300 mg", "qty": 46, "min_qty": 20, "needs_restock": false },
+    { "id": 3, "bin_code": "A05", "shelf_code": "S2", "area": "P&P", "product": "Berberine 500 mg", "qty": 0, "min_qty": 20, "needs_restock": true },
+    { "id": 4, "bin_code": "A07", "shelf_code": "S2", "area": "P&P", "product": "Chlorophyll Liquid", "qty": 41, "min_qty": 15, "needs_restock": false },
+    { "id": 5, "bin_code": "A09", "shelf_code": "S3", "area": "P&P", "product": "Collagen Peptides", "qty": 0, "min_qty": 10, "needs_restock": true },
+    { "id": 7, "bin_code": "B03", "shelf_code": "S4", "area": "P&P", "product": "L-Carnitine 1500 mg", "qty": 48, "min_qty": 24, "needs_restock": false },
+    { "id": 9, "bin_code": "C04", "shelf_code": "S5", "area": "Palete 2", "product": null, "qty": 0, "min_qty": null, "needs_restock": false }
+  ],
+
+  "stock_boxes": [
+    { "id": 21, "box_number": "BOX-004", "area": "Palete 1", "product": "Benfotiamine 300 mg", "qty": 180, "status": "in_storage" },
+    { "id": 22, "box_number": "BOX-012", "area": "Palete 1", "product": "Berberine 500 mg", "qty": 110, "status": "in_storage" },
+    { "id": 23, "box_number": "BOX-018", "area": "Palete 2", "product": "L-Carnitine 1500 mg", "qty": 120, "status": "in_storage" },
+    { "id": 24, "box_number": "BOX-031", "area": "Palete 2", "product": null, "qty": 0, "status": "empty" }
+  ],
+
+  "stock_planner": [
+    { "product_id": 2, "name": "Berberine 500 mg", "zone": "out", "warehouse_qty": 110, "marketplace_qty": 8, "per_day": 9.4, "days_of_stock": 0, "lead_days": 21, "velocity_reliable": true, "ems_batch": null },
+    { "product_id": 4, "name": "Collagen Peptides", "zone": "low", "warehouse_qty": 0, "marketplace_qty": 3, "per_day": 2.1, "days_of_stock": 1, "lead_days": 28, "velocity_reliable": true, "ems_batch": { "batch": "B-2291", "stage": "encapsulando" } },
+    { "product_id": 3, "name": "Chlorophyll Liquid", "zone": "plan", "warehouse_qty": 41, "marketplace_qty": 37, "per_day": 3.2, "days_of_stock": 24, "lead_days": 30, "velocity_reliable": false, "ems_batch": { "batch": "B-2288", "stage": "rotulando" } },
+    { "product_id": 1, "name": "Benfotiamine 300 mg", "zone": "ok", "warehouse_qty": 226, "marketplace_qty": 214, "per_day": 5.8, "days_of_stock": 75, "lead_days": 21, "velocity_reliable": true, "ems_batch": { "batch": "B-2301", "stage": "pronto" } }
+  ],
+
+  "stock_issues": [
+    { "id": 501, "product": "Benfotiamine 300 mg", "qty": 2, "reason": "label", "bin_code": "A03", "person": "Simone", "created_at": "2026-08-16T13:20:00Z", "status": "separated" },
+    { "id": 502, "product": "Chlorophyll Liquid", "qty": 4, "reason": "seal", "bin_code": "A07", "person": "Vitor", "created_at": "2026-08-15T10:02:00Z", "status": "separated" },
+    { "id": 503, "product": "Collagen Peptides", "qty": 1, "reason": "other", "bin_code": null, "person": "Ana Kesya", "created_at": "2026-08-12T09:40:00Z", "status": "discarded" }
+  ],
+
+  "stock_skus": [
+    { "sku": "HF-BENF-300", "product_id": 1, "channel": "veeqo", "confirmed_at": "2026-08-05T12:00:00Z" },
+    { "sku": "HF-BERB-500", "product_id": 2, "channel": "veeqo", "confirmed_at": "2026-08-05T12:00:00Z" },
+    { "sku": "HF-CHLO-LIQ", "product_id": 3, "channel": "veeqo", "confirmed_at": null }
+  ],
+
+  "supplies": {
+    "items": [
+      { "id": 1, "name": "Poly Mailer 6x9", "kind": "envelope", "sizes": ["A"], "qty": 420, "min_qty": 200, "low": false, "active": true },
+      { "id": 2, "name": "Poly Mailer 9x12", "kind": "envelope", "sizes": ["Y"], "qty": 90, "min_qty": 150, "low": true, "active": true },
+      { "id": 3, "name": "Bubble 10x13", "kind": "envelope", "sizes": [], "qty": 260, "min_qty": 100, "low": false, "active": true },
+      { "id": 4, "name": "Caixa 12x9x4", "kind": "box", "sizes": ["BX"], "qty": 55, "min_qty": 40, "low": false, "active": true }
+    ],
+    "mapping": [
+      { "package_size": "A", "supply_item_id": 1 },
+      { "package_size": "Y", "supply_item_id": 2 },
+      { "package_size": "BX", "supply_item_id": 4 }
+    ],
+    "tiers": [
+      { "package_size": "A", "is_box": false },
+      { "package_size": "Y", "is_box": false },
+      { "package_size": "B", "is_box": false },
+      { "package_size": "BX", "is_box": true }
+    ]
+  },
+
+  "product_setup": [
+    { "id": 1, "canonical_name": "Benfotiamine 300 mg", "nickname": "BENF-300", "bottle_color": "black", "active": true, "on_hold": false, "veeqo_stock": 214, "expiry_date": "2028-04-30", "content_desc": "60 caps", "servings_per_container": 60,
+      "skus": [ { "id": 11, "sku": "HF-BENF-300", "channel": "veeqo", "units_per_pack": 1 }, { "id": 12, "sku": "B0BENF300", "channel": "amazon", "units_per_pack": 1 }, { "id": 13, "sku": "EB-BENF-300", "channel": "ebay", "units_per_pack": 1 } ] },
+    { "id": 2, "canonical_name": "Berberine 500 mg", "nickname": "BERB-500", "bottle_color": "white", "active": true, "on_hold": true, "veeqo_stock": 8, "expiry_date": "2026-11-30", "content_desc": "90 caps", "servings_per_container": 45,
+      "skus": [ { "id": 21, "sku": "HF-BERB-500", "channel": "veeqo", "units_per_pack": 1 }, { "id": 22, "sku": "TT-BERB-500", "channel": "tiktok", "units_per_pack": 1 }, { "id": 23, "sku": "WM-BERB-500", "channel": "walmart", "units_per_pack": 1 } ] },
+    { "id": 3, "canonical_name": "Chlorophyll Liquid", "nickname": "", "bottle_color": null, "active": true, "on_hold": false, "veeqo_stock": 37, "expiry_date": "2027-02-28", "content_desc": "473 ml", "servings_per_container": 32,
+      "skus": [ { "id": 31, "sku": "HF-CHLO-LIQ", "channel": "veeqo", "units_per_pack": 1 } ] },
+    { "id": 4, "canonical_name": "Collagen Peptides", "nickname": "COLL-PEP", "bottle_color": "amber", "active": true, "on_hold": false, "veeqo_stock": 0, "expiry_date": "2029-01-31", "content_desc": "500 g", "servings_per_container": 50,
+      "skus": [ { "id": 41, "sku": "HF-COLL-PEP", "channel": "veeqo", "units_per_pack": 1 }, { "id": 42, "sku": "SH-COLL-PEP", "channel": "shopify", "units_per_pack": 1 } ] },
+    { "id": 8, "canonical_name": "Zinc Picolinate (descontinuado)", "nickname": "ZINC-PIC", "bottle_color": "white", "active": false, "on_hold": false, "veeqo_stock": 0, "expiry_date": null, "content_desc": null, "servings_per_container": null,
+      "skus": [] }
+  ],
+
+  "product_setup_tiers": [
+    { "id": 1, "bottle_color": null, "min_bottles": 1, "max_bottles": 1, "package_size": "A", "is_box": false },
+    { "id": 2, "bottle_color": null, "min_bottles": 2, "max_bottles": 6, "package_size": "Y", "is_box": false },
+    { "id": 3, "bottle_color": null, "min_bottles": 7, "max_bottles": 9, "package_size": "B", "is_box": false },
+    { "id": 4, "bottle_color": null, "min_bottles": 10, "max_bottles": null, "package_size": "BX", "is_box": true }
+  ],
+
+  "inventory_settings": {
+    "tiers": [
+      { "id": 1, "bottle_color": "black", "min_bottles": 1, "max_bottles": 1, "package_size": "4x8", "is_box": false },
+      { "id": 2, "bottle_color": "black", "min_bottles": 2, "max_bottles": 3, "package_size": "7x10", "is_box": false },
+      { "id": 3, "bottle_color": "white", "min_bottles": 1, "max_bottles": 2, "package_size": "9x12", "is_box": false },
+      { "id": 4, "bottle_color": "white", "min_bottles": 3, "max_bottles": null, "package_size": "15x19", "is_box": false }
+    ],
+    "mix": [
+      { "id": 1, "package_size": "9x12", "black_qty": 3, "white_max": 1, "confirmed": false, "note": "suposicao, confirmar na pratica" },
+      { "id": 2, "package_size": "9x12", "black_qty": 2, "white_max": 2, "confirmed": true, "note": null }
+    ],
+    "supplies": [
+      { "id": 1, "name": "Poly Mailer 6x9", "kind": "envelope", "qty": 420, "min_qty": 200 },
+      { "id": 2, "name": "Poly Mailer 9x12", "kind": "envelope", "qty": 90, "min_qty": 150 }
+    ],
+    "size_supply": [ { "package_size": "4x8", "supply_item_id": 1 } ],
+    "questions": [
+      { "id": 1, "question": "Cabe uma branca junto com 3 pretas no 9x12?", "context": "Bloqueia a regra de mistura do 9x12.", "asked_count": 2, "active": true, "answer": null }
+    ],
+    "bins": [ { "n": 6 } ],
+    "thresholds": [ { "n": 0 } ]
+  },
+
+  "picklist": {
+    "total_orders": 3, "total_bottles": 5, "product_count": 2, "names_loading": false,
+    "groups": [
+      { "key": "g1", "nickname": "L-Carnitine 1500", "mapped": true, "order_count": 2, "multi_count": 1,
+        "multi_summary": [ { "orders": 1, "bottles": 2 } ],
+        "location": { "shelf": "S4", "bin": "B03", "pallet": null, "area": "P&P" },
+        "orders": [
+          { "order_number": "12-345", "patient": "Wayne Ellis", "channel": "ebay", "bottles": 1, "multi": false },
+          { "order_number": "12-401", "patient": "Nina Park", "channel": "tiktok", "bottles": 2, "multi": true }
+        ] },
+      { "key": "g2", "nickname": "Benfotiamine 300", "mapped": true, "order_count": 1, "multi_count": 0,
+        "multi_summary": [],
+        "location": { "shelf": "S2", "bin": "A03", "pallet": null, "area": "P&P" },
+        "orders": [ { "order_number": "12-410", "patient": "Otto Lund", "channel": "amazon", "bottles": 2, "multi": false } ] }
+    ]
+  }
+}

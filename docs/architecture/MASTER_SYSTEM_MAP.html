@@ -388,8 +388,8 @@ subgraph S15["S15 · WAREHOUSE INVENTORY — own section (admin + operator; runs
   S15_UI["S15.03/04 · CURRENT UI: v4 'Estoque & Produtos' pages · /op stock panel (STOCK_UI_ENABLED)"]:::verified
   S15_AUTO["S15.06/07/08 · CURRENT automations: veeqo-order-sync deducts on Veeqo shipped (DRY by default) · stock-alerts · stock-gap · unusual-sku · print-divergence · TikTok CSV · .28 print signal"]:::partial
   S15_PLAN["S15.10-14 · PLANNED (decided 08-18): ONE admin section + P&P subsection (channel pages deferred) · operator page with APPROVAL QUEUE (moves free; add/remove/returns approved) · secondary 'Separadas' bucket for damaged/returns · admin/manager enters warehouse-in · product total = shelf + box · reservation per product from open Veeqo lines · deduction on Veeqo shipped only (shelf→box) · later: two-way Veeqo + reconciliation"]:::planned
-  S15_BUILT["S15.17-21 BUILT 08-18 (Phase 1, awaiting prod deploy + migration 071): /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
-  S15_Q["Open: STOCK_DEDUCT_MODE value in Railway · Phase 2 operator proposals · retire antigo pages after parity"]:::partial
+  S15_BUILT["S15.17-22 BUILT 08-18 (Phase 1 LIVE in prod; Phase 2 + STYLE-KIT theme built, deploying): /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
+  S15_Q["Open: STOCK_DEDUCT_MODE value in Railway · retire antigo pages after parity · approval aging nag · dias de estoque"]:::partial
 end
 
 %% ---------------------------------------------------------------- S14 oddities
@@ -1491,7 +1491,7 @@ end
 subgraph S15_OP["S15.04 / S15.11 · OPERATOR"]
   direction TB
   O_NOW["S15.04 CURRENT /op stock panel (STOCK_UI_ENABLED / allowlist): context · store · restock · damaged · count · take · recent · picklist · stock-gaps"]:::verified
-  O_PLAN["S15.11 PLANNED operator warehouse page: shelves near me · restock shelf from box · propose count/damaged (needs approval) · picklist"]:::planned
+  O_PLAN["S15.11 BUILT 08-18: Central upgraded (ws.js): Registrar (Peguei=pending · Danificada=Separadas · Entrada/Contagem=proposals) · Repor prateleira · Registrado hoje com estados"]:::verified
   O_PLAN -.->|proposals| A_APPROVE
   O_NOW ==>|seed| O_PLAN
 end
@@ -1510,7 +1510,7 @@ subgraph S15_CORE["S15.01 / S15.02 / S15.05 · CORE (exists)"]
   T_SUPPLY["S15.01 supplies: supply_items · package_size_supply · supply_movements · envelope_mix · packing_questions"]:::verified
   SVC["S15.02 StockService (ONLY write door): storeIn · pick · restock · damaged · adjust · count · warehouseByProduct"]:::verified
   API["S15.05 /api/v3/data stock/* (28) · product-setup/* · inventory-settings/* · supplies/* · picklist · stock-overview · stock-gaps · veeqo-today"]:::verified
-  RAW["op.js:324 raw INSERT into stock_movements (bypasses StockService) — R076"]:::orphaned
+  RAW["R076 RESOLVED 08-18: raw INSERT removed; stock/take → op-stock.js → request"]:::verified
   S15_09["S15.09 · GAPS vs Bruno's model: no reservation · no auto production→warehouse add · shelf-vs-box at pick not modeled · P&P/Picklist outside section · no dedicated operator page · raw INSERT"]:::partial
 end
 

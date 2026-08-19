@@ -5,11 +5,12 @@
    logout, remover (soft-delete), timeline 7d e o EDITOR DE ESCALA por dia da
    semana (v3.operator_schedules) — a "organização dia a dia" do Bruno.
 
-   ESTILO: usa os MESMOS primitivos das outras abas (components/AdminBits.jsx:
-   useAdmin/Loading/ErrBox/SecTitle/Empty/MiniKPI) e as MESMAS classes do V4
-   (.card, .btn sm ghost/primary/danger, .input, .pill, .kpi-grid, .filters).
-   Nada de fetch próprio nem botão inline — se precisar de um primitivo novo,
-   ele nasce no AdminBits, não aqui.
+   ESTILO (S15 Fase 2, grupo C): STYLE-KIT 100%. Usa os MESMOS primitivos das
+   outras abas (components/AdminBits.jsx: useAdmin/Loading/ErrBox/SecTitle/
+   Empty/MiniKPI) e só classes do kit (.kit-card .kit-btn .kit-input .kit-chip
+   .kit-seg .kit-table) mais as recipes de pages-admin.css. Nada de fetch
+   próprio nem botão inline — se precisar de um primitivo novo, ele nasce no
+   AdminBits, não aqui.
 
    Auth = cookie hf_admin (adapters/admin-api.js), a mesma do resto do painel;
    RBAC e auditoria (v3.audit_log) seguem enforçados no servidor. Writes
@@ -19,11 +20,18 @@ import React from 'react';
 import { adminGet, adminPost, adminPut, adminDelete } from '../adapters/admin-api.js';
 import { useAdmin, AdminGate, SecTitle, Empty, Loading, ErrBox, RefreshErr, MiniKPI } from '../components/AdminBits.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import './pages-admin.css';
 
 /* Página do menu Admin → "Operadores" (rota `operadores` no Shell/App).
    Mesmo login/gate das outras páginas admin; o miolo é a <OperatorsTab/>. */
 export function OperatorsPage() {
-  return <AdminGate title="Operadores">{() => <OperatorsTab/>}</AdminGate>;
+  return (
+    <AdminGate title="Operadores" eyebrow="OPERADORES"
+               h1={<>Quem trabalha na <em>linha</em></>}
+               sub="Cadastro, PIN, auto-logoff, escala por dia da semana e histórico de cada operador.">
+      {() => <OperatorsTab/>}
+    </AdminGate>
+  );
 }
 
 const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -32,7 +40,7 @@ const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const ERR = {
   name_taken: 'Nome já existe', pin_taken: 'PIN já usado por outro operador',
   bad_pin_format: 'PIN precisa de 4 dígitos', end_before_start: 'Fim antes do início',
-  bad_time: 'Hora inválida', bad_seconds: 'Segundos fora de 5–3600',
+  bad_time: 'Hora inválida', bad_seconds: 'Segundos fora de 5 a 3600',
   operator_not_found: 'Operador não encontrado', bad_params: 'Parâmetros inválidos',
   // retroativo (mesmas mensagens do /admin legado)
   too_old: 'Máximo 7 dias atrás', started_at_future: 'Hora no futuro',
@@ -74,20 +82,18 @@ export function OperatorsTab() {
 
   return (
     <div>
-      <div className="filters" style={{ marginBottom: 12 }}>
-        <button className="btn sm primary" onClick={() => { setCreating((v) => !v); setSelId(null); }}>
+      <div className="adm-bar">
+        <button className="kit-btn primary sm" onClick={() => { setCreating((v) => !v); setSelId(null); }}>
           {creating ? 'Cancelar' : '+ Novo operador'}
         </button>
-        {ro && <span style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>modo leitura — botões não gravam</span>}
-        <span style={{ flex: 1 }}/>
-        {flash && (
-          <span style={{ fontSize: 12, fontWeight: 600, color: flash.startsWith('❌') ? 'var(--bad)' : 'var(--hf-leaf-700)' }}>{flash}</span>
-        )}
+        {ro && <span className="kit-chip neutral">modo leitura · botões não gravam</span>}
+        <span className="grow"/>
+        {flash && <span className={'kit-chip ' + (flash.startsWith('❌') ? 'bad' : 'ok')}>{flash.replace(/^[❌✅🗑️]\s*/u, '')}</span>}
       </div>
 
-      <div className="kpi-grid">
+      <div className="adm-kpis">
         <MiniKPI label="Operadores" value={ops.length} suffix="cadastrados"/>
-        <MiniKPI label="Ativos" value={actives} suffix=""/>
+        <MiniKPI label="Ativos" value={actives} suffix="ativos"/>
         <MiniKPI label="Com sessão aberta" value={online} suffix="agora"/>
       </div>
 
@@ -96,23 +102,23 @@ export function OperatorsTab() {
                     onDone={(ok) => { setCreating(false); if (ok) { ack('✅ operador criado'); reload(); } }}/>
       )}
 
-      <div className="card" style={{ marginTop: 12, padding: 14 }}>
+      <div className="kit-card pad" style={{ marginTop: 12 }}>
         <SecTitle>Operadores</SecTitle>
         {ops.length === 0 ? <Empty msg="Nenhum operador cadastrado"/> : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))', gap: 10 }}>
+          <div className="adm-grid tiles" data-list="operadores">
             {ops.map((o) => (
-              <div key={o.id} className="card" style={{ padding: 11, opacity: o.is_active ? 1 : 0.55 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <b style={{ fontSize: 13.5 }}>{o.display_name}</b>
-                  <span className={'pill ' + (o.is_active ? 'ok' : '')}>{o.is_active ? 'ativo' : 'inativo'}</span>
-                  {o.active_session_count > 0 && <span className="pill prod">{o.active_session_count} sessão</span>}
+              <div key={o.id} className="kit-card" style={{ padding: '13px 15px', opacity: o.is_active ? 1 : 0.6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                  <b style={{ fontSize: 13.5, color: 'var(--primary-deep)' }}>{o.display_name}</b>
+                  <span className={'kit-chip ' + (o.is_active ? 'ok' : 'neutral')}>{o.is_active ? 'ativo' : 'inativo'}</span>
+                  {o.active_session_count > 0 && <span className="kit-chip info">{o.active_session_count} sessão</span>}
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5 }}>
+                <div className="adm-note" style={{ marginTop: 8, lineHeight: 1.6 }}>
                   Auto-logoff: <b>{o.auto_logoff_seconds == null ? 'desligado' : o.auto_logoff_seconds + 's'}</b>
                   {' · '}Pula contagem: <b>{o.count_exempt ? 'sim' : 'não'}</b><br/>
                   Login: {rel(o.last_page_login_at)} · Evento: {rel(o.last_event_at)}
                 </div>
-                <button className="btn sm ghost" style={{ marginTop: 9 }}
+                <button className="kit-btn sec xs" style={{ marginTop: 10 }}
                         onClick={() => { setSelId(selId === o.id ? null : o.id); setCreating(false); }}>
                   {selId === o.id ? 'Fechar' : 'Gerenciar'}
                 </button>
@@ -151,17 +157,26 @@ function CreateForm({ onDone, ro, ack }) {
   }
 
   return (
-    <div className="card" style={{ marginTop: 12, padding: 14 }}>
+    <div className="kit-card pad" style={{ marginTop: 12 }}>
       <SecTitle>Novo operador</SecTitle>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input className="input" value={f.name} onChange={set('name')} placeholder="nome" style={{ flex: '1 1 180px' }}/>
-        <input className="input" value={f.pin} onChange={set('pin')} placeholder="PIN (4 dígitos)" inputMode="numeric" maxLength={4} style={{ width: 130 }}/>
-        <input className="input" value={f.logoff} onChange={set('logoff')} type="number" min={5} max={3600} placeholder="auto-logoff (s)" style={{ width: 145 }}/>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <label className="adm-field" style={{ flex: '1 1 190px' }}>
+          <span className="kit-mlabel">Nome</span>
+          <input className="kit-input" value={f.name} onChange={set('name')} placeholder="nome do operador"/>
+        </label>
+        <label className="adm-field" style={{ width: 140 }}>
+          <span className="kit-mlabel">PIN (4 dígitos)</span>
+          <input className="kit-input mono" value={f.pin} onChange={set('pin')} placeholder="0000" inputMode="numeric" maxLength={4}/>
+        </label>
+        <label className="adm-field" style={{ width: 150 }}>
+          <span className="kit-mlabel">Auto-logoff (s)</span>
+          <input className="kit-input mono" value={f.logoff} onChange={set('logoff')} type="number" min={5} max={3600}/>
+        </label>
+        <label className="adm-check" style={{ paddingBottom: 9 }}>
           <input type="checkbox" checked={f.exempt} onChange={set('exempt')}/> pula contagem
         </label>
-        <button className="btn sm primary" onClick={go} disabled={busy}>{busy ? 'Criando…' : 'Criar'}</button>
-        <button className="btn sm ghost" onClick={() => onDone(false)}>Cancelar</button>
+        <button className="kit-btn primary sm" onClick={go} disabled={busy}>{busy ? 'Criando…' : 'Criar'}</button>
+        <button className="kit-btn sec sm" onClick={() => onDone(false)}>Cancelar</button>
       </div>
     </div>
   );
@@ -231,57 +246,65 @@ function OperatorDetail({ op, ro, ack, reload, onClose }) {
   }
 
   return (
-    <div className="card" style={{ marginTop: 12, padding: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
-        <SecTitle>Gerenciar · {op.display_name}</SecTitle>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>#{op.id}</span>
+    <div className="kit-card pad" style={{ marginTop: 12 }} data-panel="operador">
+      <div className="adm-sec">
+        <span className="kit-mlabel">Gerenciar</span>
+        <h2 className="kit-h2" style={{ fontSize: 18 }}>{op.display_name}</h2>
+        <span className="kit-chip neutral">#{op.id}</span>
+        <span className="rule"/>
+        <button className="kit-btn sec xs" onClick={onClose}>Fechar</button>
+      </div>
+
+      <div className="adm-grid two" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))' }}>
+        <div className="adm-field">
+          <span className="kit-mlabel">Novo PIN (4 dígitos)</span>
+          <div style={{ display: 'flex', gap: 7 }}>
+            <input className="kit-input mono" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="0000"
+                   inputMode="numeric" maxLength={4} style={{ width: 110 }}/>
+            <button className="kit-btn sec sm" onClick={savePin}>Atualizar</button>
+          </div>
+        </div>
+        <div className="adm-field">
+          <span className="kit-mlabel">Auto-logoff em segundos (vazio = desligado)</span>
+          <div style={{ display: 'flex', gap: 7 }}>
+            <input className="kit-input mono" value={logoff} onChange={(e) => setLogoff(e.target.value)} type="number"
+                   min={5} max={3600} style={{ width: 120 }}/>
+            <button className="kit-btn sec sm" onClick={saveLogoff}>Salvar</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+        <button className={'kit-btn sm ' + (op.count_exempt ? 'primary' : 'sec')} onClick={toggleExempt}>
+          Pula contagem: {op.count_exempt ? 'sim' : 'não'}
+        </button>
+        <button className="kit-btn sec sm" onClick={() => setShowSched((v) => !v)}>{showSched ? 'Fechar escala' : 'Editar escala (dia a dia)'}</button>
+        <button className="kit-btn sec sm" onClick={() => setShowRetro((v) => !v)}>{showRetro ? 'Fechar task retroativa' : 'Adicionar task retroativa'}</button>
+        <button className="kit-btn sec sm" onClick={loadEvents}>{events ? 'Fechar timeline' : 'Timeline 7 dias'}</button>
         <span style={{ flex: 1 }}/>
-        <button className="btn sm ghost" onClick={onClose}>Fechar</button>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 14 }}>
-        <div>
-          <div style={labS}>Novo PIN (4 dígitos)</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input className="input" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="••••" inputMode="numeric" maxLength={4} style={{ width: 100 }}/>
-            <button className="btn sm" onClick={savePin}>Atualizar</button>
-          </div>
-        </div>
-        <div>
-          <div style={labS}>Auto-logoff (s; vazio = desligado)</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input className="input" value={logoff} onChange={(e) => setLogoff(e.target.value)} type="number" min={5} max={3600} style={{ width: 110 }}/>
-            <button className="btn sm" onClick={saveLogoff}>Salvar</button>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-        <button className="btn sm" onClick={toggleExempt}>{op.count_exempt ? '✅' : '⬜'} Pula contagem</button>
-        <button className="btn sm" onClick={() => setShowSched((v) => !v)}>{showSched ? 'Fechar escala' : '🕐 Editar escala (dia a dia)'}</button>
-        <button className="btn sm" onClick={() => setShowRetro((v) => !v)}>{showRetro ? 'Fechar task retroativa' : '➕ Adicionar task retroativa'}</button>
-        <button className="btn sm" onClick={loadEvents}>{events ? 'Fechar timeline' : '📅 Timeline 7 dias'}</button>
-        <button className="btn sm ghost" onClick={forceLogout}>Forçar logout</button>
-        <button className={'btn sm ' + (op.is_active ? 'danger' : 'primary')} onClick={toggleActive}>
+        <button className="kit-btn sec sm" onClick={forceLogout}>Forçar logout</button>
+        <button className={'kit-btn sm ' + (op.is_active ? 'danger' : 'primary')} onClick={toggleActive}>
           {op.is_active ? 'Desativar' : 'Reativar'}
         </button>
-        <button className="btn sm danger" onClick={remove}>Remover</button>
+        <button className="kit-btn danger sm" onClick={remove}>Remover</button>
       </div>
 
       {showSched && <ScheduleEditor opId={op.id} ro={ro} ack={ack}/>}
       {showRetro && <RetroEventForm op={op} ro={ro} ack={ack} onDone={() => setShowRetro(false)}/>}
 
       {events && (
-        <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+        <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
           <SecTitle>Últimos 7 dias</SecTitle>
           {events.length === 0 ? <Empty msg="Nenhum evento."/> : (
-            <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            <div style={{ maxHeight: 280, overflowY: 'auto' }}>
               {events.map((ev) => (
-                <div key={ev.id} style={{ fontSize: 12, padding: '5px 0', borderTop: '1px dashed var(--border)' }}>
-                  <b>{ev.slug || '?'}</b>{ev.batch_number ? ' · ' + ev.batch_number : ''}
-                  <span style={{ color: 'var(--text-3)' }}>
-                    {' — '}<span className="mono">{ev.started_edt}</span> → <span className="mono">{ev.ended_edt || (ev.is_long_running ? 'rodando (bg)' : 'ABERTO')}</span> · {ev.source}
+                <div key={ev.id} className="kit-dotted-row" style={{ fontSize: 12.5, flexWrap: 'wrap' }}>
+                  <b>{ev.slug || '?'}</b>
+                  {ev.batch_number ? <span className="kit-chip neutral">{ev.batch_number}</span> : null}
+                  <span style={{ font: '500 11.5px var(--font-mono)', color: 'var(--ink-faint)' }}>
+                    {ev.started_edt} → {ev.ended_edt || (ev.is_long_running ? 'rodando em background' : 'ABERTO')}
                   </span>
+                  <span className="kit-chip info">{ev.source}</span>
                 </div>
               ))}
             </div>
@@ -303,8 +326,8 @@ function RetroEventForm({ op, ro, ack, onDone }) {
   const [busy, setBusy] = React.useState(false);
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
 
-  if (loading && !data) return <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 12 }}>Carregando tarefas…</div>;
-  if (error && !data) return <div style={{ marginTop: 12 }}><ErrBox error={error}/></div>;
+  if (loading && !data) return <div className="adm-note" style={{ marginTop: 14 }}>Carregando tarefas…</div>;
+  if (error && !data) return <div style={{ marginTop: 14 }}><ErrBox error={error}/></div>;
 
   const acts = (data && data.activities) || [];
   const cur = acts.find((a) => a.slug === slug) || null;
@@ -336,58 +359,58 @@ function RetroEventForm({ op, ro, ack, onDone }) {
   }
 
   return (
-    <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+    <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
       <SecTitle>Task retroativa · {op.display_name}</SecTitle>
-      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 10 }}>
-        Adiciona uma task que não foi registrada (até 7 dias atrás). Exige justificativa — fica no audit.
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-        <div>
-          <div style={labS}>Tarefa</div>
-          <select className="input" value={slug} onChange={(e) => setSlug(e.target.value)} style={{ width: '100%' }}>
-            <option value="">— tarefa —</option>
+      <p className="adm-note" style={{ margin: '0 0 12px' }}>
+        Adiciona uma task que não foi registrada (até 7 dias atrás). Exige justificativa e fica no audit.
+      </p>
+      <div className="adm-grid" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+        <label className="adm-field">
+          <span className="kit-mlabel">Tarefa</span>
+          <select className="kit-input" value={slug} onChange={(e) => setSlug(e.target.value)}>
+            <option value="">escolher tarefa</option>
             {acts.map((a) => <option key={a.slug} value={a.slug}>{a.display_name}</option>)}
           </select>
-        </div>
-        <div>
-          <div style={labS}>Data</div>
-          <input className="input" type="date" value={f.date} onChange={set('date')} style={{ width: '100%' }}/>
-        </div>
-        <div>
-          <div style={labS}>Início</div>
-          <input className="input" type="time" value={f.start} onChange={set('start')} style={{ width: '100%' }}/>
-        </div>
-        <div>
-          <div style={labS}>Fim (opcional)</div>
-          <input className="input" type="time" value={f.end} onChange={set('end')} style={{ width: '100%' }}/>
-        </div>
+        </label>
+        <label className="adm-field">
+          <span className="kit-mlabel">Data</span>
+          <input className="kit-input" type="date" value={f.date} onChange={set('date')}/>
+        </label>
+        <label className="adm-field">
+          <span className="kit-mlabel">Início</span>
+          <input className="kit-input" type="time" value={f.start} onChange={set('start')}/>
+        </label>
+        <label className="adm-field">
+          <span className="kit-mlabel">Fim (opcional)</span>
+          <input className="kit-input" type="time" value={f.end} onChange={set('end')}/>
+        </label>
         {cur && cur.requires_product && (
-          <div>
-            <div style={labS}>Lote (4 dígitos)</div>
-            <input className="input" value={f.batch} onChange={set('batch')} placeholder="ex: 1234" style={{ width: '100%' }}/>
-          </div>
+          <label className="adm-field">
+            <span className="kit-mlabel">Lote (4 dígitos)</span>
+            <input className="kit-input mono" value={f.batch} onChange={set('batch')} placeholder="1234"/>
+          </label>
         )}
         {cur && cur.note_required && (
-          <div>
-            <div style={labS}>Nota (obrigatória)</div>
-            <input className="input" value={f.note} onChange={set('note')} style={{ width: '100%' }}/>
-          </div>
+          <label className="adm-field">
+            <span className="kit-mlabel">Nota (obrigatória)</span>
+            <input className="kit-input" value={f.note} onChange={set('note')}/>
+          </label>
         )}
         {cur && cur.orders_required && (
-          <div>
-            <div style={labS}>Qtd ordens</div>
-            <input className="input" type="number" min={1} value={f.orders} onChange={set('orders')} style={{ width: '100%' }}/>
-          </div>
+          <label className="adm-field">
+            <span className="kit-mlabel">Qtd ordens</span>
+            <input className="kit-input mono" type="number" min={1} value={f.orders} onChange={set('orders')}/>
+          </label>
         )}
       </div>
-      <div style={{ marginTop: 10 }}>
-        <div style={labS}>Justificativa (obrigatória)</div>
-        <input className="input" value={f.just} onChange={set('just')} style={{ width: '100%' }}
+      <label className="adm-field" style={{ marginTop: 12 }}>
+        <span className="kit-mlabel">Justificativa (obrigatória)</span>
+        <input className="kit-input" value={f.just} onChange={set('just')}
                placeholder="ex: sistema não registrou o check-in da Ana às 9:15"/>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="btn sm primary" onClick={go} disabled={busy}>{busy ? 'Adicionando…' : 'Adicionar task'}</button>
-        <button className="btn sm ghost" onClick={onDone}>Cancelar</button>
+      </label>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="kit-btn primary sm" onClick={go} disabled={busy}>{busy ? 'Adicionando…' : 'Adicionar task'}</button>
+        <button className="kit-btn sec sm" onClick={onDone}>Cancelar</button>
       </div>
     </div>
   );
@@ -410,8 +433,8 @@ function ScheduleEditor({ opId, ro, ack }) {
     return () => { alive = false; };
   }, [opId]);
 
-  if (err) return <div style={{ marginTop: 12 }}><ErrBox error={err}/></div>;
-  if (!days) return <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 12 }}>Carregando escala…</div>;
+  if (err) return <div style={{ marginTop: 14 }}><ErrBox error={err}/></div>;
+  if (!days) return <div className="adm-note" style={{ marginTop: 14 }}>Carregando escala…</div>;
 
   const upd = (dow, patch) => setDays((ds) => ds.map((d) => d.day_of_week === dow ? { ...d, ...patch } : d));
 
@@ -421,7 +444,7 @@ function ScheduleEditor({ opId, ro, ack }) {
     setDays((ds) => ds.map((d) => [2, 3, 4, 5].includes(d.day_of_week)
       ? { ...d, expected_start_time: mon.expected_start_time, expected_end_time: mon.expected_end_time, is_workday: mon.is_workday !== false }
       : d));
-    ack('copiado da Segunda — revise e salve');
+    ack('copiado da Segunda, revise e salve');
   };
 
   async function save() {
@@ -449,44 +472,44 @@ function ScheduleEditor({ opId, ro, ack }) {
   }
 
   return (
-    <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+    <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
       <SecTitle>Escala por dia da semana</SecTitle>
-      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 10 }}>
-        Horário previsto de entrada e saída — é o que o sistema usa como referência do dia.
-      </div>
-      <div style={{ display: 'grid', gap: 6 }}>
+      <p className="adm-note" style={{ margin: '0 0 12px' }}>
+        Horário previsto de entrada e saída. É o que o sistema usa como referência do dia.
+      </p>
+      <div style={{ display: 'grid', gap: 4 }}>
         {days.map((d) => {
           const off = d.is_workday === false;
           return (
             <div key={d.day_of_week} style={{
-              display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
-              padding: '6px 8px', borderRadius: 8,
-              background: d.day_of_week === todayDow ? 'var(--surface-2)' : 'transparent',
-              opacity: off ? 0.55 : 1,
+              display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap',
+              padding: '7px 10px', borderRadius: 'var(--r-sm)',
+              background: d.day_of_week === todayDow ? 'var(--primary-soft)' : 'transparent',
+              border: '1px solid ' + (d.day_of_week === todayDow ? 'var(--primary-soft-line)' : 'transparent'),
+              opacity: off ? 0.6 : 1,
             }}>
-              <span style={{ width: 34, fontWeight: 700, fontSize: 12.5 }}>{DOW[d.day_of_week]}</span>
-              <input className="input" type="time" value={d.expected_start_time || ''} disabled={off}
-                     onChange={(e) => upd(d.day_of_week, { expected_start_time: e.target.value })} style={{ width: 120 }}/>
-              <span style={{ color: 'var(--text-3)' }}>→</span>
-              <input className="input" type="time" value={d.expected_end_time || ''} disabled={off}
-                     onChange={(e) => upd(d.day_of_week, { expected_end_time: e.target.value })} style={{ width: 120 }}/>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+              <span style={{ width: 36, font: '500 11px var(--font-mono)', letterSpacing: '.06em',
+                             textTransform: 'uppercase', color: 'var(--primary-deep)' }}>{DOW[d.day_of_week]}</span>
+              <input className="kit-input mono" type="time" value={d.expected_start_time || ''} disabled={off}
+                     onChange={(e) => upd(d.day_of_week, { expected_start_time: e.target.value })} style={{ width: 122 }}/>
+              <span style={{ color: 'var(--ink-faint)' }}>→</span>
+              <input className="kit-input mono" type="time" value={d.expected_end_time || ''} disabled={off}
+                     onChange={(e) => upd(d.day_of_week, { expected_end_time: e.target.value })} style={{ width: 122 }}/>
+              <label className="adm-check">
                 <input type="checkbox" checked={d.is_workday !== false}
                        onChange={(e) => upd(d.day_of_week, { is_workday: e.target.checked })}/> trabalha
               </label>
-              <input className="input" type="text" placeholder="nota" value={d.notes || ''}
+              <input className="kit-input" type="text" placeholder="nota" value={d.notes || ''}
                      onChange={(e) => upd(d.day_of_week, { notes: e.target.value })}
                      style={{ flex: '1 1 120px', minWidth: 90 }}/>
             </div>
           );
         })}
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="btn sm ghost" onClick={copyMonToFri}>Aplicar Seg→Sex</button>
-        <button className="btn sm primary" onClick={save} disabled={busy}>{busy ? 'Salvando…' : 'Salvar escala'}</button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="kit-btn sec sm" onClick={copyMonToFri}>Aplicar Seg a Sex</button>
+        <button className="kit-btn primary sm" onClick={save} disabled={busy}>{busy ? 'Salvando…' : 'Salvar escala'}</button>
       </div>
     </div>
   );
 }
-
-const labS = { fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.06, color: 'var(--text-3)', fontWeight: 700, marginBottom: 5 };

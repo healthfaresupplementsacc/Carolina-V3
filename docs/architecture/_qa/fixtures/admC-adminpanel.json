@@ -1,0 +1,180 @@
+{
+  "me": { "id": 1, "name": "Bruno S", "role": "owner" },
+
+  "metrics_realtime": {
+    "bottles_today": 4820,
+    "orders_today": 137,
+    "clinic_today": 22,
+    "hours_today": 31.5,
+    "logged_in_operators": [
+      { "person_id": 8,  "display_name": "Vitor",      "current_task": "Encapsulamento", "last_activity": "10:42", "idle_min": 3 },
+      { "person_id": 10, "display_name": "Simone",     "current_task": "Impressão de Labels", "last_activity": "10:39", "idle_min": 6 },
+      { "person_id": 39, "display_name": "Ana Kesya",  "current_task": null, "last_activity": "10:05", "idle_min": 22 },
+      { "person_id": 38, "display_name": "Bruno S",    "current_task": "P&P do dia", "last_activity": "10:44", "idle_min": 1 }
+    ],
+    "tasks_open_long": [
+      { "id": 991, "display_name": "Ana Kesya", "task": "Contagem de garrafas", "hours_open": 2.4 },
+      { "id": 992, "display_name": "Vitor", "task": "Rotulagem", "hours_open": 1.3 }
+    ]
+  },
+
+  "analytics_summary": {
+    "total_events_count": 1842,
+    "total_bottles": 96400,
+    "voice_usage": { "count": 44 },
+    "top_operators": [
+      { "id": 8,  "display_name": "Vitor",     "events": 512, "hours": 148 },
+      { "id": 10, "display_name": "Simone",    "events": 431, "hours": 139 },
+      { "id": 39, "display_name": "Ana Kesya", "events": 388, "hours": 121 },
+      { "id": 38, "display_name": "Bruno S",   "events": 214, "hours": 92 }
+    ],
+    "top_supplements": [
+      { "product": "L-Carnitine 1500", "events": 210 },
+      { "product": "Magnesium Glycinate", "events": 188 },
+      { "product": "Ashwagandha KSM-66", "events": 143 },
+      { "product": "Vitamin D3 + K2", "events": 96 }
+    ],
+    "avg_task_duration_minutes_by_slug": [
+      { "slug": "encapsulamento", "n": 84, "avg_min": 47 },
+      { "slug": "rotulagem", "n": 61, "avg_min": 33 },
+      { "slug": "impressao_labels", "n": 52, "avg_min": 12 },
+      { "slug": "contagem", "n": 39, "avg_min": 21 }
+    ]
+  },
+
+  "metrics_production_line": {
+    "production_today": {
+      "total": 4820,
+      "by_product": [
+        { "product": "L-Carnitine 1500", "total": 2100 },
+        { "product": "Magnesium Glycinate", "total": 1450 },
+        { "product": "Ashwagandha KSM-66", "total": 1270 }
+      ]
+    },
+    "throughput": {
+      "avg_bpm": 18.4,
+      "peak_bpm": 27.1,
+      "by_operator": [
+        { "operator": "Vitor", "avg_bpm": 21.2, "runs": 4 },
+        { "operator": "Simone", "avg_bpm": 17.9, "runs": 3 },
+        { "operator": "Ana Kesya", "avg_bpm": 15.6, "runs": 2 }
+      ]
+    },
+    "goals_in_progress": [
+      { "id": 71, "operator": "Vitor", "product": "L-Carnitine 1500", "batch_number": "4821", "elapsed_min": 38 },
+      { "id": 72, "operator": "Simone", "product": "Magnesium Glycinate", "batch_number": "4822", "elapsed_min": 12 }
+    ],
+    "exceptions": [
+      { "id": 55, "operator": "Ana Kesya", "product": "Vitamin D3 + K2", "batch_number": "4790", "exception_reason": "máquina parou, não contou", "ended_at": "09:58" }
+    ]
+  },
+
+  "metrics_anomalies": {
+    "forgotten_pending": 2,
+    "idle_operators": [
+      { "display_name": "Ana Kesya", "idle_min": 138 },
+      { "display_name": "Carolina", "idle_min": 126 }
+    ],
+    "stale_events": [
+      { "id": 991, "display_name": "Ana Kesya", "hours_open": 3.6 }
+    ]
+  },
+
+  "metrics_rankings": {
+    "volume_leaders": [
+      { "person_name": "Vitor", "events": 512 },
+      { "person_name": "Simone", "events": 431 },
+      { "person_name": "Ana Kesya", "events": 388 }
+    ],
+    "hours_leaders": [
+      { "person_name": "Vitor", "hours": 148 },
+      { "person_name": "Simone", "hours": 139 },
+      { "person_name": "Ana Kesya", "hours": 121 }
+    ],
+    "most_helpful_cowork": [
+      { "person_name": "Simone", "helped": 17 },
+      { "person_name": "Vitor", "helped": 11 }
+    ]
+  },
+
+  "gaps": {
+    "gaps": [
+      { "id": 1, "display_name": "Ana Kesya", "started_edt": "11:20", "gap_minutes": 46, "justification_type": "almoço", "justification_note": "saiu mais cedo pro almoço" },
+      { "id": 2, "display_name": "Vitor", "started_edt": "14:05", "gap_minutes": 28, "justification_type": "manutenção", "justification_note": "troca de peneira da encapsuladora" }
+    ],
+    "summary": [
+      { "person_name": "Ana Kesya", "total_min": 46 },
+      { "person_name": "Vitor", "total_min": 28 }
+    ]
+  },
+
+  "action_log": {
+    "entries": [
+      { "id": 5001, "at_edt": "10:44", "person_name": "Bruno S", "action_type": "check_in", "source": "op", "raw_text": "entrou no turno", "is_test": false },
+      { "id": 5002, "at_edt": "10:39", "person_name": "Simone", "action_type": "print_event", "source": "win28", "raw_text": "Labels L-Carnitine 4821", "is_test": false },
+      { "id": 5003, "at_edt": "10:12", "person_name": "Vitor", "action_type": "production_count", "source": "slack", "payload": { "bottles": 480, "batch": "4821" }, "is_test": false },
+      { "id": 5004, "at_edt": "09:58", "person_name": "Ana Kesya", "action_type": "exception", "source": "op", "raw_text": "máquina parou", "is_test": true }
+    ]
+  },
+
+  "ems_activity": {
+    "active": [
+      { "machine": "Encapsuladora 1", "machine_type": "capsule", "stage": "Encapsulamento", "supplement_name": "L-Carnitine 1500", "batch_number": "4821", "tracker_name": "Vitor", "elapsed_seconds": 2280 },
+      { "machine": "Blister 2", "machine_type": "blister", "stage": "Blistagem", "supplement_name": "Magnesium Glycinate", "batch_number": "4822", "tracker_name": "Simone", "elapsed_seconds": 740 }
+    ],
+    "by_machine": [
+      { "machine": "Encapsuladora 1", "machine_type": "capsule", "total_seconds": 14400, "runs": 4 },
+      { "machine": "Blister 2", "machine_type": "blister", "total_seconds": 7200, "runs": 3 }
+    ],
+    "by_employee": [
+      { "name": "Vitor", "total_seconds": 12600, "runs": 5 },
+      { "name": "Simone", "total_seconds": 9000, "runs": 4 }
+    ]
+  },
+
+  "voice_recent": {
+    "voice": [
+      { "id": 301, "person": "Vitor", "created_edt": "10:31", "audio_duration_seconds": 18, "transcript": "terminei o lote 4821, foram 480 garrafas" },
+      { "id": 302, "person": "Simone", "created_edt": "09:47", "audio_duration_seconds": 26, "transcript": "a impressora ficou sem papel, já troquei" }
+    ]
+  },
+
+  "operators": {
+    "operators": [
+      { "id": 8,  "display_name": "Vitor",     "is_active": true,  "active_session_count": 1, "auto_logoff_seconds": 30,   "count_exempt": false, "last_page_login_at": "2026-08-18T13:10:00Z", "last_event_at": "2026-08-18T14:42:00Z" },
+      { "id": 10, "display_name": "Simone",    "is_active": true,  "active_session_count": 1, "auto_logoff_seconds": 60,   "count_exempt": true,  "last_page_login_at": "2026-08-18T12:55:00Z", "last_event_at": "2026-08-18T14:39:00Z" },
+      { "id": 39, "display_name": "Ana Kesya", "is_active": true,  "active_session_count": 0, "auto_logoff_seconds": null, "count_exempt": false, "last_page_login_at": "2026-08-18T11:20:00Z", "last_event_at": "2026-08-18T14:05:00Z" },
+      { "id": 38, "display_name": "Bruno S",   "is_active": true,  "active_session_count": 1, "auto_logoff_seconds": 30,   "count_exempt": true,  "last_page_login_at": "2026-08-18T13:02:00Z", "last_event_at": "2026-08-18T14:44:00Z" },
+      { "id": 44, "display_name": "Carolina",  "is_active": false, "active_session_count": 0, "auto_logoff_seconds": 30,   "count_exempt": false, "last_page_login_at": "2026-08-11T13:00:00Z", "last_event_at": "2026-08-11T20:10:00Z" }
+    ]
+  },
+
+  "activity_types": {
+    "activities": [
+      { "slug": "encapsulamento", "display_name": "Encapsulamento", "requires_product": true, "note_required": false, "orders_required": false },
+      { "slug": "rotulagem", "display_name": "Rotulagem", "requires_product": true, "note_required": false, "orders_required": false },
+      { "slug": "pp_do_dia", "display_name": "P&P do dia", "requires_product": false, "note_required": false, "orders_required": true },
+      { "slug": "outro", "display_name": "Outro", "requires_product": false, "note_required": true, "orders_required": false }
+    ]
+  },
+
+  "operator_schedule": {
+    "days": [
+      { "day_of_week": 0, "expected_start_time": null, "expected_end_time": null, "is_workday": false, "notes": null },
+      { "day_of_week": 1, "expected_start_time": "09:00", "expected_end_time": "18:00", "is_workday": true, "notes": null },
+      { "day_of_week": 2, "expected_start_time": "09:00", "expected_end_time": "18:00", "is_workday": true, "notes": null },
+      { "day_of_week": 3, "expected_start_time": "09:00", "expected_end_time": "18:00", "is_workday": true, "notes": null },
+      { "day_of_week": 4, "expected_start_time": "09:00", "expected_end_time": "18:00", "is_workday": true, "notes": null },
+      { "day_of_week": 5, "expected_start_time": "09:30", "expected_end_time": "18:30", "is_workday": true, "notes": "dia de limpeza" },
+      { "day_of_week": 6, "expected_start_time": null, "expected_end_time": null, "is_workday": false, "notes": null }
+    ]
+  },
+
+  "operator_events": {
+    "events": [
+      { "id": 8801, "slug": "encapsulamento", "batch_number": "4821", "started_edt": "18/08 09:12", "ended_edt": "18/08 10:40", "source": "op", "is_long_running": false },
+      { "id": 8802, "slug": "rotulagem", "batch_number": "4820", "started_edt": "17/08 13:05", "ended_edt": "17/08 15:30", "source": "slack", "is_long_running": false },
+      { "id": 8803, "slug": "pp_do_dia", "batch_number": null, "started_edt": "17/08 09:00", "ended_edt": null, "source": "op", "is_long_running": true }
+    ]
+  }
+}

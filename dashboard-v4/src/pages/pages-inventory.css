@@ -1,0 +1,175 @@
+/* ═══════════════════════════════════════════════════════════════════
+   PAGES-INVENTORY — complementos do STYLE-KIT para o grupo B
+   (Estoque/armazém #inventory, Ver estoque #estoque-geral, Product
+   Setup #produto-setup).
+
+   REGRA: nada aqui redefine token do kit nem renomeia classe existente.
+   Tudo é `.pgi-*` (prefixo do grupo) ou um ajuste ESCOPADO dentro de
+   `[data-page^="inv-"]`. As classes .kit-* de kit.css são a base; isto
+   só cobre o que o kit não tem (grid de KPI, chips de canal, dropdown
+   de SKU, wrapper de tabela com scroll).
+
+   Sem travessão (em dash) em texto de UI. Light theme é a prioridade;
+   o bloco dark no fim só remapeia superfícies pra não ficar ilegível.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── casca da página ───────────────────────────────────────────── */
+.pgi-page { padding-bottom: 60px; }
+
+.pgi-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.pgi-head > .pgi-head-main { flex: 1; min-width: 260px; }
+.pgi-head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ── faixa de KPIs (mesma linguagem do hub #estoque) ───────────── */
+.pgi-kpis { display: flex; gap: 10px; flex-wrap: wrap; margin: 16px 0 4px; }
+.pgi-kpi-label { margin-bottom: 4px; display: block; }
+.pgi-kpi-card { cursor: default; }
+.pgi-kpi-card:hover { transform: none; box-shadow: var(--shadow-card); }
+
+/* ── barra de ferramentas (busca + filtros + contagem) ─────────── */
+.pgi-toolbar {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 14px 0 12px;
+}
+.pgi-toolbar .grow { flex: 1 1 240px; }
+.pgi-count { font: 500 11px var(--font-mono); letter-spacing: .06em; color: var(--ink-faint); }
+.pgi-check {
+  display: inline-flex; gap: 6px; align-items: center;
+  font-size: 12.5px; color: var(--ink-dim); cursor: pointer;
+}
+
+/* ── segmented control com contador (abas do #inventory) ───────── */
+.pgi-seg { flex-wrap: wrap; max-width: 100%; }
+.pgi-seg button { display: inline-flex; align-items: center; gap: 7px; }
+.pgi-seg button .n {
+  font: 500 10.5px var(--font-mono); line-height: 1;
+  padding: 2px 6px; border-radius: var(--r-pill);
+  background: var(--neutral-bg); color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--neutral-line);
+}
+.pgi-seg button .n.bad { background: var(--bad-bg); color: var(--bad-deep); box-shadow: inset 0 0 0 1px var(--bad-line); }
+.pgi-seg button.on .n,
+.pgi-seg button.on .n.bad { background: rgba(255,255,255,.22); color: #fff; box-shadow: none; }
+
+/* ── wrapper de tabela: card do kit, scroll horizontal próprio ─── */
+.pgi-tablecard { margin-top: 4px; padding: 6px 14px 2px; overflow-x: auto; }
+.pgi-tablecard > table { min-width: 100%; }
+
+/* micro ajustes de célula que o kit não cobre */
+.pgi-tablecard .kit-table td.wrapmax { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgi-tablecard .kit-table td.dim { color: var(--ink-dim); }
+.pgi-tablecard .kit-table td.faint { color: var(--ink-faint); }
+.pgi-tablecard .kit-table td.mono { font-family: var(--font-mono); }
+.pgi-tablecard .kit-table tr.off td { color: var(--ink-faint); }
+.pgi-tablecard .kit-table td.strong { font-weight: 600; }
+.pgi-tablecard .kit-table td.badnum { color: var(--bad-deep); }
+.pgi-empty { color: var(--ink-faint); font-size: 13px; padding: 22px 4px; }
+
+/* ── nota / rodapé explicativo abaixo de uma tabela ────────────── */
+.pgi-note { font-size: 12px; color: var(--ink-dim); margin-top: 10px; line-height: 1.55; }
+.pgi-note b { color: var(--ink); font-weight: 600; }
+
+/* ── caixa "carregando em segundo plano" ───────────────────────── */
+.pgi-loading { margin-top: 14px; padding: 11px 16px; color: var(--ink-dim); font-size: 12.5px; }
+
+/* ── upload disfarçado de botão (TikTok CSV) ───────────────────── */
+.pgi-upload {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  height: 30px; padding: 0 14px; border-radius: var(--r-pill);
+  border: 1px dashed var(--line-strong); background: var(--kit-surface-2);
+  color: var(--ink-dim); font: 600 12px var(--font);
+}
+.pgi-upload:hover { border-color: var(--primary-line); color: var(--primary); }
+.pgi-upload input { display: none; }
+
+/* ── chip de canal (Product Setup) ─────────────────────────────── */
+.pgi-skuwrap { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.pgi-ch {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px;
+  border-radius: var(--r-pill); font: 500 11px var(--font-mono);
+  background: var(--neutral-bg); color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--neutral-line);
+}
+.pgi-ch .x {
+  border: none; background: none; cursor: pointer; color: inherit;
+  font-weight: 700; line-height: 1; padding: 0; font-size: 13px; opacity: .65;
+}
+.pgi-ch .x:hover { opacity: 1; }
+.pgi-ch.veeqo   { background: var(--primary-soft); color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary-soft-line); }
+.pgi-ch.amazon  { background: var(--warn-bg); color: var(--warn-deep); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.pgi-ch.ebay    { background: var(--info-bg); color: var(--kit-info); box-shadow: inset 0 0 0 1px var(--info-line); }
+.pgi-ch.walmart { background: var(--primary-soft); color: var(--primary-deep); box-shadow: inset 0 0 0 1px var(--primary-line); }
+.pgi-ch.tiktok  { background: var(--dispute-bg); color: var(--dispute); box-shadow: inset 0 0 0 1px var(--dispute-line); }
+.pgi-ch.shopify { background: var(--ok-bg); color: var(--ok-deep); box-shadow: inset 0 0 0 1px var(--ok-line); }
+.pgi-ch.other   { background: var(--kit-surface-2); color: var(--ink-dim); box-shadow: inset 0 0 0 1px var(--line); }
+
+.pgi-addsku {
+  height: 22px; padding: 0 10px; border-radius: var(--r-pill);
+  border: 1px dashed var(--line-strong); background: none; color: var(--ink-faint);
+  font: 600 11px var(--font); cursor: pointer;
+}
+.pgi-addsku:hover { border-color: var(--primary-line); color: var(--primary); }
+
+/* ── dropdown pesquisável de SKU ───────────────────────────────── */
+.pgi-picker { position: relative; display: inline-block; }
+.pgi-picker-list {
+  position: absolute; z-index: 40; top: 110%; left: 0; min-width: 320px; max-width: 460px;
+  max-height: 300px; overflow-y: auto; background: var(--kit-surface);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop); padding: 4px;
+}
+.pgi-picker-item {
+  display: flex; gap: 8px; align-items: baseline; padding: 6px 9px;
+  border-radius: var(--r-xs); cursor: pointer;
+}
+.pgi-picker-item:hover { background: var(--primary-row); }
+.pgi-picker-item.taken { cursor: not-allowed; color: var(--ink-faint); }
+.pgi-picker-item.taken:hover { background: transparent; }
+.pgi-picker-item .sku { font: 500 12px var(--font-mono); white-space: nowrap; color: var(--ink); }
+.pgi-picker-item.taken .sku { color: var(--ink-faint); }
+.pgi-picker-item .ttl {
+  font-size: 11.5px; color: var(--ink-faint); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pgi-picker-item .flag { font: 500 10px var(--font-mono); color: var(--warn-deep); white-space: nowrap; }
+.pgi-picker-msg { padding: 10px; font-size: 12px; color: var(--ink-faint); }
+.pgi-picker-msg.bad { color: var(--bad-deep); }
+.pgi-picker-free {
+  padding: 7px 9px; border-top: 1px solid var(--line); font: 600 12px var(--font);
+  color: var(--primary); cursor: pointer;
+}
+.pgi-picker-free:hover { background: var(--primary-row); }
+
+/* ── mapa tamanho → suprimento (aba Suprimentos) ───────────────── */
+.pgi-fieldgrid { display: flex; gap: 14px; flex-wrap: wrap; }
+.pgi-field { display: inline-flex; flex-direction: column; gap: 5px; }
+.pgi-field > .kit-mlabel { letter-spacing: .10em; }
+.pgi-field select.kit-input { min-width: 150px; }
+.pgi-field select.kit-input.unset { border-color: var(--warn-line); background: var(--warn-bg); }
+
+/* ── modal protegido (Ver estoque) ─────────────────────────────── */
+.pgi-modal-grid { display: flex; gap: 14px; align-items: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.pgi-modal-grid .grow { flex: 1 1 150px; }
+.pgi-modal-lbl { display: block; margin-bottom: 5px; }
+.pgi-modal-sku {
+  padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--kit-surface-2); font: 500 13.5px var(--font-mono);
+  color: var(--primary-deep); margin-top: 5px;
+}
+.pgi-modal-err { color: var(--bad-deep); font-size: 12.5px; margin-top: 10px; }
+.pgi-modal-hint { font-size: 11.5px; color: var(--ink-faint); margin-top: 9px; text-align: right; }
+
+/* ── flash inline (salvo / erro) ───────────────────────────────── */
+.pgi-flash { font: 600 12px var(--font); color: var(--green-d); }
+.pgi-flash.bad { color: var(--bad-deep); }
+
+/* ── barra de avisos textuais do topo (sem cor de fundo) ───────── */
+.pgi-hint { font-size: 12.5px; color: var(--ink-dim); margin: 2px 0 10px; line-height: 1.55; }
+.pgi-hint b { color: var(--ink); font-weight: 600; }
+
+/* ═══ DARK: só remapeia superfícies pra continuar legível ═══════ */
+:root[data-theme="dark"] .pgi-picker-list,
+:root[data-theme="dark"] .pgi-modal-sku { background: var(--surface, #16202c); }
+:root[data-theme="dark"] .pgi-upload { background: transparent; }
+:root[data-theme="dark"] .pgi-picker-item .sku,
+:root[data-theme="dark"] .pgi-note b,
+:root[data-theme="dark"] .pgi-hint b { color: var(--text, #e8eef5); }

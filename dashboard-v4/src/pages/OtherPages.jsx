@@ -2,8 +2,37 @@ import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, CountdownCard, OperatorAvatar } from '../components/Primitives.jsx';
 import { FalarCarolina } from './CarolinaFalar.jsx';
+import './pages-operacao.css';
 
-/* Production, Goals, People + light placeholders for the rest. */
+/* Production, Goals, People + light placeholders for the rest.
+   S15 fase 2 (Bruno 08-18): pele 100% STYLE-KIT. Só apresentação —
+   nenhuma prop, handler, cálculo ou fluxo de dado mudou. */
+
+/* Cabeçalho padrão do kit: eyebrow + h1 DM Serif com UMA palavra italica
+   verde + subtitulo. `title` vem como [antes, <em>, depois]. */
+function PageHead({ eyebrow, before, em, after, sub, side }) {
+  return (
+    <div className="opa-head">
+      <div className="opa-head-main">
+        <span className="kit-eyebrow">● HEALTHFARE · {eyebrow}</span>
+        <h1 className="kit-h1">{before}<em>{em}</em>{after}</h1>
+        {sub && <p className="kit-sub">{sub}</p>}
+      </div>
+      {side && <div className="opa-head-side">{side}</div>}
+    </div>
+  );
+}
+
+/* Seção interna: micro-label mono + régua. */
+function Section({ label, right }) {
+  return (
+    <div className="opa-section">
+      <span className="kit-mlabel">{label}</span>
+      <div className="rule"/>
+      {right}
+    </div>
+  );
+}
 
 // ============ Production ============
 // E7-resto Leva 2: ligada em raw.production.lotes (vem direto do backend
@@ -14,22 +43,17 @@ function ProductionPage({ state, hfdata, raw, openPanel, loading, error, date })
   const lotes = (raw && raw.production && raw.production.lotes) || [];
   const now = window.HFH.useNow(true);
   const { fmtDur } = window.HFH;
-  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando lotes…</div>;
+  if (loading) return <div data-page-op="producao"><div className="opa-empty">Carregando lotes…</div></div>;
 
   // Sort: lotes com mais tempo primeiro (mais ativos)
   const sortedLotes = lotes.slice().sort((a, b) => (b.total_seconds || 0) - (a.total_seconds || 0));
 
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Lotes em produção</h2><span className="en">· Batches in production</span>
-        <div className="rule"/>
-      </div>
+    <div data-page-op="producao">
+      <PageHead eyebrow="PRODUÇÃO" before="Lotes em " em="produção" sub="Cada lote com as fases já cumpridas, o tempo somado e quem está na linha agora."/>
+      <Section label={`Lotes do dia · ${sortedLotes.length}`}/>
       {sortedLotes.length === 0 && (
-        <div className="card" style={{ padding: 30, color: 'var(--text-3)', textAlign: 'center' }}>
-          Sem lotes em produção em {date || 'hoje'}.
-        </div>
+        <div className="opa-empty">Sem lotes em produção em {date || 'hoje'}.</div>
       )}
       {sortedLotes.map((lote) => {
         const productName = (lote.product && lote.product.canonical_name) || '(sem produto)';
@@ -52,15 +76,15 @@ function ProductionPage({ state, hfdata, raw, openPanel, loading, error, date })
         return (
           <div key={lote.batch_id || productName} className="card lote-card" style={{ marginBottom: 12 }}>
             <div className="head">
-              <Leaf size={16} color="var(--hf-leaf-500)"/>
+              <Leaf size={16} color="var(--green-d)"/>
               <h3>{productName}</h3>
               <span className="batch mono">{batchNumber}</span>
-              {liveCount > 0 && <span className="pill live" style={{ marginLeft: 6 }}><span className="dot"/>{liveCount} live</span>}
+              {liveCount > 0 && <span className="kit-chip ok" style={{ marginLeft: 6 }}>{liveCount} ao vivo</span>}
               <span style={{ flex: 1 }}/>
               <div className="crew" style={{ display: 'flex', gap: 4 }}>
                 {crewOps.slice(0, 5).map((o) => <OperatorAvatar key={o.id} op={o} size="md"/>)}
                 {crewNames.length > crewOps.length && (
-                  <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 4 }}>+{crewNames.length - crewOps.length}</span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-faint)', marginLeft: 4 }}>+{crewNames.length - crewOps.length}</span>
                 )}
               </div>
             </div>
@@ -68,14 +92,14 @@ function ProductionPage({ state, hfdata, raw, openPanel, loading, error, date })
               <div style={{ marginTop: 6 }}>
                 <CapBar pct={pct} size="lg"
                         label={`Meta: ${goal.done}/${goal.target} ${goal.unit || 'bottle'}`}
-                        sub={`${pct}% ${goal.completed ? '✓ batido' : 'em curso'}`}
-                        color1={pct >= 100 ? 'var(--hf-leaf-500)' : 'var(--hf-navy-500)'}
-                        color2={pct >= 100 ? 'var(--hf-leaf-600)' : 'var(--hf-leaf-500)'}/>
+                        sub={`${pct}% ${goal.completed ? 'batido' : 'em curso'}`}
+                        color1={pct >= 100 ? 'var(--green)' : 'var(--primary)'}
+                        color2={pct >= 100 ? 'var(--green-d)' : 'var(--green)'}/>
               </div>
             )}
-            <div className="esteira" style={{ marginTop: 8 }}>
+            <div className="esteira" style={{ marginTop: 10 }}>
               {phaseList.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>sem fases ainda</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-faint)', fontStyle: 'italic' }}>sem fases ainda</div>
               ) : phaseList.map((p, i) => {
                 const phaseMin = Math.round((p.seconds || 0) / 60);
                 return (
@@ -90,10 +114,10 @@ function ProductionPage({ state, hfdata, raw, openPanel, loading, error, date })
                 );
               })}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8, display: 'flex', gap: 14 }}>
-              <span>Tempo total no lote · <b className="mono" style={{ color: 'var(--text-2)' }}>{fmtDur(totalMin)}</b></span>
+            <div style={{ fontSize: 12, color: 'var(--ink-dim)', marginTop: 10, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>Tempo total no lote · <b className="mono" style={{ color: 'var(--ink)' }}>{fmtDur(totalMin)}</b></span>
               {lote.invalid_event_count > 0 && (
-                <span style={{ color: 'var(--warn)' }}>⚠ {lote.invalid_event_count} event(s) com duração inválida</span>
+                <span className="kit-chip warn">{lote.invalid_event_count} evento(s) com duração inválida</span>
               )}
               {loteEvents.length > 0 && (
                 <span style={{ marginLeft: 'auto' }}>{loteEvents.length} eventos · clique no Hoje pra detalhe</span>
@@ -114,18 +138,13 @@ function GoalsPage({ state, hfdata, ack, loading, error, date, writes, V4_ALLOW_
   const HFD = hfdata || window.HFData;
   const { goals = [] } = HFD;
   const { fmtDur } = window.HFH;
-  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando metas…</div>;
+  if (loading) return <div data-page-op="metas"><div className="opa-empty">Carregando metas…</div></div>;
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Metas do dia</h2><span className="en">· Today's goals</span>
-        <div className="rule"/>
-      </div>
+    <div data-page-op="metas">
+      <PageHead eyebrow="METAS" before="As metas de " em="hoje" sub="Quanto cada lote precisa entregar e quanto já saiu da linha."/>
+      <Section label={`Metas do dia · ${goals.length}`}/>
       {goals.length === 0 && (
-        <div className="card" style={{ padding: 30, color: 'var(--text-3)', textAlign: 'center' }}>
-          Sem metas registradas em {date || 'hoje'}.
-        </div>
+        <div className="opa-empty">Sem metas registradas em {date || 'hoje'}.</div>
       )}
       <div className="goals-grid">
         {goals.map((g) => {
@@ -139,13 +158,13 @@ function GoalsPage({ state, hfdata, ack, loading, error, date, writes, V4_ALLOW_
           return (
             <div key={g.id} className="card goal-card">
               <div className="head">
-                <Leaf size={14} color="var(--hf-leaf-500)"/>
+                <Leaf size={14} color="var(--green-d)"/>
                 <h3>{productName}</h3>
                 {batchNumber && <span className="batch mono">{batchNumber}</span>}
                 <span style={{ flex: 1 }}/>
-                {hit && <span className="pill ok"><span className="dot"/>batido</span>}
-                {!hit && pct >= 80 && <span className="pill warn"><span className="dot"/>quase lá</span>}
-                {!hit && pct < 80 && <span className="pill prod"><span className="dot"/>em curso</span>}
+                {hit && <span className="kit-chip ok">batido</span>}
+                {!hit && pct >= 80 && <span className="kit-chip warn">quase lá</span>}
+                {!hit && pct < 80 && <span className="kit-chip neutral">em curso</span>}
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'baseline', gap: 10 }}>
                 <div className="num">{(g.done || 0).toLocaleString()}<small> / {(g.target || 0).toLocaleString()} {g.unit || 'bottle'}</small></div>
@@ -154,15 +173,15 @@ function GoalsPage({ state, hfdata, ack, loading, error, date, writes, V4_ALLOW_
               </div>
               <div style={{ marginTop: 12 }}>
                 <CapBar pct={pct} size="xl"
-                        color1={hit ? 'var(--hf-leaf-500)' : 'var(--hf-navy-500)'}
-                        color2={hit ? 'var(--hf-leaf-600)' : 'var(--hf-leaf-500)'}/>
+                        color1={hit ? 'var(--green)' : 'var(--primary)'}
+                        color2={hit ? 'var(--green-d)' : 'var(--green)'}/>
               </div>
-              <div style={{ marginTop: 10, display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-3)', alignItems: 'center' }}>
+              <div style={{ marginTop: 12, display: 'flex', gap: 12, fontSize: 12, color: 'var(--ink-dim)', alignItems: 'center' }}>
                 {dupCount > 0 && (
-                  <span style={{ color: 'var(--warn)' }}>⚠ {dupCount} contagem(ns) duplicata(s) suspeita(s)</span>
+                  <span className="kit-chip warn">{dupCount} contagem(ns) duplicada(s)</span>
                 )}
                 <span style={{ flex: 1 }}/>
-                <button className="btn sm ghost" onClick={async () => {
+                <button className="kit-btn sm" onClick={async () => {
                   const v = window.prompt(`Nova meta pra ${g._product_name || '?'} (em ${g.unit || 'bottles'}):`, String(g.target || 500));
                   if (v == null) return;
                   const n = Number(v);
@@ -171,7 +190,7 @@ function GoalsPage({ state, hfdata, ack, loading, error, date, writes, V4_ALLOW_
                   const res = await writes.patchGoal(g.id, { expected_quantity: n });
                   if (!res.ok) { ack && ack(`Erro: ${res.error.message || res.error}`); return; }
                   if (refresh) refresh();
-                  ack && ack(`Salvo ✓ — meta ${g.id} = ${n}`);
+                  ack && ack(`Salvo · meta ${g.id} = ${n}`);
                 }}>
                   <Icon name="edit" size={12}/>Editar
                 </button>
@@ -196,21 +215,21 @@ function PeoplePage({ state, hfdata, openPanel, ack, loading, error, date }) {
   const { fmtCron, fmtDur, fmtClock } = window.HFH;
   const dayMin = DAY_END - DAY_START;
   if (loading) {
-    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando equipe…</div>;
+    return <div data-page-op="pessoas"><div className="opa-empty">Carregando equipe…</div></div>;
   }
   if (operators.length === 0) {
-    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>
-      Sem operadores postando em {date || 'hoje'} · (admins filtrados)
-    </div>;
+    return (
+      <div data-page-op="pessoas">
+        <PageHead eyebrow="PESSOAS" before="A " em="equipe" after=" hoje" sub="Quem está na linha, o que cada pessoa faz agora e o dia inteiro em miniatura."/>
+        <div className="opa-empty">Sem operadores postando em {date || 'hoje'} · (admins filtrados)</div>
+      </div>
+    );
   }
 
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Equipe</h2><span className="en">· Team today</span>
-        <div className="rule"/>
-      </div>
+    <div data-page-op="pessoas">
+      <PageHead eyebrow="PESSOAS" before="A " em="equipe" after=" hoje" sub="Quem está na linha, o que cada pessoa faz agora e o dia inteiro em miniatura."/>
+      <Section label={`Equipe do dia · ${operators.length} pessoa(s)`}/>
       <div className="people-grid">
         {operators.map(op => {
           const opEvents = (state.events || []).filter(e => e.op === op.id)
@@ -228,52 +247,50 @@ function PeoplePage({ state, hfdata, openPanel, ack, loading, error, date }) {
           const gap = _gaps[op.id] || {};
 
           return (
-            <div key={op.id} className="card person-card">
+            <div key={op.id} className="card person-card" style={{ padding: '16px 18px' }}>
               <div className="head">
                 <OperatorAvatar op={op} size="lg"/>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>{op.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-3)" }}>{op.role}</div>
+                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--primary-deep)', lineHeight: 1.15 }}>{op.name}</div>
+                  <div className="kit-mlabel" style={{ marginTop: 2 }}>{op.role}</div>
                 </div>
                 {live
-                  ? <span className="pill live"><span className="dot"/>ao vivo</span>
-                  : <span className="pill"><span className="dot"/>parado</span>}
+                  ? <span className="kit-chip ok">ao vivo</span>
+                  : <span className="kit-chip neutral">parado</span>}
               </div>
-              <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10 }}>
-                <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.08, color: "var(--text-3)", fontWeight: 700 }}>
-                  {live ? "Agora · Now" : "Último · Last"}
-                </div>
+              <div className="opa-now-box">
+                <div className="kit-mlabel">{live ? 'Agora' : 'Último'}</div>
                 {curAct ? (
                   <>
-                    <div style={{ fontWeight: 700, fontSize: 14, marginTop: 3 }}>{curAct.name}</div>
-                    {curProd && <div style={{ fontSize: 12, color: "var(--text-3)" }}>
-                      {curProd.name}{curProd.batch && <span className="mono" style={{ marginLeft: 6, color: 'var(--text-3)' }}>· {curProd.batch}</span>}
+                    <div className="opa-now-act">{curAct.name}</div>
+                    {curProd && <div style={{ fontSize: 12.5, color: 'var(--ink-dim)', marginTop: 1 }}>
+                      {curProd.name}{curProd.batch && <span className="mono" style={{ marginLeft: 6, color: 'var(--ink-faint)' }}>· {curProd.batch}</span>}
                     </div>}
-                    <div className="mono" style={{ fontSize: 13, color: "var(--hf-navy-600)", marginTop: 5 }}>
+                    <div className="opa-now-clock">
                       {live
-                        ? `⏱ ${fmtCron(now - cur.started_min)}`
+                        ? fmtCron(now - cur.started_min)
                         : `${fmtDur((cur.ended_min || 0) - (cur.started_min || 0))} (encerrou ${fmtClock(cur.ended_min)})`}
                     </div>
                   </>
-                ) : <div style={{ fontSize: 13, color: "var(--text-3)" }}>sem registros</div>}
+                ) : <div style={{ fontSize: 13, color: 'var(--ink-faint)' }}>sem registros</div>}
                 {liveBg.length > 0 && (
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 6 }}>
                     + {liveBg.length} background ativo(s): {liveBg.map(e => activities[e.activity]?.name || e.activity).join(', ')}
                   </div>
                 )}
               </div>
               <div className="stats">
                 <div className="stat"><div className="label">Eventos</div><div className="value">{opEvents.length}</div></div>
-                <div className="stat"><div className="label">Tempo ativo</div><div className="value mono">{fmtDur(totalActive)}</div></div>
+                <div className="stat"><div className="label">Tempo ativo</div><div className="value">{fmtDur(totalActive)}</div></div>
                 <div className="stat"><div className="label">Produtos</div><div className="value">{productsCount}</div></div>
               </div>
               {(gap.idle_seconds || gap.unreported_seconds) ? (
-                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', display: 'flex', gap: 8 }}>
-                  {gap.idle_seconds > 0 && <span>idle {fmtDur(Math.round(gap.idle_seconds / 60))}</span>}
-                  {gap.unreported_seconds > 0 && <span style={{ color: 'var(--warn)' }}>não reportado {fmtDur(Math.round(gap.unreported_seconds / 60))}</span>}
+                <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {gap.idle_seconds > 0 && <span className="kit-chip neutral">idle {fmtDur(Math.round(gap.idle_seconds / 60))}</span>}
+                  {gap.unreported_seconds > 0 && <span className="kit-chip warn">não reportado {fmtDur(Math.round(gap.unreported_seconds / 60))}</span>}
                 </div>
               ) : null}
-              <div className="mini-tl" style={{ marginTop: 8 }}>
+              <div className="mini-tl" style={{ marginTop: 10 }}>
                 {opEvents.map(ev => {
                   const a = activities[ev.activity]; if (!a) return null;
                   const end = ev.ended_min == null ? now : ev.ended_min;
@@ -283,7 +300,7 @@ function PeoplePage({ state, hfdata, openPanel, ack, loading, error, date }) {
                   return (
                     <button key={ev.id} className="mini-bk"
                             style={{ left: `${left}%`, width: `${width}%`,
-                                     background: `linear-gradient(180deg, var(--flow-${a.flow}), var(--flow-${a.flow}-2))`,
+                                     background: `var(--flow-${a.flow})`,
                                      border: 'none', cursor: 'pointer', padding: 0 }}
                             onClick={(e) => openPanel && openPanel(ev, { x: e.clientX, y: e.clientY })}
                             title={`${a.name}${productName ? ' · ' + productName : ''} · ${fmtClock(ev.started_min)}`}/>
@@ -299,14 +316,19 @@ function PeoplePage({ state, hfdata, openPanel, ack, loading, error, date }) {
   );
 }
 
-// ============ Placeholders (Pick & Pack, Support, Product, Falar, Planejamento, Config) ============
-function PlaceholderPage({ icon, pt, en, subtitle, body }) {
+// ============ Placeholders (Planejamento, Carolina) ============
+function PlaceholderPage({ icon, pt, en, subtitle, body, eyebrow, before, em, after }) {
   return (
-    <div className="card placeholder">
-      <div className="ic"><Icon name={icon} size={28}/></div>
-      <h2>{pt} <span style={{ color: "var(--text-3)", fontWeight: 500, fontSize: 13 }}>· {en}</span></h2>
-      <p>{subtitle}</p>
-      {body}
+    <div data-page-op="placeholder">
+      <PageHead eyebrow={eyebrow || String(pt || '').toUpperCase()}
+                before={before != null ? before : ''} em={em != null ? em : pt} after={after || ''}
+                sub={subtitle}/>
+      <div className="opa-placeholder">
+        <div className="opa-ph-ic"><Icon name={icon} size={26}/></div>
+        <div className="kit-h2">{pt}</div>
+        <p>Em construção. A tela vem numa próxima leva.</p>
+        {body}
+      </div>
     </div>
   );
 }
@@ -327,7 +349,7 @@ function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
   const events = state.events || [];
 
   if (loading) {
-    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando P&P…</div>;
+    return <div data-page-op="pp"><div className="opa-empty">Carregando P&amp;P…</div></div>;
   }
 
   // Sub-passos: usa wall_seconds (união) — Bruno pediu específico "não soma".
@@ -340,75 +362,65 @@ function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
   // Correio: do pp.deadline_min real
   const correioMin = pp.deadline_min;
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Pick & Pack do dia</h2><span className="en">· Today's P&P block</span>
-        <div className="rule"/>
-      </div>
+    <div data-page-op="pp">
+      <PageHead eyebrow="PICK &amp; PACK" before="O bloco de " em="P&amp;P" after=" do dia"
+                sub="Tempo de parede (sem contar duas vezes quando tem gente junto), ordens fechadas e o corte do correio."/>
       <div className="card" style={{ padding: 22 }}>
         {correioMin != null && (
           <CountdownCard deadlineMin={correioMin} now={now}
                          label="Correio" en="Mailing cut-off"
                          title={`Próximo corte às ${fmtClock(correioMin)}`}/>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginTop: 18 }}>
+        <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginTop: 18 }}>
           <KPI label="Tempo total (união)" en="Wall time"
                value={pp.total_minutes ? fmtDur(pp.total_minutes) : '—'}
-               foot={<div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                 {liveCount > 0 ? `${liveCount} live` : 'sem live'}
+               foot={<div style={{ fontSize: 11.5, color: 'var(--ink-faint)' }}>
+                 {liveCount > 0 ? `${liveCount} ao vivo` : 'sem live'}
                </div>}/>
           <KPI label="Ordens" en="Orders"
                value={pp.orders ? pp.orders.toLocaleString() : '—'}/>
           <KPI label="Tempo/ordem" en="Per order"
                value={pp.seconds_per_order ? `${pp.seconds_per_order}s` : '—'}/>
         </div>
-        <div className="section-title" style={{ marginTop: 14 }}>
-          <h2>Sub-passos</h2><span className="en">· Steps (union wall-time)</span><div className="rule"/>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Section label="Sub-passos · tempo de parede"/>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           {subSteps.length === 0 ? (
-            <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 13 }}>
-              Nenhum sub-passo de P&P registrado em {date || 'hoje'}.
+            <div style={{ padding: '10px 0', color: 'var(--ink-faint)', fontSize: 13 }}>
+              Nenhum sub-passo de P&amp;P registrado em {date || 'hoje'}.
             </div>
           ) : subSteps.map((s) => {
             const wallMin = Math.round((s.wall_seconds || 0) / 60);
             const sumMin = Math.round((s.seconds || 0) / 60);
             const cowork = sumMin > wallMin;   // pessoa-hora > parede → houve cowork
             return (
-              <div key={s.activity} className="alert-row" style={{ background: "var(--surface-2)" }}>
-                <div className="ico"><Icon name="clock" size={14}/></div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.activity}</div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-3)" }} className="mono">
-                    parede {fmtDur(wallMin)}{cowork && <> · pessoa-hora {fmtDur(sumMin)} <span style={{ color: 'var(--hf-leaf-600)' }}>(cowork)</span></>}
+              <div key={s.activity} className="opa-row">
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>{s.activity}</div>
+                  <div className="mono" style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 2 }}>
+                    parede {fmtDur(wallMin)}{cowork && <> · pessoa-hora {fmtDur(sumMin)} <span style={{ color: 'var(--green-d)' }}>(cowork)</span></>}
                   </div>
                 </div>
-                <span className="pill prod"><span className="dot"/>{fmtDur(wallMin)}</span>
+                <span className="kit-chip neutral">{fmtDur(wallMin)}</span>
               </div>
             );
           })}
         </div>
         {personSeconds.length > 0 && (
           <>
-            <div className="section-title" style={{ marginTop: 14 }}>
-              <h2>Carga por pessoa</h2><span className="en">· Person-hour load</span><div className="rule"/>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8 }}>
+            <Section label="Carga por pessoa · pessoa-hora"/>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8 }}>
               {personSeconds.sort((a, b) => b.seconds - a.seconds).map((ps) => (
-                <div key={ps.person} className="alert-row" style={{ background: 'var(--surface-2)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{ps.person}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)' }} className="mono">{fmtDur(Math.round(ps.seconds / 60))}</div>
-                  </div>
+                <div key={ps.person} className="opa-strip-item">
+                  <div className="kit-mlabel">{ps.person}</div>
+                  <div className="opa-strip-num">{fmtDur(Math.round(ps.seconds / 60))}</div>
                 </div>
               ))}
             </div>
           </>
         )}
         {coworkEvents.length > 0 && (
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
-            🔗 {coworkEvents.length} event(s) com cowork ativo no P&P
+          <div style={{ marginTop: 14 }}>
+            <span className="kit-chip dispute">{coworkEvents.length} evento(s) com cowork ativo no P&amp;P</span>
           </div>
         )}
       </div>
@@ -425,7 +437,7 @@ function SupportPage({ state, hfdata, raw, openPanel, loading, date }) {
   const occurrences = (raw && raw.support && raw.support.occurrences) || [];
   const { fmtClock, fmtDur } = window.HFH;
   const now = window.HFH.useNow(true);
-  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando suporte…</div>;
+  if (loading) return <div data-page-op="suporte"><div className="opa-empty">Carregando suporte…</div></div>;
   // Sorted by started_at asc
   const sorted = occurrences.slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)));
   // Mapping ISO NY → minutes-since-midnight pra reutilizar fmtClock
@@ -439,35 +451,33 @@ function SupportPage({ state, hfdata, raw, openPanel, loading, date }) {
   const downtimeCount = sorted.filter((o) => o.is_downtime).length;
 
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Suporte · ocorrências</h2><span className="en">· Support log</span>
-        <div className="rule"/>
-      </div>
-      <div className="card" style={{ padding: 14, marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5 }}>
-          <div><b>{sorted.length}</b> ocorrência(s) em {date || 'hoje'}</div>
-          {downtimeCount > 0 && <div style={{ color: 'var(--bad)' }}><b>{downtimeCount}</b> downtime (conserto)</div>}
+    <div data-page-op="suporte">
+      <PageHead eyebrow="SUPORTE" before="Ocorrências de " em="suporte"
+                sub="Limpeza, manutenção, conserto e clínica. Conserto conta como parada da linha."/>
+      <div className="kit-card pad" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="kit-chip neutral">{sorted.length} ocorrência(s) em {date || 'hoje'}</span>
+          {downtimeCount > 0 && <span className="kit-chip bad">{downtimeCount} downtime (conserto)</span>}
           {Object.entries(counts).slice(0, 6).map(([act, c]) => (
-            <div key={act} style={{ color: 'var(--text-3)' }}><b style={{ color: 'var(--text-2)' }}>{c}</b> {act}</div>
+            <span key={act} className="kit-chip info">{c} {act}</span>
           ))}
         </div>
       </div>
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead style={{ background: 'var(--surface-2)' }}>
+      <div className="kit-card pad">
+        <div className="kit-mlabel" style={{ marginBottom: 8 }}>Registro do dia</div>
+        <table className="kit-table">
+          <thead>
             <tr>
-              <th style={th}>Atividade · Activity</th>
-              <th style={th}>Pessoa · Person</th>
-              <th style={th}>Início · Start</th>
-              <th style={th}>Duração · Duration</th>
-              <th style={th}>Status</th>
+              <th>Atividade</th>
+              <th>Pessoa</th>
+              <th className="num">Início</th>
+              <th className="num">Duração</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {sorted.length === 0 && (
-              <tr><td colSpan={5} style={{ ...td, textAlign: 'center', color: 'var(--text-3)' }}>
+              <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--ink-faint)' }}>
                 Sem ocorrências de suporte registradas.
               </td></tr>
             )}
@@ -478,28 +488,28 @@ function SupportPage({ state, hfdata, raw, openPanel, loading, date }) {
               const durMin = o.seconds != null ? Math.round(o.seconds / 60) : (endMin != null ? endMin - startMin : (now - startMin));
               const live = !o.ended_at;
               return (
-                <tr key={o.event_id} style={{ borderTop: '1px solid var(--border)', cursor: openPanel ? 'pointer' : 'default' }}
+                <tr key={o.event_id} className={openPanel ? 'clickable' : ''}
                     onClick={(e) => {
                       if (!openPanel) return;
                       const ev = state.events.find((x) => x.id === o.event_id);
                       if (ev) openPanel(ev, { x: e.clientX, y: e.clientY });
                     }}>
-                  <td style={td}>
-                    <span className="pill support"><span className="dot"/>{o.activity}</span>
-                    {o.is_downtime && <span className="pill bad" style={{ marginLeft: 6 }}><span className="dot"/>downtime</span>}
+                  <td>
+                    <span className="kit-chip dispute">{o.activity}</span>
+                    {o.is_downtime && <span className="kit-chip bad" style={{ marginLeft: 6 }}>downtime</span>}
                   </td>
-                  <td style={td}>
+                  <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {op && <OperatorAvatar op={op} size="md"/>}
-                      <b>{o.person || '—'}</b>
+                      <b style={{ fontWeight: 600 }}>{o.person || '—'}</b>
                     </div>
                   </td>
-                  <td style={{ ...td, fontFamily: 'JetBrains Mono, monospace' }}>{startMin != null ? fmtClock(startMin) : '—'}</td>
-                  <td style={{ ...td, fontFamily: 'JetBrains Mono, monospace' }}>{fmtDur(durMin)}</td>
-                  <td style={td}>
+                  <td className="num">{startMin != null ? fmtClock(startMin) : '—'}</td>
+                  <td className="num">{fmtDur(durMin)}</td>
+                  <td>
                     {live
-                      ? <span className="pill live"><span className="dot"/>ao vivo</span>
-                      : <span style={{ color: 'var(--text-3)', fontSize: 12 }}>fechado</span>}
+                      ? <span className="kit-chip ok">ao vivo</span>
+                      : <span className="kit-chip neutral">fechado</span>}
                   </td>
                 </tr>
               );
@@ -510,8 +520,6 @@ function SupportPage({ state, hfdata, raw, openPanel, loading, date }) {
     </div>
   );
 }
-const th = { padding: "10px 14px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.06, color: "var(--text-3)", fontWeight: 700 };
-const td = { padding: "12px 14px", fontSize: 13 };
 
 // ============ Produto (E7-resto Leva 3) ============
 // Lista produtos do catálogo + agrega events do dia por produto.
@@ -523,7 +531,7 @@ function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
   const countsRaw = (raw && raw.counts) || {};
   const { fmtDur, fmtClock } = window.HFH;
   const now = window.HFH.useNow(true);
-  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando produtos…</div>;
+  if (loading) return <div data-page-op="produto"><div className="opa-empty">Carregando produtos…</div></div>;
 
   // Agrega events por product key (b<batch_id>)
   const eventsByProduct = {};
@@ -554,24 +562,20 @@ function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
   const countsRows = countsRaw.counts || countsRaw.rows || [];
 
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Produtos do dia</h2><span className="en">· Today's products</span>
-        <div className="rule"/>
-      </div>
+    <div data-page-op="produto">
+      <PageHead eyebrow="PRODUTO" before="Produtos do " em="dia"
+                sub="Cada produto com tempo somado, fases percorridas e os eventos que geraram o número."/>
+      <Section label={`Com atividade hoje · ${activeProducts.length}`}/>
       {activeProducts.length === 0 && (
-        <div className="card" style={{ padding: 30, color: 'var(--text-3)', textAlign: 'center' }}>
-          Nenhum produto com atividade em {date || 'hoje'}.
-        </div>
+        <div className="opa-empty">Nenhum produto com atividade em {date || 'hoje'}.</div>
       )}
       {activeProducts.map((ap) => (
         <div key={ap.key} className="card lote-card" style={{ marginBottom: 12 }}>
           <div className="head">
-            <Leaf size={16} color="var(--hf-leaf-500)"/>
+            <Leaf size={16} color="var(--green-d)"/>
             <h3>{ap.product.name || '(?)'}</h3>
             {ap.product.batch && <span className="batch mono">{ap.product.batch}</span>}
-            {ap.liveCount > 0 && <span className="pill live" style={{ marginLeft: 6 }}><span className="dot"/>{ap.liveCount} live</span>}
+            {ap.liveCount > 0 && <span className="kit-chip ok" style={{ marginLeft: 6 }}>{ap.liveCount} ao vivo</span>}
             <span style={{ flex: 1 }}/>
             <div style={{ display: 'flex', gap: 4 }}>
               {ap.crew.slice(0, 5).map((cwId) => {
@@ -580,52 +584,50 @@ function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
               })}
             </div>
           </div>
-          <div style={{ marginTop: 8, display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-3)', flexWrap: 'wrap' }}>
-            <span>Tempo total · <b className="mono" style={{ color: 'var(--text-2)' }}>{fmtDur(ap.totalMin)}</b></span>
-            <span>Eventos · <b style={{ color: 'var(--text-2)' }}>{ap.events.length}</b></span>
-            <span>Fases · <b style={{ color: 'var(--text-2)' }}>{ap.phases.length}</b></span>
+          <div style={{ marginTop: 10, display: 'flex', gap: 16, fontSize: 12.5, color: 'var(--ink-dim)', flexWrap: 'wrap' }}>
+            <span>Tempo total · <b className="mono" style={{ color: 'var(--ink)' }}>{fmtDur(ap.totalMin)}</b></span>
+            <span>Eventos · <b style={{ color: 'var(--ink)' }}>{ap.events.length}</b></span>
+            <span>Fases · <b style={{ color: 'var(--ink)' }}>{ap.phases.length}</b></span>
           </div>
-          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             {ap.phases.map((ph) => (
-              <span key={ph} className="pill prod" style={{ fontSize: 11 }}><span className="dot"/>{ph}</span>
+              <span key={ph} className="kit-chip neutral">{ph}</span>
             ))}
           </div>
           {ap.events.length > 0 && (
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
-              <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.08, color: 'var(--text-3)', fontWeight: 700, marginBottom: 6 }}>
-                Eventos do dia
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {ap.events.map((ev) => {
-                  const op = operators.find((o) => o.id === ev.op);
-                  const act = activities[ev.activity];
-                  const end = ev.ended_min == null ? now : ev.ended_min;
-                  return (
-                    <button key={ev.id} onClick={(e) => openPanel && openPanel(ev, { x: e.clientX, y: e.clientY })}
-                            style={{
-                              display: 'grid', gridTemplateColumns: '110px 80px 1fr 60px', gap: 8,
-                              alignItems: 'center', padding: '6px 8px', borderRadius: 6,
-                              border: '1px solid var(--border)', background: 'var(--surface)',
-                              cursor: 'pointer', font: 'inherit', fontSize: 12, textAlign: 'left',
-                            }}>
-                      <span className="mono" style={{ color: 'var(--text-3)' }}>
-                        {fmtClock(ev.started_min)} → {ev.ended_min == null ? 'live' : fmtClock(ev.ended_min)}
-                      </span>
-                      <span>{op?.short || '?'}</span>
-                      <span style={{ color: 'var(--text-2)' }}>
-                        {act?.name || ev.activity}
-                        {ev._is_background && <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 6 }}>· bg</span>}
-                      </span>
-                      <span className="mono" style={{ color: 'var(--text-3)', textAlign: 'right' }}>{fmtDur(end - ev.started_min)}</span>
-                    </button>
-                  );
-                })}
-              </div>
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dotted var(--dotline)' }}>
+              <div className="kit-mlabel" style={{ marginBottom: 6 }}>Eventos do dia</div>
+              <table className="kit-table">
+                <thead>
+                  <tr><th>Horário</th><th>Quem</th><th>Atividade</th><th className="num">Duração</th></tr>
+                </thead>
+                <tbody>
+                  {ap.events.map((ev) => {
+                    const op = operators.find((o) => o.id === ev.op);
+                    const act = activities[ev.activity];
+                    const end = ev.ended_min == null ? now : ev.ended_min;
+                    return (
+                      <tr key={ev.id} className="clickable"
+                          onClick={(e) => openPanel && openPanel(ev, { x: e.clientX, y: e.clientY })}>
+                        <td className="num" style={{ textAlign: 'left' }}>
+                          {fmtClock(ev.started_min)} → {ev.ended_min == null ? 'live' : fmtClock(ev.ended_min)}
+                        </td>
+                        <td>{op?.short || '?'}</td>
+                        <td>
+                          {act?.name || ev.activity}
+                          {ev._is_background && <span className="kit-mlabel" style={{ marginLeft: 6 }}>bg</span>}
+                        </td>
+                        <td className="num">{fmtDur(end - ev.started_min)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
           {ap.product._product_id && totalsByProduct[ap.product._product_id] != null && (
-            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
-              📦 Contagens registradas (today) · <b className="mono" style={{ color: 'var(--text-2)' }}>{totalsByProduct[ap.product._product_id]}</b>
+            <div style={{ marginTop: 12 }}>
+              <span className="kit-chip info">Contagens registradas hoje · {totalsByProduct[ap.product._product_id]}</span>
             </div>
           )}
         </div>
@@ -634,18 +636,11 @@ function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
       {/* Catálogo expandido: produtos sem atividade hoje */}
       {catalogProducts.length > 0 && (
         <>
-          <div className="section-title" style={{ marginTop: 24 }}>
-            <Leaf size={14} color="var(--hf-leaf-500)"/>
-            <h2>Catálogo</h2><span className="en">· All products</span>
-            <div className="rule"/>
-          </div>
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 8 }}>
-              {catalogProducts.length} produtos ativos no catálogo
-            </div>
+          <Section label={`Catálogo · ${catalogProducts.length} produtos ativos`}/>
+          <div className="kit-card pad">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {catalogProducts.filter((p) => p.active !== false).map((p) => (
-                <span key={p.id} className="pill" style={{ fontSize: 11 }}>{p.canonical_name}</span>
+                <span key={p.id} className="kit-chip neutral">{p.canonical_name}</span>
               ))}
             </div>
           </div>
@@ -658,124 +653,119 @@ function ProductPage({ state, hfdata, raw, openPanel, loading, date }) {
 function FalarPage({ ack }) {
   // Bloco 28/mai noite Leva B — porta completa do /dashboard atual.
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Falar como Carolina</h2><span className="en">· Speak as Carolina</span>
-        <div className="rule"/>
-      </div>
-      <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '4px 0 12px' }}>
-        Porta de saída <b>manual</b>: posta no Slack só quando você clica Enviar. Auditado em <code>audit_log</code>.
-        Independente do Observer (que continua shadow — não posta sozinho).
-      </p>
-      <div className="card" style={{ padding: 16 }}>
+    <div data-page-op="falar">
+      <PageHead eyebrow="FALAR" before="Falar como " em="Carolina"
+                sub="Porta de saída manual: posta no Slack só quando você clica Enviar. Fica auditado. Independente do Observer, que continua shadow e não posta sozinho."/>
+      <div className="kit-card pad">
         <FalarCarolina ack={ack}/>
       </div>
     </div>
   );
 }
-function PlanPage()     { return <PlaceholderPage icon="plan"    pt="Planejamento" en="Planning" subtitle="Tasks futuras, o que vem pela frente, notificação opcional por task. Em construção."/>; }
+function PlanPage() {
+  return <PlaceholderPage icon="plan" eyebrow="PLANEJAMENTO"
+                          before="O que vem pela " em="frente" pt="Planejamento" en="Planning"
+                          subtitle="Tasks futuras, o que vem pela frente, notificação opcional por task. Em construção."/>;
+}
 
 // ============ Config (E7-resto Leva 3) ============
 // CRUD de deadlines (preview · liga no E5). Lista os reais do backend.
 function ConfigPage({ raw, ack, loading, V4_ALLOW_WRITES, writes, refresh }) {
   const deadlines = (raw && raw.deadlines && raw.deadlines.deadlines) || [];
   const { fmtMinutes } = window.HFH || {};
-  if (loading) return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando configurações…</div>;
+  if (loading) return <div data-page-op="config"><div className="opa-empty">Carregando configurações…</div></div>;
   const ackPreview = (msg) => ack && ack(msg);
   return (
-    <div>
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Configurações</h2><span className="en">· Settings</span>
-        <div className="rule"/>
-      </div>
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <Icon name="clock" size={14}/>
-          <b style={{ fontSize: 13 }}>Deadlines (cortes)</b>
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>· {deadlines.length} ativo(s)</span>
-          <span style={{ flex: 1 }}/>
-          <button className="btn sm primary" onClick={async () => {
-            const label = window.prompt('Label do deadline (ex.: "Corte do correio"):');
-            if (!label) return;
-            const time = window.prompt('Horário HH:MM (24h NY):', '13:00');
-            if (!time || !/^\d{1,2}:\d{2}$/.test(time)) { ack('Horário inválido'); return; }
-            const flow = window.prompt('Flow (pnp | production | support | vazio):', 'pnp') || null;
-            if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
-            const res = await writes.createDeadline({
-              label, time_of_day: time + ':00', flow: flow || null,
-              kind: 'recurring', weekdays: [1, 2, 3, 4, 5], active: true,
-            });
-            if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
-            if (refresh) refresh();
-            ack(`Deadline criado ✓ — ${label} ${time}`);
-          }}>
-            + Adicionar
-          </button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {deadlines.length === 0 && <div style={{ padding: 12, color: 'var(--text-3)', fontSize: 13 }}>Sem deadlines configurados.</div>}
+    <div data-page-op="config">
+      <PageHead eyebrow="CONFIGURAÇÕES" before="Ajustes do " em="sistema"
+                sub="Cortes (deadlines) que a linha do tempo e os avisos usam. O resto ainda vive no banco."
+                side={(
+                  <button className="kit-btn primary" onClick={async () => {
+                    const label = window.prompt('Label do deadline (ex.: "Corte do correio"):');
+                    if (!label) return;
+                    const time = window.prompt('Horário HH:MM (24h NY):', '13:00');
+                    if (!time || !/^\d{1,2}:\d{2}$/.test(time)) { ack('Horário inválido'); return; }
+                    const flow = window.prompt('Flow (pnp | production | support | vazio):', 'pnp') || null;
+                    if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                    const res = await writes.createDeadline({
+                      label, time_of_day: time + ':00', flow: flow || null,
+                      kind: 'recurring', weekdays: [1, 2, 3, 4, 5], active: true,
+                    });
+                    if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                    if (refresh) refresh();
+                    ack(`Deadline criado · ${label} ${time}`);
+                  }}>
+                    + Adicionar deadline
+                  </button>
+                )}/>
+      <div className="kit-card pad">
+        <div className="kit-mlabel" style={{ marginBottom: 8 }}>Deadlines (cortes) · {deadlines.length} ativo(s)</div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {deadlines.length === 0 && <div style={{ padding: '10px 0', color: 'var(--ink-faint)', fontSize: 13 }}>Sem deadlines configurados.</div>}
           {deadlines.map((d) => {
             const wd = (d.weekdays && d.weekdays.length === 7) ? 'todo dia'
               : (d.weekdays && d.weekdays.length === 5) ? 'seg-sex'
               : (d.weekdays && d.weekdays.length > 0) ? d.weekdays.map((n) => 'DSTQQSS'[n] || '?').join(',')
               : '—';
             return (
-              <div key={d.id} className="alert-row" style={{ background: 'var(--surface-2)' }}>
-                <div className="ico"><Icon name="clock" size={14}/></div>
+              <div key={d.id} className="opa-row">
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{d.label || '(sem label)'}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
-                    {d.flow ? <span className={`pill ${d.flow}`} style={{ marginRight: 6, fontSize: 10 }}><span className="dot"/>{d.flow}</span> : null}
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>{d.label || '(sem label)'}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    {d.flow ? <span className="kit-chip neutral">{d.flow}</span> : null}
                     <span className="mono">{d.time_of_day || d.due_date || '—'}</span>
-                    {[d.kind, wd].filter(Boolean).map((s) => ` · ${s}`).join('')}
-                    {!d.active && <span style={{ color: 'var(--bad)', marginLeft: 6 }}>(inativo)</span>}
+                    <span>{[d.kind, wd].filter(Boolean).join(' · ')}</span>
+                    {!d.active && <span className="kit-chip bad">inativo</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: '0 0 auto' }}>
-                <button className="icon-btn" onClick={async () => {
-                  const time = window.prompt(`Novo horário HH:MM (24h NY) pra "${d.label}":`, (d.time_of_day || '').slice(0, 5));
-                  if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return;
-                  if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
-                  const res = await writes.patchDeadline(d.id, { time_of_day: time + ':00' });
-                  if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
-                  if (refresh) refresh();
-                  ack(`Salvo ✓ — ${d.label} ${time}`);
-                }} title="Editar horário">
-                  <Icon name="edit" size={12}/>
-                </button>
-                <button className="icon-btn" onClick={async () => {
-                  if (!window.confirm(`Apagar deadline "${d.label}"?`)) return;
-                  if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
-                  const res = await writes.deleteDeadline(d.id);
-                  if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
-                  if (refresh) refresh();
-                  ack(`Apagado ✓ — deadline ${d.id}`);
-                }} title="Apagar">
-                  <Icon name="trash" size={12}/>
-                </button>
+                  <button className="kit-btn xs" onClick={async () => {
+                    const time = window.prompt(`Novo horário HH:MM (24h NY) pra "${d.label}":`, (d.time_of_day || '').slice(0, 5));
+                    if (!time || !/^\d{1,2}:\d{2}$/.test(time)) return;
+                    if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                    const res = await writes.patchDeadline(d.id, { time_of_day: time + ':00' });
+                    if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                    if (refresh) refresh();
+                    ack(`Salvo · ${d.label} ${time}`);
+                  }} title="Editar horário">
+                    <Icon name="edit" size={12}/>
+                  </button>
+                  <button className="kit-btn xs" onClick={async () => {
+                    if (!window.confirm(`Apagar deadline "${d.label}"?`)) return;
+                    if (!V4_ALLOW_WRITES || !writes) { ack('preview · sem writes'); return; }
+                    const res = await writes.deleteDeadline(d.id);
+                    if (!res.ok) { ack(`Erro: ${res.error.message || res.error}`); return; }
+                    if (refresh) refresh();
+                    ack(`Apagado · deadline ${d.id}`);
+                  }} title="Apagar">
+                    <Icon name="trash" size={12}/>
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
-        <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
-          {V4_ALLOW_WRITES ? 'Edições persistem.' : 'V4_ALLOW_WRITES=0 — edições toastam preview, persistem no E5.'}
+        <div className="kit-mlabel" style={{ marginTop: 14 }}>
+          {V4_ALLOW_WRITES ? 'Edições persistem.' : 'V4_ALLOW_WRITES=0 · edições toastam preview, persistem no E5.'}
         </div>
       </div>
       {/* outras configs ficam pro E5+ — threshold de gap notif, expediente, etc */}
-      <div className="card" style={{ padding: 14, marginTop: 12, opacity: 0.7 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          📋 Outras configs (threshold de gap notificável, expediente NY, expected_seconds dos backgrounds)
-          ficam pro E5+. Configurável via SQL em <span className="mono">v3.settings</span> por ora.
+      <div className="kit-card pad" style={{ marginTop: 12 }}>
+        <div className="kit-mlabel" style={{ marginBottom: 6 }}>Ainda no banco</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-dim)' }}>
+          Threshold de gap notificável, expediente NY e expected_seconds dos backgrounds ficam pro E5+.
+          Configurável em <span className="mono">v3.settings</span> por ora.
         </div>
       </div>
     </div>
   );
 }
 
-function CarolinaPage() { return <PlaceholderPage icon="chat"    pt="Carolina" en="Carolina" subtitle="Chat de aprendizado da Carolina (Bloco 5). Placeholder no E0 — UI desenhada depois."/>; }
+function CarolinaPage() {
+  return <PlaceholderPage icon="chat" eyebrow="CAROLINA"
+                          before="Aprendizado da " em="Carolina" pt="Carolina" en="Carolina"
+                          subtitle="Chat de aprendizado da Carolina (Bloco 5). Placeholder no E0, a UI vem depois."/>;
+}
 
 Object.assign(window, { ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage, ProductPage, FalarPage, PlanPage, ConfigPage, CarolinaPage });
 

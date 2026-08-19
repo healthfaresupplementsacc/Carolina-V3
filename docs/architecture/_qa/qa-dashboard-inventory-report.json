@@ -1,0 +1,431 @@
+{
+  "at": "2026-08-19T01:09:08.245Z",
+  "results": [
+    {
+      "group": "screenshot",
+      "name": "inventory",
+      "pass": true,
+      "detail": "156 KB → theme-B-inventory.png"
+    },
+    {
+      "group": "inventory",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "T2 h1 em DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "inventory",
+      "name": "T2 h1 tem <em> italico verde",
+      "pass": true,
+      "detail": "\"armazém\" italic rgb(46, 139, 60)"
+    },
+    {
+      "group": "inventory",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "1 card(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "abas como segmented control do kit (10)",
+      "pass": true,
+      "detail": "botoes=10"
+    },
+    {
+      "group": "inventory",
+      "name": "aba ativa marcada .on",
+      "pass": true,
+      "detail": "Estoque8"
+    },
+    {
+      "group": "inventory",
+      "name": "aba Estoque lista os 8 produtos da fixture",
+      "pass": true,
+      "detail": "linhas=8"
+    },
+    {
+      "group": "inventory",
+      "name": "aba bins renderiza linhas",
+      "pass": true,
+      "detail": "linhas=6"
+    },
+    {
+      "group": "inventory/bins",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "aba boxes renderiza linhas",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "inventory/boxes",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "aba planner renderiza linhas",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "inventory/planner",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "aba issues renderiza linhas",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "inventory/issues",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "aba supplies renderiza linhas",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "inventory/supplies",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "inventory",
+      "name": "aba matched renderiza linhas",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "inventory/matched",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "screenshot",
+      "name": "inventory-suprimentos",
+      "pass": true,
+      "detail": "181 KB → theme-B-inventory-suprimentos.png"
+    },
+    {
+      "group": "screenshot",
+      "name": "inventory-planner",
+      "pass": true,
+      "detail": "152 KB → theme-B-inventory-planner.png"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-geral",
+      "pass": true,
+      "detail": "159 KB → theme-B-estoque-geral.png"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "T2 h1 em DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "T2 h1 tem <em> italico verde",
+      "pass": true,
+      "detail": "\"cada\" italic rgb(46, 139, 60)"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "1 card(s)"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "tabela lista os 8 produtos",
+      "pass": true,
+      "detail": "linhas=8"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "modal de editar usa .kit-modal",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "passo 1 mostra Revisar",
+      "pass": true,
+      "detail": "● EDITAR ESTOQUE NO VEEQOBenfotiamine 300 mgBENF-300SKU do V"
+    },
+    {
+      "group": "estoque-geral",
+      "name": "passo 2 mostra Confirmar + aviso \"Passo 2 de 2\"",
+      "pass": true,
+      "detail": ". Isso grava no Veeqo (armazém HealthFare). Confira o produto e o SKU."
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-geral-modal",
+      "pass": true,
+      "detail": "179 KB → theme-B-estoque-geral-modal.png"
+    },
+    {
+      "group": "screenshot",
+      "name": "produto-setup",
+      "pass": true,
+      "detail": "153 KB → theme-B-produto-setup.png"
+    },
+    {
+      "group": "produto-setup",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "T2 h1 em DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "produto-setup",
+      "name": "T2 h1 tem <em> italico verde",
+      "pass": true,
+      "detail": "\"SKUs\" italic rgb(46, 139, 60)"
+    },
+    {
+      "group": "produto-setup",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "produto-setup",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "2 card(s)"
+    },
+    {
+      "group": "produto-setup",
+      "name": "tabela lista os 5 produtos da fixture",
+      "pass": true,
+      "detail": "linhas=5"
+    },
+    {
+      "group": "produto-setup",
+      "name": "SKUs viram chips tonais por canal",
+      "pass": true,
+      "detail": "chips=9"
+    },
+    {
+      "group": "produto-setup",
+      "name": "produto em hold marcado com chip bad",
+      "pass": true,
+      "detail": "hold, não imprimir,11/2026"
+    },
+    {
+      "group": "screenshot",
+      "name": "config-estoque",
+      "pass": true,
+      "detail": "151 KB → theme-B-config-estoque.png"
+    },
+    {
+      "group": "config-estoque",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "3 tabela(s) conferida(s)"
+    },
+    {
+      "group": "config-estoque",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "0 card(s)"
+    },
+    {
+      "group": "config-estoque",
+      "name": "h1 escopado (is-h1) em DM Serif com <em>",
+      "pass": true,
+      "detail": "\"DM Serif Display\", \"Iowan Old Style\", Georgia, serif"
+    },
+    {
+      "group": "screenshot",
+      "name": "picklist",
+      "pass": true,
+      "detail": "129 KB → theme-B-picklist.png"
+    },
+    {
+      "group": "picklist",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "0 tabela(s) conferida(s)"
+    },
+    {
+      "group": "picklist",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "0 card(s)"
+    },
+    {
+      "group": "picklist",
+      "name": "h1 escopado (pl-h1) em DM Serif com <em>",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque",
+      "pass": true,
+      "detail": "204 KB → theme-B-estoque.png"
+    },
+    {
+      "group": "estoque",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "T2 h1 em DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "estoque",
+      "name": "T2 h1 tem <em> italico verde",
+      "pass": true,
+      "detail": "\"armazém\" italic rgb(46, 139, 60)"
+    },
+    {
+      "group": "estoque",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "estoque",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "2 card(s)"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-aprovacoes",
+      "pass": true,
+      "detail": "130 KB → theme-B-estoque-aprovacoes.png"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "T2 h1 em DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "T2 h1 tem <em> italico verde",
+      "pass": true,
+      "detail": "\"esperando\" italic rgb(46, 139, 60)"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "1 tabela(s) conferida(s)"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "1 card(s)"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-locais",
+      "pass": true,
+      "detail": "159 KB → theme-B-estoque-locais.png"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "T1 sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "T2 h1 em DM Serif Display",
+      "pass": true,
+      "detail": "\"DM Serif Display\", Georgia, serif"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "T2 h1 tem <em> italico verde",
+      "pass": true,
+      "detail": "\"caixas\" italic rgb(46, 139, 60)"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "T3 sem linha do topo apagada (todas as linhas com a mesma tinta)",
+      "pass": true,
+      "detail": "2 tabela(s) conferida(s)"
+    },
+    {
+      "group": "estoque-locais",
+      "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
+      "pass": true,
+      "detail": "2 card(s)"
+    }
+  ]
+}

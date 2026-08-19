@@ -7,20 +7,24 @@
    - Saúde EPSON (tinta/mídia) quando o canal trouxer (slots já prontos).
    - Histórico das últimas impressões (quem, o quê, batch, tempo).
    Dado real: GET /api/v3/data/printers?date= (poll 12s) + SSE pro spooler.
+
+   S15 Fase 2 (grupo C): STYLE-KIT 100%. Cards de impressora, barras de tinta e
+   incidentes usam os tons do kit (ok/warn/bad/info/neutral); histórico virou
+   kit-table. SSE, polling e contratos de dado NÃO mudaram.
 */
 import React from 'react';
-import { Icon, Leaf } from '../components/Icons.jsx';
-import { KPI, CapBar } from '../components/Primitives.jsx';
+import { Icon } from '../components/Icons.jsx';
 import { usePoll, getPin } from '../adapters/from-api.js';
+import './pages-admin.css';
 
-// Mapa de rótulo de status físico → cor + texto amigável.
+// Mapa de rótulo de status físico → tom do kit + texto amigável.
 function statusView(label) {
   const s = String(label || '').toLowerCase();
-  if (/imprim|print|\bpr\b/.test(s)) return { key: 'printing', txt: 'Imprimindo', c: 'var(--hf-navy-500)', live: true };
-  if (/erro|error|jam|papel|paper|falta|out/.test(s)) return { key: 'error', txt: label || 'Erro', c: 'var(--bad, #dc2626)', live: false };
-  if (/ocios|idle|\bil\b|normal|pronta|ready/.test(s)) return { key: 'idle', txt: 'Ociosa', c: 'var(--hf-leaf-600)', live: false };
-  if (/wait|wt|pause|ps/.test(s)) return { key: 'wait', txt: label || 'Aguardando', c: 'var(--warn, #d97706)', live: false };
-  return { key: 'unknown', txt: label || 'Desconhecido', c: 'var(--text-3)', live: false };
+  if (/imprim|print|\bpr\b/.test(s)) return { key: 'printing', txt: 'Imprimindo', tone: 'info', live: true };
+  if (/erro|error|jam|papel|paper|falta|out/.test(s)) return { key: 'error', txt: label || 'Erro', tone: 'bad', live: false };
+  if (/ocios|idle|\bil\b|normal|pronta|ready/.test(s)) return { key: 'idle', txt: 'Ociosa', tone: 'ok', live: false };
+  if (/wait|wt|pause|ps/.test(s)) return { key: 'wait', txt: label || 'Aguardando', tone: 'warn', live: false };
+  return { key: 'unknown', txt: label || 'Desconhecido', tone: 'neutral', live: false };
 }
 
 function fmtAgo(sec) {
@@ -43,7 +47,8 @@ function fmtClock(iso) {
   } catch { return '—'; }
 }
 
-// Cores reais das tintas (K/C/M/Y) pra pintar as barras.
+// Cores reais das tintas (K/C/M/Y) pra pintar as barras. São cor FÍSICA do
+// cartucho, não semântica de status — por isso ficam fora dos tokens do kit.
 const INK_COLORS = { K: '#1a1a1a', C: '#00a8e0', M: '#e6007e', Y: '#f5d800', maint: '#8a6d3b' };
 const INK_NAME = { K: 'Preto', C: 'Ciano', M: 'Magenta', Y: 'Amarelo' };
 // avisos do ESC/Label ~H(QWN → texto pt
@@ -58,20 +63,19 @@ function InkBar({ name, c, level }) {
   const pct = level && level.pct != null ? level.pct : 0;
   const low = pct <= 15;
   return (
-    <div style={{ marginBottom: 7 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 3 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 3, background: c, border: '1px solid rgba(0,0,0,0.15)', display: 'inline-block' }}/>
+    <div className="ink-row">
+      <div className="ink-top">
+        <span className="ink-name">
+          <span className="ink-swatch" style={{ background: c }}/>
           {name}
         </span>
-        <span style={{ fontSize: 11.5, color: low ? 'var(--bad, #dc2626)' : 'var(--text-3)', fontWeight: low ? 700 : 500 }}>
-          {level ? level.label : '—'}
-        </span>
+        {level
+          ? <span className={'kit-chip ' + (low ? 'bad' : 'neutral')}>{level.label}</span>
+          : <span className="adm-note faint">sem leitura</span>}
       </div>
-      <div style={{ height: 9, borderRadius: 5, background: 'var(--surface-2)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-        <div style={{ width: pct + '%', height: '100%', background: c, borderRadius: 5,
-                      opacity: level && (level.code === 'NA') ? 0.25 : 1,
-                      boxShadow: low ? 'inset 0 0 0 99px rgba(220,38,38,0.25)' : 'none' }}/>
+      <div className="ink-track">
+        <div className="ink-fill" style={{ width: pct + '%', background: c,
+                      opacity: level && (level.code === 'NA') ? 0.25 : 1 }}/>
       </div>
     </div>
   );
@@ -80,8 +84,8 @@ function InkBar({ name, c, level }) {
 // Painel de tinta CMYK (ordem K, C, M, Y).
 function InkPanel({ ink }) {
   return (
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 10.5, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.05, fontWeight: 700, marginBottom: 6 }}>Tinta</div>
+    <div style={{ marginTop: 14 }}>
+      <div className="kit-mlabel" style={{ marginBottom: 8 }}>Tinta</div>
       {['K', 'C', 'M', 'Y'].filter((k) => ink[k]).map((k) => (
         <InkBar key={k} name={INK_NAME[k]} c={INK_COLORS[k]} level={ink[k]}/>
       ))}
@@ -149,64 +153,86 @@ function PrintingPage({ date }) {
   const activeJobs = (stream.active && stream.active.length ? stream.active : ((data && data.live && data.live.active) || []));
 
   if (loading && !data) {
-    return <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)' }}>Carregando impressoras…</div>;
+    return <div className="adm-state">Carregando impressoras…</div>;
   }
 
+  const printingNow = printers.filter((p) => statusView(p.status_label).live).length;
+
   return (
-    <div>
+    <div data-page="impressao" style={{ paddingBottom: 60 }}>
+      <div className="adm-head">
+        <div className="lead">
+          <span className="kit-eyebrow">● HEALTHFARE · IMPRESSÃO</span>
+          <h1 className="kit-h1">Impressoras da <em>fábrica</em></h1>
+          <p className="kit-sub">
+            Estado físico ao vivo, tinta, incidentes e o histórico de quem imprimiu o quê. O fim real da impressão vem da própria máquina.
+          </p>
+        </div>
+      </div>
+
       {/* ── Stats do dia ── */}
-      <div className="kpi-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
-        <KPI label="Labels impressos" en="Labels" value={stats.labels} suffix=" hoje"
-             foot={`${stats.jobs} impressões · ${stats.operators} operador(es)`}/>
-        <KPI label="Impressões" en="Jobs" value={stats.jobs} suffix=" hoje"
-             foot={activeJobs.length > 0 ? `${activeJobs.length} em andamento agora` : 'nenhuma agora'}/>
-        <KPI label="Impressoras" en="Printers" value={printers.length}
-             foot={printers.filter((p) => statusView(p.status_label).live).length + ' imprimindo agora'}/>
+      <div className="adm-kpis" data-kpis="impressao">
+        <div className="adm-kpi">
+          <div className="kit-mlabel">Labels impressos</div>
+          <div className="v">{stats.labels}<small>hoje</small></div>
+          <div className="adm-note faint" style={{ marginTop: 4 }}>{stats.jobs} impressões · {stats.operators} operador(es)</div>
+        </div>
+        <div className="adm-kpi">
+          <div className="kit-mlabel">Impressões</div>
+          <div className="v">{stats.jobs}<small>hoje</small></div>
+          <div className="adm-note faint" style={{ marginTop: 4 }}>
+            {activeJobs.length > 0 ? activeJobs.length + ' em andamento agora' : 'nenhuma agora'}
+          </div>
+        </div>
+        <div className="adm-kpi">
+          <div className="kit-mlabel">Impressoras</div>
+          <div className={'v ' + (printingNow > 0 ? 'ok' : '')}>{printers.length}</div>
+          <div className="adm-note faint" style={{ marginTop: 4 }}>{printingNow} imprimindo agora</div>
+        </div>
       </div>
 
       {/* ── QUEM está no PC da impressão AGORA (Bruno 07-27) ── */}
-      <div className="card" style={{ padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12,
-             borderLeft: '4px solid ' + (stationOp ? (stationOp.active_now ? 'var(--hf-leaf-500, #22b35d)' : 'var(--warn, #d97706)') : 'var(--text-3)') }}>
-        <span style={{ fontSize: 22 }}>💻</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: 0.06 }}>Na estação de impressão (.28) agora</div>
+      <div className={'kit-card pad ' + (stationOp && !stationOp.stale && !stationOp.active_now ? 'warn' : '')}
+           style={{ marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14 }}>
+        <Icon name="config" size={20}/>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="kit-mlabel">Na estação de impressão (.28) agora</div>
           {stationOp && stationOp.stale ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-              <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--text-3)' }}/>
-              <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
-                último login foi de <b>{stationOp.name || '—'}</b>, mas está velho — <b>não dá pra confirmar</b> quem está agora
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 4, flexWrap: 'wrap' }}>
+              <span className="sys-dot off"/>
+              <span className="adm-note">
+                último login foi de <b>{stationOp.name || '—'}</b>, mas está velho. Não dá pra confirmar quem está agora.
               </span>
             </div>
           ) : stationOp ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-              <span style={{ width: 9, height: 9, borderRadius: '50%', background: stationOp.active_now ? 'var(--hf-leaf-500, #22b35d)' : 'var(--warn, #d97706)' }}/>
-              <b style={{ fontSize: 15 }}>{stationOp.name || 'sem nome'}</b>
-              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                {stationOp.active_now ? 'ativo agora' : `logado, parado há ${fmtDur(Math.round((stationOp.last_seen_sec || 0) / 60))}`}
-                {stationOp.active_sec != null ? ` · ${fmtDur(Math.round(stationOp.active_sec / 60))} ativo no PC` : ''}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 4, flexWrap: 'wrap' }}>
+              <span className={'sys-dot ' + (stationOp.active_now ? 'ok' : 'warn')}/>
+              <b style={{ fontSize: 15, color: 'var(--primary-deep)' }}>{stationOp.name || 'sem nome'}</b>
+              <span className={'kit-chip ' + (stationOp.active_now ? 'ok' : 'warn')}>
+                {stationOp.active_now ? 'ativo agora' : 'parado há ' + fmtDur(Math.round((stationOp.last_seen_sec || 0) / 60))}
               </span>
+              {stationOp.active_sec != null && (
+                <span className="adm-note faint">{fmtDur(Math.round(stationOp.active_sec / 60))} ativo no PC</span>
+              )}
             </div>
           ) : (
-            <div style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>ninguém logado (tela bloqueada esperando PIN)</div>
+            <div className="adm-note" style={{ marginTop: 4 }}>ninguém logado (tela bloqueada esperando PIN)</div>
           )}
         </div>
       </div>
 
       {/* ── Incidentes ABERTOS (impressora com problema agora) ── */}
       {incidents.length > 0 && (
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 18, display: 'grid', gap: 10 }} data-list="incidentes">
           {incidents.map((inc) => (
-            <div key={inc.printer} className="card" style={{ padding: 16, marginBottom: 8, borderLeft: '4px solid var(--bad, #dc2626)', background: 'color-mix(in srgb, var(--bad, #dc2626) 6%, var(--surface))' }}>
+            <div key={inc.printer} className="kit-card pad bad">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 18 }}>⚠️</span>
-                <b style={{ fontSize: 14 }}>{inc.printer}</b>
-                <span className="pill" style={{ background: 'color-mix(in srgb, var(--bad) 14%, transparent)', color: 'var(--bad)', borderColor: 'color-mix(in srgb, var(--bad) 34%, transparent)' }}>
-                  <span className="dot" style={{ background: 'var(--bad)' }}/>{inc.error || 'problema'}
-                </span>
+                <b style={{ fontSize: 14, color: 'var(--bad-deep)' }}>{inc.printer}</b>
+                <span className="kit-chip bad">{inc.error || 'problema'}</span>
                 <span style={{ flex: 1 }}/>
-                {inc.down_seconds != null && <span style={{ fontSize: 12.5, color: 'var(--bad)', fontWeight: 700 }}>parada há {fmtDur(inc.down_seconds)}</span>}
+                {inc.down_seconds != null && <span className="kit-chip bad">parada há {fmtDur(inc.down_seconds)}</span>}
               </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)', display: 'flex', gap: 14 }}>
+              <div className="adm-note" style={{ marginTop: 8, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                 {inc.tried_by && <span>tentou consertar: <b>{inc.tried_by}</b></span>}
                 {inc.alerts > 0 && <span>{inc.alerts} alerta(s) enviado(s)</span>}
               </div>
@@ -216,56 +242,49 @@ function PrintingPage({ date }) {
       )}
 
       {/* ── Status físico ao vivo por impressora ── */}
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Impressoras · estado físico</h2><span className="en">· Live physical status</span>
-        <div className="rule"/>
+      <div className="adm-sec" style={{ marginTop: 20 }}>
+        <span className="kit-mlabel">Impressoras · estado físico</span>
+        <span className="rule"/>
       </div>
       {printers.length === 0 ? (
-        <div className="card" style={{ padding: 24, color: 'var(--text-3)', textAlign: 'center' }}>
+        <div className="adm-state">
           Sem status ainda. O poller do .28 vai reportar assim que uma impressora mudar de estado.
-          <div style={{ fontSize: 11.5, marginTop: 8, fontStyle: 'italic' }}>
-            (Fim físico real vem do canal ESC/Label da EPSON — <span className="mono">~H(SMA,S</span> → PR→IL.)
+          <div className="adm-note faint" style={{ marginTop: 8 }}>
+            O fim físico real vem do canal ESC/Label da EPSON (~H(SMA,S, transição PR para IL).
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, marginBottom: 18 }}>
+        <div className="adm-grid two" style={{ marginBottom: 18 }} data-list="impressoras">
           {printers.map((p) => {
             const sv = statusView(p.status_label);
             const ink = p.ink || null;   // { color: pct } quando o canal trouxer
             const media = p.media || null;
             return (
-              <div key={p.computer + '|' + p.printer} className="card" style={{ padding: 16 }}>
+              <div key={p.computer + '|' + p.printer} className="kit-card pad">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Icon name="factory" size={18}/>
-                  <b style={{ fontSize: 14, flex: 1 }}>{p.printer}</b>
-                  <span className={`pill ${sv.live ? 'live' : ''}`} style={{ background: sv.c === 'var(--text-3)' ? 'var(--surface-2)' : `color-mix(in srgb, ${sv.c} 14%, transparent)`, color: sv.c, borderColor: `color-mix(in srgb, ${sv.c} 34%, transparent)` }}>
-                    <span className="dot" style={{ background: sv.c }}/>{sv.txt}
-                  </span>
+                  <b style={{ fontSize: 14, flex: 1, color: 'var(--primary-deep)' }}>{p.printer}</b>
+                  <span className={'kit-chip ' + sv.tone}>{sv.txt}</span>
                 </div>
                 {p.error_label && (
-                  <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--bad, #dc2626)', fontWeight: 600 }}>
-                    ⚠ {p.error_label}
-                  </div>
+                  <div style={{ marginTop: 10 }}><span className="kit-chip bad">{p.error_label}</span></div>
                 )}
                 {ink && <InkPanel ink={ink}/>}
                 {media && media.maint_box && (
-                  <div style={{ marginTop: 10 }}>
+                  <div style={{ marginTop: 12 }}>
                     <InkBar name="Caixa de manutenção" c={INK_COLORS.maint} level={media.maint_box}/>
                   </div>
                 )}
                 {media && media.warnings && media.warnings.length > 0 && (
-                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {media.warnings.map((w) => (
-                      <span key={w} className="pill" style={{ fontSize: 10.5, background: 'color-mix(in srgb, var(--warn, #d97706) 12%, transparent)', color: 'var(--warn, #d97706)' }}>
-                        <span className="dot" style={{ background: 'var(--warn, #d97706)' }}/>{WARN_LABEL[w] || w}
-                      </span>
+                      <span key={w} className="kit-chip warn">{WARN_LABEL[w] || w}</span>
                     ))}
                   </div>
                 )}
-                <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--text-3)', display: 'flex', gap: 12 }}>
+                <div className="adm-note faint" style={{ marginTop: 14, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                   <span>atualizado há {fmtAgo(p.age_sec)}</span>
-                  <span className="mono">{p.computer}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{p.computer}</span>
                 </div>
               </div>
             );
@@ -276,36 +295,41 @@ function PrintingPage({ date }) {
       {/* ── Spooler ao vivo (jobs em andamento) ── */}
       {activeJobs.length > 0 && (
         <>
-          <div className="section-title">
-            <span className="pill live"><span className="dot"/>ao vivo</span>
-            <h2 style={{ marginLeft: 8 }}>Imprimindo agora</h2><span className="en">· Spooler live</span>
-            <div className="rule"/>
+          <div className="adm-sec" style={{ marginTop: 20 }}>
+            <span className="kit-chip ok">ao vivo</span>
+            <span className="kit-mlabel">Imprimindo agora · spooler</span>
+            <span className="rule"/>
           </div>
           <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
             {activeJobs.map((j) => (
-              <div key={j.computer + '|' + j.job_id} className="card" style={{ padding: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <b style={{ fontSize: 13.5 }}>{j.document || 'documento'}</b>
-                  <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>{j.printer}</span>
+              <div key={j.computer + '|' + j.job_id} className="kit-card pad">
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
+                  <b style={{ fontSize: 13.5, color: 'var(--primary-deep)' }}>{j.document || 'documento'}</b>
+                  <span className="kit-chip neutral">{j.printer}</span>
                   <span style={{ flex: 1 }}/>
-                  <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{fmtDur(j.elapsed_sec)} decorrido</span>
+                  <span className="adm-note faint">{fmtDur(j.elapsed_sec)} decorrido</span>
                 </div>
                 {(j.total_pages || 0) > 1 && j.pct != null ? (
-                  <div style={{ marginTop: 8 }}>
-                    <CapBar pct={j.pct} size="lg"
-                            label={`${j.pages_printed || 0}/${j.total_pages || '?'} pág`}
-                            sub={j.eta_sec != null ? `~${fmtDur(j.eta_sec)} restante (spooler)` : `${j.pct}%`}
-                            color1="var(--hf-navy-500)" color2="var(--hf-leaf-500)"/>
-                    <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
-                      * barra = spooler (dados enviados). Fim FÍSICO real vem do estado da impressora acima.
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                      <span className="kit-mlabel">{(j.pages_printed || 0)}/{j.total_pages || '?'} pág</span>
+                      <span className="adm-note faint">
+                        {j.eta_sec != null ? '~' + fmtDur(j.eta_sec) + ' restante (spooler)' : j.pct + '%'}
+                      </span>
+                    </div>
+                    <div className="adm-bar-track" style={{ height: 10 }}>
+                      <div className="adm-bar-fill" style={{ width: Math.max(0, Math.min(100, j.pct)) + '%' }}/>
+                    </div>
+                    <div className="adm-note faint" style={{ marginTop: 7 }}>
+                      A barra é o spooler (dados enviados). O fim físico real vem do estado da impressora acima.
                     </div>
                   </div>
                 ) : (
                   // PDF (Acrobat): o spooler não sabe o total ("1 página") — sem barra
                   // falsa. A contagem REAL vem do contador da impressora no fim físico.
-                  <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-3)', fontStyle: 'italic' }}>
-                    PDF — o spooler não informa o total; a impressora conta os labels e o
-                    número REAL entra no registro quando ela terminar (estado acima).
+                  <div className="adm-note faint" style={{ marginTop: 8 }}>
+                    PDF: o spooler não informa o total. A impressora conta os labels e o número real entra no
+                    registro quando ela terminar (estado acima).
                   </div>
                 )}
               </div>
@@ -317,12 +341,11 @@ function PrintingPage({ date }) {
       {/* ── Quebras do dia ── */}
       {(byPrinter.length > 0 || byOperator.length > 0 || byProduct.length > 0) && (
         <>
-          <div className="section-title">
-            <Leaf size={14} color="var(--hf-leaf-500)"/>
-            <h2>Hoje · por impressora, operador e produto</h2><span className="en">· Today breakdown</span>
-            <div className="rule"/>
+          <div className="adm-sec" style={{ marginTop: 20 }}>
+            <span className="kit-mlabel">Hoje · por impressora, operador e produto</span>
+            <span className="rule"/>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 18 }}>
+          <div className="adm-grid three" style={{ marginBottom: 18 }}>
             <BreakdownCard title="Por impressora" rows={byPrinter} nameKey="printer"/>
             <BreakdownCard title="Por operador" rows={byOperator} nameKey="operator"/>
             <BreakdownCard title="Por produto" rows={byProduct} nameKey="product"/>
@@ -331,50 +354,49 @@ function PrintingPage({ date }) {
       )}
 
       {/* ── Histórico ── */}
-      <div className="section-title">
-        <Leaf size={14} color="var(--hf-leaf-500)"/>
-        <h2>Últimas impressões</h2><span className="en">· History</span>
-        <div className="rule"/>
+      <div className="adm-sec" style={{ marginTop: 20 }}>
+        <span className="kit-mlabel">Últimas impressões</span>
+        <span className="rule"/>
       </div>
       {history.length === 0 ? (
-        <div className="card" style={{ padding: 24, color: 'var(--text-3)', textAlign: 'center' }}>Nenhuma impressão registrada ainda.</div>
+        <div className="adm-state">Nenhuma impressão registrada ainda.</div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="kit-card pad">
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <table className="kit-table" data-table="historico">
               <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--text-3)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.04 }}>
-                  <th style={{ padding: '10px 12px' }}>Hora</th>
-                  <th style={{ padding: '10px 12px' }}>Operador</th>
-                  <th style={{ padding: '10px 12px' }}>Documento</th>
-                  <th style={{ padding: '10px 12px' }}>Produto · Batch</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'right' }}>Labels</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'right' }} title="Tempo FÍSICO que a impressora levou (PR→IL)">Impressão</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'right' }}>Ativo no PC</th>
-                  <th style={{ padding: '10px 12px' }}>Impressora</th>
+                <tr>
+                  <th>Hora</th>
+                  <th>Operador</th>
+                  <th>Documento</th>
+                  <th>Produto · Batch</th>
+                  <th className="num">Labels</th>
+                  <th className="num" title="Tempo FÍSICO que a impressora levou (PR para IL)">Impressão</th>
+                  <th className="num">Ativo no PC</th>
+                  <th>Impressora</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((h) => (
-                  <tr key={h.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }} className="mono">{fmtClock(h.completed_at || h.created_at)}</td>
-                    <td style={{ padding: '9px 12px' }}>
-                      {h.operator || h.operator_fallback || <span style={{ color: 'var(--text-3)', fontStyle: 'italic' }}>sem PIN</span>}
+                  <tr key={h.id}>
+                    <td style={{ font: '500 12px var(--font-mono)', whiteSpace: 'nowrap' }}>{fmtClock(h.completed_at || h.created_at)}</td>
+                    <td>
+                      {h.operator || h.operator_fallback || <span className="kit-chip neutral">sem PIN</span>}
                     </td>
-                    <td style={{ padding: '9px 12px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.document}>{h.document || '—'}</td>
-                    <td style={{ padding: '9px 12px' }}>
+                    <td style={{ maxWidth: 210, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.document}>{h.document || '—'}</td>
+                    <td>
                       {h.product ? (
-                        <span><b>{h.product}</b>{h.batch && <span className="mono" style={{ color: 'var(--text-3)', marginLeft: 6 }}>{h.batch}</span>}</span>
+                        <span><b>{h.product}</b>{h.batch && <span className="kit-chip neutral" style={{ marginLeft: 6 }}>{h.batch}</span>}</span>
                       ) : (
-                        <span style={{ color: h.has_batch === false ? 'var(--warn)' : 'var(--text-3)', fontStyle: 'italic' }}>
+                        <span className={'kit-chip ' + (h.has_batch === false ? 'warn' : 'neutral')}>
                           {h.has_batch === false ? 'sem batch' : 'não identificado'}
                         </span>
                       )}
                     </td>
-                    <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 700 }}>{h.sheets || '—'}</td>
-                    <td style={{ padding: '9px 12px', textAlign: 'right' }} className="mono">{h.print_seconds ? fmtDur(h.print_seconds) : '—'}</td>
-                    <td style={{ padding: '9px 12px', textAlign: 'right' }} className="mono">{h.session_active_sec ? fmtDur(h.session_active_sec) : '—'}</td>
-                    <td style={{ padding: '9px 12px', color: 'var(--text-3)', fontSize: 11.5 }}>{h.printer || '—'}</td>
+                    <td className="num"><b>{h.sheets || '—'}</b></td>
+                    <td className="num">{h.print_seconds ? fmtDur(h.print_seconds) : '—'}</td>
+                    <td className="num">{h.session_active_sec ? fmtDur(h.session_active_sec) : '—'}</td>
+                    <td style={{ color: 'var(--ink-dim)', fontSize: 12.5 }}>{h.printer || '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -386,15 +408,15 @@ function PrintingPage({ date }) {
       {/* ── Histórico de problemas (recorrência de erros de mídia) ── */}
       {errorLog.length > 0 && (
         <details style={{ marginTop: 16 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--text-3)' }}>
-            Histórico de problemas ({errorLog.length}) — sem papel / atolou / sem tinta
+          <summary style={{ cursor: 'pointer' }}>
+            <span className="kit-mlabel">Histórico de problemas ({errorLog.length}) · sem papel, atolou, sem tinta</span>
           </summary>
-          <div className="card" style={{ padding: 12, marginTop: 8, fontSize: 12 }}>
+          <div className="kit-card pad" style={{ marginTop: 8 }}>
             {errorLog.map((e, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, padding: '3px 0' }}>
-                <span className="mono" style={{ color: 'var(--text-3)' }}>{fmtClock(e.at)}</span>
-                <span style={{ color: 'var(--bad)', fontWeight: 600 }}>{e.error_label}</span>
-                <span style={{ color: 'var(--text-3)' }}>{e.printer}</span>
+              <div key={i} className="kit-dotted-row">
+                <span style={{ font: '500 12px var(--font-mono)', color: 'var(--ink-faint)' }}>{fmtClock(e.at)}</span>
+                <span className="kit-chip bad">{e.error_label}</span>
+                <span className="adm-note">{e.printer}</span>
               </div>
             ))}
           </div>
@@ -404,18 +426,18 @@ function PrintingPage({ date }) {
       {/* ── Transições de status (debug/telemetria do físico) ── */}
       {transitions.length > 0 && (
         <details style={{ marginTop: 16 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 12.5, color: 'var(--text-3)' }}>
-            Transições de status recentes ({transitions.length}) — telemetria do fim físico
+          <summary style={{ cursor: 'pointer' }}>
+            <span className="kit-mlabel">Transições de status recentes ({transitions.length}) · telemetria do fim físico</span>
           </summary>
-          <div className="card" style={{ padding: 12, marginTop: 8, fontSize: 12 }}>
+          <div className="kit-card pad" style={{ marginTop: 8 }}>
             {transitions.map((t, i) => {
               const sv = statusView(t.status_label);
               return (
-                <div key={i} style={{ display: 'flex', gap: 10, padding: '3px 0', color: 'var(--text-2)' }}>
-                  <span className="mono" style={{ color: 'var(--text-3)' }}>{fmtClock(t.at)}</span>
-                  <span style={{ color: sv.c, fontWeight: 600 }}>{sv.txt}</span>
-                  <span style={{ color: 'var(--text-3)' }}>{t.printer}</span>
-                  {t.error_label && <span style={{ color: 'var(--bad)' }}>⚠ {t.error_label}</span>}
+                <div key={i} className="kit-dotted-row">
+                  <span style={{ font: '500 12px var(--font-mono)', color: 'var(--ink-faint)' }}>{fmtClock(t.at)}</span>
+                  <span className={'kit-chip ' + sv.tone}>{sv.txt}</span>
+                  <span className="adm-note">{t.printer}</span>
+                  {t.error_label && <span className="kit-chip bad">{t.error_label}</span>}
                 </div>
               );
             })}
@@ -429,18 +451,18 @@ function PrintingPage({ date }) {
 function BreakdownCard({ title, rows, nameKey }) {
   const max = Math.max(1, ...rows.map((r) => r.labels || 0));
   return (
-    <div className="card" style={{ padding: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 10 }}>{title}</div>
+    <div className="kit-card pad">
+      <div className="adm-sec"><span className="kit-mlabel">{title}</span><span className="rule"/></div>
       {rows.length === 0 ? (
-        <div style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>—</div>
+        <div className="adm-empty">Sem dados</div>
       ) : rows.slice(0, 6).map((r, i) => (
-        <div key={i} style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 3 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{r[nameKey]}</span>
-            <b>{r.labels}</b>
+        <div key={i} style={{ marginBottom: 9 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4, gap: 8 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r[nameKey]}</span>
+            <b style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{r.labels}</b>
           </div>
-          <div className="cap" style={{ width: '100%' }}>
-            <div className="cap-fill" style={{ width: Math.round(((r.labels || 0) / max) * 100) + '%', background: 'linear-gradient(90deg, var(--hf-navy-500), var(--hf-leaf-500))' }}/>
+          <div className="adm-bar-track">
+            <div className="adm-bar-fill" style={{ width: Math.round(((r.labels || 0) / max) * 100) + '%' }}/>
           </div>
         </div>
       ))}

@@ -203,12 +203,13 @@ Physical warehouse ledger (bins + boxes), supplies, stock alerts/gaps.
 - `src/v3/warehouse/router.js` — Warehouse hub API `/api/v3/warehouse/*` (overview, product record, entrada/place/move/adjust/separate, issue resolve, requests, locations, family). Helpers: `veeqo-cache.js` (SWR 10 min sku → type + warehouse 108841 physical/allocated/available), `locations-repo.js` (bin/box registry, never writes qty), `family-repo.js` (SKU family attach/detach/merge in `v3.product_skus`).
 - `src/v3/services/SupplyService.js:19` — supplies write door: `consumeForSize:65`, `change:103`.
 - `src/v3/data/stock-repo.js:9` — READ-only: `bins:13`, `boxes:26`, `summary:39`, `picksheet:97`, `restockList:134`.
+- `src/v3/warehouse/op-stock.js` (S15 Phase 2, 2026-08-18) — operator-side stock logic for `/api/v3/op/stock/*`: `take` (pick → proposal, damaged → `StockService.separate`), `propose` (entrada/count/return_in → proposal, count requires bin or box), `recent` (last 16h merged: proposals + issues + restock movements, max 30). `src/routes/op.js` only calls it (that file may not grow).
 - `src/workers/stock-alerts.js:23` — days-of-stock planner + rupture alerts.
 - `src/workers/stock-gap-alert.js:20` — P&P stock-gap alerts.
 - `src/v3/services/stock-gap-service.js:62` — crosses picklist need × Veeqo stock × EMS.
 
 **Tables read / written**
-- `v3.stock_movements` — WRITE (append-only) `StockService.js:77`; **also raw WRITE from op.js kiosk `op.js:324`**. READ `StockService.js:70`, `stock-repo.js:81`.
+- `v3.stock_movements` — WRITE (append-only) `StockService.js:77` — **now the ONLY writer** (S15 Phase 2, 2026-08-18: the raw kiosk INSERT that used to live at `op.js:324` was removed; the operator "Peguei do estoque" became a proposal in `v3.stock_change_requests`). READ `StockService.js:70`, `stock-repo.js:81`.
 - `v3.stock_bins` / `v3.stock_boxes` — READ/WRITE `StockService.js:93,106,100,111`; READ `stock-repo.js`, `stock-alerts.js:158,159`, picklist `router.js:1018`.
 - `v3.stock_issues` — WRITE `StockService.js:307` (`damaged`) + `separate`/`resolveIssue` (migration 071 added `reason='return'` and the `order_number` column). `v3.stock_thresholds` — READ `stock-alerts.js:117`, `StockService.overview`.
 - `v3.stock_change_requests` (migration 071) — approval queue. WRITE `StockRequestService.js` only (propose/approve/reject). READ `StockService.overview` (pending in/out per product), warehouse router `GET /api/v3/warehouse/requests`.
@@ -228,7 +229,7 @@ Physical warehouse ledger (bins + boxes), supplies, stock alerts/gaps.
 - data-incidents: StockService `onDiscrepancy` → wire.js `:407` (INSERT `v3.data_incidents`), router.js `:395`. StockService sends nothing to Slack directly; only injected callbacks.
 
 **State location + duplicate writers**
-- **`v3.stock_movements` written in TWO places** (the dual-path the header warns about, `StockService.js:6`): (1) `StockService._insertMovement:77` (idempotent `ON CONFLICT (source, source_ref)`, updates bin/box qty in-tx); (2) **raw kiosk INSERT `op.js:324`** (`/api/v3/op/stock/take`, source `'op_kiosk'`) — bypasses the service, no qty update, no idempotency. (See BROKEN LINKS.)
+- **`v3.stock_movements` has ONE writer again** (S15 Phase 2, 2026-08-18): `StockService._insertMovement:77` (idempotent `ON CONFLICT (source, source_ref)`, updates bin/box qty in-tx). The old raw kiosk INSERT at `op.js:324` is GONE — `/api/v3/op/stock/take` (kind `pick`) now calls `StockRequestService.propose` via `src/v3/warehouse/op-stock.js`, and the movement only exists after an admin approves. Kind `damaged` goes through `StockService.separate` (still the service). The dual-path warning at `StockService.js:6` is resolved.
 - **UNCERTAIN / dead edge:** `SupplyService.consumeForSize` (label-print → supply-deduct) has **no production caller** — only `SupplyService.change` is wired (admin endpoint `router.js:1384`); `consumeForSize` appears only in tests. The "print label → deduct supply" edge is defined but not wired. (See BROKEN LINKS.)
 
 ---
@@ -468,7 +469,7 @@ State written in two places that could disagree, or edges emitted with no consum
 
 2. **`v3.production_counts` — 6 writers, "one write path" comment overstated.** (Verified 2026-08-11.) The real writers: `src/routes/op.js:1132` (`insertCount`), `:1160` (`insertOrdersCount`), `:2250`, `:2912`; `src/routes/admin.js:1013`; `src/v3/services/ProductionCountService.js:87` (canonical, dedup). `insertCount`/`insertOrdersCount` write **raw SQL, bypassing ProductionCountService** — no dedup/supersede. The `wire.js:180` "one write path" holds only for the followup-total path (`recordTotal` → `ProductionCountService.record`), not the operator `/end` inserts. Risk: op.js bypasses the dedup/supersede logic that catches double-counting.
 
-3. **`v3.stock_movements` — dual-path ledger.** `StockService._insertMovement` (idempotent, updates bin/box qty `:77`) vs raw kiosk INSERT `op.js:324` (source `'op_kiosk'`, no qty update, no idempotency). The header at `StockService.js:6` explicitly warns about this. Risk: kiosk picks that never adjust bin quantities.
+3. ~~**`v3.stock_movements` — dual-path ledger.**~~ **FIXED 2026-08-18 (S15 Phase 2).** The raw kiosk INSERT (`op.js:324`, source `'op_kiosk'`, no qty update, no idempotency) was deleted. `/api/v3/op/stock/take` now routes through `src/v3/warehouse/op-stock.js`: `pick` → `StockRequestService.propose` (pending, applied by `StockService.pick` only on admin approval), `damaged` → `StockService.separate`. `StockService._insertMovement:77` is the single writer; kiosk picks can no longer leave bin quantities unadjusted.
 
 4. **`SupplyService.consumeForSize` — emitted-by-design, no consumer.** The "print shipping label → deduct supply/envelope" edge is defined (`SupplyService.js:13,65`) but has **no production caller** — only `SupplyService.change` is wired (admin endpoint `router.js:1384`); `consumeForSize` appears only in tests. The label-print→supply-deduction loop is not closed.
 

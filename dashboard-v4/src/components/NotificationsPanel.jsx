@@ -467,9 +467,9 @@ function NotifDetail({ notif, operators, events, pending, onDraftChange, onClose
                         }}
                         style={{
                           textAlign: 'left', padding: '6px 8px', borderRadius: 6,
-                          background: 'var(--surface)', border: '1px solid var(--bad, #dc2626)',
+                          background: 'var(--surface)', border: '1px solid var(--bad-line, #f5cdc7)',
                           cursor: ev ? 'pointer' : 'default', fontSize: 11.5,
-                          color: 'var(--text-1)',
+                          color: 'var(--ink)',
                         }}>
                   <b className="mono">ev{ie.event_id}</b>
                   {ie.person && <> · {ie.person}</>}

@@ -1,0 +1,25 @@
+{
+  "_note": "Fixture do GRUPO B: /api/v3/data/inventory (matcher legado). Alimenta as abas SKUs / Nossos s-Veeqo / Veeqo s-nosso / Planos do #inventory.",
+  "data": {
+    "loading": false,
+    "stats": { "matched": 4, "ours_unmatched": 2, "veeqo_unmatched": 2 },
+    "matched": [
+      { "product_id": 1, "product": "Benfotiamine 300 mg", "veeqo_sku": "HF-BENF-300", "veeqo_title": "Benfotiamine 300 mg 60 caps | HealthFare", "match": "exato", "active": true },
+      { "product_id": 1, "product": "Benfotiamine 300 mg", "veeqo_sku": "HF-BENF-300-C2", "veeqo_title": "Benfotiamine 300 mg 2-pack | HealthFare", "match": "base", "active": true },
+      { "product_id": 2, "product": "Berberine 500 mg", "veeqo_sku": "HF-BERB-500", "veeqo_title": "Berberine 500 mg 90 caps | HealthFare", "match": "exato", "active": true },
+      { "product_id": 8, "product": "Zinc Picolinate (descontinuado)", "veeqo_sku": "HF-ZINC-PIC", "veeqo_title": "Zinc Picolinate 50 mg | HealthFare", "match": "nome", "active": false }
+    ],
+    "ours_unmatched": [
+      { "product_id": 7, "product": "Magnesium Glycinate", "our_skus": ["HF-MAGN-GLY"], "active": true },
+      { "product_id": 9, "product": "Ashwagandha KSM-66", "our_skus": [], "active": false }
+    ],
+    "veeqo_unmatched": [
+      { "sku": "VQ-UNKNOWN-01", "title": "Turmeric Curcumin 1000 mg | Other Brand" },
+      { "sku": "VQ-UNKNOWN-02", "title": "Vitamin D3 5000 IU | Other Brand" }
+    ],
+    "veeqo_plans": [
+      { "sku": "HF-PLN-MONTHLY", "title": "HealthFare Monthly Plan | subscription" },
+      { "sku": "HF-MED-CONSULT", "title": "Clinic consultation | medication" }
+    ]
+  }
+}

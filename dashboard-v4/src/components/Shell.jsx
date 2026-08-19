@@ -187,14 +187,14 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
           </span>
         )}
         {readOnly ? (
-          <span className="pill" style={{ marginLeft: 8, background: "var(--surface-2)", color: "var(--text-3)" }}
+          <span className="pill" style={{ marginLeft: 8 }}
                 title="V4_ALLOW_WRITES=0 — edição/drag/criar são só preview">
-            <span className="dot" style={{ background: "var(--text-3)" }}/>leitura · read-only
+            <span className="dot" style={{ background: "var(--ink-faint)" }}/>leitura · read-only
           </span>
         ) : (
-          <span className="pill pill-write" style={{ marginLeft: 8 }}
+          <span className="pill ok" style={{ marginLeft: 8 }}
                 title="V4_ALLOW_WRITES=1 — edits/drag/criar persistem em prod via PIN (auditados em v3.audit_log)">
-            <span className="dot" style={{ background: "var(--hf-leaf-500)" }}/>edição ativa · write
+            <span className="dot" style={{ background: "var(--green)" }}/>edição ativa · write
           </span>
         )}
       </div>
@@ -209,9 +209,9 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
         {notifTotal > 0 && (
           <span style={{
             position: "absolute", top: -5, right: -5, minWidth: 16, height: 16, padding: "0 4px",
-            borderRadius: 9, background: notifBad > 0 ? "var(--bad)" : "var(--text-3)", color: "#fff",
-            fontSize: 10, fontWeight: 800, lineHeight: "16px", textAlign: "center",
-            boxShadow: "0 0 0 2px var(--surface)",
+            borderRadius: 999, background: notifBad > 0 ? "var(--kit-bad)" : "var(--ink-faint)", color: "#fff",
+            font: "500 10px var(--font-mono)", lineHeight: "16px", textAlign: "center",
+            boxShadow: "0 0 0 2px var(--kit-surface)",
           }}>{notifTotal > 99 ? "99+" : notifTotal}</span>
         )}
       </button>

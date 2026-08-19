@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T00:17:38.749Z",
+  "at": "2026-08-19T01:34:48.464Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "205 KB → dash-estoque.png"
+      "detail": "202 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -89,7 +89,7 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "204 KB → dash-estoque-modal.png"
+      "detail": "203 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
@@ -167,7 +167,7 @@
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "117 KB → dash-picklist.png"
+      "detail": "116 KB → dash-picklist.png"
     },
     {
       "group": "picklist",
@@ -185,7 +185,7 @@
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "169 KB → dash-hoje.png"
+      "detail": "158 KB → dash-hoje.png"
     },
     {
       "group": "hoje",
@@ -203,7 +203,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "126 KB → dash-inventory.png"
+      "detail": "137 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -221,7 +221,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "125 KB → dash-produto-setup.png"
+      "detail": "142 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -239,7 +239,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "93 KB → dash-roadmap.png"
+      "detail": "92 KB → dash-roadmap.png"
     },
     {
       "group": "roadmap",

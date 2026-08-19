@@ -40,7 +40,7 @@ end
 subgraph S15_OP["S15.04 / S15.11 · OPERATOR"]
   direction TB
   O_NOW["S15.04 CURRENT /op stock panel (STOCK_UI_ENABLED / allowlist): context · store · restock · damaged · count · take · recent · picklist · stock-gaps"]:::verified
-  O_PLAN["S15.11 PLANNED operator warehouse page: shelves near me · restock shelf from box · propose count/damaged (needs approval) · picklist"]:::planned
+  O_PLAN["S15.11 BUILT 08-18: Central upgraded (ws.js): Registrar (Peguei=pending · Danificada=Separadas · Entrada/Contagem=proposals) · Repor prateleira · Registrado hoje com estados"]:::verified
   O_PLAN -.->|proposals| A_APPROVE
   O_NOW ==>|seed| O_PLAN
 end
@@ -59,7 +59,7 @@ subgraph S15_CORE["S15.01 / S15.02 / S15.05 · CORE (exists)"]
   T_SUPPLY["S15.01 supplies: supply_items · package_size_supply · supply_movements · envelope_mix · packing_questions"]:::verified
   SVC["S15.02 StockService (ONLY write door): storeIn · pick · restock · damaged · adjust · count · warehouseByProduct"]:::verified
   API["S15.05 /api/v3/data stock/* (28) · product-setup/* · inventory-settings/* · supplies/* · picklist · stock-overview · stock-gaps · veeqo-today"]:::verified
-  RAW["op.js:324 raw INSERT into stock_movements (bypasses StockService) — R076"]:::orphaned
+  RAW["R076 RESOLVED 08-18: raw INSERT removed; stock/take → op-stock.js → request"]:::verified
   S15_09["S15.09 · GAPS vs Bruno's model: no reservation · no auto production→warehouse add · shelf-vs-box at pick not modeled · P&P/Picklist outside section · no dedicated operator page · raw INSERT"]:::partial
 end
 

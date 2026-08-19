@@ -1,0 +1,216 @@
+{
+  "production": {
+    "date": "2026-08-18",
+    "total_bottles": 1120,
+    "line": { "union_seconds": 12600, "span_seconds": 14400, "person_seconds": 19800, "event_count": 2, "bottles_per_min": 5.3, "sec_per_bottle": 11.3 },
+    "flow_total": {
+      "person_seconds": 31500,
+      "bottles_per_min": 2.1,
+      "sec_per_bottle": 28.1,
+      "by_phase": [
+        { "slug": "production_line", "name": "Linha de produção", "seconds": 19800 },
+        { "slug": "review", "name": "Revisão", "seconds": 5400 },
+        { "slug": "fnsku", "name": "FNSKU", "seconds": 6300 }
+      ]
+    },
+    "invalid_events": [],
+    "lotes": [
+      {
+        "batch_id": 41,
+        "batch_number": "BR-2026-0231",
+        "product": { "id": 6, "canonical_name": "HealthFare L-Carnitine 1500", "category": "supplement" },
+        "total_seconds": 19800,
+        "bottles": 640,
+        "bottles_per_min": 1.9,
+        "bottles_per_sec": 0.032,
+        "invalid_event_count": 0,
+        "current_phase_slug": "review",
+        "is_live": true,
+        "people": ["Simone Alves", "Ana Kesya"],
+        "phases": [
+          { "activity": "Linha de produção", "seconds": 12600 },
+          { "activity": "Revisão", "seconds": 5400 },
+          { "activity": "Rotulagem", "seconds": 1800 }
+        ]
+      },
+      {
+        "batch_id": 42,
+        "batch_number": "BR-2026-0232",
+        "product": { "id": 9, "canonical_name": "HealthFare Berberine 500", "category": "supplement" },
+        "total_seconds": 6300,
+        "bottles": 480,
+        "bottles_per_min": 4.6,
+        "bottles_per_sec": 0.076,
+        "invalid_event_count": 1,
+        "current_phase_slug": "fnsku",
+        "is_live": false,
+        "people": ["Vitor Ramos"],
+        "phases": [
+          { "activity": "FNSKU", "seconds": 5700 },
+          { "activity": "Encaixotamento", "seconds": 600 }
+        ]
+      }
+    ]
+  },
+  "pp": {
+    "date": "2026-08-18",
+    "total_seconds": 9600,
+    "orders": 214,
+    "seconds_per_order": 44,
+    "orders_reset": null,
+    "person_seconds": [
+      { "person": "Simone Alves", "seconds": 6300 },
+      { "person": "Ana Kesya", "seconds": 4200 }
+    ],
+    "person_seconds_total": 10500,
+    "person_seconds_per_order": 49,
+    "invalid_events": [],
+    "sub_steps": [
+      { "activity": "Impressão de etiquetas", "seconds": 2400, "wall_seconds": 1500 },
+      { "activity": "Separação", "seconds": 5400, "wall_seconds": 4200 },
+      { "activity": "Empacotamento", "seconds": 4200, "wall_seconds": 3900 }
+    ]
+  },
+  "fnsku": {
+    "date": "2026-08-18",
+    "total_labels": 480,
+    "wall_seconds": 5700,
+    "labels_per_min": 5.1,
+    "sec_per_label": 11.9,
+    "person_seconds": [{ "person": "Vitor Ramos", "seconds": 5700 }],
+    "person_seconds_total": 5700,
+    "person_seconds_per_label": 11.9
+  },
+  "support": {
+    "date": "2026-08-18",
+    "occurrences": [
+      { "event_id": 9302, "activity": "Conserto", "person": "Vitor Ramos", "started_at": "2026-08-18T11:30:00-04:00", "ended_at": "2026-08-18T12:00:00-04:00", "seconds": 1800, "is_downtime": true },
+      { "event_id": 9202, "activity": "Limpeza", "person": "Ana Kesya", "started_at": "2026-08-18T11:40:00-04:00", "ended_at": "2026-08-18T12:35:00-04:00", "seconds": 3300, "is_downtime": false },
+      { "event_id": 9401, "activity": "Clínica · injeções", "person": "Simone Alves", "started_at": "2026-08-18T14:10:00-04:00", "ended_at": null, "seconds": null, "is_downtime": false }
+    ]
+  },
+  "goals": {
+    "date": "2026-08-18",
+    "goals": [
+      { "goal_id": 501, "batch_id": 41, "batch_number": "BR-2026-0231", "product": { "id": 6, "canonical_name": "HealthFare L-Carnitine 1500" }, "esperado": 800, "realizado": 640, "pct_atingido": 80, "unit": "bottle", "bateu": false, "duplicatas_suspeitas": [] },
+      { "goal_id": 502, "batch_id": 42, "batch_number": "BR-2026-0232", "product": { "id": 9, "canonical_name": "HealthFare Berberine 500" }, "esperado": 480, "realizado": 480, "pct_atingido": 100, "unit": "bottle", "bateu": true, "duplicatas_suspeitas": [{ "id": 77 }] }
+    ]
+  },
+  "counts": {
+    "date": "2026-08-18",
+    "totals_by_product": { "6": 640, "9": 480 },
+    "counts": [
+      { "id": 3301, "product_id": 6, "bottles": 640, "at": "2026-08-18T12:20:00-04:00" },
+      { "id": 3302, "product_id": 9, "bottles": 480, "at": "2026-08-18T10:50:00-04:00" }
+    ]
+  },
+  "deadlines": {
+    "deadlines": [
+      { "id": 12, "label": "Corte do correio", "time_of_day": "13:00:00", "flow": "pnp", "kind": "recurring", "weekdays": [1, 2, 3, 4, 5], "active": true },
+      { "id": 13, "label": "Corte da clínica", "time_of_day": "16:30:00", "flow": "support", "kind": "recurring", "weekdays": [1, 2, 3, 4, 5], "active": false }
+    ]
+  },
+  "review": {
+    "range_days": 1,
+    "scope": "day",
+    "from": "2026-08-18",
+    "to": "2026-08-18",
+    "n": 3,
+    "avg_capsules_per_sec": 2.4,
+    "avg_bottles_per_min": 7.1,
+    "avg_sec_per_bottle": 8.4,
+    "products": [
+      { "product": "HealthFare L-Carnitine 1500", "n": 2, "avg_capsules_per_sec": 2.6, "avg_bottles_per_min": 7.4, "avg_sec_per_bottle": 8.1 },
+      { "product": "HealthFare Berberine 500", "n": 1, "avg_capsules_per_sec": 2.0, "avg_bottles_per_min": 6.5, "avg_sec_per_bottle": 9.2 }
+    ],
+    "operators": [
+      { "operator": "Simone Alves", "n": 2, "avg_capsules_per_sec": 2.6, "avg_bottles_per_min": 7.5, "avg_sec_per_bottle": 8.0 },
+      { "operator": "Ana Kesya", "n": 1, "avg_capsules_per_sec": 2.1, "avg_bottles_per_min": 6.6, "avg_sec_per_bottle": 9.1 }
+    ],
+    "runs": []
+  },
+  "veeqo": {
+    "configured": true,
+    "total_orders": 209,
+    "total_units": 341,
+    "by_channel": [
+      { "channel": "ebay", "orders": 92 },
+      { "channel": "tiktok", "orders": 71 },
+      { "channel": "walmart", "orders": 46 }
+    ],
+    "by_product": [
+      { "sku": "HF-LCAR-1500", "product": "HealthFare L-Carnitine 1500 | 60ct", "units": 148 },
+      { "sku": "HF-BERB-500", "product": "HealthFare Berberine 500 | 90ct", "units": 121 },
+      { "sku": "HF-MAG-400", "product": "HealthFare Magnesium 400 | 60ct", "units": 72 }
+    ]
+  },
+  "attendance": {
+    "date": "2026-08-18",
+    "people": [
+      { "person_id": 5, "name": "Simone Alves", "clock_code": 10, "state": "in", "checkin_at": "2026-08-18T08:02:00-04:00", "checkout_at": null, "last_in_at": "2026-08-18T08:02:00-04:00", "no_clockin": false, "logged_in": true, "punches": [1, 2], "markers": [] },
+      { "person_id": 6, "name": "Ana Kesya", "clock_code": 39, "state": "break", "checkin_at": "2026-08-18T08:11:00-04:00", "checkout_at": null, "last_in_at": null, "break_sec": 1500, "no_clockin": false, "logged_in": false, "punches": [1, 2, 3], "markers": [] },
+      { "person_id": 4, "name": "Vitor Ramos", "clock_code": 8, "state": "out", "checkin_at": "2026-08-18T07:58:00-04:00", "checkout_at": "2026-08-18T16:31:00-04:00", "last_in_at": null, "no_clockin": false, "logged_in": false, "punches": [1, 2], "markers": [] }
+    ]
+  },
+  "incidents": {
+    "incidents": [
+      {
+        "id": 771,
+        "title": "Contagem duplicada no lote BR-2026-0231",
+        "explanation": "A mesma contagem de 640 garrafas entrou duas vezes, com 4 minutos de diferença.",
+        "diagnosis": "A segunda entrada foi removida. O total do lote continua correto.",
+        "auto_fixed": true,
+        "where_json": {
+          "original": { "channel": "op", "person": "Simone Alves", "event_id": 9101 },
+          "duplicate": { "channel": "slack", "person": "Simone Alves", "event_id": 9104, "slack_ts": "1755500000.001" },
+          "minutes_apart": 4,
+          "same_person_same_channel": false
+        }
+      }
+    ]
+  },
+  "pending_totals": {
+    "pending": [
+      {
+        "id": 88,
+        "status": "open",
+        "person_name": "Ana Kesya",
+        "product_name": "HealthFare Berberine 500",
+        "batch_number": "BR-2026-0232",
+        "close_reason": "acabou o turno",
+        "event_id": 9203
+      },
+      {
+        "id": 89,
+        "status": "escalated",
+        "person_name": "Vitor Ramos",
+        "product_name": "HealthFare Magnesium 400",
+        "batch_number": null,
+        "close_reason": null,
+        "event_id": 9302
+      }
+    ]
+  },
+  "catalog": {
+    "persons": [
+      { "person_id": 5, "display_name": "Simone Alves", "role": "Operadora" },
+      { "person_id": 6, "display_name": "Ana Kesya", "role": "Operadora" },
+      { "person_id": 4, "display_name": "Vitor Ramos", "role": "Operador" }
+    ],
+    "activity_types": [
+      { "id": 3, "slug": "production_line", "display_name": "Linha de produção", "flow": "production", "phase_order": 1, "category": "line" },
+      { "id": 7, "slug": "review", "display_name": "Revisão", "flow": "production", "phase_order": 2, "category": "line" },
+      { "id": 15, "slug": "fnsku", "display_name": "FNSKU", "flow": "production", "phase_order": 3, "category": "line" },
+      { "id": 11, "slug": "pick_pack", "display_name": "Pick & Pack", "flow": "pnp", "phase_order": 1, "category": "pnp" },
+      { "id": 21, "slug": "cleaning", "display_name": "Limpeza", "flow": "support", "phase_order": null, "category": "support" },
+      { "id": 24, "slug": "repair", "display_name": "Conserto", "flow": "support", "phase_order": null, "category": "support" },
+      { "id": 30, "slug": "machine_bg", "display_name": "Máquina em background", "flow": "production", "phase_order": null, "category": "line" }
+    ],
+    "products": [
+      { "id": 6, "canonical_name": "HealthFare L-Carnitine 1500", "active": true },
+      { "id": 9, "canonical_name": "HealthFare Berberine 500", "active": true },
+      { "id": 12, "canonical_name": "HealthFare Magnesium 400", "active": true },
+      { "id": 14, "canonical_name": "HealthFare Ashwagandha 600", "active": true }
+    ]
+  }
+}

@@ -1,0 +1,185 @@
+{
+  "at": "2026-08-19T01:33:40.243Z",
+  "results": [
+    {
+      "group": "boot",
+      "name": "window.HF_WS definido por /op/ws.js",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "app.js carregou sem erro",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "keypad renderizou",
+      "pass": true,
+      "detail": "12 teclas"
+    },
+    {
+      "group": "home",
+      "name": "banner da Central aparece com task de P&P",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "home",
+      "name": "botao Abrir existe",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "picklist renderizou (SKU + QTY + Location)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "card Falta de estoque com ZERADO",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "chip de sandbox presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "botao PRINT presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "card Repor prateleira lista os bins",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "botao Repor com a qty calculada (2*10-4=16)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "Registrado hoje traz os 4 estados",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "rotulo do tipo nas linhas (Peguei/Entrada/Contagem/Reposicao)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "sem em dash na tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "sem entidade HTML crua vazando (&middot; / &hellip;)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "registrar",
+      "name": "busca sugere o suplemento",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "registrar",
+      "name": "segmento com 4 tipos",
+      "pass": true,
+      "detail": "4 botoes"
+    },
+    {
+      "group": "registrar",
+      "name": "rotulos: Peguei do estoque · Danificada · Entrada · Contagem",
+      "pass": true,
+      "detail": "Peguei do estoque|Danificada|Entrada|Contagem"
+    },
+    {
+      "group": "registrar",
+      "name": "Contagem pede local (obrigatorio)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "registrar",
+      "name": "destinos vem do stock/context filtrados pelo produto",
+      "pass": true,
+      "detail": "2 destinos"
+    },
+    {
+      "group": "registrar",
+      "name": "contagem sem local nao posta",
+      "pass": true,
+      "detail": "0 posts"
+    },
+    {
+      "group": "registrar",
+      "name": "Contagem posta em stock/propose com kind=count + bin_id",
+      "pass": true,
+      "detail": "{\"product_id\":42,\"kind\":\"count\",\"qty\":1,\"reason\":null,\"bin_id\":1}"
+    },
+    {
+      "group": "registrar",
+      "name": "toast \"Enviado pra aprovação\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "registrar",
+      "name": "Peguei do estoque posta em stock/take (kind=pick, qty=3)",
+      "pass": true,
+      "detail": "{\"product_id\":42,\"qty\":3,\"kind\":\"pick\",\"reason\":null}"
+    },
+    {
+      "group": "registrar",
+      "name": "toast do pick fala de aprovacao + saiu do disponivel",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "repor",
+      "name": "botao Repor presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "repor",
+      "name": "posta bin_id/box_id/qty=16",
+      "pass": true,
+      "detail": "{\"bin_id\":1,\"box_id\":8,\"qty\":16}"
+    },
+    {
+      "group": "repor",
+      "name": "toast \"Prateleira reposta\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "central",
+      "name": "Voltar fecha a Central e volta pra home",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "nenhum erro de console no fluxo inteiro",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}
