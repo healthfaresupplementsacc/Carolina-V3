@@ -58,11 +58,11 @@ describe('dashboard-v4 Shell NAV — seção Estoque (S15)', () => {
     expect(block).toMatch(/fn:\s*"view_stock"/);
   });
 
-  test('a seção Estoque tem hub, aprovações, locais, etiquetas, as antigas e o subgrupo P&P na ordem', () => {
+  test('a seção Estoque tem hub, aprovações, locais, etiquetas, setup, config e o subgrupo P&P na ordem (sem as antigas, 08-19)', () => {
     const ids = idsIn(sectionBlock('Estoque'));
     expect(ids).toEqual([
       'estoque', 'estoque-aprovacoes', 'estoque-locais', 'estoque-etiquetas',
-      'estoque-geral', 'inventory', 'produto-setup', 'config-estoque',
+      'produto-setup', 'config-estoque',
       'pp', 'picklist',
     ]);
     // Etiquetas entra LOGO DEPOIS de Locais: é pra lá que vai o botão
@@ -70,10 +70,13 @@ describe('dashboard-v4 Shell NAV — seção Estoque (S15)', () => {
     expect(ids.indexOf('estoque-etiquetas')).toBe(ids.indexOf('estoque-locais') + 1);
   });
 
-  test('as páginas antigas ficam rotuladas "(antigo)"', () => {
+  test('as páginas antigas saíram do menu mas seguem alcançáveis por hash (HIDDEN_PAGES, 08-19)', () => {
     const block = sectionBlock('Estoque');
-    expect(block).toMatch(/id:\s*"estoque-geral",\s*pt:\s*"Ver estoque \(antigo\)"/);
-    expect(block).toMatch(/id:\s*"inventory",\s*pt:\s*"Estoque detalhado \(antigo\)"/);
+    expect(block).not.toMatch(/estoque-geral/);
+    expect(block).not.toMatch(/\(antigo\)/);
+    const hidden = src.slice(src.indexOf('const HIDDEN_PAGES'), src.indexOf('const ALL_PAGES'));
+    expect(hidden).toMatch(/id:\s*"estoque-geral"/);
+    expect(hidden).toMatch(/id:\s*"inventory"/);
   });
 
   test('pp e picklist estão no subgrupo P&P (sub: "P&P")', () => {

@@ -144,7 +144,20 @@ function makeDb() {
           const pend = (dir) => sum(state.requests.filter((r) => r.product_id === p.id
             && r.status === 'pending' && r.direction === dir), (r) => r.qty);
           const th = state.thresholds.get(p.id) || {};
+          // VELOCIDADE (Bruno 08-19): só linhas 'shipped', em GARRAFAS
+          // (qty × units_per_pack), dentro da janela de shipped_at. Mesmas regras
+          // do LEFT JOIN sv do overview.
+          const packOf = (l) => {
+            const sk = state.skus.find((s) => s.channel === l.source
+              && String(s.sku).toUpperCase() === String(l.sku).toUpperCase());
+            return (sk && sk.units_per_pack) || 1;
+          };
+          const agoDays = (l) => (l.shipped_at == null ? Infinity
+            : (Date.now() - new Date(l.shipped_at).getTime()) / 86400000);
+          const shipped = state.lines.filter((l) => l.product_id === p.id && l.status === 'shipped');
+          const sold = (days) => sum(shipped.filter((l) => agoDays(l) <= days), (l) => l.qty * packOf(l));
           return {
+            sold_7d: sold(7), sold_30d: sold(30),
             product_id: p.id, canonical_name: p.canonical_name, nickname: p.nickname,
             bottle_color: p.bottle_color || null,
             shelf_qty: sum(bins, (b) => b.qty), box_qty: sum(boxes, (b) => b.qty),
@@ -493,5 +506,85 @@ describe('StockService — overview (os números do hub)', () => {
     const db = seed();
     const rows = await svc(db).overview();
     expect(rows[0].status).toEqual(['ok']);
+  });
+});
+
+/* ── VELOCIDADE: sold_7d / sold_30d / days_of_stock (Bruno 08-19) ──────────
+   O número que responde "isso acaba quando?". Sai só de linha JÁ ENVIADA,
+   em garrafas, e vira dias dividindo o disponível pelo ritmo da semana.  */
+describe('StockService — overview: velocidade e dias de estoque', () => {
+  const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString();
+
+  function seedVel() {
+    const db = makeDb();
+    db.state.products.push({ id: 10, canonical_name: 'Benfotiamine 300 mg', nickname: 'BENF-300' });
+    db.state.bins.set(1, { id: 1, product_id: 10, bin_code: 'A03', qty: 140, min_qty: 0, active: true });
+    db.state.skus.push(
+      { id: 1, product_id: 10, sku: 'HF-BENF-300', channel: 'veeqo', units_per_pack: 1, confirmed_at: 'x' },
+      { id: 2, product_id: 10, sku: 'HF-BENF-300-C2', channel: 'veeqo', units_per_pack: 2, confirmed_at: 'x' });
+    return db;
+  }
+
+  test('conta em GARRAFAS (units_per_pack) e só o que foi enviado', async () => {
+    const db = seedVel();
+    db.state.lines.push(
+      { product_id: 10, source: 'veeqo', sku: 'HF-BENF-300', qty: 10, status: 'shipped', shipped_at: daysAgo(2) },
+      { product_id: 10, source: 'veeqo', sku: 'HF-BENF-300-C2', qty: 5, status: 'shipped', shipped_at: daysAgo(3) },
+      // pendente não é venda: ainda pode ser cancelado
+      { product_id: 10, source: 'veeqo', sku: 'HF-BENF-300', qty: 99, status: 'pending' });
+    const r = (await svc(db).overview())[0];
+    expect(r.sold_7d).toBe(20);        // 10×1 + 5×2
+    expect(r.sold_30d).toBe(20);
+  });
+
+  test('a janela de 30 dias contém a de 7; o que é mais velho fica fora das duas', async () => {
+    const db = seedVel();
+    db.state.lines.push(
+      { product_id: 10, source: 'veeqo', sku: 'HF-BENF-300', qty: 14, status: 'shipped', shipped_at: daysAgo(1) },
+      { product_id: 10, source: 'veeqo', sku: 'HF-BENF-300', qty: 30, status: 'shipped', shipped_at: daysAgo(20) },
+      { product_id: 10, source: 'veeqo', sku: 'HF-BENF-300', qty: 500, status: 'shipped', shipped_at: daysAgo(60) });
+    const r = (await svc(db).overview())[0];
+    expect(r.sold_7d).toBe(14);
+    expect(r.sold_30d).toBe(44);
+  });
+
+  test('days_of_stock = disponível ÷ (sold_7d ÷ 7), uma casa decimal', async () => {
+    const db = seedVel();
+    db.state.lines.push({ product_id: 10, source: 'veeqo', sku: 'HF-BENF-300',
+      qty: 14, status: 'shipped', shipped_at: daysAgo(1) });
+    const r = (await svc(db).overview())[0];
+    expect(r.available).toBe(140);
+    expect(r.sold_7d).toBe(14);
+    expect(r.days_of_stock).toBe(70);       // 140 ÷ 2 por dia
+    expect(r.days_cover).toBe(70);          // nome antigo, mesmo número
+  });
+
+  test('arredonda pra uma casa, não devolve dízima na tela', async () => {
+    const db = seedVel();
+    db.state.bins.get(1).qty = 100;
+    db.state.lines.push({ product_id: 10, source: 'veeqo', sku: 'HF-BENF-300',
+      qty: 21, status: 'shipped', shipped_at: daysAgo(2) });
+    const r = (await svc(db).overview())[0];
+    expect(r.sold_7d).toBe(21);
+    expect(r.days_of_stock).toBe(33.3);     // 100 ÷ 3 = 33.333...
+  });
+
+  test('sem venda na semana days_of_stock é null, NUNCA infinito nem zero', async () => {
+    const db = seedVel();
+    db.state.lines.push({ product_id: 10, source: 'veeqo', sku: 'HF-BENF-300',
+      qty: 30, status: 'shipped', shipped_at: daysAgo(20) });
+    const r = (await svc(db).overview())[0];
+    expect(r.sold_7d).toBe(0);
+    expect(r.sold_30d).toBe(30);
+    expect(r.days_of_stock).toBeNull();
+    expect(Number.isFinite(r.days_of_stock)).toBe(false);
+  });
+
+  test('produto que nunca vendeu: zeros e null, sem quebrar a linha', async () => {
+    const db = seedVel();
+    const r = (await svc(db).overview())[0];
+    expect(r.sold_7d).toBe(0);
+    expect(r.sold_30d).toBe(0);
+    expect(r.days_of_stock).toBeNull();
   });
 });

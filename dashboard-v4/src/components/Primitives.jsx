@@ -125,6 +125,16 @@ const CountdownCard = ({ deadlineMin, now, label, en, title }) => {
   );
 };
 
-Object.assign(window, { OperatorAvatar, FlowPill, FlowDot, ProductChip, KPI, CapBar, CountdownCard });
+/* Faixa das telas legadas (S15 08-19). As duas páginas antigas saíram do menu
+   mas continuam abrindo por hash: quem chegou por link salvo precisa saber, na
+   primeira linha, que o hub faz a mesma coisa e é lá que o número é escrito. */
+const LegacyBanner = () => (
+  <div className="kit-legacy-banner" data-legacy-banner>
+    <span>Página antiga. O hub Estoque substitui esta tela.</span>
+    <a className="kit-btn sm primary" href="#estoque">Ir pro hub Estoque</a>
+  </div>
+);
 
-export { OperatorAvatar, FlowPill, FlowDot, ProductChip, KPI, CapBar, CountdownCard };
+Object.assign(window, { OperatorAvatar, FlowPill, FlowDot, ProductChip, KPI, CapBar, CountdownCard, LegacyBanner });
+
+export { OperatorAvatar, FlowPill, FlowDot, ProductChip, KPI, CapBar, CountdownCard, LegacyBanner };

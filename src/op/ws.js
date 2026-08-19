@@ -25,6 +25,9 @@
   if (root) root.HF_WS = WS;
 }(typeof window !== 'undefined' ? window : null, function () {
 
+  // menu persistente: uma fonte só (/op/nav.js), carregado antes deste arquivo.
+  function NAV() { return (typeof window !== 'undefined' && window.HF_NAV) || (typeof global !== 'undefined' && global.HF_NAV) || null; }
+
   // ── deps injetadas pelo app.js (nunca importadas) ───────────
   var D = {
     S: null, CFG: null, DATA: null,
@@ -34,6 +37,7 @@
     esc: function (s) { return String(s == null ? '' : s); },
     isSandbox: function () { return false; },
     typeMeta: function () { return {}; },
+    loadData: function () { return Promise.resolve(null); },   // recarrega myTasks/team do app.js
     openWindow: function () { return null; },
   };
 
@@ -146,6 +150,36 @@
   };
   function kindLabel(kind) { return KIND_LABEL[String(kind || '')] || 'Registro'; }
 
+  /* Contrato (2): item de 'entrada' APROVADO ganha box_number quando o admin
+     criou a caixa. Só aí faz sentido oferecer a etiqueta: antes disso a caixa
+     ainda não existe e o botão só geraria frustração. */
+  function boxOf(r) {
+    if (!r) return null;
+    var n = r.box_number == null ? '' : String(r.box_number).trim();
+    if (!n) return null;
+    var kind = String(r.kind || '');
+    if (kind !== 'entrada' && kind !== 'return_in') return null;
+    var status = String(r.status || '').toLowerCase();
+    if (status === 'pending' || status === 'rejected') return null;
+    return n;
+  }
+
+  /* Etiqueta da caixa: mesmíssimo desenho do hub (/op/estoque.js), pro
+     operador nunca receber duas etiquetas diferentes da mesma caixa. */
+  function labelPayload(d) {
+    var x = d || {};
+    var code = String(x.code || x.box_number || '');
+    var qty = x.qty == null ? null : (parseInt(x.qty, 10) || 0);
+    var lot = x.lot || x.batch_number || '';
+    return {
+      kind: x.kind || 'box',
+      code: code,
+      line2: String(x.line2 || x.product || ''),
+      line3: String(x.line3 || ((qty != null ? qty + ' garrafas' : '') + (lot ? (qty != null ? ' · ' : '') + 'lote ' + lot : ''))),
+      url: x.url || ('/scan/?box=' + encodeURIComponent(code)),
+    };
+  }
+
   // ── builders de payload (contrato S15 Fase 2) ───────────────
   var KINDS = ['pick', 'damaged', 'entrada', 'count'];
   function isProposal(kind) { return kind === 'entrada' || kind === 'count'; }
@@ -226,9 +260,14 @@
     var S = D.S || {};
     S.ws = S.ws || { picklist: null, recent: null, q: '', sel: null, qty: '1', kind: 'pick', reason: '', dest: '', ctx: null, busy: false };
     if (S.ws.dest === undefined) S.ws.dest = '';
+    if (S.ws.justLooking === undefined) S.ws.justLooking = false;   // "Só olhar" da sessão
+    if (S.ws.startBusy === undefined) S.ws.startBusy = false;
     return S.ws;
   }
-  function allowed() { return (D.CFG && D.CFG.workspace === true) || D.isSandbox(); }
+  /* A Central agora é MENU, não recompensa por ter task aberta: ela abre sempre,
+     a não ser que o servidor desligue o flag de propósito (workspace === false).
+     undefined = permitido (config antigo em cache não pode esconder o menu). */
+  function allowed() { return !(D.CFG && D.CFG.workspace === false) || D.isSandbox(); }
   function wsTask() {
     return ((D.S && D.S.myTasks) || []).find(function (t) {
       return WS_SLUGS[t.slug] || (D.typeMeta(t.slug) || {}).counts_as_pp;
@@ -265,8 +304,37 @@
   // ════════════════════════════════════════════════════════════
   // HTML
   // ════════════════════════════════════════════════════════════
+  /* DEEP LINK: /op/?ws=1 (ou #central) abre a Central logo depois do login.
+     banner() roda em TODO render da home, então o teste de uma vez só mora aqui:
+     marca o estado, limpa a URL e agenda o render (não re-renderiza de dentro
+     do render, senão entra em laço). */
+  var deepDone = false;
+  function checkDeepLink() {
+    if (deepDone || typeof window === 'undefined' || !window.location) return;
+    deepDone = true;
+    var loc = window.location;
+    var want = /[?&]ws=1\b/.test(loc.search || '') || /^#(central|ws)$/.test(loc.hash || '');
+    if (!want || !allowed()) return;
+    var S = D.S || {};
+    S.workspaceOpen = true;
+    st().justLooking = true;      // veio pelo link: não pergunta nada de cara
+    load();
+    try {
+      var clean = (loc.pathname || '/op/') + (loc.search || '').replace(/([?&])ws=1\b&?/, '$1').replace(/[?&]$/, '');
+      if (window.history && window.history.replaceState) window.history.replaceState(null, '', clean);
+    } catch (e) { /* file:// ou sandbox sem history: segue sem limpar */ }
+    setTimeout(function () { D.render(); }, 0);
+  }
+
+  /* Topo da home: menu persistente SEMPRE + o box grande só quando existe uma
+     task de P&P aberta (aí a Central é o lugar onde a pessoa já está). */
   function banner() {
-    if (!allowed() || !wsTask()) return '';
+    if (!allowed()) return '';
+    checkDeepLink();
+    var nav = NAV() ? NAV().strip(D.S && D.S.workspaceOpen ? 'central' : 'linha', { page: 'op' }) : '';
+    return nav + (wsTask() ? bigBanner() : '');
+  }
+  function bigBanner() {
     return '<div style="background:linear-gradient(135deg,#0d1f3c,#1a3a6b); border-radius:20px; padding:18px 20px; display:flex; align-items:center; gap:16px; box-shadow:0 22px 44px -20px rgba(13,31,60,.6);">'
       + '<span style="flex:none; width:50px; height:50px; border-radius:16px; background:rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center; font-size:26px;">📦</span>'
       + '<div style="flex:1; min-width:0;"><div style="font-family:Georgia,serif; font-weight:400; font-size:21px; color:#fff; line-height:1.1;">Central de <em style="color:#7fd696; font-style:italic;">P&amp;P &amp; Estoque</em></div>'
@@ -353,11 +421,47 @@
     win.document.write(doc); win.document.close();
   }
 
+  /* Etiqueta 4x6 da caixa (Code128 + QR gerados aqui, sem CDN). Mesmo layout
+     do hub de estoque: número gigante, produto, quantidade/lote, barras e QR. */
+  function printLabel(L) {
+    var W = typeof window !== 'undefined' ? window : null;
+    var C128 = (W && W.HF_CODE128) || null;
+    var QR = (W && W.qrcode) || null;
+    var bar = C128 ? C128.svg(L.code, { width: 520, height: 90 }) : '';
+    var qr = '';
+    if (QR) {
+      try { var q = QR(0, 'M'); q.addData(String(L.url || L.code)); q.make(); qr = q.createSvgTag({ cellSize: 3, margin: 0 }); }
+      catch (e) { qr = ''; }
+    }
+    var doc = '<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta ' + D.esc(L.code) + '</title><style>'
+      + '@page { size: 4in 6in; margin: 0.15in; }'
+      + 'body { font-family: Arial, Helvetica, sans-serif; margin:0; color:#000; }'
+      + '.code { font-size: 54px; font-weight: 900; letter-spacing:.02em; line-height:1; margin-bottom:8px; }'
+      + '.l2 { font-size: 19px; font-weight: 700; line-height:1.15; margin-bottom:4px; }'
+      + '.l3 { font-size: 16px; font-weight: 700; margin-bottom:10px; }'
+      + '.foot { display:flex; align-items:flex-end; justify-content:space-between; margin-top:8px; }'
+      + '.qr { width:96px; height:96px; }'
+      + '.hf { font-size:10px; font-weight:700; letter-spacing:.08em; }'
+      + '</style></head><body>'
+      + '<div class="code">' + D.esc(L.code) + '</div>'
+      + (L.line2 ? '<div class="l2">' + D.esc(L.line2) + '</div>' : '')
+      + (L.line3 ? '<div class="l3">' + D.esc(L.line3) + '</div>' : '')
+      + '<div class="bar">' + bar + '</div>'
+      + '<div class="foot"><div class="hf">HEALTHFARE</div><div class="qr">' + qr + '</div></div>'
+      + '<script>window.onload=function(){window.print();}<\/script></body></html>';
+    var win = D.openWindow();
+    if (!win) { D.toast('Popup bloqueado. Libera popup pra imprimir'); return; }
+    win.document.write(doc); win.document.close();
+  }
+
   function key() {
     var S = D.S || {};
     if (!S.workspaceOpen) return 'ws-off';
     var w = st();
     return 'ws|' + w.q + '|' + (w.sel ? w.sel.id : 0) + '|' + w.qty + '|' + w.kind + '|' + (w.dest || '') + '|' + (w.busy ? 1 : 0)
+      // card "está fazendo P&P agora?": sem isso na key a camada não remontava
+      // e o card ficava na tela depois de responder.
+      + '|' + (w.justLooking ? 1 : 0) + (w.startBusy ? 'B' : '') + (wsTask() ? 'T' : '')
       + '|' + (w.picklist ? (w.picklist.total_orders + '.' + (w.picklist.groups || []).length) : 'L')
       + '|' + (w.recent ? w.recent.length : 'L')
       + '|' + (w.ctx ? restockList(w.ctx).length : 'L')
@@ -450,14 +554,40 @@
     if (!w.recent.length) return h + '<div style="color:' + T.mute2 + '; font-size:12.5px; margin-top:8px;">Nada registrado ainda.</div></div>';
     w.recent.forEach(function (r) {
       var sc = statusChip(r.status);
-      h += '<div style="border-top:1px dotted ' + T.dot + '; padding:7px 2px; display:flex; align-items:center; gap:8px; font-size:13px;">'
-        + '<span style="flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:' + T.ink2 + '; font-weight:600;">' + D.esc(r.nickname || r.product) + '</span>'
+      // Entrada aprovada que virou CAIXA: mostra o número e deixa imprimir a
+      // etiqueta na hora (o mesmo botão do hub de estoque).
+      var box = boxOf(r);
+      h += '<div style="border-top:1px dotted ' + T.dot + '; padding:7px 2px; display:flex; align-items:center; gap:8px; font-size:13px; flex-wrap:wrap;">'
+        + '<span style="flex:1; min-width:90px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:' + T.ink2 + '; font-weight:600;">' + D.esc(r.nickname || r.product) + '</span>'
         + '<span style="font-family:' + MONO + '; font-size:12px; color:' + T.ink + '; font-weight:700;">&times;' + r.qty + '</span>'
         + chip(D.esc(kindLabel(r.kind)), T.neuBg, T.neuFg, T.neuLn)
         + chip(sc.label, sc.bg, sc.fg, sc.ln)
+        + (box ? chip('Caixa ' + D.esc(box), T.okBg, T.okFg, T.okLn) : '')
+        + (box ? '<button data-act="wsPrintLabel" data-arg="' + D.esc(String(r.box_id || box)) + '" style="border:1px solid ' + T.line + '; background:#fff; cursor:pointer; border-radius:999px; min-height:44px; padding:0 16px; font-size:12.5px; font-weight:700; color:' + T.ink2 + '; font-family:' + SORA + ';">Imprimir etiqueta</button>' : '')
         + '</div>';
     });
     return h + '</div>';
+  }
+
+  /* Central aberta SEM task de P&P: pergunta uma vez, com jeito, e nunca trava.
+     REGRA #0: seja qual for a resposta, a picklist e o PRINT continuam ali.
+     "Iniciar Impressão de ordens" abre o event pelo mesmo caminho do app.js
+     (POST event/start com activity_slug); "Só olhar" some pelo resto da sessão. */
+  function ppAskHtml() {
+    var w = st();
+    if (w.justLooking || wsTask()) return '';
+    return '<div style="grid-column:1 / -1; ' + CARD + ' padding:16px 20px; border-color:' + T.neuLn + '; background:linear-gradient(135deg,#fff,' + T.neuBg + ');">'
+      + '<div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">'
+      + '<span style="font-size:22px;">👋</span>'
+      + '<div style="flex:1; min-width:220px;">'
+      + '<div style="font-family:' + SORA + '; font-weight:800; font-size:16px; color:' + T.ink + ';">Você está fazendo P&amp;P agora?</div>'
+      + '<div style="font-size:12.5px; color:' + T.muted + '; margin-top:2px;">Se marcar a tarefa, seu tempo de P&amp;P fica registrado. Se só veio ver a picklist, tudo bem também.</div>'
+      + '</div>'
+      + '<button data-act="wsStartPP" ' + (w.startBusy ? 'disabled' : '')
+      + ' style="border:0; cursor:pointer; border-radius:999px; min-height:46px; padding:0 22px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:14px; font-family:' + SORA + ';">'
+      + (w.startBusy ? 'Iniciando&hellip;' : 'Iniciar Impress&atilde;o de ordens') + '</button>'
+      + '<button data-act="wsJustLook" style="border:1px solid ' + T.line + '; cursor:pointer; border-radius:999px; min-height:46px; padding:0 20px; background:#fff; color:' + T.ink2 + '; font-weight:700; font-size:14px; font-family:' + SORA + ';">S&oacute; olhar</button>'
+      + '</div></div>';
   }
 
   function inner() {
@@ -465,14 +595,20 @@
     var h = '<div style="position:absolute; inset:0; display:flex; flex-direction:column; background:#f4f8fc; background-image:radial-gradient(circle,rgba(26,58,107,.06) 1px,transparent 1px); background-size:26px 26px;">';
     // header
     h += '<div style="flex:none; display:flex; align-items:center; gap:16px; padding:22px 34px 8px;">'
-      + '<button data-act="closeWorkspace" style="border:1px solid ' + T.line + '; background:#fff; cursor:pointer; border-radius:999px; height:42px; padding:0 20px; font-weight:700; font-size:14px; color:' + T.ink2 + '; font-family:' + SORA + ';">&larr; Voltar</button>'
       + '<div style="flex:1; min-width:0;"><div style="font-family:' + MONO + '; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:' + T.green + '; font-weight:600;">&#9679; HEALTHFARE P&amp;P &middot; CENTRAL</div>'
       + '<div style="font-family:' + SERIF + '; font-weight:400; font-size:30px; color:' + T.ink + '; line-height:1.05;">Central de <em style="color:' + T.green + ';">P&amp;P &amp; Estoque</em></div></div>'
       + (D.isSandbox() ? '<span style="height:24px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:' + MONO + '; font-size:11px; background:rgba(10,154,166,.12); color:#06707a; box-shadow:inset 0 0 0 1px rgba(10,154,166,.35);">sandbox &middot; n&atilde;o conta no estoque real</span>' : '')
       + '<button data-act="wsPrint" style="border:0; cursor:pointer; border-radius:999px; height:46px; padding:0 26px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:15px; font-family:' + SORA + '; box-shadow:0 10px 24px -10px rgba(13,31,60,.5); display:inline-flex; align-items:center; gap:8px;">&#128424; PRINT</button>'
       + '</div>';
+    // menu persistente também aqui dentro: a Central é um lugar do sistema,
+    // não um beco sem saída. "Linha" fecha a camada, "Estoque" leva pro hub.
+    if (NAV()) h += '<div style="flex:none; padding:2px 34px 6px;">' + NAV().strip('central', { page: 'op' }) + '</div>';
+
     // body: 2 colunas
     h += '<div class="hf-scroll" style="flex:1; overflow-y:auto; padding:14px 34px 40px;"><div style="display:grid; grid-template-columns:1.2fr 1fr; gap:20px; max-width:1240px; margin:0 auto;">';
+
+    // ── "Você está fazendo P&P agora?" (só quando NÃO tem task de P&P aberta)
+    h += ppAskHtml();
 
     // ── FALTA DE ESTOQUE (largura toda, antes das colunas)
     var gp = w.gaps;
@@ -489,10 +625,13 @@
 
     // ── coluna 1: PICKLIST
     h += '<div style="' + CARD + ' padding:18px 20px;">';
-    h += '<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:10px;">' + microLbl('Imprimir ordem &middot; picklist de hoje') + '<span style="flex:1;"></span>'
-      + '<button data-act="wsReload" style="border:1px solid ' + T.line + '; background:' + T.soft + '; cursor:pointer; border-radius:999px; height:30px; padding:0 14px; font-size:12px; font-weight:700; color:' + T.ink2 + ';">Atualizar</button></div>';
+    h += '<div style="display:flex; align-items:baseline; gap:10px; margin-bottom:4px;">' + microLbl('Picklist de hoje') + '<span style="flex:1;"></span>'
+      + '<button data-act="wsReload" style="border:1px solid ' + T.line + '; background:' + T.soft + '; cursor:pointer; border-radius:999px; min-height:44px; padding:0 16px; font-size:12.5px; font-weight:700; color:' + T.ink2 + ';">Atualizar</button></div>'
+      // "o que eu faço aqui": a picklist é pra IMPRIMIR e separar, e o botão
+      // PRINT fica lá em cima. Sem esta linha o operador procura o botão.
+      + '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:10px;">Tudo que sai hoje, junto por produto. Toque em PRINT ali em cima pra sair no papel 4x6 e separar seguindo a lista.</div>';
     if (!w.picklist) h += '<div style="color:' + T.mute2 + '; font-size:13px; padding:14px 0;">Carregando picklist&hellip;</div>';
-    else if (!(w.picklist.groups || []).length) h += '<div style="color:' + T.mute2 + '; font-size:13px; padding:14px 0;">Nenhum pedido pendente pra separar agora.</div>';
+    else if (!(w.picklist.groups || []).length) h += '<div style="color:' + T.mute2 + '; font-size:13px; padding:14px 0;">Nenhum pedido pendente pra separar agora. Se acabou de chegar pedido novo, toque em Atualizar.</div>';
     else {
       h += '<div style="display:flex; gap:8px; margin-bottom:12px;">'
         + '<span style="height:24px; display:inline-flex; align-items:center; padding:0 12px; border-radius:999px; font-family:' + MONO + '; font-size:11px; background:' + T.neuBg + '; color:' + T.neuFg + '; box-shadow:inset 0 0 0 1px ' + T.line + ';">' + w.picklist.total_orders + ' pedidos</span>'
@@ -539,7 +678,8 @@
     h += '<div style="margin-bottom:8px;">' + microLbl('Registrar') + '</div>';
     h += '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:10px;">Pegou garrafa fora de um pedido, achou uma danificada, guardou entrada nova ou contou a prateleira? Registra aqui em 3 segundos. Nunca trava, s&oacute; registra.</div>';
     if (!w.sel) {
-      h += '<input data-input="wsQ" data-focus="wsQ" value="' + D.esc(w.q || '') + '" placeholder="busque o suplemento&hellip;" style="width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid ' + T.line + '; font-size:15px; background:' + T.soft + '; color:' + T.ink2 + '; outline:none;">';
+      h += '<div style="margin-bottom:6px;">' + microLbl('1. Qual suplemento') + '</div>'
+        + '<input data-input="wsQ" data-focus="wsQ" value="' + D.esc(w.q || '') + '" placeholder="digite parte do nome&hellip;" style="width:100%; box-sizing:border-box; padding:13px 15px; border-radius:12px; border:1px solid ' + T.line + '; font-size:16px; background:' + T.soft + '; color:' + T.ink2 + '; outline:none;">';
       var list = supps();
       if ((w.q || '').length >= 2 && !list.length) h += '<div style="color:' + T.mute2 + '; font-size:12.5px; padding:8px 2px;">nada com &quot;' + D.esc(w.q) + '&quot;</div>';
       list.forEach(function (s) {
@@ -574,8 +714,35 @@
   // ACT handlers (delegados pelo app.js)
   // ════════════════════════════════════════════════════════════
   var acts = {
+    // abre SEMPRE (com ou sem task de P&P aberta): a Central virou item de menu
     openWorkspace: function () { D.S.workspaceOpen = true; load(); D.render(); },
     closeWorkspace: function () { D.S.workspaceOpen = false; D.render(); },
+    // "Só olhar": some a pergunta pelo resto da sessão, nada mais muda
+    wsJustLook: function () { st().justLooking = true; D.render(); },
+    /* Inicia a task de P&P daqui mesmo. Mesmo corpo do postStart do app.js
+       (activity_slug + os campos opcionais nulos), pra cair no mesmo caminho
+       do servidor. Falhou? Avisa e segue: a Central continua utilizável. */
+    wsStartPP: function () {
+      var w = st(); if (w.startBusy) return;
+      w.startBusy = true; D.render();
+      D.api('/api/v3/op/event/start', { method: 'POST', body: {
+        activity_slug: 'order_printing', batch_number: null, cowork_with: [], note: null,
+        product_id: null, product_name: null,
+      } })
+        .then(function () {
+          w.startBusy = false; w.justLooking = true;
+          D.toast('Tarefa de P&P iniciada. Bom trabalho.');
+          // recarrega as tasks do app.js: sem isso a home continua achando que
+          // não existe P&P aberto (banner some, "Minhas tarefas" desatualizado).
+          D.loadData();
+          load(); D.render();
+        })
+        .catch(function (e) {
+          w.startBusy = false; w.justLooking = true;
+          D.toast('N&atilde;o deu pra abrir a tarefa agora: ' + (e && e.message ? e.message : e) + '. A picklist continua aqui.');
+          D.render();
+        });
+    },
     wsReload: function () { var w = st(); w.picklist = null; load(); D.render(); },
     wsPrint: function () { print(); },
     wsPick: function (arg) {
@@ -596,6 +763,12 @@
       D.render();
     },
     wsDest: function (arg) { var w = st(); w.dest = arg || ''; D.render(); },
+    // etiqueta 4x6 da caixa (contrato 2): pega o desenho do servidor e imprime
+    wsPrintLabel: function (arg) {
+      D.api('/api/v3/op/stock/box/label?box_id=' + encodeURIComponent(arg || ''))
+        .then(function (j) { printLabel(labelPayload((j && (j.label || j.data)) || j)); })
+        .catch(function () { D.toast('A etiqueta ainda n&atilde;o est&aacute; pronta. Ela sai depois que o admin aprovar a caixa.'); });
+    },
     wsSubmit: function () {
       var w = st(); if (w.busy) return;
       var err = validate(w);
@@ -658,6 +831,7 @@
       takeBody: takeBody, proposeBody: proposeBody, submitBody: submitBody,
       restockBody: restockBody, submitToast: submitToast, validate: validate,
       placesFor: placesFor, restockList: restockList, KINDS: KINDS,
+      boxOf: boxOf, labelPayload: labelPayload,
     },
   };
   return WS;

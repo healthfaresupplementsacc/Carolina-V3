@@ -690,14 +690,20 @@ class StockService {
 
   /**
    * OVERVIEW do hub (Bruno 08-18): uma linha por produto com TODOS os números
-   * do §3 do estudo. Só banco — a coluna Veeqo e os "dias de cobertura" são
-   * preenchidos pelo router (o service nunca sai pra rede).
+   * do §3 do estudo. Só banco — a coluna Veeqo é preenchida pelo router
+   * (o service nunca sai pra rede).
    *
    *   total     = prateleira + caixa + a organizar
    *   reservado = Σ linhas abertas (não shipped/cancelled) qty × units_per_pack
    *   pendente  = fila de aprovação (out/in), NUNCA dentro do total
    *   disponível = total − reservado − pendente_out   (a saída provisória do O2)
    *   separadas = Σ stock_issues status 'separated'   (nunca vendável)
+   *
+   * VELOCIDADE (Bruno 08-19): sold_7d / sold_30d saem das linhas JÁ ENVIADAS
+   * (status 'shipped', shipped_at dentro da janela, em garrafas = qty ×
+   * units_per_pack), e days_of_stock = disponível ÷ (sold_7d ÷ 7), uma casa.
+   * Sem venda na semana o número não existe (null) — dividir por zero viraria
+   * "infinito dias de estoque", que é pior que não dizer nada.
    *
    * @param {object} opts opts.product_id → filtra um produto só
    */
@@ -715,7 +721,9 @@ class StockService {
              COALESCE(po.qty, 0) AS pending_out,
              COALESCE(pi.qty, 0) AS pending_in,
              t.min_units,
-             COALESCE(nb.n, 0)   AS restock_bins
+             COALESCE(nb.n, 0)   AS restock_bins,
+             COALESCE(sv.sold_7d, 0)  AS sold_7d,
+             COALESCE(sv.sold_30d, 0) AS sold_30d
         FROM v3.products p
         LEFT JOIN (SELECT product_id, SUM(qty)::int qty FROM v3.stock_bins
                     WHERE active GROUP BY product_id) b ON b.product_id = p.id
@@ -741,6 +749,16 @@ class StockService {
         LEFT JOIN (SELECT product_id, COUNT(*)::int n FROM v3.stock_bins
                     WHERE active AND min_qty > 0 AND qty <= min_qty
                     GROUP BY product_id) nb ON nb.product_id = p.id
+        LEFT JOIN (SELECT l.product_id,
+                          SUM(CASE WHEN l.shipped_at > NOW() - INTERVAL '7 days'
+                                   THEN l.qty * COALESCE(ps.units_per_pack, 1) ELSE 0 END)::int AS sold_7d,
+                          SUM(l.qty * COALESCE(ps.units_per_pack, 1))::int AS sold_30d
+                     FROM v3.pnp_order_lines l
+                     LEFT JOIN v3.product_skus ps
+                       ON ps.channel = l.source AND UPPER(ps.sku) = UPPER(l.sku)
+                    WHERE l.product_id IS NOT NULL AND l.status = 'shipped'
+                      AND l.shipped_at > NOW() - INTERVAL '30 days'
+                    GROUP BY l.product_id) sv ON sv.product_id = p.id
         ${whereProd}
        ORDER BY COALESCE(p.nickname, p.canonical_name)`, args)).rows;
 
@@ -782,6 +800,12 @@ class StockService {
     const pendingOut = n(row.pending_out); const pendingIn = n(row.pending_in);
     const available = total - reserved - pendingOut;
     const minUnits = row.min_units == null ? null : Number(row.min_units);
+
+    // Velocidade: quanto saiu de verdade (linhas 'shipped') e por quantos dias o
+    // disponível aguenta nesse ritmo. Sem venda na semana → null (não é zero dias,
+    // é "não dá pra dizer"). Disponível negativo já está no status 'negative'.
+    const sold7 = n(row.sold_7d); const sold30 = n(row.sold_30d);
+    const daysOfStock = sold7 > 0 ? Math.max(0, Math.round((available / (sold7 / 7)) * 10) / 10) : null; // negativo = 0 dias (não existe "-0,8 dia")
 
     const binsOut = lists.bins.map((b) => ({
       id: b.id, bin_code: b.bin_code, shelf_code: b.shelf_code || null, area: b.area || null,
@@ -829,7 +853,8 @@ class StockService {
       reserved, pending_out: pendingOut, pending_in: pendingIn,
       available, separated: n(row.separated),
       min_units: minUnits,
-      days_cover: null,           // router
+      sold_7d: sold7, sold_30d: sold30, days_of_stock: daysOfStock,
+      days_cover: daysOfStock,    // nome antigo do mesmo número (compat)
       veeqo: null,                // router
       veeqo_match: 'unknown',     // router
       status,

@@ -27,6 +27,8 @@ const { WeightsRepo, computeQty } = require('./weights');
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
 const IMPORT_BULK_CAP = 500;
+const BULK_BINS_CAP = 300;   // cadastro em lote de prateleiras, por chamada
+const BIN_CODE_MAX = 12;     // 'A03B2' folgado; acima disso não é código de prateleira
 
 /** Data de hoje em NY (o source_ref do import é por dia: reimportar não duplica). */
 const nyDate = (d) => (d || new Date()).toLocaleDateString('en-CA', { timeZone: EDT });
@@ -298,14 +300,36 @@ function createWarehouseRouter(deps = {}) {
     return id;
   }
 
+  /**
+   * A FILA em uma frase: quantas propostas esperam e há quanto tempo a mais velha
+   * espera. É o número que decide se alguém precisa parar e aprovar agora — o
+   * celular e o topo do hub mostram isso antes de qualquer outra coisa.
+   * is_test fora, igual ao resto do overview (o sandbox não enche a fila real).
+   */
+  async function pendingSummary() {
+    const r = await db.query(`
+      SELECT COUNT(*)::int AS count,
+             MAX(EXTRACT(EPOCH FROM (NOW() - created_at))::int / 60) AS oldest_age_min
+        FROM v3.stock_change_requests
+       WHERE status = 'pending' AND is_test = false`);
+    const row = (r.rows && r.rows[0]) || {};
+    const count = Number(row.count) || 0;
+    return { count, oldest_age_min: count > 0 && row.oldest_age_min != null
+      ? Number(row.oldest_age_min) : null };
+  }
+
   // ── LEITURA ────────────────────────────────────────────────
 
   route('get', '/overview', 'read', async (req, res) => {
-    const rows = await rowsWithVeeqo(null);
+    const [rows, pending] = await Promise.all([rowsWithVeeqo(null), pendingSummary()]);
+    // KPI "Aprovações" e o badge do menu mostram O MESMO número: propostas
+    // esperando (não produtos com proposta). Uma fonte só: pendingSummary.
+    const kpis = Object.assign(kpisFrom(rows), { pending_requests: pending.count });
     ok(res, {
       products: rows,
-      kpis: kpisFrom(rows),
+      kpis,
       attention: attentionFrom(rows),
+      pending_summary: pending,
       veeqo_checked_at: veeqoCache.checkedAt(),
       generated_at: new Date().toISOString(),
     });
@@ -475,6 +499,39 @@ function createWarehouseRouter(deps = {}) {
     });
     await audit(req, 'warehouse.bin_upsert', bin.id, { bin_code: bin.bin_code });
     ok(res, { ok: true, bin, product: bin.product_id ? await freshRow(bin.product_id) : null });
+  });
+
+  /**
+   * CADASTRO EM LOTE de prateleiras (Bruno 08-19): {bins:[{bin_code, shelf, area,
+   * product_id, capacity}]}. Um corredor inteiro de uma vez, colado de uma lista.
+   *
+   * Código já existente é PULADO, nunca sobrescrito (volta em `skipped`): quem
+   * cola a lista de novo não pode apagar o produto ou o mínimo que alguém ajustou.
+   * Teto de 300 por chamada — acima disso é arquivo, não formulário.
+   * `shelf` e `shelf_code` valem os dois (a tela manda `shelf`, a coluna é
+   * `shelf_code`; recusar por causa do nome do campo seria burocracia).
+   */
+  route('post', '/locations/bins/bulk', 'write', async (req, res) => {
+    const list = Array.isArray(req.body && req.body.bins) ? req.body.bins : null;
+    if (!list || !list.length) throw new Error('bins obrigatório (lista com pelo menos um código)');
+    if (list.length > BULK_BINS_CAP) {
+      // "inválid" no texto: é o que statusFor lê pra devolver 400 em vez de 500
+      throw new Error(`lista inválida: máximo de ${BULK_BINS_CAP} prateleiras por vez, vieram ${list.length}`);
+    }
+    const clean = []; const invalid = [];
+    for (const b of list) {
+      const code = String((b && b.bin_code) || '').trim().toUpperCase();
+      if (!code || code.length > BIN_CODE_MAX) { invalid.push(code || '(vazio)'); continue; }
+      clean.push({ bin_code: code, shelf_code: b.shelf_code || b.shelf || null,
+        area: b.area || null, product_id: intOf(b.product_id) || null,
+        capacity: b.capacity, min_qty: b.min_qty });
+    }
+    if (!clean.length) throw new Error('lista inválida: nenhum código aproveitável (até ' + BIN_CODE_MAX + ' caracteres)');
+    const out = await locations.bulkBins(clean);
+    // invalid entra no skipped: o operador vê TUDO que não virou prateleira, num lugar só
+    const skipped = out.skipped.concat(invalid);
+    await audit(req, 'warehouse.bins_bulk', null, { created: out.created, skipped: skipped.length });
+    ok(res, { created: out.created, skipped });
   });
 
   route('post', '/locations/box', 'write', async (req, res) => {
@@ -687,4 +744,5 @@ function createWarehouseRouter(deps = {}) {
   return router;
 }
 
-module.exports = { createWarehouseRouter, BASE, computeDrift, importVeeqo, IMPORT_BULK_CAP };
+module.exports = { createWarehouseRouter, BASE, computeDrift, importVeeqo,
+  IMPORT_BULK_CAP, BULK_BINS_CAP, BIN_CODE_MAX };

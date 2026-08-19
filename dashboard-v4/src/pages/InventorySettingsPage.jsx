@@ -10,43 +10,26 @@ import { usePoll, apiPost } from '../adapters/from-api.js';
 import * as wh from '../adapters/warehouse-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
 
+/* Esta página nasceu (08-07) com uma CÓPIA dos tokens do kit e recipes .is-*
+   próprias. Isso é o que a auditoria de 08-19 chamou de segundo design system:
+   os valores eram quase iguais, então a diferença só aparecia quando o kit
+   mudava e esta tela ficava pra trás.
+   Agora sobra só o que é REALMENTE desta página (o layout do root e a caixa
+   pontilhada de "ainda não construído"); tudo que existe no kit virou alias
+   fino apontando pras mesmas variáveis de kit.css, sem redeclarar cor nenhuma.
+   As classes .is-* ficam nos JSX pra não reescrever a página inteira: o que
+   muda é de onde vem a aparência. */
 const KIT = `
-.is-root{
-  --primary:#1a3a6b; --primary-deep:#0d1f3c; --green-d:#2e8b3c;
-  --ground:#f4f8fc; --surface:#fff; --surface-2:#f7fafd;
-  --line:#d4e2f0; --line-strong:#b9cbe2; --dotline:#c6d7e8;
-  --ink:#1c2b3a; --ink-dim:#54687c; --ink-faint:#6b7f92;
-  --ok-bg:#e8f7ea; --ok-line:#c8ecce; --ok-deep:#1e6b2e;
-  --warn-bg:#fdf6e3; --warn-line:#eeddad; --warn-deep:#6b4c07;
-  --bad-bg:#fdeeec; --bad-line:#f5cdc7; --bad-deep:#a02c20;
-  --neutral-bg:#eaf0fb; --neutral-line:#d4e2f0;
-  --font:'DM Sans',system-ui,'Segoe UI',sans-serif;
-  --font-display:'DM Serif Display','Iowan Old Style',Georgia,serif;
-  --font-mono:'DM Mono','SFMono-Regular',ui-monospace,Consolas,monospace;
-  font-family:var(--font); color:var(--ink);
-  background:var(--ground); background-image:radial-gradient(circle,rgba(26,58,107,.06) 1px,transparent 1px); background-size:26px 26px;
-  min-height:100%; padding:30px 26px 70px;
-}
+.is-root{ min-height:100%; padding:30px 26px 70px; font-family:var(--font); color:var(--ink); }
 .is-eyebrow{font:500 10px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--green-d)}
-.is-h1{font-family:var(--font-display);font-weight:400;font-size:clamp(24px,2.4vw,32px);color:var(--primary-deep);margin:4px 0 2px}
+.is-h1{font-family:var(--font-display);font-weight:400;font-size:clamp(26px,2.6vw,34px);color:var(--primary-deep);margin:4px 0 2px;line-height:1.12}
 .is-h1 em{color:var(--green-d);font-style:italic}
-.is-sub{color:var(--ink-dim);font-size:13px}
-.is-sec{font-family:var(--font-display);font-size:20px;color:var(--primary-deep);margin:26px 0 2px}
+.is-sub{color:var(--ink-dim);font-size:13.5px}
+.is-sec{font-family:var(--font-display);font-weight:400;font-size:20px;color:var(--primary-deep);margin:26px 0 2px}
 .is-secsub{color:var(--ink-dim);font-size:12.5px;margin-bottom:12px}
-.is-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05);padding:16px 18px;margin-bottom:14px}
-.is-mlabel{font:500 10px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint)}
-.is-tbl{width:100%;border-collapse:collapse;font-size:13.5px}
-.is-tbl th{text-align:left;font:500 10px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);padding:6px 8px;border-bottom:1px solid var(--line)}
-.is-tbl td{padding:7px 8px;border-bottom:1px dotted var(--dotline)}
-.is-in{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);font:500 13px var(--font-mono);width:70px}
-.is-chip{display:inline-flex;align-items:center;height:21px;padding:0 9px;border-radius:999px;font:500 11px var(--font-mono)}
-.is-chip.ok{background:var(--ok-bg);color:var(--ok-deep);box-shadow:inset 0 0 0 1px var(--ok-line)}
-.is-chip.warn{background:var(--warn-bg);color:var(--warn-deep);box-shadow:inset 0 0 0 1px var(--warn-line)}
-.is-chip.bad{background:var(--bad-bg);color:var(--bad-deep);box-shadow:inset 0 0 0 1px var(--bad-line)}
-.is-chip.neutral{background:var(--neutral-bg);color:var(--primary);box-shadow:inset 0 0 0 1px var(--neutral-line)}
-.is-btn{border:none;cursor:pointer;font:600 12.5px var(--font);border-radius:999px;height:32px;padding:0 15px;background:var(--primary-deep);color:#fff}
-.is-btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
-.is-todo{background:var(--surface-2);border:1px dashed var(--line-strong);border-radius:14px;padding:14px 16px;color:var(--ink-dim);font-size:13px}
+.is-card{background:var(--kit-surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-card);padding:18px 20px;margin-bottom:14px}
+.is-mlabel{font:500 10px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint)}
+.is-todo{background:var(--kit-surface-2);border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:14px 16px;color:var(--ink-dim);font-size:13px}
 `;
 
 function Row({ children }) { return <tr>{children}</tr>; }
@@ -99,20 +82,20 @@ function TarePresets({ ro, ack }) {
       {st.error && <div className="is-todo" style={{ marginBottom: 10 }}>Não deu pra carregar as taras: {st.error.message}</div>}
 
       <div style={{ overflowX: 'auto' }}>
-        <table className="is-tbl" data-table="taras">
+        <table className="kit-table" data-table="taras">
           <thead><tr><th>Nome</th><th>Serve pra</th><th>Tara (g)</th><th>Status</th></tr></thead>
           <tbody>
             {st.tares.map((t) => (
               <Row key={t.id || t.name}>
                 <td><b>{t.name}</b></td>
-                <td><span className="is-chip neutral">{t.kind === 'box' ? 'caixa' : 'prateleira'}</span></td>
+                <td><span className="kit-chip neutral">{t.kind === 'box' ? 'caixa' : 'prateleira'}</span></td>
                 <td>
-                  <input className="is-in" defaultValue={t.tare_g} disabled={ro}
+                  <input className="kit-input mono cell" defaultValue={t.tare_g} disabled={ro}
                          onBlur={(e) => { const v = Number(e.target.value); if (v && v !== Number(t.tare_g)) update(t, { tare_g: v }); }} />
                 </td>
                 <td>{t.active === false
-                  ? <span className="is-chip warn">desativada</span>
-                  : <span className="is-chip ok">em uso</span>}</td>
+                  ? <span className="kit-chip warn">desativada</span>
+                  : <span className="kit-chip ok">em uso</span>}</td>
               </Row>
             ))}
             {!st.tares.length && !st.loading && (
@@ -126,16 +109,16 @@ function TarePresets({ ro, ack }) {
 
       {!ro && (
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input className="is-in" style={{ width: 180 }} placeholder="nome, ex: bandeja azul" value={form.name}
+          <input className="kit-input mono" style={{ width: 180 }} placeholder="nome, ex: bandeja azul" value={form.name}
                  onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select className="is-in" style={{ width: 120 }} value={form.kind}
+          <select className="kit-input mono" style={{ width: 120 }} value={form.kind}
                   onChange={(e) => setForm({ ...form, kind: e.target.value })}>
             <option value="bin">prateleira</option>
             <option value="box">caixa</option>
           </select>
-          <input className="is-in" type="number" placeholder="tara g" value={form.tare_g}
+          <input className="kit-input mono cell" type="number" placeholder="tara g" value={form.tare_g}
                  onChange={(e) => setForm({ ...form, tare_g: e.target.value })} />
-          <button className="is-btn" disabled={busy || !valid} onClick={add}>Adicionar tara</button>
+          <button className="kit-btn sm primary" disabled={busy || !valid} onClick={add}>Adicionar tara</button>
         </div>
       )}
     </div>
@@ -205,9 +188,9 @@ export function InventorySettingsPage() {
               <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--warn-deep)' }}>{q.question}</div>
               {q.context && <div style={{ fontSize: 12, color: 'var(--ink-dim)', marginTop: 2 }}>{q.context}</div>}
               <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span className="is-chip warn">perguntada {q.asked_count}x</span>
-                {q.answer && <span className="is-chip ok">respondida: {q.answer}</span>}
-                <button className="is-btn sec" onClick={() => toggleQuestion(q)}>Já resolvido, desligar</button>
+                <span className="kit-chip warn">perguntada {q.asked_count}x</span>
+                {q.answer && <span className="kit-chip ok">respondida: {q.answer}</span>}
+                <button className="kit-btn sm sec" onClick={() => toggleQuestion(q)}>Já resolvido, desligar</button>
               </div>
             </div>
           ))}
@@ -221,17 +204,17 @@ export function InventorySettingsPage() {
           Regra do saco perfeito: sempre o menor envelope que cabe. Clique no número pra editar.
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table className="is-tbl">
+          <table className="kit-table">
             <thead><tr><th>Cor</th><th>De</th><th>Até</th><th>Envelope</th></tr></thead>
             <tbody>
               {tiers.map((t) => (
                 <Row key={t.id}>
-                  <td><span className="is-chip neutral">{t.bottle_color === 'black' ? 'preta' : t.bottle_color === 'white' ? 'branca' : t.bottle_color}</span></td>
-                  <td><input className="is-in" defaultValue={t.min_bottles} disabled={ro}
+                  <td><span className="kit-chip neutral">{t.bottle_color === 'black' ? 'preta' : t.bottle_color === 'white' ? 'branca' : t.bottle_color}</span></td>
+                  <td><input className="kit-input mono cell" defaultValue={t.min_bottles} disabled={ro}
                     onBlur={(e) => { if (Number(e.target.value) !== t.min_bottles) saveTier(t, 'min_bottles', e.target.value); }} /></td>
-                  <td><input className="is-in" defaultValue={t.max_bottles == null ? '' : t.max_bottles} placeholder="∞" disabled={ro}
+                  <td><input className="kit-input mono cell" defaultValue={t.max_bottles == null ? '' : t.max_bottles} placeholder="∞" disabled={ro}
                     onBlur={(e) => { const v = e.target.value === '' ? null : Number(e.target.value); if (v !== t.max_bottles) saveTier(t, 'max_bottles', e.target.value); }} /></td>
-                  <td><b className="mono" style={{ fontFamily: 'var(--font-mono)' }}>{t.package_size}</b>{t.is_box ? <span className="is-chip neutral" style={{ marginLeft: 6 }}>caixa</span> : null}</td>
+                  <td><b className="mono" style={{ fontFamily: 'var(--font-mono)' }}>{t.package_size}</b>{t.is_box ? <span className="kit-chip neutral" style={{ marginLeft: 6 }}>caixa</span> : null}</td>
                 </Row>
               ))}
             </tbody>
@@ -246,18 +229,18 @@ export function InventorySettingsPage() {
           Quantas brancas cabem junto com N pretas. Linha amarela = suposição, precisa confirmar na prática.
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table className="is-tbl">
+          <table className="kit-table">
             <thead><tr><th>Envelope</th><th>Pretas</th><th>Brancas (até)</th><th>Status</th></tr></thead>
             <tbody>
               {mix.map((m) => (
                 <Row key={m.id}>
                   <td><b style={{ fontFamily: 'var(--font-mono)' }}>{m.package_size}</b></td>
                   <td className="mono">{m.black_qty}</td>
-                  <td><input className="is-in" defaultValue={m.white_max} disabled={ro}
+                  <td><input className="kit-input mono cell" defaultValue={m.white_max} disabled={ro}
                     onBlur={(e) => { if (Number(e.target.value) !== m.white_max) saveMix(m, e.target.value); }} /></td>
                   <td>{m.confirmed
-                    ? <span className="is-chip ok">confirmado</span>
-                    : <span className="is-chip warn" title={m.note || ''}>suposição</span>}</td>
+                    ? <span className="kit-chip ok">confirmado</span>
+                    : <span className="kit-chip warn" title={m.note || ''}>suposição</span>}</td>
                 </Row>
               ))}
               {mix.length === 0 && <tr><td colSpan={4} style={{ color: 'var(--ink-faint)' }}>Nenhuma regra de mistura cadastrada.</td></tr>}
@@ -280,7 +263,7 @@ export function InventorySettingsPage() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="is-tbl">
+            <table className="kit-table">
               <thead><tr><th>Suprimento</th><th>Tipo</th><th>Qtd</th><th>Mínimo</th><th>Tamanho ligado</th></tr></thead>
               <tbody>
                 {supplies.map((sp) => {
@@ -291,7 +274,7 @@ export function InventorySettingsPage() {
                       <td style={{ color: 'var(--ink-dim)' }}>{sp.kind}</td>
                       <td className="mono">{sp.qty}</td>
                       <td className="mono">{sp.min_qty}</td>
-                      <td>{link ? <span className="is-chip neutral">{link.package_size}</span> : <span className="is-chip warn">sem ligação</span>}</td>
+                      <td>{link ? <span className="kit-chip neutral">{link.package_size}</span> : <span className="kit-chip warn">sem ligação</span>}</td>
                     </Row>
                   );
                 })}
@@ -309,8 +292,8 @@ export function InventorySettingsPage() {
 
       <div className="is-card">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-          <span className={'is-chip ' + (nBins ? 'ok' : 'bad')}>{nBins} bins cadastrados</span>
-          <span className={'is-chip ' + (nThresholds ? 'ok' : 'neutral')}>{nThresholds} limiares de estoque</span>
+          <span className={'kit-chip ' + (nBins ? 'ok' : 'bad')}>{nBins} bins cadastrados</span>
+          <span className={'kit-chip ' + (nThresholds ? 'ok' : 'neutral')}>{nThresholds} limiares de estoque</span>
         </div>
         <div className="is-todo">
           <b style={{ color: 'var(--ink)' }}>Onde cada coisa mora agora:</b>

@@ -48,6 +48,8 @@ const BINS = [
 ];
 const BOXES = [
   { id: 8, box_number: 'BX-0451', area: 'MEZ', qty: 100, tare_g: 900, product_id: 99, product: 'Rutin 500mg' },
+  // caixa SEM tara cadastrada: e aqui que os presets de tara tem que aparecer
+  { id: 9, box_number: 'BX-0452', area: 'MEZ', qty: 60, product_id: 99, product: 'Rutin 500mg' },
 ];
 const CONTEXT = { enabled: true, products: PRODUCTS, bins: BINS, boxes: BOXES };
 const TASKS = {
@@ -55,6 +57,12 @@ const TASKS = {
   counts: [{ bin_id: 1, bin_code: 'A03B2', product: 'Rutin 500mg', product_id: 99 }],
   restock: [{ bin_id: 1, bin_code: 'A03B2', product: 'Rutin 500mg' }],
   organize: [{ product_id: 42, product: 'Benfotiamine 300mg', qty: 24 }],
+  // contrato (1): presets de tara pro seletor da tela de Contar
+  tares: [
+    { id: 1, name: 'caixa pequena', kind: 'box', tare_g: 420 },
+    { id: 2, name: 'caixa média', kind: 'box', tare_g: 780 },
+    { id: 3, name: 'bandeja azul', kind: 'bin', tare_g: 310 },
+  ],
 };
 const RECENT = {
   ok: true,
@@ -210,6 +218,34 @@ async function main() {
   rec('home', 'Tarefas de hoje veio do stock/tasks', /Tarefas de hoje/i.test(homeTxt) && /A03B2/.test(homeTxt));
   rec('home', 'Registrado hoje veio do stock/recent', /Registrado hoje/i.test(homeTxt) && /Rutin/.test(homeTxt));
   rec('home', 'chip de celular comeca em "sem celular"', /sem celular/.test(homeTxt));
+
+  // ── MENU PERSISTENTE: a MESMA barra do /op, aqui no hub ──────
+  const nav = await page.evaluate(() => {
+    const n = document.querySelector('[data-nav="op"]');
+    if (!n) return null;
+    const items = Array.from(n.querySelectorAll('[data-nav-item]'));
+    const href = (k) => { const e = n.querySelector('[data-nav-item="' + k + '"]'); return e ? e.getAttribute('href') : null; };
+    const a = n.querySelector('[aria-current="page"]');
+    return {
+      keys: items.map((i) => i.getAttribute('data-nav-item')),
+      active: a ? a.getAttribute('data-nav-item') : null,
+      heights: items.map((i) => Math.round(i.getBoundingClientRect().height)),
+      linha: href('linha'), central: href('central'),
+    };
+  });
+  rec('menu', 'nav persistente no hub com as 3 abas',
+    !!nav && nav.keys.join(',') === 'linha,central,estoque', nav ? nav.keys.join(',') : 'sem nav');
+  rec('menu', 'aba ativa no hub e Estoque', !!nav && nav.active === 'estoque', nav ? nav.active : '');
+  rec('menu', 'Linha volta pro /op e Central usa o deep link /op/?ws=1',
+    !!nav && nav.linha === '/op/' && nav.central === '/op/?ws=1', nav ? nav.linha + ' | ' + nav.central : '');
+  rec('menu', 'itens do menu com 44px+ (toque com luva)',
+    !!nav && nav.heights.every((x) => x >= 44), nav ? nav.heights.join('/') : '');
+  const cross = await page.evaluate(() => {
+    const a = Array.from(document.querySelectorAll('a[href="/op/?ws=1"]'));
+    const link = a.find((x) => /picklist/i.test(x.innerText));
+    return link ? link.innerText.replace(/\s+/g, ' ').trim() : null;
+  });
+  rec('menu', 'home do hub tem o link discreto pra Central', !!cross, String(cross));
   await shot('02-home');
 
   // ── ORGANIZAR: scan do bin → scan da garrafa → qty → POST ────
@@ -243,7 +279,9 @@ async function main() {
   await scan('A03B2');                       // bin com tara 500g e produto Rutin (48 g/un)
   const cnt0 = await page.evaluate(() => document.body.innerText);
   rec('contar', 'bin escaneado ja traz o produto cadastrado', /Rutin/.test(cnt0), '');
-  rec('contar', 'mostra quanto a prateleira vazia pesa (500 g)', /vazia pesa 500 g/.test(cnt0), '');
+  // a tela nao so mostra a tara, ela DIZ DE ONDE ela veio (local > preset > digitada)
+  rec('contar', 'mostra a tara em uso e de onde ela veio (500 g do proprio local)',
+    /tara: cadastrada neste local 500 g/.test(cnt0), '');
   /* CONTAGEM CEGA (S15 §11): a tela NUNCA pode mostrar a quantidade que o
      sistema tem antes do operador confirmar, senao ele copia o numero da tela.
      A fixture do bin A03B2 tem qty 4: nem "4" solto nem o texto antigo
@@ -289,6 +327,50 @@ async function main() {
   const cntToast = await page.evaluate(() => document.body.innerText);
   rec('contar', 'toast diz que foi enviada E que o admin aprova',
     /Contagem enviada/.test(cntToast) && /admin aprova/.test(cntToast), '');
+
+  // ── TARA: presets em chips (contrato 1) ─────────────────────
+  // BX-0452 nao tem tara cadastrada: e o caso em que o preset manda.
+  await scan('BX-0452');
+  await sleep(400);
+  const tareBtns = await page.$$('[data-act="cntTare"]');
+  rec('tara', 'chips de tara vieram do stock/tasks.tares', tareBtns.length >= 3, tareBtns.length + ' chips');
+  const tareTxt0 = await page.evaluate(() => document.body.innerText);
+  rec('tara', 'sem tara escolhida a tela diz que nao tem', /tara: nenhuma, peso cheio/.test(tareTxt0), '');
+  rec('tara', 'os chips mostram nome e gramas', /caixa média .* 780 g/.test(tareTxt0), '');
+  // escolhe "caixa média" (780 g)
+  await (await page.$('[data-act="cntTare"][data-arg="2"]')).click();
+  await sleep(400);
+  const tareTxt = await page.evaluate(() => document.body.innerText);
+  rec('tara', 'a tela DIZ qual tara esta em uso ("tara: caixa média 780 g")',
+    /tara: caixa média 780 g/.test(tareTxt), '');
+  await shot('05b-contar-tara');
+  // 5580 bruto - 780 tara = 4800 / 48 = 100 garrafas
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-input="cntGross"]');
+    i.value = '5580';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(500);
+  const tarePv = await page.evaluate(() => {
+    const n = document.querySelector('#cntPreview');
+    const m = n && n.innerText.match(/\b(\d+)\b/);
+    return m ? m[1] : null;
+  });
+  rec('tara', 'a previa desconta a tara do preset (5580-780)/48 = 100', tarePv === '100', 'previa=' + tarePv);
+  posted.length = 0;
+  await (await page.$('[data-act="submitWeigh"]')).click();
+  await sleep(800);
+  const tPost = posted.find((x) => x.pathname === '/api/v3/op/stock/count/weigh');
+  rec('tara', 'o POST leva a tara do preset (o servidor refaz a conta)',
+    !!tPost && tPost.body.tare_g === 780 && tPost.body.box_id === 9,
+    tPost ? JSON.stringify(tPost.body) : 'sem post');
+
+  // Local COM tara propria ganha do preset: os chips ficam apagados de proposito
+  await scan('A03B2');                      // bin com tare_g 500
+  await sleep(400);
+  const ownTxt = await page.evaluate(() => document.body.innerText);
+  rec('tara', 'local com tara cadastrada usa a DELE, nao o preset',
+    /tara: cadastrada neste local 500 g/.test(ownTxt) && /já tem a tara cadastrada/i.test(ownTxt), '');
 
   // "Esta vazio" = contagem no zero, um toque
   await scan('A03B2');

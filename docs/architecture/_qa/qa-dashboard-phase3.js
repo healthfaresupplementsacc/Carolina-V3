@@ -93,6 +93,13 @@ function apiFixture(pathname, search, method, body) {
       return row ? { data: { ...PRODUCT.data, product: row } } : PRODUCT;
     }
     if (p.startsWith('family/')) return { data: PRODUCT.data.family };
+    /* contrato (4): criar varias prateleiras de uma vez. Cria as que faltam e
+       PULA as que ja existem (nunca sobrescreve). O stub finge 2 repetidas. */
+    if (p === 'locations/bins/bulk') {
+      const list = (body && Array.isArray(body.bins)) ? body.bins : [];
+      const skipped = list.slice(0, 2).map((b) => b.bin_code);
+      return { data: { created: Math.max(0, list.length - skipped.length), skipped } };
+    }
     // qualquer outro POST de escrita (weights/*, locations/box/:id/label-printed…)
     return { data: { ok: true } };
   }

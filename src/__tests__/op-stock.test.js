@@ -20,7 +20,7 @@ const PRODUCTS = { 10: { product: 'Magnesium Glycinate', nickname: 'Mag' },
   11: { product: 'Berberine', nickname: null } };
 
 function makeDb() {
-  const state = { requests: [], issues: [], movements: [], audit: [], nextId: 1 };
+  const state = { requests: [], issues: [], movements: [], boxes: [], audit: [], nextId: 1 };
   const clone = (o) => ({ ...o });
   const prod = (id) => PRODUCTS[id] || { product: 'Produto ' + id, nickname: null };
   const api = {
@@ -34,10 +34,32 @@ function makeDb() {
         const row = { id: state.nextId++, product_id: params[0], kind: params[1], direction: params[2],
           qty: params[3], bin_id: params[4], box_id: params[5], issue_id: params[6],
           reason: params[7], note: params[8], proposed_by_person_id: params[9],
-          proposed_by_login: params[10], is_test: params[11], status: 'pending',
+          proposed_by_login: params[10], is_test: params[11], meta: params[12], status: 'pending',
           created_at: state.clock ? state.clock() : new Date().toISOString() };
         state.requests.push(row);
         return { rows: [clone(row)] };
+      }
+      // alocação do número da caixa nova (o maior BX- existente + 1)
+      if (/FROM v3\.stock_boxes WHERE box_number ~/.test(q)) {
+        const last = state.boxes.map((b) => b.box_number).sort().pop();
+        return { rows: last ? [{ box_number: last }] : [] };
+      }
+      if (q.startsWith('INSERT INTO v3.stock_boxes')) {
+        const row = { id: state.nextId++, box_number: params[0], product_id: params[1],
+          area: params[2], batch_number: params[3], tare_g: params[4] };
+        state.boxes.push(row);
+        return { rows: [clone(row)] };
+      }
+      // meta.result: o que a aprovação criou volta pra própria proposta
+      if (/UPDATE v3\.stock_change_requests SET meta/.test(q)) {
+        const r = state.requests.find((x) => x.id === params[0]);
+        if (r) r.meta = params[1];
+        return { rows: [] };
+      }
+      if (/UPDATE v3\.stock_change_requests SET status = 'approved'/.test(q)) {
+        const r = state.requests.find((x) => x.id === params[0]);
+        if (r) { r.status = 'approved'; r.decided_by_login = params[1]; }
+        return { rows: r ? [clone(r)] : [] };
       }
       if (q.startsWith('INSERT INTO v3.audit_log')) { state.audit.push({ action: params[2] }); return { rows: [] }; }
       // decisão do admin (usada só pra provar o mapeamento de estado no recent)
@@ -55,7 +77,7 @@ function makeDb() {
         const rows = state.requests
           .filter((r) => r.proposed_by_person_id === params[0] && !!r.is_test === !!params[1])
           .map((r) => ({ id: r.id, kind: r.kind, qty: r.qty, note: r.reason || r.note,
-            created_at: r.created_at, status: r.status, ...prod(r.product_id) }));
+            created_at: r.created_at, status: r.status, meta: r.meta, ...prod(r.product_id) }));
         return { rows };
       }
       if (/FROM v3\.stock_issues i JOIN v3\.products p/.test(q)) {
@@ -91,6 +113,8 @@ function fakeStock(db) {
       return { movement: { id: 900 + calls.length }, duplicate: false, applied: p.qty, issue };
     }),
     pick: jest.fn(async () => { throw new Error('pick não deve ser chamado pelo operador'); }),
+    storeIn: jest.fn(async (p) => { calls.push({ name: 'storeIn', p });
+      return { movement: { id: 800 }, duplicate: false, applied: p.qty }; }),
   };
 }
 
@@ -250,5 +274,84 @@ describe('op-stock — recent (Registrado hoje)', () => {
     for (let i = 0; i < 35; i++) await op.take(SESSION, { product_id: 10, qty: 1, kind: 'pick' });
     const { items } = (await op.recent(SESSION)).body;
     expect(items.length).toBe(30);
+  });
+});
+
+/* ── O NÚMERO DA CAIXA volta pro operador (Bruno 08-19) ───────────────────
+   O operador propõe "chegou uma caixa"; o NÚMERO (BX-0001) só nasce quando o
+   admin aprova. Sem devolver esse número na linha do "Registrado hoje" ele
+   ficaria só em stock_boxes e o operador não saberia que etiqueta colar. */
+describe('op-stock — recent leva o box_number da caixa aprovada', () => {
+  /** Proposta de CAIXA NOVA, do jeito que op-warehouse.boxNew monta. */
+  const proporCaixa = (requests, over = {}) => requests.propose({
+    product_id: 10, kind: 'entrada', direction: 'in', qty: 180,
+    meta: { box: { new: true, batch_number: 'L-99', area: 'P1' }, method: 'box_new' },
+    note: 'caixa nova lote L-99', person_id: 5, login: 'Simone', ...over,
+  });
+
+  test('aprovar aloca o número, grava em meta.result e o recent mostra', async () => {
+    const { db, requests, op } = build();
+    const req = await proporCaixa(requests);
+    // enquanto pendente não existe número nenhum: a caixa ainda pode ser recusada
+    const antes = (await op.recent(SESSION)).body.items[0];
+    expect(antes.status).toBe('pending');
+    expect(antes.box_number).toBeNull();
+
+    await requests.approve({ id: req.id, login: 'Henrique', person_id: 1 });
+    const depois = (await op.recent(SESSION)).body.items[0];
+    expect(depois.status).toBe('approved');
+    expect(depois.box_number).toBe('BX-0001');
+    // a caixa existe de verdade, com o lote que o operador informou
+    expect(db.state.boxes[0]).toMatchObject({ box_number: 'BX-0001', product_id: 10, batch_number: 'L-99' });
+  });
+
+  test('meta.result não apaga o meta original da proposta', async () => {
+    const { db, requests } = build();
+    const req = await proporCaixa(requests);
+    await requests.approve({ id: req.id, login: 'Henrique' });
+    const meta = JSON.parse(db.state.requests.find((r) => r.id === req.id).meta);
+    expect(meta.box).toMatchObject({ new: true, batch_number: 'L-99' });   // de onde veio
+    expect(meta.method).toBe('box_new');
+    expect(meta.result).toMatchObject({ box_number: 'BX-0001' });
+    expect(meta.result.box_id).toBeTruthy();
+  });
+
+  test('a numeração continua de onde parou, nunca repete', async () => {
+    const { db, requests, op } = build();
+    db.state.boxes.push({ id: 99, box_number: 'BX-0450' });
+    const req = await proporCaixa(requests);
+    await requests.approve({ id: req.id, login: 'Henrique' });
+    expect((await op.recent(SESSION)).body.items[0].box_number).toBe('BX-0451');
+  });
+
+  test('meta como objeto (driver que já desserializa o jsonb) também resolve', async () => {
+    const { db, requests, op } = build();
+    const req = await proporCaixa(requests);
+    await requests.approve({ id: req.id, login: 'Henrique' });
+    const row = db.state.requests.find((r) => r.id === req.id);
+    row.meta = JSON.parse(row.meta);                 // simula o pg devolvendo objeto
+    expect((await op.recent(SESSION)).body.items[0].box_number).toBe('BX-0001');
+  });
+
+  test('as outras linhas trazem box_number null (mesma forma sempre)', async () => {
+    const { db, op } = build();
+    await op.take(SESSION, { product_id: 10, qty: 3, kind: 'pick' });
+    await op.take(SESSION, { product_id: 10, qty: 1, kind: 'damaged' });
+    db.state.movements.push({ id: 77, kind: 'restock', product_id: 10, qty: 12,
+      person_id: 5, is_test: false, created_at: new Date().toISOString() });
+    const { items } = (await op.recent(SESSION)).body;
+    expect(items).toHaveLength(3);
+    expect(items.every((i) => i.box_number === null)).toBe(true);
+    expect(items.every((i) => 'box_number' in i)).toBe(true);
+  });
+
+  test('entrada SEM caixa nova (só quantidade) fica sem número, sem inventar nada', async () => {
+    const { requests, op } = build();
+    const req = await requests.propose({ product_id: 10, kind: 'entrada', direction: 'in',
+      qty: 50, note: 'chegou da linha', person_id: 5, login: 'Simone' });
+    await requests.approve({ id: req.id, login: 'Henrique' });
+    const item = (await op.recent(SESSION)).body.items[0];
+    expect(item.status).toBe('approved');
+    expect(item.box_number).toBeNull();
   });
 });

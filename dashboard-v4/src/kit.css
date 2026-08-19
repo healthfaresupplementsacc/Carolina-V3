@@ -133,6 +133,10 @@
   font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right;
 }
 .kit-table .sep { border-left:2px solid var(--line-strong); }
+/* cabeçalho que ordena: some com o cursor de texto e acende no hover, senão
+   ninguém descobre que dá pra clicar */
+.kit-table thead th.sortable { cursor:pointer; user-select:none; }
+.kit-table thead th.sortable:hover { color:var(--primary); background:var(--primary-soft); }
 .kit-table tbody tr.clickable { cursor:pointer; }
 
 .kit-input {
@@ -142,6 +146,10 @@
 }
 .kit-input:focus { box-shadow:var(--focus-ring); border-color:var(--primary-line); }
 .kit-input.mono { font-family:var(--font-mono); }
+/* campo numérico DENTRO de célula de tabela: um input largura total empurra a
+   coluna e quebra a leitura da linha */
+.kit-input.cell { width:76px; padding:5px 8px; font-size:13px; }
+.kit-input.full { width:100%; }
 select.kit-input { cursor:pointer; }
 
 /* ── Segmented control ─────────────────────────────────────────── */
@@ -187,6 +195,32 @@ select.kit-input { cursor:pointer; }
   font:600 12.5px var(--font); color:var(--ink-dim); border-bottom:2px solid transparent;
 }
 .kit-drawer .tabs button.on { color:var(--primary); border-bottom-color:var(--green-d); }
+
+/* ── Badge do menu lateral (Aprovações) ───────────────────────────
+   Quantas propostas estão esperando decisão. Âmbar, não vermelho: é fila
+   normal do dia, não incidente. Some sozinho quando a fila zera. */
+.nav-badge {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:19px; height:19px; padding:0 6px; margin-right:6px;
+  border-radius:var(--r-pill); background:var(--warn-bg); color:var(--warn-deep);
+  box-shadow:inset 0 0 0 1px var(--warn-line);
+  font:600 10.5px var(--font-mono); font-variant-numeric:tabular-nums;
+  flex:0 0 auto;
+}
+.nav-badge-dot { min-width:8px; width:8px; height:8px; padding:0; margin:0;
+  background:var(--kit-warn); box-shadow:none; }
+:root[data-theme="dark"] .nav-badge { background:rgba(232,161,60,.18); color:#f0c27a; box-shadow:inset 0 0 0 1px rgba(232,161,60,.35); }
+
+/* ── Faixa "página antiga" (rotas fora do menu) ──────────────────
+   As telas legadas continuam abrindo por hash salvo. A faixa diz, na primeira
+   linha, que existe um lugar melhor pra fazer a mesma coisa. */
+.kit-legacy-banner {
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:var(--r-md);
+  padding:11px 16px; margin-bottom:16px; color:var(--warn-deep);
+  font:500 13px var(--font);
+}
+.kit-legacy-banner .kit-btn { margin-left:auto; }
 
 /* ── Toast do kit ─────────────────────────────────────────────── */
 .kit-toast {

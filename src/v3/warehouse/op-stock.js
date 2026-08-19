@@ -32,6 +32,21 @@ function bad(error, detail) { return { status: 400, body: detail ? { error, deta
 function intOf(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; }
 function textOf(v, max) { const s = v == null ? '' : String(v).trim(); return s ? s.slice(0, max) : null; }
 
+/**
+ * O NÚMERO DA CAIXA que a aprovação criou (BX-0451), quando existe.
+ * A proposta 'entrada' de caixa nova nasce sem número — ele só é alocado quando o
+ * admin aprova (StockRequestService._apply grava em meta.result). Aqui a linha do
+ * "Registrado hoje" mostra o número pro operador ir etiquetar a caixa certa.
+ * jsonb pode voltar como objeto ou string, dependendo do driver.
+ */
+function boxNumberOf(row) {
+  if (!row || row.kind !== 'entrada' || row.status !== 'approved') return null;
+  let m = row.meta;
+  if (typeof m === 'string') { try { m = JSON.parse(m); } catch (_) { return null; } }
+  const num = m && m.result && m.result.box_number;
+  return num ? String(num) : null;
+}
+
 function createOpStock(deps = {}) {
   const db = deps.db;
   const stock = deps.stock;
@@ -99,6 +114,9 @@ function createOpStock(deps = {}) {
    * estado de cada linha. Três fontes, uma lista só:
    *   propostas (pendente/aprovado/recusado) + danificadas (aplicado) +
    *   reposições de prateleira (aplicado).
+   * Entrada de caixa nova JÁ APROVADA leva `box_number` — o número que a caixa
+   * recebeu na aprovação, pro operador etiquetar a caixa certa. Nas outras linhas
+   * o campo vem null (mesma forma sempre, a tela não precisa checar o tipo).
    */
   async function recent(session) {
     const personId = session.person_id;
@@ -106,7 +124,7 @@ function createOpStock(deps = {}) {
     const [reqs, issues, moves] = await Promise.all([
       db.query(
         `SELECT q.id, q.kind, q.qty, COALESCE(q.reason, q.note) AS note, q.created_at, q.status,
-                p.canonical_name AS product, p.nickname
+                q.meta, p.canonical_name AS product, p.nickname
            FROM v3.stock_change_requests q JOIN v3.products p ON p.id = q.product_id
           WHERE q.proposed_by_person_id = $1 AND q.is_test = $2
             AND q.created_at > NOW() - INTERVAL '${RECENT_HOURS} hours'
@@ -133,17 +151,18 @@ function createOpStock(deps = {}) {
     for (const r of reqs.rows) {
       items.push({ id: 'req:' + r.id, kind: r.kind, qty: Math.abs(Number(r.qty) || 0),
         note: r.note || null, created_at: r.created_at, product: r.product,
-        nickname: r.nickname || null, status: r.status });
+        nickname: r.nickname || null, status: r.status,
+        box_number: boxNumberOf(r) });
     }
     for (const r of issues.rows) {
       items.push({ id: 'issue:' + r.id, kind: 'damaged', qty: Math.abs(Number(r.qty) || 0),
         note: r.note || r.reason || null, created_at: r.created_at, product: r.product,
-        nickname: r.nickname || null, status: 'applied' });
+        nickname: r.nickname || null, status: 'applied', box_number: null });
     }
     for (const r of moves.rows) {
       items.push({ id: 'mov:' + r.id, kind: 'restock', qty: Math.abs(Number(r.qty) || 0),
         note: r.note || null, created_at: r.created_at, product: r.product || null,
-        nickname: r.nickname || null, status: 'applied' });
+        nickname: r.nickname || null, status: 'applied', box_number: null });
     }
     items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { body: { ok: true, items: items.slice(0, RECENT_MAX) } };

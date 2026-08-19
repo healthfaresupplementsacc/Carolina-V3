@@ -90,9 +90,9 @@ function createOpRouter(deps = {}) {
     res.type('application/javascript').send(
       'window.HF_OP_CONFIG = ' + JSON.stringify({
         pageToken: operatorToken || '',
-        // P&P Workspace (Bruno 08-06): flag pro kiosk. Sandbox SEMPRE vê (teste);
-        // operadores só quando OP_WORKSPACE_ENABLED=true (aprovação do Bruno).
-        workspace: process.env.OP_WORKSPACE_ENABLED === 'true',
+        // P&P Workspace (Bruno 08-19): LIGADO por padrão. O menu do operador tem
+        // que ter o P&P (picklist + impressão). OP_WORKSPACE_ENABLED=false desliga.
+        workspace: process.env.OP_WORKSPACE_ENABLED !== 'false',
       }) + ';');
   });
 

@@ -50,10 +50,6 @@ const KIT = `
 .rm-jobtitle.done{text-decoration:line-through;color:var(--ink-dim)}
 .rm-dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
 .rm-modal-bg{position:fixed;inset:0;background:rgba(13,31,60,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px}
-.rm-input{width:100%;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink);font:400 13.5px var(--font)}
-.rm-seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
-.rm-seg button{padding:6px 11px;border:none;cursor:pointer;font:600 12px var(--font);background:#fff;color:var(--ink-dim)}
-.rm-seg button.on{background:var(--primary-deep);color:#fff}
 `;
 
 const STATUS = [
@@ -100,7 +96,7 @@ function CommentThread({ card, onCount }) {
       <div style={{ display: 'flex', gap: 8 }}>
         <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Escreva um comentário para o Claude…" rows={2}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); }}
-          className="rm-input" style={{ resize: 'vertical' }} />
+          className="kit-input full" style={{ resize: 'vertical' }} />
         <button className="rm-btn" disabled={busy} onClick={send} style={{ alignSelf: 'flex-end' }}>{busy ? '…' : 'Enviar'}</button>
       </div>
     </div>
@@ -142,7 +138,7 @@ function CardModal({ card, areas, onClose, onSaved }) {
 
         <div style={{ marginTop: 14 }}>
           <div className="rm-mlabel" style={{ marginBottom: 6 }}>Status {busy && <span style={{ color: 'var(--ink-faint)' }}>· salvando…</span>}</div>
-          <div className="rm-seg">
+          <div className="kit-seg">
             {STATUS.map((s) => <button key={s.key} className={status === s.key ? 'on' : ''} onClick={() => setStatusTo(s.key)}>{s.label}</button>)}
           </div>
         </div>
@@ -220,7 +216,7 @@ function SketchPad({ areas }) {
         onTouchStart={start} onTouchMove={move} onTouchEnd={end}
         style={{ width: '100%', borderRadius: 12, border: '1px solid var(--line)', touchAction: 'none', background: '#fff', cursor: 'crosshair' }} />
       <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <input className="rm-input" style={{ flex: '1 1 200px' }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="título do desenho (opcional)…" />
+        <input className="kit-input" style={{ flex: '1 1 200px' }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="título do desenho (opcional)…" />
         <button className="rm-btn" disabled={busy} onClick={save}>{busy ? 'Salvando…' : 'Salvar desenho'}</button>
         {msg && <span style={{ fontSize: 12.5, color: msg.startsWith('erro') ? 'var(--bad-deep)' : 'var(--green-d)', fontWeight: 600 }}>{msg}</span>}
       </div>
@@ -333,12 +329,12 @@ export function RoadmapPage() {
 
       {/* tabs board / sketch */}
       <div style={{ display: 'flex', gap: 8, margin: '16px 0 6px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <div className="rm-seg">
+        <div className="kit-seg">
           <button className={tab === 'board' ? 'on' : ''} onClick={() => setTab('board')}>Board</button>
           <button className={tab === 'sketch' ? 'on' : ''} onClick={() => setTab('sketch')}>Desenhar</button>
         </div>
         {tab === 'board' && (
-          <div className="rm-seg" style={{ marginLeft: 6 }}>
+          <div className="kit-seg" style={{ marginLeft: 6 }}>
             <button className={areaFilter === 'all' ? 'on' : ''} onClick={() => setAreaFilter('all')}>Tudo</button>
             {areas.map((a) => <button key={a.id} className={areaFilter === a.id ? 'on' : ''} onClick={() => setAreaFilter(a.id)}>{a.name}</button>)}
           </div>

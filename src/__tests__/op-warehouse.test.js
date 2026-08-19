@@ -112,6 +112,11 @@ function makeDb(state) {
       if (/FROM v3\.stock_unplaced u JOIN v3\.products/.test(q)) {
         return { rows: [{ product_id: 10, qty: 80, product: 'BENF-300' }] };
       }
+      // taras prontas (weights.list) — a de tasks
+      if (/FROM v3\.tare_presets/.test(q)) return { rows: state.tares };
+      if (/FROM v3\.products p WHERE p\.active/.test(q)) return { rows: [] };
+      if (/SELECT id, bin_code, tare_g, capacity FROM v3\.stock_bins/.test(q)) return { rows: state.bins };
+      if (/SELECT id, box_number, tare_g, batch_number, sealed FROM v3\.stock_boxes/.test(q)) return { rows: state.boxes };
       // lookup
       if (/FROM v3\.products p LEFT JOIN v3\.product_skus/.test(q)) {
         return { rows: state.products.map((p) => ({ product_id: p.id, name: p.name,
@@ -145,6 +150,9 @@ function boot() {
     boxes: [{ id: 5, box_number: 'BX-0451', area: 'P1', qty: 180, tare_g: 780,
       batch_number: 'L-77', sealed: false, status: 'in_storage', product_id: 10, label_printed_at: null }],
     skus: [{ product_id: 10, sku: 'HF-BENF-300', barcode: '850012345678' }],
+    tares: [{ id: 1, name: 'Caixa grande', kind: 'box', tare_g: 780, active: true },
+      { id: 2, name: 'Prateleira padrão', kind: 'bin', tare_g: 120, active: true },
+      { id: 3, name: 'Caixa velha', kind: 'box', tare_g: 900, active: false }],
   };
   const stock = makeStock();
   const requests = makeRequests();
@@ -429,6 +437,26 @@ describe('tarefas de hoje e busca', () => {
     expect(out.body.restock[0]).toMatchObject({ bin_code: 'A03B2', qty: 4, min_qty: 10,
       box_id: 5, box_number: 'BX-0451', box_qty: 180 });
     expect(out.body.organize[0]).toMatchObject({ product_id: 10, qty: 80 });
+  });
+
+  test('tasks leva as taras prontas: pesar sem sair da tela nem digitar', async () => {
+    const { wh } = boot();
+    const out = await wh.tasks(SESSION);
+    expect(out.body.tares).toEqual([
+      { id: 1, name: 'Caixa grande', kind: 'box', tare_g: 780 },
+      { id: 2, name: 'Prateleira padrão', kind: 'bin', tare_g: 120 },
+    ]);
+    // tara desativada não aparece: o operador não pode escolher a caixa que saiu de uso
+    expect(out.body.tares.some((t) => t.name === 'Caixa velha')).toBe(false);
+  });
+
+  test('tara que falha não derruba as tarefas do dia (regra #0: nunca travar)', async () => {
+    const { state, wh } = boot();
+    state.tares = null;                 // .filter estoura dentro do weights.list
+    const out = await wh.tasks(SESSION);
+    expect(out.body.ok).toBe(true);
+    expect(out.body.tares).toEqual([]);
+    expect(out.body.restock[0].bin_code).toBe('A03B2');
   });
 
   test('lookup busca por nome/apelido/SKU/UPC; menos de 2 letras não busca', async () => {

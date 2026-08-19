@@ -8,40 +8,17 @@
 import React from 'react';
 import { usePoll } from '../adapters/from-api.js';
 
-// tokens do STYLE-KIT (escopados nesta página pra não depender do resto do app)
+/* Esta página tinha a cópia inteira dos tokens do kit aqui dentro (era anterior
+   ao kit.css global). Auditoria 08-19: token duplicado é token que envelhece
+   sozinho, então ficou só o que é DESTA página (o layout do root, a divisória
+   4x6 e as regras de impressão). Título, card, KPI, pill e chip agora são as
+   classes do kit, iguais às do resto do dashboard.
+   As classes .pl-* que sobraram não redeclaram cor: leem as variáveis do kit. */
 const KIT = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0,1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
-.pl-root{
-  --primary:#1a3a6b; --primary-deep:#0d1f3c; --green-d:#2e8b3c;
-  --ground:#f4f8fc; --surface:#fff; --surface-2:#f7fafd;
-  --line:#d4e2f0; --line-strong:#b9cbe2; --dotline:#c6d7e8;
-  --ink:#1c2b3a; --ink-dim:#54687c; --ink-faint:#6b7f92;
-  --ok-bg:#e8f7ea; --ok-line:#c8ecce; --ok-deep:#1e6b2e;
-  --warn-bg:#fdf6e3; --warn-line:#eeddad; --warn-deep:#6b4c07;
-  --neutral-bg:#eaf0fb; --neutral-line:#d4e2f0;
-  --font:'DM Sans',system-ui,sans-serif; --font-display:'DM Serif Display',Georgia,serif; --font-mono:'DM Mono',monospace;
-  --r-lg:18px; --r-pill:999px;
-  --shadow-card:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05);
-  font-family:var(--font); color:var(--ink);
-  background:var(--ground); background-image:radial-gradient(circle,rgba(26,58,107,.06) 1px,transparent 1px); background-size:26px 26px;
-  min-height:100%; padding:34px 30px 60px;
-}
-.pl-eyebrow{font:500 10px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--green-d)}
-.pl-h1{font-family:var(--font-display);font-weight:400;font-size:clamp(26px,2.6vw,34px);color:var(--primary-deep);margin:4px 0 2px}
-.pl-h1 em{color:var(--green-d);font-style:italic}
-.pl-sub{color:var(--ink-dim);font-size:13.5px}
+.pl-root{ font-family:var(--font); color:var(--ink); min-height:100%; padding:34px 30px 60px; }
 .pl-mlabel{font:500 10px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint)}
-.pl-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-card)}
-.pl-kpi{font-family:var(--font-display);font-size:34px;color:var(--primary-deep);font-variant-numeric:tabular-nums;line-height:1}
-.pl-btn{border:none;cursor:pointer;font:600 13px var(--font);border-radius:var(--r-pill);height:38px;padding:0 22px;background:var(--primary-deep);color:#fff;transition:filter .12s}
-.pl-btn:hover{filter:brightness(1.15)}
-.pl-btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
-.pl-chip{display:inline-flex;align-items:center;height:22px;padding:0 10px;border-radius:var(--r-pill);font:500 11px var(--font-mono)}
-.pl-chip.neutral{background:var(--neutral-bg);color:var(--primary);box-shadow:inset 0 0 0 1px var(--neutral-line)}
-.pl-chip.warn{background:var(--warn-bg);color:var(--warn-deep);box-shadow:inset 0 0 0 1px var(--warn-line)}
-.pl-chip.ok{background:var(--ok-bg);color:var(--ok-deep);box-shadow:inset 0 0 0 1px var(--ok-line)}
 /* divisória de produto (a "label 4×6" grande) */
-.pl-divider{border-radius:var(--r-lg);border:1px solid var(--line-strong);background:linear-gradient(180deg,#fff,var(--surface-2));padding:16px 18px;margin-top:22px;display:flex;flex-direction:column;gap:6px;break-inside:avoid}
+.pl-divider{border-radius:var(--r-lg);border:1px solid var(--line-strong);background:var(--kit-surface-2);padding:16px 18px;margin-top:22px;display:flex;flex-direction:column;gap:6px;break-inside:avoid}
 .pl-divider .name{font-family:var(--font-display);font-size:26px;color:var(--primary-deep);line-height:1.05}
 .pl-divider .loc{font:600 15px var(--font-mono);color:var(--primary);letter-spacing:.02em}
 .pl-orders{margin-top:2px;border-top:1px solid var(--line)}
@@ -84,28 +61,31 @@ export function PicklistPage() {
       {/* header */}
       <div className="pl-noprint" style={{ display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <span className="pl-eyebrow">● HEALTHFARE P&amp;P · PICKLIST</span>
-          <h1 className="pl-h1">O que <em>separar hoje</em></h1>
-          <p className="pl-sub">Pedidos pendentes, agrupados por produto na ordem de caminhada. Single primeiro, multi no fim.</p>
+          <span className="kit-eyebrow">● HEALTHFARE P&amp;P · PICKLIST</span>
+          <h1 className="kit-h1">O que <em>separar hoje</em></h1>
+          <p className="kit-sub">Pedidos pendentes, agrupados por produto na ordem de caminhada. Single primeiro, multi no fim.</p>
         </div>
-        <button className="pl-btn" onClick={() => window.print()}>Imprimir / Baixar (4×6)</button>
+        {/* Mesma palavra do botão da Central do operador (src/op/ws.js): lá é
+            PRINT, aqui era "Imprimir / Baixar". Duas palavras pro mesmo botão
+            faz o admin e o operador falarem línguas diferentes no telefone. */}
+        <button className="kit-btn primary" data-act="print" onClick={() => window.print()}>PRINT (4×6)</button>
       </div>
 
       {/* KPIs */}
       <div className="pl-noprint" style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
-        <div className="pl-card" style={{ padding: '14px 18px', minWidth: 130 }}>
-          <div className="pl-mlabel">Pedidos</div><div className="pl-kpi">{d.total_orders ?? '—'}</div>
+        <div className="kit-card" style={{ padding: '14px 18px', minWidth: 130 }}>
+          <div className="pl-mlabel">Pedidos</div><div className="kit-kpi">{d.total_orders ?? '—'}</div>
         </div>
-        <div className="pl-card" style={{ padding: '14px 18px', minWidth: 130 }}>
-          <div className="pl-mlabel">Garrafas</div><div className="pl-kpi">{d.total_bottles ?? '—'}</div>
+        <div className="kit-card" style={{ padding: '14px 18px', minWidth: 130 }}>
+          <div className="pl-mlabel">Garrafas</div><div className="kit-kpi">{d.total_bottles ?? '—'}</div>
         </div>
-        <div className="pl-card" style={{ padding: '14px 18px', minWidth: 130 }}>
-          <div className="pl-mlabel">Produtos</div><div className="pl-kpi">{d.product_count ?? '—'}</div>
+        <div className="kit-card" style={{ padding: '14px 18px', minWidth: 130 }}>
+          <div className="pl-mlabel">Produtos</div><div className="kit-kpi">{d.product_count ?? '—'}</div>
         </div>
       </div>
 
-      {pl.loading && <div className="pl-card" style={{ padding: 20, marginTop: 18, color: 'var(--ink-dim)' }}>Carregando picklist…</div>}
-      {!pl.loading && groups.length === 0 && <div className="pl-card" style={{ padding: 20, marginTop: 18, color: 'var(--ink-dim)' }}>Nenhum pedido pendente pra separar agora.</div>}
+      {pl.loading && <div className="kit-card" style={{ padding: 20, marginTop: 18, color: 'var(--ink-dim)' }}>Carregando picklist…</div>}
+      {!pl.loading && groups.length === 0 && <div className="kit-card" style={{ padding: 20, marginTop: 18, color: 'var(--ink-dim)' }}>Nenhum pedido pendente pra separar agora.</div>}
 
       {/* grupos por produto */}
       {groups.map((g) => {
@@ -115,9 +95,9 @@ export function PicklistPage() {
             <div className="pl-divider">
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                 <span className="name">{g.nickname}</span>
-                {!g.mapped && <span className="pl-chip warn">SKU não mapeado</span>}
+                {!g.mapped && <span className="kit-chip warn">SKU não mapeado</span>}
                 <span style={{ flex: 1 }} />
-                <span className="pl-chip neutral">{g.order_count} pedido{g.order_count !== 1 ? 's' : ''}</span>
+                <span className="kit-chip neutral">{g.order_count} pedido{g.order_count !== 1 ? 's' : ''}</span>
               </div>
               <div className="loc" style={location ? undefined : { color: 'var(--ink-faint)', fontWeight: 400 }}>
                 {location || 'local a definir'}
@@ -135,10 +115,10 @@ export function PicklistPage() {
                   <span className="who">{o.patient
                     ? <b style={{ color: 'var(--ink)', fontWeight: 600 }}>{o.patient}</b>
                     : <span style={{ color: 'var(--ink-faint)', fontStyle: 'italic' }}>{d.names_loading ? 'carregando nome…' : 'sem nome'}</span>}</span>
-                  <span className="pl-chip neutral">{o.channel}</span>
+                  <span className="kit-chip neutral">{o.channel}</span>
                   {o.multi
-                    ? <span className="pl-chip warn">{o.bottles} garrafas</span>
-                    : <span className="pl-chip ok">1 garrafa</span>}
+                    ? <span className="kit-chip warn">{o.bottles} garrafas</span>
+                    : <span className="kit-chip ok">1 garrafa</span>}
                 </div>
               ))}
             </div>

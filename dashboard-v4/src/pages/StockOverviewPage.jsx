@@ -10,6 +10,7 @@
 import React from 'react';
 import { usePoll, apiPost } from '../adapters/from-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import { LegacyBanner } from '../components/Primitives.jsx';
 import './pages-inventory.css';
 
 function Chip({ label, value, tone }) {
@@ -146,6 +147,7 @@ export function StockOverviewPage() {
 
   return (
     <div className="pgi-page" data-page="inv-ver-estoque">
+      <LegacyBanner />
       <div className="pgi-head">
         <div className="pgi-head-main">
           <span className="kit-eyebrow">● HEALTHFARE · VER ESTOQUE</span>

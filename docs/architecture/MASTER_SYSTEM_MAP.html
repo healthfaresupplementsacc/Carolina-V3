@@ -388,7 +388,7 @@ subgraph S15["S15 · WAREHOUSE INVENTORY — own section (admin + operator; runs
   S15_UI["S15.03/04 · CURRENT UI: v4 'Estoque & Produtos' pages · /op stock panel (STOCK_UI_ENABLED)"]:::verified
   S15_AUTO["S15.06/07/08 · CURRENT automations: veeqo-order-sync deducts on Veeqo shipped (DRY by default) · stock-alerts · stock-gap · unusual-sku · print-divergence · TikTok CSV · .28 print signal"]:::partial
   S15_PLAN["S15.10-14 · PLANNED (decided 08-18): ONE admin section + P&P subsection (channel pages deferred) · operator page with APPROVAL QUEUE (moves free; add/remove/returns approved) · secondary 'Separadas' bucket for damaged/returns · admin/manager enters warehouse-in · product total = shelf + box · reservation per product from open Veeqo lines · deduction on Veeqo shipped only (shelf→box) · later: two-way Veeqo + reconciliation"]:::planned
-  S15_BUILT["S15.17-28 BUILT (Phases 1-3): Veeqo import · weights/tare · labels · phone scanner · operator warehouse hub · drift worker · /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
+  S15_BUILT["S15.17-33 BUILT (Phases 1-3 + finish): Veeqo import · weights/tare · labels · phone scanner · operator warehouse hub + fixed nav · Central always on · drift worker ON · bulk bins · days of stock · /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
   S15_Q["Open: STOCK_DEDUCT_MODE value in Railway · retire antigo pages after parity · approval aging nag · dias de estoque"]:::partial
 end
 
@@ -1480,7 +1480,13 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_HUB["S15.21/27 BUILT: hub #estoque + Importar da Veeqo + drift panel · Locais (tara/lote/lacre) · Etiquetas Code128+QR · Aprovações (meta pesagem) · Product Setup peso · Configurações taras"]:::verified
   A_SCAN["S15.25 BUILT: celular pareado /scan/ → SSE → hub do operador; USB scanner também"]:::verified
   A_OPHUB["S15.26 BUILT: /op/estoque.html Organizar · Contar (pesar/manual, cego) · Repor · Caixa nova · Devolução · Danificada"]:::verified
-  A_DRIFT["S15.28 BUILT: stock-drift-alert (10 min, contínuo, só alerta)"]:::verified
+  A_DRIFT["S15.28 BUILT: stock-drift-alert (10 min, contínuo, só alerta) · LIGADO 08-19"]:::verified
+  A_NAV["S15.32 BUILT: menu fixo do operador Linha · Central de P&P · Estoque (nav.js) · Central sempre disponível · deep link ?ws=1"]:::verified
+  A_DASH2["S15.33 BUILT: seção Estoque final (antigo escondido) · Dias de estoque · badge/aviso de propostas · Criar várias prateleiras (bulk) · auditoria STYLE-KIT 28 rotas"]:::verified
+  A_MOB["S15.29 PLANNED: admin mobile /m/ (iPhone) · bootstrap · scan/resolve · print queue"]:::planned
+  A_NAV --> A_OPHUB
+  A_DASH2 --> A_HUB
+  A_MOB -.-> SVC
   A_SCAN --> A_OPHUB
   A_OPHUB --> SVC
   A_OPHUB --> A_APPROVE

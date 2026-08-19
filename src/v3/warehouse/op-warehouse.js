@@ -372,9 +372,14 @@ function createOpWarehouse(deps = {}) {
    *   counts    2 prateleiras pra contar (a que não é contada há mais tempo primeiro)
    *   restock   prateleiras no mínimo, com a caixa que abastece
    *   organize  produtos com garrafas a organizar
+   *   tares     taras prontas ("Caixa grande · 780 g"), pra pesar sem digitar
+   *
+   * As taras vêm junto de propósito (Bruno 08-19): o operador está com a balança
+   * na frente e o produto na mão; abrir outra tela pra descobrir quanto pesa a
+   * caixa vazia é onde a contagem por peso morre. Só as ATIVAS aparecem.
    */
   async function tasks(session) {
-    const [counts, restock, organizeRows] = await Promise.all([
+    const [counts, restock, organizeRows, tareList] = await Promise.all([
       db.query(`
         SELECT b.id AS bin_id, b.bin_code, b.qty, b.product_id,
                COALESCE(p.nickname, p.canonical_name) AS product,
@@ -403,6 +408,8 @@ function createOpWarehouse(deps = {}) {
         SELECT u.product_id, u.qty, COALESCE(p.nickname, p.canonical_name) AS product
           FROM v3.stock_unplaced u JOIN v3.products p ON p.id = u.product_id
          WHERE u.qty > 0 ORDER BY u.qty DESC LIMIT 20`),
+      // mesma fonte da tela de pesos do admin: uma lista de taras só, sem cópia
+      weights.list().then((w) => w.tares || []).catch(() => []),
     ]);
     return { body: { ok: true,
       counts: counts.rows.map((r) => ({ bin_id: r.bin_id, bin_code: r.bin_code,
@@ -416,6 +423,8 @@ function createOpWarehouse(deps = {}) {
         box_qty: r.box_qty == null ? null : Number(r.box_qty) })),
       organize: organizeRows.rows.map((r) => ({ product_id: r.product_id,
         product: r.product, qty: Number(r.qty) || 0 })),
+      tares: tareList.filter((t) => t.active !== false)
+        .map((t) => ({ id: t.id, name: t.name, kind: t.kind, tare_g: t.tare_g })),
     } };
   }
 

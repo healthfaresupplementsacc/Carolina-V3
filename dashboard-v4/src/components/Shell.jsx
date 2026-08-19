@@ -3,6 +3,7 @@ import { Icon } from './Icons.jsx';
 import nyTime from '../utils/ny-time.cjs';
 import { FalarCarolinaButton } from '../pages/CarolinaFalar.jsx';
 import { can, getLogin } from '../adapters/from-api.js';
+import { whGet } from '../adapters/warehouse-api.js';
 // E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
 // wordmark). Substitui o SVG inline `BrandH` que era um esboço.
 // Vite resolve a URL no build (com base /dashboard-v4/...).
@@ -15,9 +16,12 @@ import healthFareLogo from '../../assets/healthfare-logo.png';
 // Nav REAGRUPADA (Bruno 08-03): menus principais colapsáveis com submenus.
 // "Coisas conectadas ficam sob um menu principal; clica → submenu aparece."
 // S15 (Bruno 08-18): nasce a seção ESTOQUE (Warehouse Inventory) com o hub novo,
-// Aprovações e Locais; as páginas antigas ficam marcadas "(antigo)" até a paridade;
-// P&P + Picklist viram um SUBGRUPO dentro dela (saíram de Operação); Planejamento
-// e Produto voltam pra Operação logo depois de Metas, intocadas.
+// Aprovações e Locais; P&P + Picklist viram um SUBGRUPO dentro dela (saíram de
+// Operação); Planejamento e Produto voltam pra Operação logo depois de Metas.
+// S15 (Bruno 08-19, "organizar tudo"): as duas entradas "(antigo)" SAÍRAM do menu.
+// As rotas #estoque-geral e #inventory continuam vivas pra quem tem link salvo,
+// mas abrem com uma faixa dizendo que o hub substituiu a tela. Menu com dois
+// caminhos pra mesma coisa é o que faz gente contar estoque no lugar errado.
 const NAV = [
   { section: "Operação", en: "Operations", icon: "home", items: [
     { id: "hoje",         pt: "Hoje",         en: "Today",       icon: "home" },
@@ -35,8 +39,6 @@ const NAV = [
     { id: "estoque-aprovacoes", pt: "Aprovações",                en: "Approvals",          icon: "target" },
     { id: "estoque-locais",     pt: "Locais",                    en: "Locations",          icon: "plan" },
     { id: "estoque-etiquetas",  pt: "Etiquetas",                 en: "Labels",             icon: "product" },
-    { id: "estoque-geral",      pt: "Ver estoque (antigo)",      en: "Stock (legacy)",     icon: "product" },
-    { id: "inventory",          pt: "Estoque detalhado (antigo)", en: "Stock (legacy detailed)", icon: "product" },
     { id: "produto-setup",      pt: "Product Setup",             en: "Product Setup",      icon: "config" },
     { id: "config-estoque",     pt: "Configurações",             en: "Inventory Settings", icon: "config" },
     // subgrupo P&P (mesmo colapso da seção, cabeçalho recuado)
@@ -65,7 +67,15 @@ const NAV = [
   ]},
 ];
 
-const ALL_PAGES = NAV.flatMap(s => s.items);
+/* Rotas que existem mas NÃO aparecem no menu (S15 08-19). Ficam alcançáveis por
+   hash pra não quebrar link salvo nem favorito, e o TopBar continua achando o
+   título delas. Cada uma renderiza a faixa "Página antiga" (ver LegacyBanner). */
+const HIDDEN_PAGES = [
+  { id: "estoque-geral", pt: "Ver estoque (antigo)",       en: "Stock (legacy)",          icon: "product", section: "Estoque" },
+  { id: "inventory",     pt: "Estoque detalhado (antigo)", en: "Stock (legacy detailed)", icon: "product", section: "Estoque" },
+];
+
+const ALL_PAGES = NAV.flatMap(s => s.items).concat(HIDDEN_PAGES);
 
 /* RBAC tolerante (S15): se o login TEM lista de funções, respeita `can()`;
    se NÃO tem lista nenhuma (login antigo, sem functions), mostra. Os logins de
@@ -81,11 +91,44 @@ function findPage(id) {
   return ALL_PAGES.find(p => p.id === id) || ALL_PAGES[0];
 }
 
-const sectionOf = (id) => (NAV.find((s) => s.items.some((it) => it.id === id)) || NAV[0]).section;
+/* Contador de propostas esperando, mostrado no item Aprovações (S15 08-19).
+   Fonte: pending_summary.count do MESMO GET /overview que o hub já usa, a cada
+   60s. Sem endpoint novo: quem só olha o menu precisa ver que tem gente parada
+   esperando decisão, senão a proposta dorme a tarde inteira.
+   Falha em silêncio: badge é informação extra, não pode derrubar a navegação. */
+function usePendingCount() {
+  const [count, setCount] = React.useState(0);
+  React.useEffect(() => {
+    let alive = true;
+    const load = () => {
+      whGet('/overview').then(
+        (j) => {
+          if (!alive) return;
+          const s = j && j.data && j.data.pending_summary;
+          setCount(s && Number.isFinite(Number(s.count)) ? Number(s.count) : 0);
+        },
+        () => { /* sem badge é melhor que menu quebrado */ },
+      );
+    };
+    load();
+    const t = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  return count;
+}
+
+const sectionOf = (id) => {
+  const sec = NAV.find((s) => s.items.some((it) => it.id === id));
+  if (sec) return sec.section;
+  // rota escondida (legado): mantém aberto o grupo a que ela pertence
+  const hid = HIDDEN_PAGES.find((h) => h.id === id);
+  return hid ? hid.section : NAV[0].section;
+};
 
 const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
   // Menus colapsáveis (Bruno 08-03). Começa com só o grupo da página atual aberto.
   const [openSecs, setOpenSecs] = React.useState(() => ({ [sectionOf(route)]: true }));
+  const pendingCount = usePendingCount();
   // sempre garante que o grupo da rota ativa esteja aberto quando a rota muda
   React.useEffect(() => { setOpenSecs((o) => ({ ...o, [sectionOf(route)]: true })); }, [route]);
   const toggle = (sec) => setOpenSecs((o) => ({ ...o, [sec]: !o[sec] }));
@@ -132,6 +175,8 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
                 // subgrupo (S15): primeiro item com `sub` novo imprime o cabeçalho
                 const prev = i > 0 ? items[i - 1] : null;
                 const head = it.sub && (!prev || prev.sub !== it.sub);
+                // badge do menu: só Aprovações, só quando tem gente esperando
+                const badge = it.id === 'estoque-aprovacoes' && pendingCount > 0 ? pendingCount : 0;
                 return (
                   <React.Fragment key={it.id}>
                     {head && !collapsed && <div className="nav-subgroup">{it.sub}</div>}
@@ -142,9 +187,16 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
                       {!collapsed && (
                         <>
                           <span className="nav-label">{it.pt}</span>
+                          {badge > 0 && (
+                            <span className="nav-badge" data-nav-badge={it.id}
+                                  title={badge + (badge === 1 ? ' proposta esperando' : ' propostas esperando')}>
+                              {badge > 99 ? '99+' : badge}
+                            </span>
+                          )}
                           <span className="nav-sub-en">{it.en}</span>
                         </>
                       )}
+                      {collapsed && badge > 0 && <span className="nav-badge nav-badge-dot" data-nav-badge={it.id} />}
                     </a>
                   </React.Fragment>
                 );

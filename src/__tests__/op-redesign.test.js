@@ -151,17 +151,24 @@ describe('op v4 — wiring de API (sem inventar endpoint)', () => {
 });
 
 describe('op v4 — html + sw', () => {
-  test('index.v4 carrega fontes + hf-design + ws.js antes do app.v4 + theme azul', () => {
+  test('index.v4 carrega fontes + hf-design + nav.js/ws.js antes do app.v4 + theme azul', () => {
     expect(HTML).toContain('Manrope');
     expect(HTML).toContain('/shared/hf-design.css');
     expect(HTML).toContain('/op/app.js');
     expect(HTML).toContain('/op/ws.js');
     expect(HTML.indexOf('/op/ws.js')).toBeLessThan(HTML.indexOf('/op/app.js"'));
+    // menu persistente: ws.js chama HF_NAV.strip() no banner do 1º render
+    expect(HTML).toContain('/op/nav.js');
+    expect(HTML.indexOf('/op/nav.js')).toBeLessThan(HTML.indexOf('/op/ws.js'));
+    // etiqueta de caixa sai da Central também: Code128 + QR vendorados no /op
+    expect(HTML).toContain('/op/vendor/code128.js');
+    expect(HTML).toContain('/op/vendor/qrcode.min.js');
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v41 network-first e cacheia ws.js + o hub de estoque', () => {
-    expect(SW).toContain("'hf-op-v41'");   // S15 Fase 3: bump obriga o cliente a pegar a tela nova
+  test('sw é hf-op-v42 network-first e cacheia nav.js + ws.js + o hub de estoque', () => {
+    expect(SW).toContain("'hf-op-v42'");   // bump obriga o cliente a pegar o menu novo
     expect(SW).toContain("'/op/ws.js'");
+    expect(SW).toContain("'/op/nav.js'");
     expect(SW).toContain("'/op/estoque.js'");
     expect(SW).toContain("'/op/vendor/code128.js'");
     expect(SW).toContain('NETWORK-FIRST');

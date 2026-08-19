@@ -8,6 +8,10 @@ const path = require('path');
 
 const WS_PATH = path.join(__dirname, '..', 'op', 'ws.js');
 const SRC = fs.readFileSync(WS_PATH, 'utf8');
+// nav.js precisa existir ANTES do ws.js: o banner() da home chama HF_NAV.strip().
+// Em node o require expoe window.HF_NAV via global (mesmo UMD do ws.js).
+const NAV = require(path.join(__dirname, '..', 'op', 'nav.js'));
+global.HF_NAV = NAV;
 const WS = require(WS_PATH);
 const H = WS._;
 
@@ -17,9 +21,10 @@ describe('op/ws.js — carrega fora do browser (sem DOM)', () => {
     expect(typeof WS.inner).toBe('function');
     expect(typeof WS.acts.wsSubmit).toBe('function');
     expect(SRC).toContain("typeof module !== 'undefined'");
-    // nada de document.* fora das strings HTML: o único uso é win.document no print
+    // nada de document.* fora das strings HTML: os únicos usos são as janelas de
+    // impressão (picklist 4x6 + etiqueta de caixa), 2 chamadas cada.
     const docUses = SRC.match(/document\./g) || [];
-    expect(docUses.length).toBe(2); // win.document.write + win.document.close
+    expect(docUses.length).toBe(4); // print(): write+close · printLabel(): write+close
   });
   test('sem em dash em nenhum texto', () => {
     expect(SRC).not.toContain('—');
@@ -227,7 +232,7 @@ describe('op/ws.js — HTML do workspace (com deps mockadas, sem DOM real)', () 
   test('inner traz picklist, PRINT, sandbox-off e os cards novos', () => {
     const html = WS.inner();
     expect(html).toContain('data-act="wsPrint"');
-    expect(html).toContain('picklist de hoje');
+    expect(html).toContain('Picklist de hoje');
     expect(html).toContain('Repor prateleira');
     expect(html).toContain('Registrado hoje');
     expect(html).not.toContain('sandbox'); // isSandbox() = false
@@ -335,5 +340,217 @@ describe('op/ws.js — HTML do workspace (com deps mockadas, sem DOM real)', () 
     expect(WS.input('wsReason', 'oi')).toBe(true);
     expect(S.ws.reason).toBe('oi');
     expect(WS.input('note', 'x')).toBe(false);
+  });
+});
+
+describe('op/nav.js — menu persistente do operador', () => {
+  test('as 3 abas na ordem do dia: Linha · Central de P&P · Estoque', () => {
+    expect(NAV.ITEMS.map((i) => i.k)).toEqual(['linha', 'central', 'estoque']);
+    expect(NAV.ITEMS.map((i) => i.label)).toEqual(['Linha', 'Central de P&P', 'Estoque']);
+  });
+  test('no /op a Central e a Linha são camadas (acts), só Estoque navega', () => {
+    const h = NAV.strip('linha', { page: 'op' });
+    expect(h).toContain('data-act="openWorkspace"');
+    expect(h).toContain('data-act="closeWorkspace"');
+    expect(h).toContain('href="/op/estoque.html"');
+  });
+  test('no hub tudo é link de volta pro /op, com o deep link da Central', () => {
+    const h = NAV.strip('estoque', { page: 'hub' });
+    expect(h).toContain('href="/op/"');
+    expect(h).toContain('href="/op/?ws=1"');
+    expect(h).not.toContain('data-act="openWorkspace"');   // lá a Central não é camada
+  });
+  test('a aba ativa vira pill navy e marca aria-current', () => {
+    const h = NAV.strip('central', { page: 'op' });
+    const central = h.slice(h.indexOf('data-nav-item="central"'));
+    expect(central).toContain('aria-current="page"');
+    expect(h.slice(h.indexOf('data-nav-item="linha"'), h.indexOf('data-nav-item="central"'))).not.toContain('aria-current');
+  });
+  test('alvo de toque de 44px em todos os itens (galpão, com luva)', () => {
+    const hits = NAV.strip('linha', { page: 'op' }).match(/min-height:44px/g) || [];
+    expect(hits.length).toBe(3);
+  });
+  test('active desconhecido cai em Linha, nunca quebra', () => {
+    expect(NAV.strip('lua', { page: 'op' })).toContain('aria-current');
+    expect(NAV._.hintOf('lua')).toBe('Linha de produção');
+  });
+  test('crossLink leva o hub pra Central', () => {
+    expect(NAV.crossLink()).toContain('/op/?ws=1');
+    expect(NAV.crossLink()).toContain('Central de P&amp;P');
+  });
+  test('sem em dash', () => {
+    expect(fs.readFileSync(path.join(__dirname, '..', 'op', 'nav.js'), 'utf8')).not.toContain('—');
+  });
+});
+
+describe('op/ws.js — Central SEMPRE disponível (menu, não recompensa)', () => {
+  const mk = (cfg, sandbox) => {
+    WS.init({
+      S: { workspaceOpen: false, myTasks: [], ws: null }, CFG: cfg, DATA: { supplements: [] },
+      api: () => Promise.resolve({}), toast: () => {}, render: () => {},
+      esc: (s) => String(s == null ? '' : s), isSandbox: () => !!sandbox,
+      typeMeta: () => ({}), openWindow: () => null,
+    });
+    return WS.allowed();
+  };
+  test('flag ligado libera', () => expect(mk({ workspace: true })).toBe(true));
+  test('flag AUSENTE libera (config velho em cache não pode esconder o menu)', () => {
+    expect(mk({})).toBe(true);
+    expect(mk({ workspace: undefined })).toBe(true);
+  });
+  test('só workspace === false desliga', () => expect(mk({ workspace: false })).toBe(false));
+  test('sandbox abre mesmo com o flag desligado', () => expect(mk({ workspace: false }, true)).toBe(true));
+});
+
+describe('op/ws.js — home: menu no topo + banner só com task de P&P', () => {
+  const S = { workspaceOpen: false, myTasks: [], ws: null };
+  const boot = () => WS.init({
+    S, CFG: { workspace: true }, DATA: { supplements: [] },
+    api: () => Promise.resolve({}), toast: () => {}, render: () => {},
+    esc: (s) => String(s == null ? '' : s), isSandbox: () => false,
+    typeMeta: () => ({}), openWindow: () => null,
+  });
+
+  test('sem task de P&P: o menu aparece, o box grande não', () => {
+    boot(); S.myTasks = [];
+    const h = WS.banner();
+    expect(h).toContain('data-nav="op"');
+    expect(h).toContain('data-act="openWorkspace"');
+    expect(h).not.toContain('Picklist do dia');   // texto do box grande
+  });
+  test('com task de P&P: menu + box grande', () => {
+    boot(); S.myTasks = [{ slug: 'order_printing' }];
+    const h = WS.banner();
+    expect(h).toContain('data-nav="op"');
+    expect(h).toContain('Picklist do dia');
+  });
+  test('Central aberta marca a aba Central como ativa', () => {
+    boot(); S.myTasks = []; S.workspaceOpen = true;
+    const h = WS.banner();
+    const central = h.slice(h.indexOf('data-nav-item="central"'));
+    expect(central).toContain('aria-current="page"');
+    S.workspaceOpen = false;
+  });
+  test('flag desligado esconde o menu inteiro (nada de botão morto)', () => {
+    WS.init({ S, CFG: { workspace: false }, DATA: { supplements: [] },
+      api: () => Promise.resolve({}), toast: () => {}, render: () => {},
+      esc: (s) => String(s), isSandbox: () => false, typeMeta: () => ({}), openWindow: () => null });
+    expect(WS.banner()).toBe('');
+  });
+});
+
+describe('op/ws.js — "Você está fazendo P&P agora?" (nunca bloqueia)', () => {
+  const S = { workspaceOpen: true, myTasks: [], ws: null };
+  const calls = [];
+  const toasts = [];
+  beforeEach(() => {
+    calls.length = 0; toasts.length = 0;
+    S.myTasks = []; S.ws = null;
+    WS.init({
+      S, CFG: { workspace: true }, DATA: { supplements: [] },
+      api: (p, o) => { calls.push([p, o]); return Promise.resolve({ ok: true, event: { id: 1 } }); },
+      toast: (m) => toasts.push(m), render: () => {},
+      esc: (s) => String(s == null ? '' : s), isSandbox: () => false,
+      typeMeta: () => ({}), openWindow: () => null,
+    });
+  });
+
+  test('sem task de P&P a pergunta aparece com as duas saídas', () => {
+    const h = WS.inner();
+    expect(h).toContain('Você está fazendo P&amp;P agora?');
+    expect(h).toContain('data-act="wsStartPP"');
+    expect(h).toContain('data-act="wsJustLook"');
+  });
+  test('com task de P&P aberta a pergunta some (ele já marcou)', () => {
+    S.myTasks = [{ slug: 'order_printing' }];
+    expect(WS.inner()).not.toContain('data-act="wsStartPP"');
+  });
+  test('picklist e PRINT existem MESMO sem task (REGRA #0: nunca trava)', () => {
+    const h = WS.inner();
+    expect(h).toContain('data-act="wsPrint"');
+    expect(h).toContain('Picklist de hoje');
+  });
+  test('"Só olhar" some a pergunta e não posta nada', () => {
+    WS.acts.wsJustLook();
+    expect(calls.length).toBe(0);
+    expect(WS.inner()).not.toContain('data-act="wsStartPP"');
+  });
+  test('"Iniciar Impressão de ordens" posta event/start com o slug certo', () => {
+    WS.acts.wsStartPP();
+    expect(calls[0][0]).toBe('/api/v3/op/event/start');
+    expect(calls[0][1].method).toBe('POST');
+    expect(calls[0][1].body.activity_slug).toBe('order_printing');
+    // mesmo corpo do postStart do app.js: os opcionais vão explícitos
+    expect(calls[0][1].body).toEqual({
+      activity_slug: 'order_printing', batch_number: null, cowork_with: [],
+      note: null, product_id: null, product_name: null,
+    });
+  });
+  test('start com erro avisa mas NÃO fecha a Central', () => {
+    WS.init({
+      S, CFG: { workspace: true }, DATA: { supplements: [] },
+      api: () => Promise.reject(new Error('concurrent_open')),
+      toast: (m) => toasts.push(m), render: () => {},
+      esc: (s) => String(s == null ? '' : s), isSandbox: () => false,
+      typeMeta: () => ({}), openWindow: () => null,
+    });
+    WS.acts.wsStartPP();
+    return new Promise((r) => setTimeout(r, 0)).then(() => {
+      expect(S.workspaceOpen).toBe(true);
+      expect(toasts.join(' ')).toContain('A picklist continua aqui');
+    });
+  });
+  test('a key muda quando a pergunta é respondida (força remount da camada)', () => {
+    const k1 = WS.key();
+    WS.acts.wsJustLook();
+    expect(WS.key()).not.toBe(k1);
+  });
+});
+
+describe('op/ws.js — Registrado hoje: caixa + etiqueta (contrato 2)', () => {
+  test('só entrada aprovada/aplicada COM box_number oferece a etiqueta', () => {
+    expect(H.boxOf({ kind: 'entrada', status: 'approved', box_number: 'BX-0451' })).toBe('BX-0451');
+    expect(H.boxOf({ kind: 'entrada', status: 'applied', box_number: 'BX-0451' })).toBe('BX-0451');
+    // pendente ainda não virou caixa: botão seria promessa falsa
+    expect(H.boxOf({ kind: 'entrada', status: 'pending', box_number: 'BX-0451' })).toBe(null);
+    expect(H.boxOf({ kind: 'entrada', status: 'rejected', box_number: 'BX-0451' })).toBe(null);
+    expect(H.boxOf({ kind: 'entrada', status: 'approved', box_number: null })).toBe(null);
+    expect(H.boxOf({ kind: 'take', status: 'approved', box_number: 'BX-0451' })).toBe(null);
+    expect(H.boxOf(null)).toBe(null);
+  });
+  test('labelPayload monta código, produto, quantidade/lote e a URL do QR', () => {
+    const L = H.labelPayload({ code: 'BX-0451', product: 'Rutin 500mg', qty: 100, lot: 'L-22' });
+    expect(L.code).toBe('BX-0451');
+    expect(L.line2).toBe('Rutin 500mg');
+    expect(L.line3).toBe('100 garrafas · lote L-22');
+    expect(L.url).toBe('/scan/?box=BX-0451');
+  });
+  test('a linha do recente mostra a caixa e o botão de imprimir', () => {
+    const S = { workspaceOpen: true, myTasks: [{ slug: 'order_printing' }], ws: null };
+    WS.init({
+      S, CFG: { workspace: true }, DATA: { supplements: [] },
+      api: () => Promise.resolve({}), toast: () => {}, render: () => {},
+      esc: (s) => String(s == null ? '' : s), isSandbox: () => false,
+      typeMeta: () => ({}), openWindow: () => null,
+    });
+    WS.state().recent = [
+      { id: 1, kind: 'entrada', qty: 48, product: 'Rutin', status: 'approved', box_id: 8, box_number: 'BX-0451' },
+      { id: 2, kind: 'entrada', qty: 48, product: 'Rutin', status: 'pending' },
+    ];
+    const h = WS.inner();
+    expect(h).toContain('Caixa BX-0451');
+    expect(h).toContain('data-act="wsPrintLabel" data-arg="8"');
+    expect((h.match(/wsPrintLabel/g) || []).length).toBe(1);   // a pendente não ganha botão
+  });
+  test('wsPrintLabel busca a etiqueta no endpoint do contrato', () => {
+    const calls = [];
+    WS.init({
+      S: { workspaceOpen: true, myTasks: [], ws: null }, CFG: { workspace: true }, DATA: { supplements: [] },
+      api: (p) => { calls.push(p); return Promise.resolve({ label: { code: 'BX-0451' } }); },
+      toast: () => {}, render: () => {}, esc: (s) => String(s == null ? '' : s),
+      isSandbox: () => false, typeMeta: () => ({}), openWindow: () => null,
+    });
+    WS.acts.wsPrintLabel('8');
+    expect(calls[0]).toBe('/api/v3/op/stock/box/label?box_id=8');
   });
 });

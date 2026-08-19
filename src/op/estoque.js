@@ -128,12 +128,36 @@
     return { label: CONF_LABEL.low, bg: T.badBg, fg: T.badFg, ln: T.badLn };
   }
 
-  /** Tara de um local: a do proprio bin/caixa, senao o preset escolhido. */
-  function tareFor(target, preset) {
+  /**
+   * Tara de um local, na ORDEM que o Bruno pediu:
+   *   1. a tara cadastrada no proprio bin/caixa (a mais confiavel: e AQUELA caixa);
+   *   2. o preset que o operador escolheu (chips de stock/tasks.tares);
+   *   3. o valor digitado na mao (ultimo recurso, mas nunca bloqueia: REGRA #0).
+   * Devolve so o numero. Quem precisa saber DE ONDE veio usa tareSource().
+   */
+  function tareFor(target, preset, typed) {
     var t = target && numOf(target.tare_g);
     if (t != null && t > 0) return t;
     var p = preset && numOf(preset.tare_g);
-    return p != null && p > 0 ? p : 0;
+    if (p != null && p > 0) return p;
+    var d = numOf(typed);
+    return d != null && d > 0 ? d : 0;
+  }
+  /** De onde veio a tara que esta valendo, pra tela poder DIZER. */
+  function tareSource(target, preset, typed) {
+    var t = target && numOf(target.tare_g);
+    if (t != null && t > 0) return { from: 'target', g: t, label: 'cadastrada neste local' };
+    var p = preset && numOf(preset.tare_g);
+    if (p != null && p > 0) return { from: 'preset', g: p, label: String(preset.name || 'preset') };
+    var d = numOf(typed);
+    if (d != null && d > 0) return { from: 'typed', g: d, label: 'digitada por você' };
+    return { from: 'none', g: 0, label: 'sem tara' };
+  }
+  /** Frase curta pro chip: "tara: caixa média 780 g". */
+  function tareText(target, preset, typed) {
+    var s = tareSource(target, preset, typed);
+    if (s.from === 'none') return 'tara: nenhuma, peso cheio';
+    return 'tara: ' + s.label + ' ' + s.g + ' g';
   }
 
   /** Nome curto de um bin/caixa (mesma regra do ws.js). */
@@ -177,7 +201,7 @@
   /** Corpo do POST stock/count/weigh. */
   function weighBody(w) {
     var b = { product_id: w.product && w.product.id, gross_g: numOf(w.gross) };
-    var tare = tareFor(w.target && (w.target.bin || w.target.box), w.preset);
+    var tare = tareFor(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped);
     if (tare) b.tare_g = tare;
     var t = targetBody(w.target);
     if (t.bin_id) b.bin_id = t.bin_id;
@@ -280,7 +304,7 @@
     tasks: null, recent: null, ctx: null,
     lookup: { q: '', items: [], busy: false },
     org: { target: null, product: null, qty: '1' },
-    cnt: { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: null, preview: null },
+    cnt: { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: null, tareTyped: '', preview: null },
     ent: { product: null, qty: '', lot: '', area: '', lastBox: null },
     dev: { product: null, qty: '1', reason: '' },
     dan: { product: null, qty: '1', reason: '' },
@@ -525,7 +549,7 @@
     var target = w.target && (w.target.bin || w.target.box);
     S.cnt.preview = weighPreview({
       gross_g: w.gross,
-      tare_g: tareFor(target, w.preset),
+      tare_g: tareFor(target, w.preset, w.tareTyped),
       unit_weight_g: w.product && w.product.unit_weight_g,
     });
   }
@@ -634,7 +658,7 @@
     var err = countError(S.cnt, 'weigh');
     if (err) { toast(err); return; }
     post('stock/count/weigh', weighBody(S.cnt), 'Contagem enviada. O admin aprova e o número muda.', function () {
-      S.cnt = { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: null, preview: null };
+      S.cnt = { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: S.cnt.preset, tareTyped: S.cnt.tareTyped, preview: null };
     });
   }
   function submitManual(qty) {
@@ -647,7 +671,7 @@
     if (err) { toast(err); return; }
     post('stock/count/manual', manualBody(S.cnt, qty),
       qty === 0 ? 'Marcado como vazio. O admin aprova e o número zera.' : 'Contagem enviada. O admin aprova e o número muda.', function () {
-      S.cnt = { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: null, preview: null };
+      S.cnt = { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: S.cnt.preset, tareTyped: S.cnt.tareTyped, preview: null };
     });
   }
   function submitEntrada() {
@@ -781,20 +805,32 @@
   }
 
   // ── cabecalho do hub ────────────────────────────────────────
+  /* Mesmo menu do /op (fonte unica em /op/nav.js): marca da casa, as 3 abas,
+     quem esta logado e Sair. O operador ve a MESMA barra nas duas telas. */
+  function navStrip() {
+    var NAV = (typeof window !== 'undefined' && window.HF_NAV) || null;
+    return NAV ? NAV.strip('estoque', { page: 'hub' }) : '';
+  }
   function headerHtml() {
     var who = S.person ? (S.person.display_name || '') : '';
     var connected = S.pair.connected;
-    return '<div style="display:flex; align-items:center; gap:14px; padding:20px 26px 10px; flex-wrap:wrap;">'
+    return '<div style="padding:16px 26px 10px;">'
+      + '<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px;">'
+      + '<img src="/op/assets/healthfare-logo.png" alt="HealthFare" style="height:30px; width:auto;">'
+      + navStrip()
+      + '<span style="flex:1; min-width:0;"></span>'
+      + chip(connected ? 'celular conectado' : 'sem celular', connected ? T.okBg : T.neuBg, connected ? T.okFg : T.mute2, connected ? T.okLn : T.neuLn)
+      + (who ? '<span style="font-size:13px; color:' + T.muted + '; font-weight:600;">' + esc(who) + '</span>' : '')
+      + btn('logout', 'Sair', null, GHOST)
+      + '</div>'
+      + '<div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">'
       + (S.scr === 'home' ? '' : btn('go', '&larr; Voltar', 'home', GHOST))
       + '<div style="flex:1; min-width:180px;">'
       + '<div style="font-family:' + MONO + '; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:' + T.green + '; font-weight:600;">&#9679; HealthFare &middot; Estoque</div>'
       + '<div style="font-family:' + SERIF + '; font-size:28px; color:' + T.ink + '; line-height:1.05;">' + screenTitle() + '</div>'
       + '<div style="font-size:13px; color:' + T.muted + '; margin-top:3px;">' + screenSub() + '</div>'
       + '</div>'
-      + chip(connected ? 'celular conectado' : 'sem celular', connected ? T.okBg : T.neuBg, connected ? T.okFg : T.mute2, connected ? T.okLn : T.neuLn)
-      + (who ? '<span style="font-size:13px; color:' + T.muted + '; font-weight:600;">' + esc(who) + '</span>' : '')
-      + btn('logout', 'Sair', null, GHOST)
-      + '</div>';
+      + '</div></div>';
   }
   function screenTitle() {
     var m = { home: 'Hub de <em style="color:' + T.green + ';">Estoque</em>',
@@ -899,6 +935,10 @@
       + '<span style="font-size:12.5px; color:' + T.muted + '; line-height:1.3;">' + (S.pair.connected ? 'Conectado, pode escanear' : 'Usar a câmera como leitor') + '</span>'
       + '</button>';
     h += '</div>';
+    // ponte discreta pro outro lado do sistema: quem entrou aqui e precisa da
+    // picklist nao pode ficar procurando onde clicar.
+    var NAV = (typeof window !== 'undefined' && window.HF_NAV) || null;
+    if (NAV) h += '<div style="margin:-6px 0 18px;">' + NAV.crossLink() + '</div>';
     h += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:16px;">'
       + tasksHtml() + recentHtml() + '</div>';
     return h;
@@ -992,10 +1032,52 @@
     return h + '</div>';
   }
 
+  /**
+   * TARA: o que descontar do peso bruto. Ela some com a contagem inteira se
+   * estiver errada, entao a tela mostra qual esta valendo, sempre.
+   *
+   * Ordem (regra do Bruno): a do proprio bin/caixa manda, senao o preset que o
+   * operador escolher, senao o que ele digitar. Quando o local ja tem tara
+   * cadastrada os presets ficam apagados: mexer neles ali nao mudaria nada, e
+   * um botao que nao faz nada e pior que botao nenhum.
+   */
+  function tareHtml(w, tare) {
+    var src = w.target && (w.target.bin || w.target.box);
+    var fromTarget = !!(src && numOf(src.tare_g) > 0);
+    var presets = (S.tasks && S.tasks.tares) || [];
+    var h = '<div style="margin-bottom:12px;">' + microLbl('Quanto pesa vazia (tara)');
+    if (fromTarget) {
+      h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">'
+        + 'Esse local já tem a tara cadastrada: ' + numOf(src.tare_g) + ' g. Usamos ela.</div>';
+    } else if (presets.length) {
+      h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">Escolha o que está segurando as garrafas:</div>';
+    } else {
+      h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">Sem tara cadastrada. Pese a caixa vazia e digite abaixo, ou deixe em branco se estiver pesando só as garrafas.</div>';
+    }
+    if (presets.length) {
+      h += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;' + (fromTarget ? ' opacity:.45;' : '') + '">';
+      presets.forEach(function (p) {
+        var on = !fromTarget && w.preset && String(w.preset.id) === String(p.id);
+        h += btn('cntTare', esc(p.name) + ' &middot; ' + (numOf(p.tare_g) || 0) + ' g', esc(p.id),
+          'border:1px solid ' + (on ? T.ink : T.line) + '; cursor:pointer; border-radius:999px; min-height:44px; padding:0 16px;'
+          + ' font-family:' + MONO + '; font-size:12px; font-weight:700;'
+          + ' background:' + (on ? T.ink : '#fff') + '; color:' + (on ? '#fff' : T.muted) + ';');
+      });
+      if (!fromTarget && w.preset) {
+        h += btn('cntTare', 'limpar', '', 'border:0; background:none; cursor:pointer; color:' + T.mute2 + '; font-size:12.5px; font-weight:700; min-height:44px; padding:0 10px;');
+      }
+      h += '</div>';
+    }
+    if (!fromTarget) {
+      h += '<input data-input="cntTare" inputmode="decimal" value="' + esc(String(w.tareTyped || '')) + '" placeholder="ou digite a tara em gramas" style="' + INPUT + ' font-size:15px;">';
+    }
+    return h + '</div>';
+  }
+
   // ── CONTAR ──────────────────────────────────────────────────
   function contarHtml() {
     var w = S.cnt;
-    var pv = w.preview || weighPreview({ gross_g: w.gross, tare_g: tareFor(w.target && (w.target.bin || w.target.box), w.preset), unit_weight_g: w.product && w.product.unit_weight_g });
+    var pv = w.preview || weighPreview({ gross_g: w.gross, tare_g: tareFor(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped), unit_weight_g: w.product && w.product.unit_weight_g });
     var h = scanBarHtml(w.target ? 'Produto (se a prateleira não disser)' : 'Escaneie a prateleira ou a caixa');
     h += '<div style="' + CARD + ' padding:20px 22px; max-width:640px;">';
     h += stepLine(1, 'O que você contou', !!w.target);
@@ -1016,11 +1098,12 @@
       + '</div>';
 
     if (w.mode === 'weigh') {
-      var tare = tareFor(w.target && (w.target.bin || w.target.box), w.preset);
+      var tare = tareFor(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped);
       h += '<div style="margin-bottom:12px;">' + microLbl('Peso na balança, com a caixa junto (gramas)')
         + '<input data-input="cntGross" inputmode="decimal" value="' + esc(String(w.gross || '')) + '" placeholder="ex.: 4820" style="' + INPUT + ' margin-top:6px; font-size:24px; font-weight:800; text-align:center;"></div>';
+      h += tareHtml(w, tare);
       h += '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">'
-        + chip('vazia pesa ' + tare + ' g', T.neuBg, T.neuFg, T.neuLn)
+        + chip(esc(tareText(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped)), T.neuBg, T.neuFg, T.neuLn)
         + chip(w.product && w.product.unit_weight_g ? 'garrafa ' + w.product.unit_weight_g + ' g' : 'sem peso da garrafa', w.product && w.product.unit_weight_g ? T.neuBg : T.warnBg, w.product && w.product.unit_weight_g ? T.neuFg : T.warnFg, w.product && w.product.unit_weight_g ? T.neuLn : T.warnLn)
         + '</div>';
       // previa (conta local; o servidor refaz e manda o valor final)
@@ -1268,6 +1351,15 @@
     devQtyDelta: function (d) { S.dev.qty = String(Math.max(1, (intOf(S.dev.qty) || 1) + intOf(d))); render(); },
     danQtyDelta: function (d) { S.dan.qty = String(Math.max(1, (intOf(S.dan.qty) || 1) + intOf(d))); render(); },
     cntMode: function (m) { S.cnt.mode = m === 'manual' ? 'manual' : 'weigh'; render(); },
+    /* Preset de tara (chips vindos de stock/tasks.tares). Tocar no que ja esta
+       escolhido desmarca: e o jeito mais rapido de corrigir sem procurar botao. */
+    cntTare: function (id) {
+      var list = (S.tasks && S.tasks.tares) || [];
+      var p = list.find(function (x) { return String(x.id) === String(id); });
+      S.cnt.preset = (p && (!S.cnt.preset || String(S.cnt.preset.id) !== String(p.id))) ? p : null;
+      if (S.cnt.preset) S.cnt.tareTyped = '';    // preset manda no digitado
+      recompute(); render();
+    },
     emptyCount: function () { submitManual(0); },
     submitOrganize: function () { submitOrganize(); },
     submitWeigh: function () { submitWeigh(); },
@@ -1287,6 +1379,7 @@
     orgQty: function (v) { S.org.qty = v; },
     cntQty: function (v) { S.cnt.qty = v; },
     cntGross: function (v) { S.cnt.gross = v; recompute(); renderPreview(); },
+    cntTare: function (v) { S.cnt.tareTyped = v; S.cnt.preset = null; recompute(); renderPreview(); },
     entQty: function (v) { S.ent.qty = v; },
     entLot: function (v) { S.ent.lot = v; },
     entArea: function (v) { S.ent.area = v; },
@@ -1377,6 +1470,7 @@
       placeLabel: placeLabel, targetLabel: targetLabel, targetBody: targetBody,
       organizeBody: organizeBody, organizeError: organizeError,
       weighBody: weighBody, manualBody: manualBody, countError: countError,
+      tareSource: tareSource, tareText: tareText,
       boxNewBody: boxNewBody, boxNewError: boxNewError, labelPayload: labelPayload,
       streamUrl: streamUrl, kindLabel: kindLabel, statusChip: statusChip,
       confChip: confChip, intOf: intOf, numOf: numOf, esc: esc, SCREENS: SCREENS, MENU: MENU,

@@ -78,6 +78,8 @@ class StockRequestService {
    *  - caixa nova: {box:{new:true, batch_number, area, tare_g}} — o número da caixa
    *    é alocado só na aprovação (número de caixa nunca se repete, então não se
    *    queima um na proposta que pode ser recusada).
+   * Na APROVAÇÃO o meta ganha `result` ({box_id, box_number}) com o que foi criado
+   * — é por ali que o operador descobre o número da caixa que ele propôs.
    */
   async propose(p = {}) {
     if (!p.product_id) throw new Error('propose: product_id obrigatório');
@@ -220,6 +222,22 @@ class StockRequestService {
     return 'BX-' + String(next).padStart(4, '0');
   }
 
+  /**
+   * Guarda no meta da proposta O QUE A APROVAÇÃO CRIOU (hoje: a caixa e o número
+   * dela). Merge no meta existente — a pesagem/box da proposta original continua
+   * lá, senão o admin perderia de onde o número veio. Nunca derruba a aprovação:
+   * é registro de resultado, não parte da escrita do estoque.
+   */
+  async _recordResult(id, meta, result) {
+    try {
+      await this.db.query(
+        'UPDATE v3.stock_change_requests SET meta = $2::jsonb WHERE id = $1',
+        [Number(id), JSON.stringify({ ...(meta || {}), result: { ...result } })]);
+    } catch (e) {
+      console.error('[stock-request] meta.result não gravado:', e.message);
+    }
+  }
+
   /** Aplica a proposta pelo StockService, conforme o kind. */
   async _apply(req, p = {}) {
     const sourceRef = 'request:' + req.id;
@@ -238,7 +256,7 @@ class StockRequestService {
         // alocado agora, na aprovação, e a entrada vai direto pra essa caixa.
         let boxId = req.box_id || null;
         if (!boxId && meta.box && meta.box.new) {
-          boxId = await this._withTx(async (c) => {
+          const created = await this._withTx(async (c) => {
             const number = await this._allocateBoxNumber(c);
             const ins = await c.query(
               `INSERT INTO v3.stock_boxes
@@ -247,8 +265,14 @@ class StockRequestService {
               [number, req.product_id, meta.box.area || null, meta.box.batch_number || null,
                 meta.box.tare_g != null ? meta.box.tare_g : null,
                 req.proposed_by_person_id || null]);
-            return ins.rows[0].id;
+            return { box_id: ins.rows[0].id, box_number: number };
           });
+          boxId = created.box_id;
+          // O NÚMERO VOLTA PRO OPERADOR (Bruno 08-19). Quem propôs a caixa precisa
+          // saber qual número ela recebeu pra escrever/colar a etiqueta certa; o
+          // número nasce aqui e sem isso ele só existiria em stock_boxes, longe da
+          // linha do "Registrado hoje". Gravado no meta.result da própria proposta.
+          await this._recordResult(req.id, meta, created);
         }
         return this.stock.storeIn({ ...common, qty: req.qty,
           bin_id: req.bin_id || null, box_id: boxId });

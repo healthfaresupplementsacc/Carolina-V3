@@ -88,6 +88,42 @@ class LocationsRepo {
     return r.rows[0];
   }
 
+  /**
+   * CADASTRO EM LOTE de bins (Bruno 08-19): a prateleira inteira de uma vez.
+   * Cadastrar A01A1..A04C3 numa tela de um bin por vez é o motivo de existirem
+   * zero bins hoje — e sem bin a picklist imprime "LOCAL A DEFINIR".
+   *
+   * ON CONFLICT DO NOTHING de propósito: um código que JÁ EXISTE volta em
+   * `skipped` e não é tocado. Colar a lista de novo não pode reescrever o produto
+   * nem o mínimo de um bin que alguém já ajustou na mão. Editar continua sendo o
+   * upsertBin, um a um, consciente.
+   *
+   * NUNCA toca qty (bin novo nasce em 0 e só enche por movimento do StockService).
+   * @param {Array<{bin_code, shelf_code?, area?, product_id?, capacity?, min_qty?}>} list
+   * @returns {Promise<{created:number, skipped:string[]}>}
+   */
+  async bulkBins(list = []) {
+    const skipped = []; let created = 0;
+    for (const p of list) {
+      const code = String((p && p.bin_code) || '').trim().toUpperCase();
+      if (!code) continue;
+      // COALESCE na capacity/min_qty: sem valor informado o bin fica com o DEFAULT
+      // da tabela (48 e 0), não com NULL — min_qty é NOT NULL, um NULL explícito
+      // derrubaria o INSERT inteiro, e o operador só queria cadastrar a prateleira.
+      const r = await this.db.query(`
+        INSERT INTO v3.stock_bins (bin_code, shelf_code, area, product_id, capacity, min_qty)
+        VALUES ($1,$2,$3,$4,COALESCE($5, 48),COALESCE($6, 0))
+        ON CONFLICT (bin_code) DO NOTHING
+        RETURNING id, bin_code`,
+      [code, p.shelf_code || null, p.area || null,
+        p.product_id ? Number(p.product_id) : null,
+        p.capacity != null && p.capacity !== '' ? Number(p.capacity) : null,
+        p.min_qty != null && p.min_qty !== '' ? Number(p.min_qty) : null]);
+      if (r.rows && r.rows[0]) created += 1; else skipped.push(code);
+    }
+    return { created, skipped };
+  }
+
   /** Desativa um bin (nunca deleta — o histórico de movimentos aponta pra ele). */
   async deactivateBin(id) {
     const r = await this.db.query(

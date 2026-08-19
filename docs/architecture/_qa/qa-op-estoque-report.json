@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T04:35:18.175Z",
+  "at": "2026-08-19T05:25:54.593Z",
   "results": [
     {
       "group": "boot",
@@ -50,6 +50,36 @@
       "detail": ""
     },
     {
+      "group": "menu",
+      "name": "nav persistente no hub com as 3 abas",
+      "pass": true,
+      "detail": "linha,central,estoque"
+    },
+    {
+      "group": "menu",
+      "name": "aba ativa no hub e Estoque",
+      "pass": true,
+      "detail": "estoque"
+    },
+    {
+      "group": "menu",
+      "name": "Linha volta pro /op e Central usa o deep link /op/?ws=1",
+      "pass": true,
+      "detail": "/op/ | /op/?ws=1"
+    },
+    {
+      "group": "menu",
+      "name": "itens do menu com 44px+ (toque com luva)",
+      "pass": true,
+      "detail": "44/44/44"
+    },
+    {
+      "group": "menu",
+      "name": "home do hub tem o link discreto pra Central",
+      "pass": true,
+      "detail": "🖨 Precisa da picklist ou imprimir? Central de P&P"
+    },
+    {
       "group": "organizar",
       "name": "scan do bin selecionou o destino (BIN A03B2)",
       "pass": true,
@@ -81,7 +111,7 @@
     },
     {
       "group": "contar",
-      "name": "mostra quanto a prateleira vazia pesa (500 g)",
+      "name": "mostra a tara em uso e de onde ela veio (500 g do proprio local)",
       "pass": true,
       "detail": ""
     },
@@ -124,6 +154,48 @@
     {
       "group": "contar",
       "name": "toast diz que foi enviada E que o admin aprova",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "tara",
+      "name": "chips de tara vieram do stock/tasks.tares",
+      "pass": true,
+      "detail": "3 chips"
+    },
+    {
+      "group": "tara",
+      "name": "sem tara escolhida a tela diz que nao tem",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "tara",
+      "name": "os chips mostram nome e gramas",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "tara",
+      "name": "a tela DIZ qual tara esta em uso (\"tara: caixa média 780 g\")",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "tara",
+      "name": "a previa desconta a tara do preset (5580-780)/48 = 100",
+      "pass": true,
+      "detail": "previa=100"
+    },
+    {
+      "group": "tara",
+      "name": "o POST leva a tara do preset (o servidor refaz a conta)",
+      "pass": true,
+      "detail": "{\"product_id\":99,\"gross_g\":5580,\"tare_g\":780,\"box_id\":9}"
+    },
+    {
+      "group": "tara",
+      "name": "local com tara cadastrada usa a DELE, nao o preset",
       "pass": true,
       "detail": ""
     },

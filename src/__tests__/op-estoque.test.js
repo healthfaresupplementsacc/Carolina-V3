@@ -78,7 +78,7 @@ describe('estoque — pesagem vira quantidade (weighPreview)', () => {
   });
 });
 
-describe('estoque — tara vem do local, senao do preset', () => {
+describe('estoque — tara: local > preset > digitada', () => {
   test('tara do proprio bin ganha do preset', () => {
     expect(H.tareFor({ tare_g: '520' }, { tare_g: 100 })).toBe(520);
   });
@@ -87,6 +87,54 @@ describe('estoque — tara vem do local, senao do preset', () => {
   });
   test('sem nada = 0 (pesagem sem tara ainda e pesagem)', () => {
     expect(H.tareFor(null, null)).toBe(0);
+  });
+  // ── preset picker (contrato 1: stock/tasks.tares) ─────────────
+  test('a tara DIGITADA e o ultimo recurso, nunca ganha do local nem do preset', () => {
+    expect(H.tareFor({ tare_g: 520 }, { tare_g: 100 }, '999')).toBe(520);
+    expect(H.tareFor(null, { tare_g: 100 }, '999')).toBe(100);
+    expect(H.tareFor(null, null, '999')).toBe(999);
+    expect(H.tareFor(null, null, '')).toBe(0);
+  });
+  test('o operador digita com virgula (teclado BR) e a conta entende', () => {
+    expect(H.tareFor(null, null, '780,5')).toBe(780.5);
+  });
+  test('tareSource diz DE ONDE veio a tara que esta valendo', () => {
+    expect(H.tareSource({ tare_g: 520 }, { name: 'caixa média', tare_g: 780 }).from).toBe('target');
+    expect(H.tareSource(null, { name: 'caixa média', tare_g: 780 }).from).toBe('preset');
+    expect(H.tareSource(null, null, '640').from).toBe('typed');
+    expect(H.tareSource(null, null).from).toBe('none');
+  });
+  test('a tela DIZ qual tara esta em uso (o Bruno pediu essa frase)', () => {
+    expect(H.tareText(null, { id: 2, name: 'caixa média', tare_g: 780 })).toBe('tara: caixa média 780 g');
+    expect(H.tareText({ tare_g: 500 }, { name: 'caixa média', tare_g: 780 })).toBe('tara: cadastrada neste local 500 g');
+    expect(H.tareText(null, null, '640')).toBe('tara: digitada por você 640 g');
+    expect(H.tareText(null, null)).toBe('tara: nenhuma, peso cheio');
+  });
+  test('tara zero ou negativa nao vale (nao apaga a proxima da fila)', () => {
+    expect(H.tareFor({ tare_g: 0 }, { tare_g: 100 })).toBe(100);
+    expect(H.tareFor({ tare_g: -5 }, null, '80')).toBe(80);
+  });
+});
+
+describe('estoque — o preset de tara entra no corpo do POST', () => {
+  test('weighBody manda a tara do preset quando o local nao tem', () => {
+    const w = { product: { id: 99 }, gross: '5300', preset: { id: 2, name: 'caixa média', tare_g: 780 },
+      target: { kind: 'bin', bin: { id: 1, tare_g: null } } };
+    expect(H.weighBody(w)).toEqual({ product_id: 99, gross_g: 5300, tare_g: 780, bin_id: 1 });
+  });
+  test('weighBody prefere a tara do proprio local', () => {
+    const w = { product: { id: 99 }, gross: '5300', preset: { id: 2, tare_g: 780 },
+      target: { kind: 'bin', bin: { id: 1, tare_g: 500 } } };
+    expect(H.weighBody(w).tare_g).toBe(500);
+  });
+  test('weighBody usa a digitada quando nao ha local nem preset', () => {
+    const w = { product: { id: 99 }, gross: '5300', preset: null, tareTyped: '640',
+      target: { kind: 'box', box: { id: 8 } } };
+    expect(H.weighBody(w)).toEqual({ product_id: 99, gross_g: 5300, tare_g: 640, box_id: 8 });
+  });
+  test('sem tara nenhuma o corpo nao manda tare_g (o servidor decide)', () => {
+    const w = { product: { id: 99 }, gross: '5300', preset: null, target: { kind: 'bin', bin: { id: 1 } } };
+    expect(H.weighBody(w).tare_g).toBeUndefined();
   });
 });
 
@@ -289,16 +337,18 @@ describe('code128 — implementacao propria', () => {
 
 describe('estoque — arquivos da casca (html + sw + vendor)', () => {
   const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
-  test('estoque.html carrega config, code128, qrcode e o app', () => {
+  test('estoque.html carrega config, code128, qrcode, o menu e o app', () => {
     const html = read('op', 'estoque.html');
-    ['/op/config.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js', '/op/estoque.js']
+    ['/op/config.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js', '/op/nav.js', '/op/estoque.js']
       .forEach((s) => expect(html).toContain(s));
     expect(html).toContain('scanSink');   // input sempre focado (leitor USB)
+    // o menu tem que existir ANTES do app: o header do hub o desenha no 1º render
+    expect(html.indexOf('/op/nav.js')).toBeLessThan(html.indexOf('/op/estoque.js'));
   });
   test('sw cacheia a tela nova e subiu de versao', () => {
     const sw = read('op', 'sw.js');
-    expect(sw).toContain("'hf-op-v41'");
-    ['/op/estoque.html', '/op/estoque.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js']
+    expect(sw).toContain("'hf-op-v42'");
+    ['/op/estoque.html', '/op/estoque.js', '/op/nav.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js']
       .forEach((s) => expect(sw).toContain(s));
   });
   test('pagina do celular tem camera + fallback manual (REGRA #0)', () => {

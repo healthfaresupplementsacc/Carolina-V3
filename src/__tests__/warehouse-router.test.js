@@ -31,11 +31,25 @@ function makeDb(state) {
         return { rows: l ? [l] : [] };
       }
       if (q.startsWith('INSERT INTO v3.audit_log')) { state.audit.push(params[1]); return { rows: [] }; }
+      // resumo da fila do overview: quantas pendentes e a idade da mais velha
+      if (/COUNT\(\*\)::int AS count/.test(q) && /stock_change_requests/.test(q)) {
+        const pend = state.pending || [];
+        return { rows: [{ count: pend.length,
+          oldest_age_min: pend.length ? Math.max(...pend.map((p) => p.age_min)) : null }] };
+      }
       if (/FROM v3\.product_skus WHERE product_id/.test(q)) {
         return { rows: state.skus.filter((s) => s.product_id === params[0]) };
       }
       if (/FROM v3\.stock_bins b/.test(q)) return { rows: state.bins };
       if (/FROM v3\.stock_boxes x/.test(q)) return { rows: state.boxes };
+      // cadastro em LOTE: ON CONFLICT DO NOTHING — código repetido não volta linha
+      if (q.startsWith('INSERT INTO v3.stock_bins') && /DO NOTHING/.test(q)) {
+        if (state.bins.some((b) => b.bin_code === params[0])) return { rows: [] };
+        const bin = { id: 100 + state.bins.length, bin_code: params[0], shelf_code: params[1],
+          area: params[2], product_id: params[3], capacity: params[4], min_qty: params[5],
+          qty: 0, active: true };
+        state.bins.push(bin); return { rows: [{ id: bin.id, bin_code: bin.bin_code }] };
+      }
       if (q.startsWith('INSERT INTO v3.stock_bins')) {
         const bin = { id: 77, bin_code: params[0], shelf_code: params[1], area: params[2],
           product_id: params[3], min_qty: params[4], qty: 0, active: true };
@@ -136,7 +150,8 @@ let server, base, state, stock, requests, veeqoCache;
 
 async function boot(rows, veeqo) {
   if (server) await new Promise((r) => server.close(r));
-  state = { audit: [], bins: [], boxes: [], skus: [{ id: 1, product_id: 10, sku: 'HF-BENF-300', channel: 'veeqo', units_per_pack: 1, confirmed_at: 'x' }] };
+  state = { audit: [], bins: [], boxes: [], pending: [],
+    skus: [{ id: 1, product_id: 10, sku: 'HF-BENF-300', channel: 'veeqo', units_per_pack: 1, confirmed_at: 'x' }] };
   stock = makeStock(rows);
   requests = makeRequests();
   const { createVeeqoCache } = require('../v3/warehouse/veeqo-cache');
@@ -439,5 +454,100 @@ describe('Warehouse hub — locais e família', () => {
     const r = await call('POST', '/api/v3/warehouse/family/merge',
       { from_product_id: 10, into_product_id: 10 }, ADMIN_PIN);
     expect(r.status).toBe(400);
+  });
+});
+
+/* ── CADASTRO EM LOTE de prateleiras (Bruno 08-19) ────────────────────────
+   Blocker #1 do S15: existem 0 bins e a picklist imprime "LOCAL A DEFINIR".
+   Um corredor inteiro por chamada, e colar a lista de novo nunca sobrescreve
+   o que alguém já ajustou na mão. */
+describe('Warehouse hub — prateleiras em lote', () => {
+  const BULK = '/api/v3/warehouse/locations/bins/bulk';
+
+  test('cria a lista inteira, sem tocar em quantidade', async () => {
+    const r = await call('POST', BULK, { bins: [
+      { bin_code: 'A01A1', shelf: 'S1', area: 'Corredor A', product_id: 10, capacity: 48 },
+      { bin_code: 'A01A2', shelf: 'S1', area: 'Corredor A' },
+      { bin_code: 'A01A3' },
+    ] }, ADMIN_PIN);
+    expect(r.status).toBe(200);
+    expect(r.body.data).toEqual({ created: 3, skipped: [] });
+    expect(state.bins.map((b) => b.bin_code)).toEqual(['A01A1', 'A01A2', 'A01A3']);
+    expect(state.bins.every((b) => b.qty === 0)).toBe(true);
+    // `shelf` da tela chega em shelf_code (a coluna); nada de recusar pelo nome do campo
+    expect(state.bins[0].shelf_code).toBe('S1');
+    expect(stock.calls).toHaveLength(0);          // nenhuma escrita de estoque
+  });
+
+  test('código repetido é PULADO, nunca sobrescrito', async () => {
+    await call('POST', BULK, { bins: [{ bin_code: 'A01A1', product_id: 10 }] }, ADMIN_PIN);
+    const again = await call('POST', BULK, { bins: [
+      { bin_code: 'A01A1', product_id: 99 },      // tentativa de reescrever o produto
+      { bin_code: 'A01B1' },
+    ] }, ADMIN_PIN);
+    expect(again.body.data.created).toBe(1);
+    expect(again.body.data.skipped).toEqual(['A01A1']);
+    expect(state.bins.find((b) => b.bin_code === 'A01A1').product_id).toBe(10);   // intacto
+  });
+
+  test('normaliza pra maiúscula e recusa código comprido, sem derrubar o resto', async () => {
+    const r = await call('POST', BULK, { bins: [
+      { bin_code: ' a02b1 ' },
+      { bin_code: 'ESTE-CODIGO-E-GRANDE-DEMAIS' },
+      { bin_code: '' },
+    ] }, ADMIN_PIN);
+    expect(r.status).toBe(200);
+    expect(r.body.data.created).toBe(1);
+    expect(state.bins[0].bin_code).toBe('A02B1');
+    expect(r.body.data.skipped).toContain('ESTE-CODIGO-E-GRANDE-DEMAIS');
+  });
+
+  test('lista vazia, ausente ou acima do teto → 400 com mensagem em PT-BR', async () => {
+    expect((await call('POST', BULK, {}, ADMIN_PIN)).status).toBe(400);
+    expect((await call('POST', BULK, { bins: [] }, ADMIN_PIN)).status).toBe(400);
+    const many = Array.from({ length: 301 }, (_, i) => ({ bin_code: 'Z' + i }));
+    const big = await call('POST', BULK, { bins: many }, ADMIN_PIN);
+    expect(big.status).toBe(400);
+    expect(big.body.error.message).toMatch(/300/);
+    expect(big.body.error.message).not.toMatch(/—/);
+    expect(state.bins).toHaveLength(0);
+  });
+
+  test('só nomes vazios na lista → 400, nada criado', async () => {
+    const r = await call('POST', BULK, { bins: [{ bin_code: '  ' }, { bin_code: null }] }, ADMIN_PIN);
+    expect(r.status).toBe(400);
+    expect(state.bins).toHaveLength(0);
+  });
+
+  test('exige manage_stock e audita uma linha só', async () => {
+    const viewer = await call('POST', BULK, { bins: [{ bin_code: 'A09A9' }] }, VIEWER_PIN);
+    expect(viewer.status).toBe(403);
+    expect(state.bins).toHaveLength(0);
+    await call('POST', BULK, { bins: [{ bin_code: 'A09A9' }, { bin_code: 'A09B9' }] }, ADMIN_PIN);
+    expect(state.audit.filter((a) => a === 'warehouse.bins_bulk')).toHaveLength(1);
+  });
+});
+
+/* ── RESUMO DA FILA no overview (contrato 3) ──────────────────────────────
+   Uma frase: quantas propostas esperam e há quanto tempo a mais velha espera.
+   É o que decide se alguém para tudo pra ir aprovar agora. */
+describe('Warehouse hub — pending_summary do overview', () => {
+  test('fila vazia: zero e idade null (nunca 0 minutos, que pareceria uma proposta nova)', async () => {
+    const r = await call('GET', '/api/v3/warehouse/overview', undefined, ADMIN_PIN);
+    expect(r.body.data.pending_summary).toEqual({ count: 0, oldest_age_min: null });
+  });
+
+  test('conta as pendentes e leva a idade da MAIS VELHA', async () => {
+    state.pending = [{ age_min: 12 }, { age_min: 240 }, { age_min: 3 }];
+    const r = await call('GET', '/api/v3/warehouse/overview', undefined, ADMIN_PIN);
+    expect(r.body.data.pending_summary).toEqual({ count: 3, oldest_age_min: 240 });
+  });
+
+  test('vem junto dos produtos e dos KPIs, numa chamada só', async () => {
+    state.pending = [{ age_min: 5 }];
+    const r = await call('GET', '/api/v3/warehouse/overview', undefined, ADMIN_PIN);
+    expect(r.body.data.products).toHaveLength(1);
+    expect(r.body.data.kpis).toBeTruthy();
+    expect(r.body.data.pending_summary.count).toBe(1);
   });
 });

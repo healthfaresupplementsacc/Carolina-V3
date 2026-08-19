@@ -81,15 +81,34 @@ function RequestMeta({ r }) {
   );
 }
 
-function age(created) {
-  if (!created) return '—';
+/* Idade da proposta em minutos. null quando não dá pra ler a data. */
+function ageMin(created) {
+  if (!created) return null;
   const ms = Date.now() - Date.parse(created);
-  if (Number.isNaN(ms)) return '—';
-  const min = Math.max(0, Math.round(ms / 60000));
+  if (Number.isNaN(ms)) return null;
+  return Math.max(0, Math.round(ms / 60000));
+}
+
+function age(created) {
+  const min = ageMin(created);
+  if (min == null) return '—';
   if (min < 60) return min + 'min';
   const h = Math.floor(min / 60);
   if (h < 48) return h + 'h';
   return Math.floor(h / 24) + 'd';
+}
+
+/* Cor da espera. O operador parou de trabalhar pra propor: passou de 4h alguém
+   esqueceu (âmbar), passou de 1 dia a proposta virou dado velho e aprovar às
+   cegas é pior que recusar (vermelho). Abaixo de 4h é fila normal, cinza. */
+const AGE_WARN_MIN = 4 * 60;
+const AGE_BAD_MIN = 24 * 60;
+function ageTone(created) {
+  const min = ageMin(created);
+  if (min == null) return 'neutral';
+  if (min >= AGE_BAD_MIN) return 'bad';
+  if (min >= AGE_WARN_MIN) return 'warn';
+  return 'neutral';
 }
 
 export function ApprovalsPage() {
@@ -170,7 +189,11 @@ export function ApprovalsPage() {
               <tr key={r.id}>
                 <td><b>{r.proposed_by || '—'}</b></td>
                 <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{String(r.created_at || '').slice(0, 16).replace('T', ' ')}</td>
-                <td className="num">{age(r.created_at)}</td>
+                <td className="num" data-cell="age">
+                  <span className={'kit-chip ' + ageTone(r.created_at)} data-age-tone={ageTone(r.created_at)}>
+                    {age(r.created_at)}
+                  </span>
+                </td>
                 <td>{r.product || r.nickname || ('#' + r.product_id)}</td>
                 <td><span className="kit-chip neutral">{KIND_LABEL[r.kind] || r.kind}</span></td>
                 <td className="num">{r.direction === 'out' ? '−' : '+'}{fmt(r.qty)}</td>

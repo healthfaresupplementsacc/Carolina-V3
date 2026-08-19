@@ -455,7 +455,7 @@
   var WS = window.HF_WS || null;
   if (WS) WS.init({
     S: S, CFG: CFG, DATA: DATA, api: api, toast: toast, render: render, esc: esc,
-    isSandbox: isSandbox, typeMeta: typeMeta,
+    isSandbox: isSandbox, typeMeta: typeMeta, loadData: function () { return loadData(); },
     openWindow: function () { return window.open('', '_blank'); },
   });
   var WS_SLUGS = (WS && WS.slugs) || {};

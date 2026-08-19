@@ -45,6 +45,177 @@ function NumCell({ value, suffix, width = 74, disabled, placeholder, onSave }) {
   );
 }
 
+/* ═══ Criar várias prateleiras (acelerador do dia 1) ═══════════════
+   Cadastrar 96 lugares de um em um é meia manhã de trabalho e é onde o dia 1
+   trava. O código segue o esquema ONDE, não O QUÊ:
+       <área><prateleira 2 dígitos><nível letra><posição>   ex: A01A1
+   Área e nível vêm de campos separados justamente pra ninguém inventar
+   código na mão: o que a etiqueta imprime é o que a picklist procura.
+   Preview ANTES de gravar: 300 linhas erradas custam mais que reescrever o
+   formulário, então a tela mostra o começo, o fim e a conta.
+   Código repetido é PULADO pelo backend (contrato 4), nunca sobrescrito. */
+const BULK_MAX = 300;
+
+function buildCodes({ area, shelves, levels, positions }) {
+  const a = String(area || '').trim().toUpperCase();
+  const lv = String(levels || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean);
+  const nS = Math.max(0, Math.floor(Number(shelves) || 0));
+  const nP = Math.max(0, Math.floor(Number(positions) || 0));
+  if (!a || !lv.length || !nS || !nP) return [];
+  const out = [];
+  for (let s = 1; s <= nS; s += 1) {
+    for (const l of lv) {
+      for (let p = 1; p <= nP; p += 1) {
+        out.push({ bin_code: a + String(s).padStart(2, '0') + l + p, shelf: a + String(s).padStart(2, '0') });
+        if (out.length > BULK_MAX) return out;          // corta cedo: o aviso do cap é da UI
+      }
+    }
+  }
+  return out;
+}
+
+function BulkBinsCard({ products, onDone, onError }) {
+  const [open, setOpen] = React.useState(false);
+  const [f, setF] = React.useState({ area: 'A', shelves: 8, levels: 'A,B,C', positions: 4, product_id: '', capacity: '' });
+  const [busy, setBusy] = React.useState(false);
+  const [result, setResult] = React.useState(null);
+
+  const codes = React.useMemo(() => buildCodes(f), [f]);
+  const over = codes.length > BULK_MAX;
+  const shown = codes.slice(0, BULK_MAX);
+  const set = (k) => (e) => { setF({ ...f, [k]: e.target.value }); setResult(null); };
+
+  async function create() {
+    setBusy(true);
+    try {
+      const payload = shown.map((c) => ({
+        bin_code: c.bin_code,
+        shelf: c.shelf,
+        area: String(f.area || '').trim().toUpperCase() || undefined,
+        product_id: f.product_id ? Number(f.product_id) : undefined,
+        capacity: f.capacity === '' ? undefined : Number(f.capacity),
+      }));
+      const res = await wh.addBinsBulk(payload);
+      const d = (res && res.data) || {};
+      const created = Number(d.created || 0);
+      const skipped = Array.isArray(d.skipped) ? d.skipped.length : Number(d.skipped || 0);
+      setResult({ created, skipped });
+      onDone('Criadas ' + created + ', já existiam ' + skipped);
+    } catch (e) { onError(e); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="kit-card pad" style={{ marginTop: 16 }} data-bulk="prateleiras">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <div className="kit-mlabel">Começando do zero</div>
+          <div style={{ fontSize: 13.5, marginTop: 2 }}>
+            <b>Criar várias prateleiras</b> de uma vez, no formato do armazém: área, número da prateleira,
+            nível e posição. Uma por uma leva a manhã inteira.
+          </div>
+        </div>
+        <button className="kit-btn sec" data-act="bulk-abrir" onClick={() => setOpen((v) => !v)}>
+          {open ? 'Fechar' : 'Criar várias prateleiras'}
+        </button>
+      </div>
+
+      {open && (
+        <div style={{ marginTop: 14, borderTop: '1px dotted var(--dotline)', paddingTop: 14 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kit-mlabel">Área</span>
+              <input className="kit-input mono" style={{ width: 78 }} data-field="area"
+                     value={f.area} onChange={set('area')} placeholder="A" />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kit-mlabel">Prateleiras (1 até)</span>
+              <input className="kit-input mono" type="number" min="1" style={{ width: 92 }} data-field="shelves"
+                     value={f.shelves} onChange={set('shelves')} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kit-mlabel">Níveis</span>
+              <input className="kit-input mono" style={{ width: 110 }} data-field="levels"
+                     value={f.levels} onChange={set('levels')} placeholder="A,B,C" />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kit-mlabel">Posições por nível</span>
+              <input className="kit-input mono" type="number" min="1" style={{ width: 92 }} data-field="positions"
+                     value={f.positions} onChange={set('positions')} />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kit-mlabel">Cabe quantas (opcional)</span>
+              <input className="kit-input mono" type="number" min="1" style={{ width: 110 }} data-field="capacity"
+                     value={f.capacity} onChange={set('capacity')} placeholder="48" />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span className="kit-mlabel">Produto (opcional)</span>
+              <select className="kit-input" style={{ minWidth: 170 }} data-field="product"
+                      value={f.product_id} onChange={set('product_id')}>
+                <option value="">sem produto</option>
+                {products.map((p) => <option key={p.product_id} value={p.product_id}>{p.nickname || p.name}</option>)}
+              </select>
+            </label>
+          </div>
+
+          {/* preview: a conta e as pontas da lista, antes de gravar */}
+          <div className="kit-card pad" style={{ marginTop: 14, background: 'var(--kit-surface-2)' }} data-bulk-preview>
+            <div className="kit-mlabel" style={{ marginBottom: 6 }}>Como fica</div>
+            {!codes.length ? (
+              <div style={{ fontSize: 13, color: 'var(--ink-dim)' }}>
+                Preencha área, prateleiras, níveis e posições pra ver os códigos.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <b style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--primary-deep)' }}
+                     data-bulk-count>{shown.length}</b>
+                  <span style={{ fontSize: 13, color: 'var(--ink-dim)' }}>
+                    prateleiras · {f.area ? String(f.area).toUpperCase() : ''}01
+                    {String(f.levels || '').split(',')[0] ? String(f.levels).split(',')[0].trim().toUpperCase() : ''}1
+                    {' até '}{shown.length ? shown[shown.length - 1].bin_code : ''}
+                  </span>
+                </div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 5, flexWrap: 'wrap' }} data-bulk-codes>
+                  {shown.slice(0, 12).map((c) => (
+                    <span key={c.bin_code} className="kit-chip neutral" style={{ fontFamily: 'var(--font-mono)' }}>{c.bin_code}</span>
+                  ))}
+                  {shown.length > 12 && (
+                    <span className="kit-chip neutral">e mais {shown.length - 12} até {shown[shown.length - 1].bin_code}</span>
+                  )}
+                </div>
+                {over && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--warn-deep)' }}>
+                    O limite é {BULK_MAX} por vez. Vamos criar as primeiras {BULK_MAX}, depois é só repetir com a próxima área.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button className="kit-btn primary" data-act="bulk-criar" disabled={busy || !codes.length} onClick={create}>
+              {busy ? 'Criando…' : 'Criar ' + shown.length + ' prateleiras'}
+            </button>
+            {result && (
+              <>
+                <span className="kit-chip ok" data-bulk-result>
+                  Criadas {result.created}, já existiam {result.skipped}
+                </span>
+                {/* o caminho não acaba aqui: sem etiqueta na prateleira o
+                    operador não acha nada, então o próximo passo fica na cara */}
+                <a className="kit-btn sm" data-act="bulk-etiquetas" href="#estoque-etiquetas">
+                  Agora imprimir as etiquetas
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LocationsPage() {
   const writable = canWrite();
   const loc = wh.useWarehouse('/locations', [], 30000);
@@ -185,6 +356,14 @@ export function LocationsPage() {
         </span>
         <a className="kit-btn xs sec" href="#config-estoque">Taras padrão</a>
       </div>
+
+      {writable && (
+        <BulkBinsCard
+          products={products}
+          onDone={(m) => { ack(m); loc.refresh(); }}
+          onError={(e) => ack(friendlyError(e), true)}
+        />
+      )}
 
       {loc.error && (
         <div className="kit-card pad bad" style={{ marginTop: 16 }}>

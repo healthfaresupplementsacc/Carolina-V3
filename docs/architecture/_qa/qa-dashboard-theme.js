@@ -167,12 +167,15 @@ function startServer() {
 }
 
 // ── main ─────────────────────────────────────────────────────────
-/* Todas as rotas da nav (Shell.jsx) + as soltas. A ordem segue o menu. */
+/* Todas as rotas da nav (Shell.jsx) + as soltas. A ordem segue o menu.
+   `estoque-geral` e `inventory` SAIRAM do menu (08-19) mas continuam abrindo
+   por hash, entao continuam sendo auditadas: pagina fora do menu que ninguem
+   olha e exatamente onde o tema velho sobrevive. */
 const ROUTES = [
   'hoje', 'producao', 'metas', 'pessoas',
   'pp', 'picklist',
-  'estoque', 'estoque-aprovacoes', 'estoque-locais', 'estoque-geral',
-  'inventory', 'produto-setup', 'config-estoque',
+  'estoque', 'estoque-aprovacoes', 'estoque-locais', 'estoque-etiquetas',
+  'estoque-geral', 'inventory', 'produto-setup', 'config-estoque',
   'impressao', 'floor', 'cameras', 'roadmap',
   'admin', 'operadores', 'usuarios', 'sistema', 'config',
   'suporte', 'produto', 'falar', 'planejamento', 'carolina',
@@ -287,6 +290,100 @@ async function main() {
     const sb = document.querySelector('.sidebar');
     out.sidebarBefore = sb ? (getComputedStyle(sb, '::before').backgroundImage || 'none') : 'no-sidebar';
 
+    /* ── 4. TEXTO EM GRADIENTE (S15 08-19) ────────────────────────
+       O truque `background-clip:text` + `color:transparent` era a assinatura
+       do tema anterior. Se sobrou em algum titulo, o texto nao tem cor real e
+       some no dark. Varre a pagina inteira, nao so os cards. */
+    out.gradText = [];
+    document.querySelectorAll('.main *').forEach((el) => {
+      const s = getComputedStyle(el);
+      const clip = s.webkitBackgroundClip || s.backgroundClip || '';
+      if (/text/i.test(clip) && /gradient/i.test(s.backgroundImage || '')) {
+        out.gradText.push(String(el.className).slice(0, 40) + ' ' + (el.textContent || '').trim().slice(0, 24));
+      }
+    });
+
+    /* ── 5. PALETA VELHA ──────────────────────────────────────────
+       Roxo/indigo/ciano do tema antigo nao existem no kit (navy + verde +
+       os tons semanticos). Qualquer superficie visivel pintada com eles e
+       sobra que ninguem reescreveu. */
+    const isOld = (rgb) => {
+      const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/.exec(rgb || '');
+      if (!m) return false;
+      const [r, g, b] = [+m[1], +m[2], +m[3]];
+      const a = m[4] === undefined ? 1 : +m[4];
+      if (a < 0.15) return false;                       // quase transparente, nao pinta
+      // roxo/violeta: azul e vermelho altos, verde baixo (o --dispute do kit e
+      // #5b4a9e = 91,74,158 e e LEGITIMO, entao exige saturacao maior que ele)
+      const purple = b > 150 && r > 110 && g < r - 45 && g < b - 55;
+      // ciano/turquesa berrante (o --teal do kit e #1a7a7a = escuro, passa)
+      const cyan = g > 165 && b > 165 && r < 110;
+      return purple || cyan;
+    };
+    out.oldPalette = [];
+    document.querySelectorAll('.main *').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width < 6 || r.height < 6) return;          // invisivel, nao conta
+      const s = getComputedStyle(el);
+      if (isOld(s.backgroundColor)) {
+        out.oldPalette.push('bg ' + String(el.className).slice(0, 34) + ' ' + s.backgroundColor);
+      }
+      if (/gradient/i.test(s.backgroundImage || '') && isOld(s.backgroundImage)) {
+        out.oldPalette.push('grad ' + String(el.className).slice(0, 34) + ' ' + s.backgroundImage.slice(0, 50));
+      }
+    });
+
+    /* ── 6. BOTOES / INPUTS / TABELAS FORA DO KIT ─────────────────
+       Um <button> que nao e .kit-btn nem um dos botoes de chrome conhecidos
+       (icone do topbar, nav, tabs, seg) foi escrito a mao e nao segue o pill
+       navy. Mesma ideia pros inputs e pras tabelas. Reporta o que achou pra o
+       relatorio dizer ONDE, nao so que existe. */
+    /* Vale como "do kit" qualquer classe .kit-* (kit-btn, kit-kpi-card clicavel,
+       kit-seg…), o chrome do app (.btn/.icon-btn do shell) e o que vive dentro
+       de um container do kit (abas do drawer, segmented, sidebar, topbar). */
+    const okBtn = (el) => el.closest('.kit-seg, .kit-drawer .tabs, .kit-modal, .sidebar, .topbar, .tweaks, .float-panel')
+      || [...el.classList].some((c) => c.startsWith('kit-'))
+      || el.classList.contains('icon-btn')
+      || el.classList.contains('btn') || el.classList.contains('nav-item')
+      || el.classList.contains('nav-section-btn');
+    /* O que caca de verdade e o botao PINTADO A MAO: fundo/borda em cor
+       literal (#hex ou rgb fora do kit) em vez de token. Um <button> sem
+       classe que so herda (fundo transparente, sem borda) e um controle
+       inline legitimo (o "x" de remover chip, o gear que abre um popover),
+       nao um segundo design system. */
+    /* Fundos que o kit realmente usa em botao: navy escuro (primary-deep),
+       navy (primary), branco (surface), cinza-azulado (surface-2), vermelho
+       (bad-deep) e os fundos tonais dos chips. Qualquer outro fundo solido num
+       botao e cor escrita a mao. */
+    const CANON = [
+      'rgb(13, 31, 60)', 'rgb(26, 58, 107)', 'rgb(255, 255, 255)', 'rgb(247, 250, 253)',
+      'rgb(160, 44, 32)', 'rgb(232, 247, 234)', 'rgb(253, 246, 227)', 'rgb(253, 238, 236)',
+      'rgb(234, 240, 251)', 'rgb(230, 243, 243)',
+    ];
+    const painted = (el) => {
+      const bg = getComputedStyle(el).backgroundColor || '';
+      // sem fundo solido = so herda o do card: controle inline legitimo
+      if (!bg || bg === 'transparent' || /rgba\([^)]*,\s*0\)\s*$/.test(bg)) return false;
+      return !CANON.includes(bg);
+    };
+    out.rawButtons = [...document.querySelectorAll('.main button, .main a.btn')]
+      .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 4 && r.height > 4; })
+      .filter((el) => !okBtn(el))
+      .filter(painted)
+      .map((el) => String(el.className || '(sem classe)').slice(0, 34) + ':' + (el.textContent || '').trim().slice(0, 18)
+        + ' bg=' + getComputedStyle(el).backgroundColor);
+
+    const okInput = (el) => el.classList.contains('kit-input') || el.classList.contains('input')
+      || ['checkbox', 'radio', 'file', 'range', 'color', 'hidden', 'submit', 'button'].includes(el.type)
+      || el.closest('.sidebar, .topbar, .tweaks, .float-panel, .date-picker');
+    out.rawInputs = [...document.querySelectorAll('.main input, .main select, .main textarea')]
+      .filter((el) => !okInput(el))
+      .map((el) => (el.tagName + '.' + String(el.className || '(sem classe)')).slice(0, 44));
+
+    out.rawTables = [...document.querySelectorAll('.main table')]
+      .filter((el) => !el.classList.contains('kit-table') && !el.closest('[data-sheet]'))
+      .map((el) => String(el.className || '(sem classe)').slice(0, 40));
+
     return out;
   });
 
@@ -311,6 +408,18 @@ async function main() {
     rec(r, 'sidebar sem overlay water-drop',
         p.sidebarBefore === 'none' || p.sidebarBefore === 'no-sidebar',
         String(p.sidebarBefore).slice(0, 50));
+
+    // ── auditoria STYLE-KIT (Bruno 08-19: "o layout vai no dashboard todo")
+    rec(r, 'nenhum título com texto em gradiente',
+        p.gradText.length === 0, p.gradText.slice(0, 3).join(' | '));
+    rec(r, 'nenhuma superfície na paleta antiga (roxo/ciano)',
+        p.oldPalette.length === 0, p.oldPalette.slice(0, 3).join(' | '));
+    rec(r, 'todo botão da página é do kit',
+        p.rawButtons.length === 0, p.rawButtons.slice(0, 4).join(' | '));
+    rec(r, 'todo campo da página é do kit',
+        p.rawInputs.length === 0, p.rawInputs.slice(0, 4).join(' | '));
+    rec(r, 'toda tabela da página é kit-table',
+        p.rawTables.length === 0, p.rawTables.slice(0, 3).join(' | '));
   }
 
   /* ── Dark theme: o toggle continua funcionando e nada fica ilegivel ── */

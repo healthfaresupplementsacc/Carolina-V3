@@ -71,7 +71,8 @@ let RECENT = {
   ok: true,
   items: [
     { id: 1, kind: 'take', qty: 3, product: 'Benfotiamine', nickname: 'Benfotiamine 300', status: 'pending', created_at: '2026-08-18T13:00:00Z' },
-    { id: 2, kind: 'entrada', qty: 48, product: 'Rutin', nickname: 'Rutin 500', status: 'approved', created_at: '2026-08-18T12:40:00Z' },
+    // contrato (2): entrada aprovada que virou caixa traz box_number + box_id
+    { id: 2, kind: 'entrada', qty: 48, product: 'Rutin', nickname: 'Rutin 500', status: 'approved', created_at: '2026-08-18T12:40:00Z', box_id: 8, box_number: 'BX-0451' },
     { id: 3, kind: 'count', qty: 51, product: 'Rutin', nickname: 'Rutin 500', status: 'rejected', created_at: '2026-08-18T12:10:00Z' },
     { id: 4, kind: 'damaged', qty: 1, product: 'Benfotiamine', nickname: 'Benfotiamine 300', status: 'applied', created_at: '2026-08-18T11:55:00Z' },
     { id: 5, kind: 'restock', qty: 16, product: 'Benfotiamine', nickname: 'Benfotiamine 300', status: 'applied', created_at: '2026-08-18T11:30:00Z' },
@@ -79,13 +80,11 @@ let RECENT = {
 };
 // /api/v3/architect/person/:id/today devolve {events:[...]} — as tasks abertas
 // sao os events sem ended_at (ver loadData em app.js).
-const TODAY = {
-  ok: true, goal: 8,
-  events: [
-    { id: 501, slug: 'order_printing', started_at: new Date(Date.now() - 20 * 60000).toISOString(), ended_at: null, is_paused: false },
-    { id: 500, slug: 'labeling', started_at: new Date(Date.now() - 120 * 60000).toISOString(), ended_at: new Date(Date.now() - 60 * 60000).toISOString() },
-  ],
-};
+// mutavel: parte do teste roda SEM task de P&P aberta (a Central tem que abrir
+// do mesmo jeito, e aí sim perguntar "está fazendo P&P agora?").
+const PP_EVENT = { id: 501, slug: 'order_printing', started_at: new Date(Date.now() - 20 * 60000).toISOString(), ended_at: null, is_paused: false };
+const DONE_EVENT = { id: 500, slug: 'labeling', started_at: new Date(Date.now() - 120 * 60000).toISOString(), ended_at: new Date(Date.now() - 60 * 60000).toISOString() };
+let TODAY = { ok: true, goal: 8, events: [DONE_EVENT] };   // começa SEM P&P aberto
 
 // requisicoes POST observadas (as assercoes leem daqui)
 const posted = [];
@@ -104,6 +103,9 @@ function apiFixture(pathname, method, body) {
   if (p === 'stock/take') return { ok: true, request_id: 77, status: 'pending', kind: 'take' };
   if (p === 'stock/propose') return { ok: true, request_id: 78, status: 'pending' };
   if (p === 'stock/restock') return { ok: true, applied: true, box_left: 84, bin_now: 20 };
+  if (p.indexOf('stock/box/label') === 0) return { ok: true, label: { kind: 'box', code: 'BX-0451', line2: 'Rutin 500mg', qty: 48, lot: 'L-22', url: '/scan/?box=BX-0451' } };
+  // "Iniciar Impressão de ordens" na Central: abre a task de P&P de verdade
+  if (p === 'event/start') { TODAY = { ok: true, goal: 8, events: [PP_EVENT, DONE_EVENT] }; return { ok: true, event: { id: 501 } }; }
   if (p === 'pending-confirmations') return { ok: true, prompts: [] };
   if (p === 'ems/my-activity') return { ok: true, detected: null };
   if (p === 'end-of-day/check') return { ok: true, should_ask: false };
@@ -195,11 +197,35 @@ async function main() {
   await sleep(900);
   await shot('01-home');
   const bannerTxt = await page.evaluate(() => document.body.innerText);
-  rec('home', 'banner da Central aparece com task de P&P', /Central de/.test(bannerTxt), '');
 
-  // abre a Central
-  const openBtn = await page.$('[data-act="openWorkspace"]');
-  rec('home', 'botao Abrir existe', !!openBtn);
+  // ── MENU PERSISTENTE (nav.js): as 3 abas na home, sem task nenhuma ──
+  const nav = await page.evaluate(() => {
+    const n = document.querySelector('[data-nav="op"]');
+    if (!n) return null;
+    const items = Array.from(n.querySelectorAll('[data-nav-item]'));
+    return {
+      keys: items.map((i) => i.getAttribute('data-nav-item')),
+      labels: items.map((i) => i.innerText.replace(/\s+/g, ' ').trim()),
+      active: (n.querySelector('[aria-current="page"]') || {}).getAttribute
+        ? n.querySelector('[aria-current="page"]').getAttribute('data-nav-item') : null,
+      heights: items.map((i) => Math.round(i.getBoundingClientRect().height)),
+      estoqueHref: (n.querySelector('[data-nav-item="estoque"]') || {}).getAttribute
+        ? n.querySelector('[data-nav-item="estoque"]').getAttribute('href') : null,
+    };
+  });
+  rec('menu', 'nav persistente na home com Linha · Central de P&P · Estoque',
+    !!nav && nav.keys.join(',') === 'linha,central,estoque', nav ? nav.labels.join(' | ') : 'sem nav');
+  rec('menu', 'aba ativa na home e a Linha', !!nav && nav.active === 'linha', nav ? nav.active : '');
+  rec('menu', 'todo item do menu tem 44px+ de altura (toque com luva)',
+    !!nav && nav.heights.every((x) => x >= 44), nav ? nav.heights.join('/') : '');
+  rec('menu', 'aba Estoque aponta pro hub', !!nav && nav.estoqueHref === '/op/estoque.html', nav ? nav.estoqueHref : '');
+  // sem task de P&P: o box grande NAO aparece, mas o menu sim
+  rec('menu', 'sem task de P&P o box grande nao aparece (so o menu)',
+    !/Picklist do dia/.test(bannerTxt) && /Central de P&P/.test(bannerTxt), '');
+
+  // abre a Central pelo MENU (sem nenhuma task de P&P aberta)
+  const openBtn = await page.$('[data-nav-item="central"]');
+  rec('menu', 'aba Central de P&P e clicavel na home', !!openBtn);
   if (openBtn) await openBtn.click();
   // stock-gaps cruza Veeqo+EMS (chega DEPOIS do resto): espera o card carregar.
   // A camada 'workspace' so remonta quando a key muda, entao esperamos o texto.
@@ -211,6 +237,41 @@ async function main() {
   await shot('02-central');
 
   const txt = await page.evaluate(() => document.body.innerText);
+
+  // ── CENTRAL SEM TASK: abre igual, pergunta com jeito, nunca trava ──
+  rec('sem-task', 'Central abre sem nenhuma task de P&P aberta', /Central de P&P & Estoque/.test(txt), '');
+  rec('sem-task', 'pergunta "Você está fazendo P&P agora?"', /Você está fazendo P&P agora\?/.test(txt), '');
+  rec('sem-task', 'as duas saidas existem (Iniciar / Só olhar)',
+    !!(await page.$('[data-act="wsStartPP"]')) && !!(await page.$('[data-act="wsJustLook"]')));
+  rec('sem-task', 'REGRA #0: a picklist e o PRINT ja estao ali mesmo sem task',
+    /HF-BENF-200/.test(txt) && !!(await page.$('[data-act="wsPrint"]')), '');
+  // a home continua montada por baixo (camadas): olha so a nav VISIVEL, a da
+  // camada da Central, que e a que o operador tem na frente.
+  const navCentral = await page.evaluate(() => {
+    const navs = Array.from(document.querySelectorAll('[data-nav="op"]'));
+    const vis = navs.filter((n) => n.getBoundingClientRect().width > 0 && n.offsetParent !== null);
+    const last = vis[vis.length - 1];
+    if (!last) return { count: navs.length, active: null };
+    const a = last.querySelector('[aria-current="page"]');
+    return { count: vis.length, active: a ? a.getAttribute('data-nav-item') : null };
+  });
+  rec('menu', 'dentro da Central o menu marca a aba Central',
+    navCentral.active === 'central', JSON.stringify(navCentral));
+  await shot('02b-central-sem-task');
+
+  // "Iniciar Impressão de ordens" abre a task pelo mesmo caminho do app.js
+  posted.length = 0;
+  await (await page.$('[data-act="wsStartPP"]')).click();
+  await sleep(900);
+  const startPost = posted.find((x) => x.pathname === '/api/v3/op/event/start');
+  rec('sem-task', 'Iniciar posta event/start com activity_slug=order_printing',
+    !!startPost && startPost.body.activity_slug === 'order_printing',
+    startPost ? JSON.stringify(startPost.body) : 'sem post');
+  const afterStart = await page.evaluate(() => document.body.innerText);
+  rec('sem-task', 'depois de iniciar a pergunta some e a Central continua aberta',
+    !/Você está fazendo P&P agora\?/.test(afterStart) && /picklist de hoje/i.test(afterStart), '');
+  await shot('02c-central-task-iniciada');
+
   rec('central', 'picklist renderizou (SKU + QTY + Location)', /HF-BENF-200/.test(txt) && /Location/i.test(txt));
   rec('central', 'card Falta de estoque com ZERADO', /Falta de estoque/i.test(txt) && /ZERADO/.test(txt));
   rec('central', 'chip de sandbox presente', /sandbox/i.test(txt));
@@ -310,13 +371,50 @@ async function main() {
   const rTxt = await page.evaluate(() => document.body.innerText);
   rec('repor', 'toast "Prateleira reposta"', /Prateleira reposta/.test(rTxt), '');
 
-  // fecha e volta pra home (regra de abrir/fechar preservada)
-  const close = await page.$('[data-act="closeWorkspace"]');
+  // ── Registrado hoje: caixa aprovada ganha numero + etiqueta (contrato 2) ──
+  const recTxt = await page.evaluate(() => document.body.innerText);
+  rec('etiqueta', 'entrada aprovada mostra o numero da caixa', /Caixa BX-0451/.test(recTxt), '');
+  const lblBtns = await page.$$('[data-act="wsPrintLabel"]');
+  rec('etiqueta', 'so a linha com caixa ganha "Imprimir etiqueta"', lblBtns.length === 1, lblBtns.length + ' botoes');
+  const labelPath = await page.evaluate(() => {
+    // intercepta a janela de impressao: o harness nao quer popup de verdade
+    window.__lastLabel = null;
+    const open = window.open;
+    window.open = function () { const w = { document: { write: (d) => { window.__lastLabel = d; }, close: () => {} } }; window.open = open; return w; };
+    return true;
+  });
+  if (lblBtns.length) await lblBtns[0].click();
+  await sleep(700);
+  const labelDoc = await page.evaluate(() => window.__lastLabel || '');
+  rec('etiqueta', 'a etiqueta 4x6 sai com o codigo, o produto e o QR',
+    /BX-0451/.test(labelDoc) && /4in 6in/.test(labelDoc) && /<svg/.test(labelDoc),
+    labelDoc ? labelDoc.slice(0, 60) : 'sem documento · ' + labelPath);
+
+  // fecha e volta pra home pelo MENU (aba Linha)
+  const close = await page.$('[data-nav-item="linha"]');
   if (close) await close.click();
   await sleep(800);
   await shot('08-voltou-home');
   const hTxt = await page.evaluate(() => document.body.innerText);
-  rec('central', 'Voltar fecha a Central e volta pra home', /Iniciar Tarefa/.test(hTxt), '');
+  rec('menu', 'aba Linha fecha a Central e volta pra home', /Iniciar Tarefa/.test(hTxt), '');
+  rec('menu', 'com task de P&P aberta o box grande volta a aparecer', /Picklist do dia/.test(hTxt), '');
+
+  // ── DEEP LINK /op/?ws=1: entra ja na Central ────────────────
+  await page.goto(BASE + '?ws=1', { waitUntil: 'domcontentloaded' });
+  await sleep(600);
+  for (const d of ['1', '2', '3', '4']) {
+    const b = await page.$('[data-act="pinkey"][data-arg="' + d + '"]');
+    if (b) await b.click();
+  }
+  await sleep(1400);
+  const deepTxt = await page.evaluate(() => document.body.innerText);
+  rec('deeplink', '/op/?ws=1 abre a Central logo depois do login',
+    /picklist de hoje/i.test(deepTxt) && /Central de P&P & Estoque/.test(deepTxt), '');
+  rec('deeplink', 'a URL fica limpa (sem ?ws=1 preso no historico)',
+    !/ws=1/.test(await page.evaluate(() => location.search)), await page.evaluate(() => location.search));
+  rec('deeplink', 'quem veio pelo link nao leva pergunta na cara',
+    !/Você está fazendo P&P agora\?/.test(deepTxt), '');
+  await shot('09-deeplink-central');
 
   rec('boot', 'nenhum erro de console no fluxo inteiro', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 

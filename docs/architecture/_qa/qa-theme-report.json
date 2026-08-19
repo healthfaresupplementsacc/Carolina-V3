@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T01:33:26.530Z",
+  "at": "2026-08-19T05:29:13.876Z",
   "results": [
     {
       "group": "hoje",
@@ -11,7 +11,7 @@
       "group": "hoje",
       "name": "screenshot",
       "pass": true,
-      "detail": "158 KB → theme-hoje.png"
+      "detail": "159 KB → theme-hoje.png"
     },
     {
       "group": "hoje",
@@ -36,6 +36,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "hoje",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hoje",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "producao",
@@ -74,6 +104,36 @@
       "detail": "none"
     },
     {
+      "group": "producao",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "producao",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "metas",
       "name": "sem erro de console",
       "pass": true,
@@ -110,6 +170,36 @@
       "detail": "none"
     },
     {
+      "group": "metas",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "metas",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "pessoas",
       "name": "sem erro de console",
       "pass": true,
@@ -119,7 +209,7 @@
       "group": "pessoas",
       "name": "screenshot",
       "pass": true,
-      "detail": "76 KB → theme-pessoas.png"
+      "detail": "77 KB → theme-pessoas.png"
     },
     {
       "group": "pessoas",
@@ -146,6 +236,36 @@
       "detail": "none"
     },
     {
+      "group": "pessoas",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pessoas",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "pp",
       "name": "sem erro de console",
       "pass": true,
@@ -155,7 +275,7 @@
       "group": "pp",
       "name": "screenshot",
       "pass": true,
-      "detail": "103 KB → theme-pp.png"
+      "detail": "97 KB → theme-pp.png"
     },
     {
       "group": "pp",
@@ -182,6 +302,36 @@
       "detail": "none"
     },
     {
+      "group": "pp",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "picklist",
       "name": "sem erro de console",
       "pass": true,
@@ -191,7 +341,7 @@
       "group": "picklist",
       "name": "screenshot",
       "pass": true,
-      "detail": "116 KB → theme-picklist.png"
+      "detail": "106 KB → theme-picklist.png"
     },
     {
       "group": "picklist",
@@ -216,6 +366,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "picklist",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "picklist",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "estoque",
@@ -254,6 +434,36 @@
       "detail": "none"
     },
     {
+      "group": "estoque",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "estoque-aprovacoes",
       "name": "sem erro de console",
       "pass": true,
@@ -263,7 +473,7 @@
       "group": "estoque-aprovacoes",
       "name": "screenshot",
       "pass": true,
-      "detail": "130 KB → theme-estoque-aprovacoes.png"
+      "detail": "131 KB → theme-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -290,6 +500,36 @@
       "detail": "none"
     },
     {
+      "group": "estoque-aprovacoes",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "estoque-locais",
       "name": "sem erro de console",
       "pass": true,
@@ -299,7 +539,7 @@
       "group": "estoque-locais",
       "name": "screenshot",
       "pass": true,
-      "detail": "159 KB → theme-estoque-locais.png"
+      "detail": "183 KB → theme-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -326,6 +566,102 @@
       "detail": "none"
     },
     {
+      "group": "estoque-locais",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-locais",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "screenshot",
+      "pass": true,
+      "detail": "97 KB → theme-estoque-etiquetas.png"
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "body em DM Sans",
+      "pass": true,
+      "detail": "\"DM Sans\", system-ui, \"Segoe UI\", sans-serif"
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "nenhum ::before com gradiente em .card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": ".card chapado (sem background-image)",
+      "pass": true,
+      "detail": "0 cards"
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "sidebar sem overlay water-drop",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-etiquetas",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "estoque-geral",
       "name": "sem erro de console",
       "pass": true,
@@ -335,7 +671,7 @@
       "group": "estoque-geral",
       "name": "screenshot",
       "pass": true,
-      "detail": "143 KB → theme-estoque-geral.png"
+      "detail": "142 KB → theme-estoque-geral.png"
     },
     {
       "group": "estoque-geral",
@@ -362,6 +698,36 @@
       "detail": "none"
     },
     {
+      "group": "estoque-geral",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque-geral",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "inventory",
       "name": "sem erro de console",
       "pass": true,
@@ -371,7 +737,7 @@
       "group": "inventory",
       "name": "screenshot",
       "pass": true,
-      "detail": "137 KB → theme-inventory.png"
+      "detail": "135 KB → theme-inventory.png"
     },
     {
       "group": "inventory",
@@ -398,6 +764,36 @@
       "detail": "none"
     },
     {
+      "group": "inventory",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inventory",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "produto-setup",
       "name": "sem erro de console",
       "pass": true,
@@ -407,7 +803,7 @@
       "group": "produto-setup",
       "name": "screenshot",
       "pass": true,
-      "detail": "142 KB → theme-produto-setup.png"
+      "detail": "153 KB → theme-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -434,6 +830,36 @@
       "detail": "none"
     },
     {
+      "group": "produto-setup",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "config-estoque",
       "name": "sem erro de console",
       "pass": true,
@@ -443,7 +869,7 @@
       "group": "config-estoque",
       "name": "screenshot",
       "pass": true,
-      "detail": "167 KB → theme-config-estoque.png"
+      "detail": "156 KB → theme-config-estoque.png"
     },
     {
       "group": "config-estoque",
@@ -468,6 +894,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "config-estoque",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "impressao",
@@ -506,6 +962,36 @@
       "detail": "none"
     },
     {
+      "group": "impressao",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "impressao",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "floor",
       "name": "sem erro de console",
       "pass": true,
@@ -515,7 +1001,7 @@
       "group": "floor",
       "name": "screenshot",
       "pass": true,
-      "detail": "79 KB → theme-floor.png"
+      "detail": "80 KB → theme-floor.png"
     },
     {
       "group": "floor",
@@ -540,6 +1026,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "floor",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "floor",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "cameras",
@@ -578,6 +1094,36 @@
       "detail": "none"
     },
     {
+      "group": "cameras",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "cameras",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "roadmap",
       "name": "sem erro de console",
       "pass": true,
@@ -587,7 +1133,7 @@
       "group": "roadmap",
       "name": "screenshot",
       "pass": true,
-      "detail": "92 KB → theme-roadmap.png"
+      "detail": "93 KB → theme-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -612,6 +1158,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "roadmap",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "roadmap",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "admin",
@@ -650,6 +1226,36 @@
       "detail": "none"
     },
     {
+      "group": "admin",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "admin",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "operadores",
       "name": "sem erro de console",
       "pass": true,
@@ -684,6 +1290,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "operadores",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "operadores",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "usuarios",
@@ -722,6 +1358,36 @@
       "detail": "none"
     },
     {
+      "group": "usuarios",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "usuarios",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "sistema",
       "name": "sem erro de console",
       "pass": true,
@@ -758,6 +1424,36 @@
       "detail": "none"
     },
     {
+      "group": "sistema",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sistema",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "config",
       "name": "sem erro de console",
       "pass": true,
@@ -767,7 +1463,7 @@
       "group": "config",
       "name": "screenshot",
       "pass": true,
-      "detail": "90 KB → theme-config.png"
+      "detail": "91 KB → theme-config.png"
     },
     {
       "group": "config",
@@ -792,6 +1488,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "config",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "suporte",
@@ -830,6 +1556,36 @@
       "detail": "none"
     },
     {
+      "group": "suporte",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "suporte",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "produto",
       "name": "sem erro de console",
       "pass": true,
@@ -864,6 +1620,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "produto",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "falar",
@@ -902,6 +1688,36 @@
       "detail": "none"
     },
     {
+      "group": "falar",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "falar",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "planejamento",
       "name": "sem erro de console",
       "pass": true,
@@ -938,6 +1754,36 @@
       "detail": "none"
     },
     {
+      "group": "planejamento",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "planejamento",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
+    },
+    {
       "group": "carolina",
       "name": "sem erro de console",
       "pass": true,
@@ -972,6 +1818,36 @@
       "name": "sidebar sem overlay water-drop",
       "pass": true,
       "detail": "none"
+    },
+    {
+      "group": "carolina",
+      "name": "nenhum título com texto em gradiente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "nenhuma superfície na paleta antiga (roxo/ciano)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "todo botão da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "todo campo da página é do kit",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "carolina",
+      "name": "toda tabela da página é kit-table",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "dark",

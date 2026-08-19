@@ -14,6 +14,7 @@
 import React from 'react';
 import { usePoll, apiPost } from '../adapters/from-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import { LegacyBanner } from '../components/Primitives.jsx';
 import './pages-inventory.css';
 
 const MATCH_LABEL = { exato: 'SKU exato', base: 'SKU base', nome: 'só por nome' };
@@ -193,6 +194,7 @@ function InventoryPage() {
 
   return (
     <div className="pgi-page" data-page="inv-armazem">
+      <LegacyBanner />
       <div className="pgi-head">
         <div className="pgi-head-main">
           <span className="kit-eyebrow">● HEALTHFARE · CENTRO DE ESTOQUE</span>

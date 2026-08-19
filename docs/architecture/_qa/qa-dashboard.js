@@ -39,8 +39,12 @@ const LOCATIONS = readFix('warehouse-locations.json');
 
 const LOGIN = { name: 'QA Admin', role: 'admin', functions: ['*'] };
 
+/** POSTs que a pagina fez. Guardado pra conferir que a UI chamou o endpoint certo. */
+const posted = [];
+
 /** Resposta pra qualquer /api/**. Devolve null se nao souber (vira {data:{}}). */
-function apiFixture(pathname, search) {
+function apiFixture(pathname, search, method, body) {
+  if (method === 'POST') posted.push({ pathname, body });
   // ── /api/v3/warehouse/* (o hub) ────────────────────────────────
   if (pathname.startsWith('/api/v3/warehouse/')) {
     const p = pathname.slice('/api/v3/warehouse/'.length);
@@ -63,6 +67,15 @@ function apiFixture(pathname, search) {
     }
     if (p === 'locations') return LOCATIONS;
     if (p.startsWith('family/')) return { data: PRODUCT.data.family };
+    /* contrato (4): criar varias prateleiras. Responde como o backend: cria as
+       que faltam e PULA as que ja existem (nunca sobrescreve). Aqui o stub
+       finge que 2 codigos ja existiam, pra tela ter que mostrar os dois
+       numeros e nao so o total. */
+    if (p === 'locations/bins/bulk') {
+      const list = (body && Array.isArray(body.bins)) ? body.bins : [];
+      const skipped = list.slice(0, 2).map((b) => b.bin_code);
+      return { data: { created: Math.max(0, list.length - skipped.length), skipped } };
+    }
     // qualquer POST de escrita devolve a linha fresca (contrato: {ok, product})
     return { data: { ok: true, product: PRODUCT.data.product } };
   }
@@ -209,9 +222,11 @@ async function main() {
     if (url.startsWith(ORIGIN)) {
       const u = new URL(url);
       if (u.pathname.startsWith('/api/')) {
+        let payload = null;
+        try { payload = req.postData() ? JSON.parse(req.postData()) : null; } catch (e) { payload = req.postData(); }
         req.respond({
           status: 200, contentType: 'application/json',
-          body: JSON.stringify(apiFixture(u.pathname, u.search)),
+          body: JSON.stringify(apiFixture(u.pathname, u.search, req.method(), payload)),
         });
         return;
       }
@@ -269,6 +284,70 @@ async function main() {
 
   const hasAttention = await page.$('[data-attention]');
   rec('estoque', 'card "Precisa de atenção hoje" presente', !!hasAttention);
+
+  /* ── coluna "Dias de estoque" (contrato 3) ─────────────────────
+     A coluna entra DEPOIS de Disponivel: quem le a tabela ve quanto tem e,
+     em seguida, quanto tempo aquilo dura. */
+  const heads = await page.$$eval('[data-table="produtos"] thead th', (e) => e.map((x) => x.textContent.trim()));
+  const iAvail = heads.findIndex((h) => /^Disponível/.test(h));
+  const iDays = heads.findIndex((h) => /^Dias de estoque/.test(h));
+  rec('estoque', 'coluna "Dias de estoque" logo depois de Disponível',
+      iAvail >= 0 && iDays === iAvail + 1, heads.join('|'));
+
+  /* Os 4 casos da fixture: ok (71.3), warn (9.3 NAC), bad (0 Magnesium) e o
+     traco de quem nao vendeu nada em 7 dias (Chlorophyll / Ashwagandha). */
+  const daysCells = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (rows) =>
+    rows.map((r) => ({
+      id: r.dataset.row,
+      txt: (r.querySelector('[data-cell="days"]') || {}).textContent || '',
+      color: (() => {
+        const s = r.querySelector('[data-cell="days"] span');
+        return s ? getComputedStyle(s).color : '';
+      })(),
+    })));
+  const byId = (id) => daysCells.find((c) => c.id === String(id)) || {};
+  rec('estoque', 'dias de estoque vem da fixture (Benfotiamine 71)',
+      /71/.test(byId(1).txt), JSON.stringify(byId(1).txt));
+  rec('estoque', 'sem venda em 7 dias mostra travessinho, nao zero',
+      byId(3).txt.trim() === '—' && byId(8).txt.trim() === '—',
+      JSON.stringify([byId(3).txt, byId(8).txt]));
+  // tom: bad e warn tem cor propria; ok herda a cor normal da celula
+  const lum = (rgb) => { const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgb || ''); return m ? [+m[1], +m[2], +m[3]] : null; };
+  const badRgb = lum(byId(7).color);   // Magnesium, 0 dias
+  const okRgb = lum(byId(1).color);    // Benfotiamine, 71 dias
+  rec('estoque', 'abaixo de 7 dias pinta vermelho (Magnesium 0)',
+      !!badRgb && badRgb[0] > badRgb[1] + 40 && badRgb[0] > badRgb[2] + 40, byId(7).color);
+  rec('estoque', 'entre 7 e 14 dias pinta ambar (NAC 9.3)',
+      /9[,.]3/.test(byId(5).txt) && byId(5).color !== byId(1).color,
+      byId(5).txt + ' ' + byId(5).color);
+  rec('estoque', 'acima de 14 dias fica sem cor de alerta',
+      !!okRgb && !(okRgb[0] > okRgb[1] + 40), byId(1).color);
+
+  // ordenacao: clicar no cabecalho troca a coluna e inverte no 2o clique
+  await page.click('[data-sort="days"]');
+  await sleep(300);
+  const order1 = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  const note1 = await page.$eval('[data-sort-note]', (e) => e.textContent.trim());
+  rec('estoque', 'ordenar por dias poe o mais critico primeiro e o "sem venda" no fim',
+      order1[0] === '4' && order1.slice(-2).sort().join(',') === '3,8', order1.join(','));
+  rec('estoque', 'rodape diz por qual coluna esta ordenado', /dias de estoque ↑/.test(note1), note1);
+  await page.click('[data-sort="days"]');
+  await sleep(300);
+  const order2 = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  rec('estoque', '2o clique inverte a ordem', order2[0] === '1', order2.join(','));
+  await page.click('[data-sort="available"]');
+  await sleep(300);
+
+  /* ── aviso de propostas paradas (contrato 3, pending_summary) ─── */
+  const notice = await page.$('[data-pending-notice]');
+  rec('estoque', 'aviso de propostas esperando aparece', !!notice);
+  const noticeTxt = notice ? await page.evaluate((e) => e.textContent.replace(/\s+/g, ' ').trim(), notice) : '';
+  const PS = OVERVIEW.data.pending_summary;
+  rec('estoque', 'aviso traz a contagem e a idade da mais antiga',
+      new RegExp('^' + PS.count + ' propostas esperando').test(noticeTxt)
+      && /a mais antiga há 5h/.test(noticeTxt), noticeTxt.slice(0, 90));
+  const noticeHref = notice ? await page.$eval('[data-pending-notice] a', (e) => e.getAttribute('href')) : '';
+  rec('estoque', 'aviso leva pra Aprovações', noticeHref === '#estoque-aprovacoes', noticeHref);
 
   const veeqoOk = await page.$$eval('[data-table="produtos"] tbody tr', (rows) =>
     rows.some((r) => /Δ/.test(r.textContent)) && rows.some((r) => /✓/.test(r.textContent)));
@@ -343,11 +422,27 @@ async function main() {
   });
   const est = nav.find((s) => s.section === 'Estoque');
   rec('nav', 'seção Estoque existe', !!est, est ? est.items.join(',') : JSON.stringify(nav.map((s) => s.section)));
-  rec('nav', 'Estoque tem o hub #estoque, aprovações e locais',
-      !!est && ['#estoque', '#estoque-aprovacoes', '#estoque-locais'].every((h) => est.items.includes(h)));
   rec('nav', 'subgrupo P&P dentro de Estoque', !!est && est.subs.includes('P&P'), est ? est.subs.join(',') : '');
   rec('nav', 'P&P e Picklist estão em Estoque, não em Operação',
       !!est && est.items.includes('#pp') && est.items.includes('#picklist'));
+
+  /* Ordem FINAL da seção (Bruno 08-19 "organizar tudo"): as duas telas
+     "(antigo)" sairam do menu e o subgrupo P&P fecha a lista. */
+  const WANT_EST = ['#estoque', '#estoque-aprovacoes', '#estoque-locais', '#estoque-etiquetas',
+                    '#produto-setup', '#config-estoque', '#pp', '#picklist'];
+  rec('nav', 'ordem exata de Estoque (hub, aprovações, locais, etiquetas, setup, config, P&P)',
+      !!est && est.items.join(',') === WANT_EST.join(','), est ? est.items.join(',') : '');
+  rec('nav', 'nenhuma entrada "(antigo)" no menu inteiro',
+      !nav.some((s) => s.items.includes('#estoque-geral') || s.items.includes('#inventory')),
+      JSON.stringify(nav.map((s) => s.items).flat()));
+  const legacyLabels = await page.$$eval('.nav-item .nav-label', (e) => e.map((x) => x.textContent));
+  rec('nav', 'a palavra "antigo" sumiu dos rótulos do menu',
+      !legacyLabels.some((t) => /antigo/i.test(t)), legacyLabels.filter((t) => /antigo/i.test(t)).join(','));
+
+  /* Badge de aprovações: le pending_summary.count do mesmo /overview. */
+  const badge = await page.$eval('[data-nav-badge="estoque-aprovacoes"]', (e) => e.textContent.trim()).catch(() => null);
+  rec('nav', 'Aprovações mostra o contador de propostas esperando',
+      badge === String(OVERVIEW.data.pending_summary.count), 'badge=' + badge);
   const op = nav.find((s) => s.section === 'Operação');
   const iM = op ? op.items.indexOf('#metas') : -1;
   rec('nav', 'Planejamento e Produto logo depois de Metas',
@@ -380,12 +475,85 @@ async function main() {
   const nReq = await page.$$eval('[data-table="requests"] tbody tr', (e) => e.length);
   rec('estoque-aprovacoes', 'lista 3 propostas pendentes', nReq === 3, 'linhas=' + nReq);
 
+  /* Idade com cor: >4h ambar, >24h vermelho, o resto cinza. Quem abre a fila
+     precisa ver de longe quem esta esperando desde ontem. */
+  const ageTones = await page.$$eval('[data-cell="age"] [data-age-tone]',
+    (e) => e.map((x) => ({ tone: x.dataset.ageTone, txt: x.textContent.trim() })));
+  rec('estoque-aprovacoes', 'cada linha tem chip de espera', ageTones.length === nReq,
+      JSON.stringify(ageTones));
+  rec('estoque-aprovacoes', 'espera curta fica neutra, longa fica ambar/vermelha',
+      ageTones.every((a) => ['neutral', 'warn', 'bad'].includes(a.tone))
+      && ageTones.some((a) => a.tone !== 'neutral'), JSON.stringify(ageTones));
+
   // locais: 8 bins + 4 caixas
   await go('estoque-locais');
   await page.waitForSelector('[data-table="bins"] tbody tr', { timeout: 8000 }).catch(() => {});
   const nBins = await page.$$eval('[data-table="bins"] tbody tr', (e) => e.length);
   const nBoxes = await page.$$eval('[data-table="boxes"] tbody tr', (e) => e.length);
   rec('estoque-locais', 'tabelas de prateleiras (8) e caixas (4)', nBins === 8 && nBoxes === 4, nBins + ' bins / ' + nBoxes + ' caixas');
+
+  /* ── acelerador do dia 1: criar varias prateleiras (contrato 4) ─── */
+  const bulkCard = await page.$('[data-bulk="prateleiras"]');
+  rec('locais-bulk', 'card "Criar várias prateleiras" existe', !!bulkCard);
+  await page.click('[data-act="bulk-abrir"]');
+  await sleep(300);
+  // padrao da fixture: area A, 8 prateleiras, niveis A,B,C, 4 posicoes = 96
+  const count0 = await page.$eval('[data-bulk-count]', (e) => e.textContent.trim()).catch(() => '');
+  rec('locais-bulk', 'preview conta 96 (8 prateleiras x 3 niveis x 4 posições)', count0 === '96', 'contou=' + count0);
+  const codesTxt = await page.$eval('[data-bulk-codes]', (e) => e.textContent).catch(() => '');
+  rec('locais-bulk', 'códigos no esquema <área><prateleira><nível><posição>',
+      /A01A1/.test(codesTxt) && /A01A2/.test(codesTxt) && /A08C4/.test(codesTxt), codesTxt.slice(0, 120));
+
+  // mexer no formulario muda o preview AO VIVO (o numero e a ultima ponta)
+  await page.$eval('[data-field="shelves"]', (e) => { e.value = ''; });
+  await page.click('[data-field="shelves"]'); await page.type('[data-field="shelves"]', '2');
+  await sleep(300);
+  const count1 = await page.$eval('[data-bulk-count]', (e) => e.textContent.trim());
+  rec('locais-bulk', 'preview refaz a conta ao vivo (2 x 3 x 4 = 24)', count1 === '24', 'contou=' + count1);
+
+  // cap de 300: 30 prateleiras x 3 niveis x 4 posicoes = 360, corta em 300
+  await page.$eval('[data-field="shelves"]', (e) => { e.value = ''; });
+  await page.click('[data-field="shelves"]'); await page.type('[data-field="shelves"]', '30');
+  await sleep(300);
+  const capTxt = await page.$eval('[data-bulk-preview]', (e) => e.textContent.replace(/\s+/g, ' ')).catch(() => '');
+  rec('locais-bulk', 'acima de 300 avisa o limite em vez de mandar tudo',
+      /limite é 300 por vez/.test(capTxt), capTxt.slice(0, 140));
+
+  // volta pro caso normal e cria: POST no endpoint certo, com os codigos certos
+  await page.$eval('[data-field="shelves"]', (e) => { e.value = ''; });
+  await page.click('[data-field="shelves"]'); await page.type('[data-field="shelves"]', '2');
+  await sleep(300);
+  posted.length = 0;
+  await page.click('[data-act="bulk-criar"]');
+  await sleep(800);
+  const bulkPost = posted.find((p) => p.pathname === '/api/v3/warehouse/locations/bins/bulk');
+  rec('locais-bulk', 'criar chama POST /warehouse/locations/bins/bulk',
+      !!bulkPost, JSON.stringify(posted.map((p) => p.pathname)));
+  rec('locais-bulk', 'manda os 24 bins com bin_code e shelf',
+      !!bulkPost && Array.isArray(bulkPost.body.bins) && bulkPost.body.bins.length === 24
+      && bulkPost.body.bins[0].bin_code === 'A01A1' && bulkPost.body.bins[0].shelf === 'A01',
+      JSON.stringify(bulkPost && bulkPost.body.bins && bulkPost.body.bins.slice(0, 2)));
+  // o stub finge 2 codigos ja existentes → a tela mostra os DOIS numeros
+  const bulkRes = await page.$eval('[data-bulk-result]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  rec('locais-bulk', 'resultado diz quantas criou e quantas já existiam',
+      /Criadas 22, já existiam 2/.test(bulkRes), bulkRes);
+  const nextStep = await page.$eval('[data-act="bulk-etiquetas"]', (e) => e.getAttribute('href')).catch(() => '');
+  rec('locais-bulk', 'depois de criar, o caminho pras Etiquetas fica na cara',
+      nextStep === '#estoque-etiquetas', nextStep);
+  await shot('estoque-locais-bulk');
+
+  /* ── rotas legadas: fora do menu, mas vivas por hash + faixa ──── */
+  for (const r of ['estoque-geral', 'inventory']) {
+    await go(r);
+    await page.waitForSelector('[data-legacy-banner]', { timeout: 8000 }).catch(() => {});
+    const b = await page.$eval('[data-legacy-banner]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+    rec('legado', r + ' abre por hash com a faixa de página antiga',
+        /Página antiga\. O hub Estoque substitui esta tela\./.test(b), b.slice(0, 90));
+    const href = await page.$eval('[data-legacy-banner] a', (e) => e.getAttribute('href')).catch(() => '');
+    rec('legado', r + ' tem botão pro hub', href === '#estoque', href);
+    rec('legado', r + ' sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
+    await shot('legado-' + r);
+  }
 
   await browser.close();
   server.close();

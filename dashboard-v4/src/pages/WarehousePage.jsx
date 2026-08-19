@@ -86,6 +86,39 @@ export function friendlyError(e) {
   return msg;
 }
 
+/* Dias de estoque = disponível / (vendidas nos últimos 7 dias / 7). Vem pronto
+   do backend (contrato 3) porque a conta de venda é dele, não da tela.
+   null = não vendeu nada em 7 dias, então dividir daria infinito: melhor um
+   traço do que um número inventado.
+   Tom: menos de 7 dias é vermelho (acaba dentro da semana, precisa produzir
+   agora), menos de 14 é âmbar (dá pra planejar sem correr). */
+const DOS_BAD = 7;
+const DOS_WARN = 14;
+function dosTone(v) {
+  if (v == null) return '';
+  if (v < DOS_BAD) return 'bad';
+  if (v < DOS_WARN) return 'warn';
+  return '';
+}
+/* Uma casa decimal só embaixo de 10: "3,5 dias" ajuda a decidir, "38,2 dias"
+   não muda nada e polui a coluna. */
+function fmtDays(v) {
+  if (v == null) return '—';
+  const num = Number(v);
+  if (!Number.isFinite(num)) return '—';
+  if (num <= 0) return '0';   // disponível negativo = 0 dias, não "-0,8"
+  return num < 10 ? num.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : String(Math.round(num));
+}
+
+/* Idade da proposta mais velha em palavra curta: minutos abaixo de 1h, horas
+   depois. Quem lê o aviso quer saber se alguém está esperando desde cedo. */
+function fmtAge(min) {
+  if (min == null || !Number.isFinite(Number(min))) return null;
+  const m = Math.max(0, Math.round(Number(min)));
+  if (m < 60) return m + 'min';
+  return Math.round(m / 60) + 'h';
+}
+
 function locChips(row) {
   const out = [];
   (row.bins || []).forEach((b) => out.push({ k: 'bin-' + b.id, t: [b.shelf_code, b.bin_code].filter(Boolean).join(' ') }));
@@ -903,6 +936,14 @@ export function WarehousePage() {
   const [area, setArea] = React.useState('todas');
   const [onlyPend, setOnlyPend] = React.useState(false);
   const [onlyToday, setOnlyToday] = React.useState(false);
+  /* Ordenação da tabela. O padrão continua "disponível ↑" (o que está pra
+     acabar primeiro). Clicar em Disponível ou Dias de estoque troca a coluna;
+     clicar de novo inverte. Sem null: em qualquer estado a tabela tem uma
+     ordem explícita, escrita no rodapé da toolbar. */
+  const [sort, setSort] = React.useState({ col: 'available', dir: 'asc' });
+  const toggleSort = React.useCallback((col) => {
+    setSort((s) => (s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }));
+  }, []);
 
   const writable = canWrite();
   /* toast guarda o tom junto com o texto: antes o vermelho dependia da frase
@@ -958,9 +999,32 @@ export function WarehousePage() {
       if (onlyToday && !n(r.reserved)) return false;
       return true;
     });
-    out = out.slice().sort((a, b) => n(a.available) - n(b.available));
+    /* Dias de estoque sem venda (null) vai SEMPRE pro fim, nos dois sentidos:
+       "não vendeu nada" não é urgente nem folgado, é ausência de informação, e
+       misturar isso com o que está pra acabar esconde a linha que importa. */
+    const mul = sort.dir === 'asc' ? 1 : -1;
+    out = out.slice().sort((a, b) => {
+      if (sort.col === 'days') {
+        const da = a.days_of_stock == null ? null : Number(a.days_of_stock);
+        const db = b.days_of_stock == null ? null : Number(b.days_of_stock);
+        if (da == null && db == null) return n(a.available) - n(b.available);
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return (da - db) * mul;
+      }
+      return (n(a.available) - n(b.available)) * mul;
+    });
     return out;
-  }, [rows, q, status, area, onlyPend, onlyToday]);
+  }, [rows, q, status, area, onlyPend, onlyToday, sort]);
+
+  /* Aviso de propostas paradas. pending_summary vem do overview (contrato 3);
+     se o backend ainda não mandar, cai no KPI que a página já recebia, pra
+     tela não ficar muda no meio do deploy. */
+  const pendingSummary = data.pending_summary || null;
+  const pendingCount = pendingSummary && Number.isFinite(Number(pendingSummary.count))
+    ? Number(pendingSummary.count)
+    : n(kpis.pending_requests);
+  const pendingAge = pendingSummary ? fmtAge(pendingSummary.oldest_age_min) : null;
 
   const empty = !ov.loading && rows.length > 0 && rows.every(
     (r) => !(r.bins || []).length && !(r.boxes || []).length && !n(r.total),
@@ -1046,6 +1110,19 @@ export function WarehousePage() {
           </button>
         ))}
       </div>
+
+      {/* Propostas paradas. Fica ACIMA de tudo porque é a única coisa da tela
+          onde tem gente esperando por uma pessoa, não por um número. */}
+      {pendingCount > 0 && (
+        <div className="kit-card pad warn" data-pending-notice
+             style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--warn-deep)' }}>
+            {pendingCount} {pendingCount === 1 ? 'proposta esperando' : 'propostas esperando'}
+            {pendingAge ? ' · a mais antiga há ' + pendingAge : ''}
+          </span>
+          <a className="kit-btn sm primary" style={{ marginLeft: 'auto' }} href="#estoque-aprovacoes">Ver aprovações</a>
+        </div>
+      )}
 
       {ov.loading && !ov.data && (
         <div className="kit-card pad" style={{ marginTop: 18, color: 'var(--ink-dim)' }}>Carregando o estoque…</div>
@@ -1134,7 +1211,9 @@ export function WarehousePage() {
           <input type="checkbox" checked={onlyToday} onChange={(e) => setOnlyToday(e.target.checked)} /> só com pedido hoje
         </label>
         <span style={{ flex: 1 }} />
-        <span className="kit-mlabel">ordenado por disponível ↑ · {filtered.length} produtos</span>
+        <span className="kit-mlabel" data-sort-note>
+          ordenado por {sort.col === 'days' ? 'dias de estoque' : 'disponível'} {sort.dir === 'asc' ? '↑' : '↓'} · {filtered.length} produtos
+        </span>
       </div>
 
       {/* tabela · cabeçalho GRUDADO: a lista tem ~190 produtos, e sem isso quem
@@ -1150,7 +1229,16 @@ export function WarehousePage() {
               <th className="num">A organizar</th>
               <th className="num">Reservado</th>
               <th className="num">Pendente</th>
-              <th className="num">Disponível</th>
+              <th className="num sortable" data-sort="available" onClick={() => toggleSort('available')}
+                  title="Ordenar por disponível">
+                Disponível{sort.col === 'available' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+              </th>
+              {/* Quantos dias o disponível ainda dura no ritmo de venda das
+                  últimas semanas. É a coluna que diz o que produzir primeiro. */}
+              <th className="num sortable" data-sort="days" onClick={() => toggleSort('days')}
+                  title="Disponível dividido pela média de venda por dia dos últimos 7 dias">
+                Dias de estoque{sort.col === 'days' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+              </th>
               <th className="num">Separadas</th>
               <th className="num sep">Veeqo</th>
               <th>Status</th>
@@ -1193,6 +1281,20 @@ export function WarehousePage() {
                     {pend ? (pend > 0 ? '+' + pend : String(pend)) : '0'}
                   </td>
                   <td className="num" style={n(r.available) < 0 ? { color: 'var(--bad-deep)', fontWeight: 700 } : undefined}>{fmt(r.available)}</td>
+                  <td className="num" data-cell="days">
+                    {r.days_of_stock == null
+                      ? <span style={{ color: 'var(--ink-faint)' }}>—</span>
+                      : (() => {
+                          const tone = dosTone(r.days_of_stock);
+                          return (
+                            <span style={tone === 'bad' ? { color: 'var(--bad-deep)', fontWeight: 700 }
+                                       : tone === 'warn' ? { color: 'var(--warn-deep)', fontWeight: 600 }
+                                       : undefined}>
+                              {fmtDays(r.days_of_stock)}
+                            </span>
+                          );
+                        })()}
+                  </td>
                   <td className="num">{fmt(r.separated)}</td>
                   <td className="num sep">
                     {r.veeqo ? (
@@ -1218,7 +1320,7 @@ export function WarehousePage() {
               );
             })}
             {!filtered.length && !ov.loading && (
-              <tr><td colSpan={12} style={{ color: 'var(--ink-faint)', padding: 20 }}>Nenhum produto com esses filtros.</td></tr>
+              <tr><td colSpan={13} style={{ color: 'var(--ink-faint)', padding: 20 }}>Nenhum produto com esses filtros.</td></tr>
             )}
           </tbody>
         </table>

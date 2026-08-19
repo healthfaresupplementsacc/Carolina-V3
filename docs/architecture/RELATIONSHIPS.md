@@ -190,6 +190,9 @@ IDs refer to `STRUCTURE_INDEX.md`. Mermaid uses the same R-ids as edge labels wh
 | R171 | Phone `/scan/` → `POST /api/v3/scan/push` (pair code) → scan-hub → SSE `GET /api/v3/scan/stream?code&t=` → operator hub (`estoque.js`) | VERIFIED | op-warehouse.js; estoque.js streamUrl |
 | R172 | S15.26 operator hub → `/api/v3/op/stock/organize` (place, immediate) · `stock/count/weigh|manual` (proposal with meta) · `stock/box/new` (proposal; box allocated on approval by StockRequestService) · `stock/tasks` · `stock/lookup` | VERIFIED | op.js:326-339 |
 | R173 | S15.28 drift worker → computeDrift (same numbers as hub) → Slack admin (dedupe audit_log) | VERIFIED | stock-drift-alert.js |
+| R174 | S15.32 operator nav (`src/op/nav.js`) ← loaded by `/op/index.html` + `/op/estoque.html`; home strip rendered through `ws.js banner()`; Central "Iniciar Impressão de ordens" → `POST /api/v3/op/event/start {activity_slug:'order_printing'}` (same body as app.js postStart) → `D.loadData()` | VERIFIED | ws.js, nav.js |
+| R175 | S15.33 Shell badge Aprovações + hub notice card + KPI Aprovações ← `GET /api/v3/warehouse/overview.pending_summary` (single source; router sets `kpis.pending_requests = pending.count`) | VERIFIED | Shell.jsx usePendingCount, router.js overview |
+| R176 | S15.33 Locais "Criar várias" → `POST /api/v3/warehouse/locations/bins/bulk` → `locations-repo.bulkBins` (ON CONFLICT DO NOTHING; never qty) | VERIFIED | LocationsPage.jsx BulkBinsCard, router.js |
 | R166 | S03.01 Shell nav: P&P + Picklist moved under Estoque; Planejamento + Produto after Metas | VERIFIED | `Shell.jsx`; `v4-nav-warehouse.test.js` |
 
 **Totals after 2nd pass (machine-counted):** **134 unique R-ids** (R001–R152 with intentional gaps in numbering; R003 and R067 corrected in place, not renumbered) — VERIFIED 106 · PARTIAL 10 · SHARED-DEP 6 · DUPLICATE-PATH 12 · AMBIGUOUS 5 · DISCONNECTED 12 · UNKNOWN 1 (by primary tag; a few edges carry two tags).

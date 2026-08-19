@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T04:35:31.753Z",
+  "at": "2026-08-19T05:26:12.626Z",
   "results": [
     {
       "group": "boot",
@@ -20,14 +20,80 @@
       "detail": "12 teclas"
     },
     {
-      "group": "home",
-      "name": "banner da Central aparece com task de P&P",
+      "group": "menu",
+      "name": "nav persistente na home com Linha · Central de P&P · Estoque",
+      "pass": true,
+      "detail": "🏭 Linha | 🖨 Central de P&P | 📦 Estoque"
+    },
+    {
+      "group": "menu",
+      "name": "aba ativa na home e a Linha",
+      "pass": true,
+      "detail": "linha"
+    },
+    {
+      "group": "menu",
+      "name": "todo item do menu tem 44px+ de altura (toque com luva)",
+      "pass": true,
+      "detail": "49/49/49"
+    },
+    {
+      "group": "menu",
+      "name": "aba Estoque aponta pro hub",
+      "pass": true,
+      "detail": "/op/estoque.html"
+    },
+    {
+      "group": "menu",
+      "name": "sem task de P&P o box grande nao aparece (so o menu)",
       "pass": true,
       "detail": ""
     },
     {
-      "group": "home",
-      "name": "botao Abrir existe",
+      "group": "menu",
+      "name": "aba Central de P&P e clicavel na home",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sem-task",
+      "name": "Central abre sem nenhuma task de P&P aberta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sem-task",
+      "name": "pergunta \"Você está fazendo P&P agora?\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sem-task",
+      "name": "as duas saidas existem (Iniciar / Só olhar)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sem-task",
+      "name": "REGRA #0: a picklist e o PRINT ja estao ali mesmo sem task",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "menu",
+      "name": "dentro da Central o menu marca a aba Central",
+      "pass": true,
+      "detail": "{\"count\":2,\"active\":\"central\"}"
+    },
+    {
+      "group": "sem-task",
+      "name": "Iniciar posta event/start com activity_slug=order_printing",
+      "pass": true,
+      "detail": "{\"activity_slug\":\"order_printing\",\"batch_number\":null,\"cowork_with\":[],\"note\":null,\"product_id\":null,\"product_name\":null}"
+    },
+    {
+      "group": "sem-task",
+      "name": "depois de iniciar a pergunta some e a Central continua aberta",
       "pass": true,
       "detail": ""
     },
@@ -170,8 +236,50 @@
       "detail": ""
     },
     {
-      "group": "central",
-      "name": "Voltar fecha a Central e volta pra home",
+      "group": "etiqueta",
+      "name": "entrada aprovada mostra o numero da caixa",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "etiqueta",
+      "name": "so a linha com caixa ganha \"Imprimir etiqueta\"",
+      "pass": true,
+      "detail": "1 botoes"
+    },
+    {
+      "group": "etiqueta",
+      "name": "a etiqueta 4x6 sai com o codigo, o produto e o QR",
+      "pass": true,
+      "detail": "<!doctype html><html><head><meta charset=\"utf-8\"><title>Etiq"
+    },
+    {
+      "group": "menu",
+      "name": "aba Linha fecha a Central e volta pra home",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "menu",
+      "name": "com task de P&P aberta o box grande volta a aparecer",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "deeplink",
+      "name": "/op/?ws=1 abre a Central logo depois do login",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "deeplink",
+      "name": "a URL fica limpa (sem ?ws=1 preso no historico)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "deeplink",
+      "name": "quem veio pelo link nao leva pergunta na cara",
       "pass": true,
       "detail": ""
     },

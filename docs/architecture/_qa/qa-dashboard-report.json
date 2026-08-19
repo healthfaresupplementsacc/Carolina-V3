@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T04:35:56.820Z",
+  "at": "2026-08-19T05:31:19.888Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "204 KB → dash-estoque.png"
+      "detail": "203 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -30,6 +30,78 @@
       "name": "card \"Precisa de atenção hoje\" presente",
       "pass": true,
       "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "coluna \"Dias de estoque\" logo depois de Disponível",
+      "pass": true,
+      "detail": "Produto|Total|Prateleira|Caixa|A organizar|Reservado|Pendente|Disponível ↑|Dias de estoque|Separadas|Veeqo|Status|"
+    },
+    {
+      "group": "estoque",
+      "name": "dias de estoque vem da fixture (Benfotiamine 71)",
+      "pass": true,
+      "detail": "\"71\""
+    },
+    {
+      "group": "estoque",
+      "name": "sem venda em 7 dias mostra travessinho, nao zero",
+      "pass": true,
+      "detail": "[\"—\",\"—\"]"
+    },
+    {
+      "group": "estoque",
+      "name": "abaixo de 7 dias pinta vermelho (Magnesium 0)",
+      "pass": true,
+      "detail": "rgb(160, 44, 32)"
+    },
+    {
+      "group": "estoque",
+      "name": "entre 7 e 14 dias pinta ambar (NAC 9.3)",
+      "pass": true,
+      "detail": "9,3 rgb(107, 76, 7)"
+    },
+    {
+      "group": "estoque",
+      "name": "acima de 14 dias fica sem cor de alerta",
+      "pass": true,
+      "detail": "rgb(28, 43, 58)"
+    },
+    {
+      "group": "estoque",
+      "name": "ordenar por dias poe o mais critico primeiro e o \"sem venda\" no fim",
+      "pass": true,
+      "detail": "4,7,5,6,2,1,8,3"
+    },
+    {
+      "group": "estoque",
+      "name": "rodape diz por qual coluna esta ordenado",
+      "pass": true,
+      "detail": "ordenado por dias de estoque ↑ · 8 produtos"
+    },
+    {
+      "group": "estoque",
+      "name": "2o clique inverte a ordem",
+      "pass": true,
+      "detail": "1,2,6,5,7,4,8,3"
+    },
+    {
+      "group": "estoque",
+      "name": "aviso de propostas esperando aparece",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estoque",
+      "name": "aviso traz a contagem e a idade da mais antiga",
+      "pass": true,
+      "detail": "2 propostas esperando · a mais antiga há 5hVer aprovações"
+    },
+    {
+      "group": "estoque",
+      "name": "aviso leva pra Aprovações",
+      "pass": true,
+      "detail": "#estoque-aprovacoes"
     },
     {
       "group": "estoque",
@@ -59,7 +131,7 @@
       "group": "screenshot",
       "name": "estoque-painel",
       "pass": true,
-      "detail": "169 KB → dash-estoque-painel.png"
+      "detail": "166 KB → dash-estoque-painel.png"
     },
     {
       "group": "estoque",
@@ -71,7 +143,7 @@
       "group": "screenshot",
       "name": "estoque-familia",
       "pass": true,
-      "detail": "194 KB → dash-estoque-familia.png"
+      "detail": "192 KB → dash-estoque-familia.png"
     },
     {
       "group": "estoque",
@@ -89,19 +161,13 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "202 KB → dash-estoque-modal.png"
+      "detail": "213 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
       "name": "seção Estoque existe",
       "pass": true,
-      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#estoque-geral,#inventory,#produto-setup,#config-estoque,#pp,#picklist"
-    },
-    {
-      "group": "nav",
-      "name": "Estoque tem o hub #estoque, aprovações e locais",
-      "pass": true,
-      "detail": ""
+      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
     },
     {
       "group": "nav",
@@ -114,6 +180,30 @@
       "name": "P&P e Picklist estão em Estoque, não em Operação",
       "pass": true,
       "detail": ""
+    },
+    {
+      "group": "nav",
+      "name": "ordem exata de Estoque (hub, aprovações, locais, etiquetas, setup, config, P&P)",
+      "pass": true,
+      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
+    },
+    {
+      "group": "nav",
+      "name": "nenhuma entrada \"(antigo)\" no menu inteiro",
+      "pass": true,
+      "detail": "[\"#hoje\",\"#roadmap\",\"#producao\",\"#metas\",\"#planejamento\",\"#produto\",\"#pessoas\",\"#estoque\",\"#estoque-aprovacoes\",\"#estoque-locais\",\"#estoque-etiquetas\",\"#produto-setup\",\"#config-estoque\",\"#pp\",\"#picklist\",\"#impressao\",\"#floor\",\"#cameras\",\"#carolina\",\"#falar\",\"#suporte\",\"#admin\",\"#operadores\",\"#usuarios\",\"#config\",\"#sistema\"]"
+    },
+    {
+      "group": "nav",
+      "name": "a palavra \"antigo\" sumiu dos rótulos do menu",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "nav",
+      "name": "Aprovações mostra o contador de propostas esperando",
+      "pass": true,
+      "detail": "badge=2"
     },
     {
       "group": "nav",
@@ -131,7 +221,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "138 KB → dash-estoque-aprovacoes.png"
+      "detail": "130 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -149,7 +239,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "193 KB → dash-estoque-locais.png"
+      "detail": "182 KB → dash-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -167,7 +257,7 @@
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "118 KB → dash-picklist.png"
+      "detail": "106 KB → dash-picklist.png"
     },
     {
       "group": "picklist",
@@ -203,7 +293,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "139 KB → dash-inventory.png"
+      "detail": "135 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -221,7 +311,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "161 KB → dash-produto-setup.png"
+      "detail": "153 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -239,7 +329,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "92 KB → dash-roadmap.png"
+      "detail": "93 KB → dash-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -260,10 +350,130 @@
       "detail": "linhas=3"
     },
     {
+      "group": "estoque-aprovacoes",
+      "name": "cada linha tem chip de espera",
+      "pass": true,
+      "detail": "[{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"21h\"}]"
+    },
+    {
+      "group": "estoque-aprovacoes",
+      "name": "espera curta fica neutra, longa fica ambar/vermelha",
+      "pass": true,
+      "detail": "[{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"21h\"}]"
+    },
+    {
       "group": "estoque-locais",
       "name": "tabelas de prateleiras (8) e caixas (4)",
       "pass": true,
       "detail": "8 bins / 4 caixas"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "card \"Criar várias prateleiras\" existe",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais-bulk",
+      "name": "preview conta 96 (8 prateleiras x 3 niveis x 4 posições)",
+      "pass": true,
+      "detail": "contou=96"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "códigos no esquema <área><prateleira><nível><posição>",
+      "pass": true,
+      "detail": "A01A1A01A2A01A3A01A4A01B1A01B2A01B3A01B4A01C1A01C2A01C3A01C4e mais 84 até A08C4"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "preview refaz a conta ao vivo (2 x 3 x 4 = 24)",
+      "pass": true,
+      "detail": "contou=24"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "acima de 300 avisa o limite em vez de mandar tudo",
+      "pass": true,
+      "detail": "Como fica300prateleiras · A01A1 até A25C4A01A1A01A2A01A3A01A4A01B1A01B2A01B3A01B4A01C1A01C2A01C3A01C4e mais 288 até A25C4O limite é 300 por "
+    },
+    {
+      "group": "locais-bulk",
+      "name": "criar chama POST /warehouse/locations/bins/bulk",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/locations/bins/bulk\"]"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "manda os 24 bins com bin_code e shelf",
+      "pass": true,
+      "detail": "[{\"bin_code\":\"A01A1\",\"shelf\":\"A01\",\"area\":\"A\"},{\"bin_code\":\"A01A2\",\"shelf\":\"A01\",\"area\":\"A\"}]"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "resultado diz quantas criou e quantas já existiam",
+      "pass": true,
+      "detail": "Criadas 22, já existiam 2"
+    },
+    {
+      "group": "locais-bulk",
+      "name": "depois de criar, o caminho pras Etiquetas fica na cara",
+      "pass": true,
+      "detail": "#estoque-etiquetas"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-locais-bulk",
+      "pass": true,
+      "detail": "187 KB → dash-estoque-locais-bulk.png"
+    },
+    {
+      "group": "legado",
+      "name": "estoque-geral abre por hash com a faixa de página antiga",
+      "pass": true,
+      "detail": "Página antiga. O hub Estoque substitui esta tela.Ir pro hub Estoque"
+    },
+    {
+      "group": "legado",
+      "name": "estoque-geral tem botão pro hub",
+      "pass": true,
+      "detail": "#estoque"
+    },
+    {
+      "group": "legado",
+      "name": "estoque-geral sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "legado-estoque-geral",
+      "pass": true,
+      "detail": "142 KB → dash-legado-estoque-geral.png"
+    },
+    {
+      "group": "legado",
+      "name": "inventory abre por hash com a faixa de página antiga",
+      "pass": true,
+      "detail": "Página antiga. O hub Estoque substitui esta tela.Ir pro hub Estoque"
+    },
+    {
+      "group": "legado",
+      "name": "inventory tem botão pro hub",
+      "pass": true,
+      "detail": "#estoque"
+    },
+    {
+      "group": "legado",
+      "name": "inventory sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "legado-inventory",
+      "pass": true,
+      "detail": "135 KB → dash-legado-inventory.png"
     }
   ]
 }

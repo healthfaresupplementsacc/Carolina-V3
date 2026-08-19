@@ -90,6 +90,11 @@ export const rejectRequest  = (id, body) => whPost('/requests/' + id + '/reject'
 export const addBin        = (body) => whPost('/locations/bin', body);
 export const addBox        = (body) => whPost('/locations/box', body);
 export const deactivateBin = (id) => whPost('/locations/bin/' + id + '/deactivate', {});
+/** Cadastra várias prateleiras de uma vez (dia 1 do armazém). Máx 300 por
+ *  chamada. Código que já existe é PULADO, nunca sobrescrito: o backend devolve
+ *  { data:{ created:int, skipped:[bin_code] } } pra tela poder dizer quantas
+ *  entraram e quantas já estavam lá. */
+export const addBinsBulk = (bins) => whPost('/locations/bins/bulk', { bins });
 export const attachSku     = (productId, body) => whPost('/family/' + productId + '/attach', body);
 export const detachSku     = (skuId) => whPost('/family/detach', { sku_id: skuId });
 export const mergeProduct  = (fromId, intoId) => whPost('/family/merge', { from_product_id: fromId, into_product_id: intoId });

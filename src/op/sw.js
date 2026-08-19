@@ -6,9 +6,9 @@
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v41'; // v41: S15 Fase 3 — hub de estoque /op/estoque.html + vendor (Code128/QR)
+const CACHE = 'hf-op-v42'; // v42: menu persistente /op/nav.js + Central sempre disponível
 const SHELL = [
-  '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/style.css',
+  '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/nav.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',
   '/op/manifest.json',
   // S15 Fase 3: hub de estoque (tela propria, mesma casca offline)
