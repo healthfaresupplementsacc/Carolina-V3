@@ -222,7 +222,7 @@ subgraph S15["S15 · WAREHOUSE INVENTORY — own section (admin + operator; runs
   S15_UI["S15.03/04 · CURRENT UI: v4 'Estoque & Produtos' pages · /op stock panel (STOCK_UI_ENABLED)"]:::verified
   S15_AUTO["S15.06/07/08 · CURRENT automations: veeqo-order-sync deducts on Veeqo shipped (DRY by default) · stock-alerts · stock-gap · unusual-sku · print-divergence · TikTok CSV · .28 print signal"]:::partial
   S15_PLAN["S15.10-14 · PLANNED (decided 08-18): ONE admin section + P&P subsection (channel pages deferred) · operator page with APPROVAL QUEUE (moves free; add/remove/returns approved) · secondary 'Separadas' bucket for damaged/returns · admin/manager enters warehouse-in · product total = shelf + box · reservation per product from open Veeqo lines · deduction on Veeqo shipped only (shelf→box) · later: two-way Veeqo + reconciliation"]:::planned
-  S15_BUILT["S15.17-22 BUILT 08-18 (Phase 1 LIVE in prod; Phase 2 + STYLE-KIT theme built, deploying): /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
+  S15_BUILT["S15.17-28 BUILT (Phases 1-3): Veeqo import · weights/tare · labels · phone scanner · operator warehouse hub · drift worker · /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
   S15_Q["Open: STOCK_DEDUCT_MODE value in Railway · retire antigo pages after parity · approval aging nag · dias de estoque"]:::partial
 end
 

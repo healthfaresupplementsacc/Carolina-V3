@@ -1,0 +1,10 @@
+{
+  "_comment": "S15 Fase 3 — GET /api/v3/warehouse/drift. Produtos onde o nosso total e o fisico da Veeqo discordam. Delta = veeqo - nosso. Delta positivo da pra importar; delta negativo e conferencia fisica, o sistema NUNCA desconta sozinho. Bate com os dois produtos marcados veeqo_match drift na fixture warehouse-overview.json (KPI drift_products = 2).",
+  "data": {
+    "drift": [
+      { "product_id": 1, "product": "Benfotiamine 300", "base_sku": "HF-BENF-300", "ours": 226, "veeqo": 214, "delta": -12, "since": "2026-08-17T08:00:00Z" },
+      { "product_id": 8, "product": "Ashwagandha", "base_sku": "HF-ASHW-600", "ours": 6, "veeqo": 9, "delta": 3, "since": "2026-08-18T08:00:00Z" }
+    ],
+    "checked_at": "2026-08-18T14:05:00Z"
+  }
+}

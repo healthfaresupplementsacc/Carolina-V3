@@ -1,0 +1,36 @@
+{
+  "_comment": "S15 Fase 3 — GET /api/v3/warehouse/weights. Peso da unidade por produto, taras padrao, e a tara/capacidade de cada prateleira e caixa. Usado pelo Product Setup (coluna Peso da unidade), pela Config (taras padrao) e pelo hub.",
+  "data": {
+    "products": [
+      { "product_id": 1, "name": "Benfotiamine 300 mg", "nickname": "Benfotiamine 300", "unit_weight_g": 128.4, "samples": 10, "updated_at": "2026-08-17T13:02:00Z" },
+      { "product_id": 2, "name": "Berberine 500 mg", "nickname": "Berberine 500", "unit_weight_g": 142.0, "samples": 12, "updated_at": "2026-08-17T13:10:00Z" },
+      { "product_id": 3, "name": "Chlorophyll", "nickname": "Chlorophyll", "unit_weight_g": null, "samples": 0, "updated_at": null },
+      { "product_id": 4, "name": "Collagen", "nickname": "Collagen", "unit_weight_g": 310.75, "samples": 4, "updated_at": "2026-08-16T18:40:00Z" },
+      { "product_id": 5, "name": "NAC 600", "nickname": "NAC 600", "unit_weight_g": null, "samples": 0, "updated_at": null },
+      { "product_id": 6, "name": "L-Carnitine 1500 mg", "nickname": "L-Carnitine 1500", "unit_weight_g": 168.25, "samples": 20, "updated_at": "2026-08-18T09:15:00Z" },
+      { "product_id": 7, "name": "Magnesium Glycinate", "nickname": "Magnesium Glycinate", "unit_weight_g": null, "samples": 0, "updated_at": null },
+      { "product_id": 8, "name": "Ashwagandha", "nickname": "Ashwagandha", "unit_weight_g": 121.9, "samples": 6, "updated_at": "2026-08-15T11:20:00Z" }
+    ],
+    "tares": [
+      { "id": 1, "name": "prateleira padrao", "kind": "bin", "tare_g": 420, "active": true },
+      { "id": 2, "name": "caixa grande palete", "kind": "box", "tare_g": 980, "active": true },
+      { "id": 3, "name": "bandeja azul", "kind": "bin", "tare_g": 355, "active": true }
+    ],
+    "bins": [
+      { "id": 1, "bin_code": "A03", "tare_g": 420, "capacity": 48 },
+      { "id": 3, "bin_code": "A05", "tare_g": 420, "capacity": 48 },
+      { "id": 4, "bin_code": "A07", "tare_g": 355, "capacity": 36 },
+      { "id": 5, "bin_code": "A09", "tare_g": null, "capacity": 48 },
+      { "id": 6, "bin_code": "B01", "tare_g": null, "capacity": null },
+      { "id": 7, "bin_code": "B03", "tare_g": 420, "capacity": 48 },
+      { "id": 8, "bin_code": "C01", "tare_g": 355, "capacity": 24 },
+      { "id": 9, "bin_code": "C09", "tare_g": null, "capacity": null }
+    ],
+    "boxes": [
+      { "id": 21, "box_number": "BX-0004", "tare_g": 980, "batch_number": "L-2026-07", "sealed": true },
+      { "id": 22, "box_number": "BX-0012", "tare_g": 980, "batch_number": "L-2026-08", "sealed": false },
+      { "id": 23, "box_number": "BX-0021", "tare_g": 1040, "batch_number": null, "sealed": false },
+      { "id": 24, "box_number": "BX-0030", "tare_g": null, "batch_number": null, "sealed": false }
+    ]
+  }
+}

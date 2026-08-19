@@ -6,11 +6,14 @@
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v40'; // v40: S15 Fase 2 — workspace extraído pra /op/ws.js
+const CACHE = 'hf-op-v41'; // v41: S15 Fase 3 — hub de estoque /op/estoque.html + vendor (Code128/QR)
 const SHELL = [
   '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',
   '/op/manifest.json',
+  // S15 Fase 3: hub de estoque (tela propria, mesma casca offline)
+  '/op/estoque.html', '/op/estoque.js',
+  '/op/vendor/code128.js', '/op/vendor/qrcode.min.js',
   '/shared/hf-design.css', '/shared/hf-design.js',
   '/op/assets/healthfare-logo.png',
 ];

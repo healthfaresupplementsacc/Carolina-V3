@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1f3c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>HealthFare · Leitor</title>
+  <link rel="icon" href="/op/assets/healthfare-logo.png">
+  <style>
+    /* Tela de celular, na mao do operador: escuro (a camera manda na tela),
+       botao gigante, zero enfeite. STYLE-KIT so no que aparece em texto. */
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html, body { margin:0; padding:0; height:100%; background:#0d1f3c; color:#fff;
+      font-family:'Sora',system-ui,-apple-system,sans-serif; overscroll-behavior:none; }
+    #wrap { position:fixed; inset:0; display:flex; flex-direction:column; }
+    #cam { position:relative; flex:1; min-height:0; background:#000; overflow:hidden; }
+    #video { width:100%; height:100%; object-fit:cover; display:block; }
+    #frame { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+    #frame .box { width:min(78vw,320px); height:min(42vw,190px); border:3px solid rgba(255,255,255,.85);
+      border-radius:18px; box-shadow:0 0 0 4000px rgba(0,0,0,.34); }
+    #flash { position:absolute; inset:0; background:#2e8b3c; opacity:0; pointer-events:none; transition:opacity .12s; }
+    #flash.on { opacity:.62; transition:none; }
+    #bar { flex:none; padding:14px 16px calc(16px + env(safe-area-inset-bottom)); background:#0d1f3c; }
+    .lbl { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+      color:rgba(255,255,255,.55); font-weight:600; }
+    #last { font-family:'DM Mono',monospace; font-size:19px; font-weight:700; color:#7fd696;
+      word-break:break-all; min-height:24px; margin:2px 0 8px; }
+    #status { font-size:13px; color:rgba(255,255,255,.72); margin-bottom:10px; min-height:18px; }
+    .row { display:flex; gap:10px; align-items:center; }
+    /* alvos de toque: nada abaixo de 52px na mao do operador */
+    input[type=text] { flex:1; min-width:0; min-height:54px; padding:15px 14px; border-radius:14px; border:0; font-size:17px;
+      background:rgba(255,255,255,.12); color:#fff; outline:none; font-family:'DM Mono',monospace; }
+    input[type=text]::placeholder { color:rgba(255,255,255,.45); font-family:'Sora',sans-serif; }
+    button { border:0; cursor:pointer; border-radius:14px; min-height:54px; padding:15px 22px; font-size:16px; font-weight:800;
+      background:#fff; color:#0d1f3c; font-family:'Sora',sans-serif; }
+    button.ghost { background:rgba(255,255,255,.14); color:#fff; }
+    #err { background:#fdeeec; color:#a02c20; border-radius:14px; padding:12px 14px; font-size:14px;
+      font-weight:600; margin-bottom:10px; display:none; }
+    #err.on { display:block; }
+    #head { position:absolute; top:0; left:0; right:0; padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+      display:flex; align-items:center; gap:10px; background:linear-gradient(180deg,rgba(13,31,60,.85),transparent); }
+    #pill { font-family:'DM Mono',monospace; font-size:12px; letter-spacing:.12em; padding:6px 12px;
+      border-radius:999px; background:rgba(255,255,255,.16); }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="cam">
+      <video id="video" playsinline muted autoplay></video>
+      <div id="frame"><div class="box"></div></div>
+      <div id="flash"></div>
+      <div id="head"><span id="pill">HealthFare</span><span id="pillcode" class="lbl"></span></div>
+    </div>
+    <div id="bar">
+      <div id="err"></div>
+      <div class="lbl">Último código lido</div>
+      <div id="last">nada ainda</div>
+      <div id="status">abrindo a câmera...</div>
+      <div class="row">
+        <input id="manual" type="text" inputmode="text" placeholder="Digitar o código na mão" autocomplete="off">
+        <button id="send">Enviar</button>
+      </div>
+    </div>
+  </div>
+  <script src="/scan/vendor/zxing.min.js"></script>
+  <script src="/scan/scan.js"></script>
+</body>
+</html>

@@ -10,6 +10,8 @@
    de pages-inventory.css. Lógica, endpoints e props iguais. */
 import React from 'react';
 import { usePoll, apiPost, apiGet } from '../adapters/from-api.js';
+import * as wh from '../adapters/warehouse-api.js';
+import { friendlyError } from './WarehousePage.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import './pages-inventory.css';
 
@@ -153,7 +155,135 @@ function SkuChips({ skus, onDetach, onAdd, disabled }) {
   );
 }
 
-function Row({ p, ro, onSave, onAddSku, onDetachSku }) {
+/* ── Peso da unidade (S15 Fase 3) ────────────────────────────────
+   Peso de UMA garrafa cheia, em gramas. É o que transforma a balança em
+   contador: (bruto − tara) / peso da unidade = quantas garrafas tem ali.
+   Duas formas de preencher, porque na prática as duas acontecem:
+     · Calibrar: pesa N garrafas juntas (mais garrafas = menos erro), tira a
+       tara do recipiente, divide. O sistema guarda quantas foram na amostra.
+     · Manual: alguém já sabe o peso e digita.
+   Amostra de 1 garrafa é aceita mas avisada: qualquer sujeira vira erro
+   multiplicado por 200 na contagem da caixa. */
+function CalibrateModal({ p, onClose, onSaved, onError }) {
+  const [gross, setGross] = React.useState('');
+  const [count, setCount] = React.useState('10');
+  const [tare, setTare] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+
+  const g = Number(gross) || 0;
+  const c = Number(count) || 0;
+  const t = Number(tare) || 0;
+  const net = Math.max(0, g - t);
+  const unit = c > 0 && net > 0 ? net / c : null;
+  const valid = g > 0 && c > 0 && net > 0;
+
+  async function save() {
+    setBusy(true);
+    try {
+      await wh.setProductWeight(p.id, {
+        sample_gross_g: g, sample_count: c, sample_tare_g: t || undefined,
+      });
+      onSaved(unit, c);
+    } catch (e) { onError(e.message || 'erro ao calibrar'); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="kit-modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="kit-modal" role="dialog" aria-label="Calibrar peso" data-modal="calibrar">
+        <div className="kit-mlabel">Peso da unidade · calibrar pela balança</div>
+        <div className="title">Calibrar {p.nickname || p.canonical_name}</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-dim)', marginTop: 6, lineHeight: 1.5 }}>
+          Descobrir quanto pesa UMA garrafa cheia. Com esse peso a balança passa a contar sozinha:
+          o operador pesa a prateleira inteira e o sistema diz quantas garrafas tem.
+        </div>
+
+        {/* Passos numerados na ordem em que a pessoa faz na balança. */}
+        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span className="kit-mlabel">1. Quantas garrafas você pôs na balança</span>
+            <input className="kit-input mono" type="number" min="1" value={count}
+                   data-field="count" onChange={(e) => setCount(e.target.value)} />
+            <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+              Coloque {c > 0 ? c : 10} garrafas cheias na balança. Quanto mais garrafas, mais certo fica o peso.
+            </span>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span className="kit-mlabel">2. Quanto a balança está marcando (g)</span>
+            <input className="kit-input mono" type="number" autoFocus value={gross} placeholder="0"
+                   data-field="gross" onChange={(e) => setGross(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <span className="kit-mlabel">3. Quanto pesa a bandeja vazia (g, pode pular)</span>
+            <input className="kit-input mono" type="number" value={tare} placeholder="0"
+                   data-field="tare" onChange={(e) => setTare(e.target.value)} />
+            <span style={{ fontSize: 12, color: 'var(--ink-faint)' }}>
+              Se as garrafas estão direto na balança, deixe vazio.
+            </span>
+          </label>
+        </div>
+
+        <div className="preview">
+          <div className="kit-mlabel" style={{ marginBottom: 6 }}>Como fica</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(104px,1fr))', gap: 10 }}>
+            <div><div className="kit-mlabel">Só as garrafas</div><b>{net ? net.toLocaleString('pt-BR') + ' g' : '—'}</b></div>
+            <div><div className="kit-mlabel">Na balança</div><b>{c || '—'} garrafas</b></div>
+            <div><div className="kit-mlabel">Uma garrafa pesa</div>
+                 <b data-preview="unit">{unit ? unit.toFixed(2) + ' g' : '—'}</b></div>
+          </div>
+          {c === 1 && (
+            <div className="kit-chip warn" style={{ marginTop: 8 }}>
+              com 1 garrafa só, qualquer errinho vira erro grande na contagem da caixa
+            </div>
+          )}
+        </div>
+
+        <div className="foot">
+          <button className="kit-btn sec" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button className="kit-btn primary" disabled={busy || !valid} onClick={save} data-act="salvar-peso">
+            {busy ? 'Salvando…' : 'Salvar peso da unidade'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Célula do peso: mostra o valor + amostra, permite digitar direto e calibrar. */
+function WeightCell({ p, ro, onCalibrate, onManual }) {
+  const [edit, setEdit] = React.useState('');
+  const [open, setOpen] = React.useState(false);
+  const w = p.unit_weight_g;
+  const samples = p.unit_weight_samples;
+
+  if (ro) {
+    return <span style={{ fontFamily: 'var(--font-mono)' }}>{w == null ? '—' : Number(w).toFixed(2) + ' g'}</span>;
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+      {open ? (
+        <input className="kit-input mono" type="number" autoFocus value={edit} placeholder="g"
+               style={{ width: 78, padding: '4px 7px', fontSize: 12.5 }}
+               onChange={(e) => setEdit(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') setOpen(false); }}
+               onBlur={() => {
+                 const v = edit.trim();
+                 setOpen(false);
+                 if (v !== '' && Number(v) > 0 && Number(v) !== Number(w)) onManual(Number(v));
+               }} />
+      ) : (
+        <button className="pgi-addsku" title="digitar o peso à mão"
+                onClick={() => { setEdit(w == null ? '' : String(w)); setOpen(true); }}>
+          {w == null ? 'sem peso' : Number(w).toFixed(2) + ' g'}
+        </button>
+      )}
+      {samples > 0 && <span className="kit-chip neutral" title="garrafas na amostra">n={samples}</span>}
+      <button className="kit-btn xs sec" data-act="calibrar" onClick={onCalibrate}>Calibrar</button>
+    </span>
+  );
+}
+
+function Row({ p, ro, onSave, onAddSku, onDetachSku, onCalibrate, onWeightManual }) {
   const [nick, setNick] = React.useState(p.nickname || '');
   const [saving, setSaving] = React.useState('');
   React.useEffect(() => { setNick(p.nickname || ''); }, [p.nickname]);
@@ -205,6 +335,9 @@ function Row({ p, ro, onSave, onAddSku, onDetachSku }) {
           </span>;
         })()}
       </td>
+      <td data-cell="unit-weight">
+        <WeightCell p={p} ro={ro} onCalibrate={() => onCalibrate(p)} onManual={(v) => onWeightManual(p, v)} />
+      </td>
       <td>
         <SkuChips skus={p.skus} disabled={ro}
           onAdd={(sku, ch) => onAddSku(p.id, sku, ch)}
@@ -220,6 +353,7 @@ export function ProductSetupPage() {
   const [tiers, setTiers] = React.useState([]);
   const [q, setQ] = React.useState('');
   const [flash, setFlash] = React.useState('');
+  const [cal, setCal] = React.useState(null);        // produto sendo calibrado
   const ro = !V4_ALLOW_WRITES;
 
   React.useEffect(() => { if (Array.isArray(setup.data)) setRows(setup.data); }, [setup.data]);
@@ -227,20 +361,44 @@ export function ProductSetupPage() {
 
   const patchRow = (id, patch) => setRows((rs) => rs.map((r) => r.id === id ? { ...r, ...patch } : r));
 
+  /* Peso da unidade (S15 Fase 3) vive no hub de estoque (/warehouse/weights),
+     não no /product-setup: quem escreve quantidade e peso é o StockService.
+     Aqui só juntamos por product_id pra mostrar na mesma linha. */
+  React.useEffect(() => {
+    let on = true;
+    wh.getWeights().then((j) => {
+      if (!on) return;
+      const byId = new Map(((j.data && j.data.products) || []).map((w) => [w.product_id, w]));
+      setRows((rs) => (rs || []).map((r) => {
+        const w = byId.get(r.id);
+        return w ? { ...r, unit_weight_g: w.unit_weight_g, unit_weight_samples: w.samples } : r;
+      }));
+    }).catch(() => { /* sem pesos ainda: a coluna mostra "sem peso" */ });
+    return () => { on = false; };
+  }, [setup.data]);
+
+  const saveWeightManual = async (p, unitG) => {
+    try {
+      await wh.setProductWeight(p.id, { unit_weight_g: unitG });
+      patchRow(p.id, { unit_weight_g: unitG, unit_weight_samples: 0 });
+      setFlash('peso salvo, a balança já conta com ele'); setTimeout(() => setFlash(''), 1800);
+    } catch (e) { setFlash('erro ao salvar o peso: ' + friendlyError(e)); }
+  };
+
   const onSave = async (id, fields) => {
     const r = await apiPost('/product-setup/' + id, fields).catch((e) => ({ error: e.message }));
     if (r && !r.error) { patchRow(id, fields); setFlash('salvo'); setTimeout(() => setFlash(''), 900); }
-    else setFlash('erro: ' + (r && r.error));
+    else setFlash('erro ao salvar: ' + friendlyError(r && r.error));
   };
   const onAddSku = async (id, sku, channel) => {
     const r = await apiPost('/product-setup/' + id + '/sku', { sku, channel }).catch((e) => ({ error: e.message }));
     if (r && !r.error) { const s = r.data || r; patchRow(id, { skus: [...(rows.find((x) => x.id === id)?.skus || []), { id: s.id, sku: s.sku, channel: s.channel, units_per_pack: s.units_per_pack }] }); }
-    else setFlash('erro: ' + (r && r.error));
+    else setFlash('erro ao salvar: ' + friendlyError(r && r.error));
   };
   const onDetachSku = async (s) => {
     const r = await apiPost('/product-setup/sku/' + s.id + '/detach', {}).catch((e) => ({ error: e.message }));
     if (r && !r.error) setRows((rs) => rs.map((row) => ({ ...row, skus: (row.skus || []).filter((x) => x.id !== s.id) })));
-    else setFlash('erro: ' + (r && r.error));
+    else setFlash('erro ao salvar: ' + friendlyError(r && r.error));
   };
 
   if (setup.loading && !rows) {
@@ -297,18 +455,33 @@ export function ProductSetupPage() {
         <table className="kit-table" data-table="produto-setup">
           <thead><tr>
             <th>Produto</th><th>Nickname</th><th>Cor da garrafa</th>
-            <th className="num">Estoque Veeqo</th><th>Validade (rótulo)</th><th>SKUs (por canal)</th>
+            <th className="num">Estoque Veeqo</th><th>Validade (rótulo)</th>
+            <th>Peso da unidade</th><th>SKUs (por canal)</th>
           </tr></thead>
           <tbody>
             {list.map((p) => (
-              <Row key={p.id} p={p} ro={ro} onSave={onSave} onAddSku={onAddSku} onDetachSku={onDetachSku} />
+              <Row key={p.id} p={p} ro={ro} onSave={onSave} onAddSku={onAddSku} onDetachSku={onDetachSku}
+                   onCalibrate={setCal} onWeightManual={saveWeightManual} />
             ))}
             {!list.length && (
-              <tr><td colSpan={6} className="pgi-empty">Nenhum produto com esse filtro.</td></tr>
+              <tr><td colSpan={7} className="pgi-empty">Nenhum produto com esse filtro.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {cal && (
+        <CalibrateModal
+          p={cal}
+          onClose={() => setCal(null)}
+          onError={(m) => { setFlash('erro ao calibrar: ' + friendlyError(m)); }}
+          onSaved={(unit, n) => {
+            patchRow(cal.id, { unit_weight_g: unit, unit_weight_samples: n });
+            setCal(null);
+            setFlash('peso calibrado, a balança já conta com ele'); setTimeout(() => setFlash(''), 1800);
+          }}
+        />
+      )}
     </div>
   );
 }

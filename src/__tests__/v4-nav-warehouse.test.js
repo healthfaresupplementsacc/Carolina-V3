@@ -8,8 +8,9 @@
  *  - Operação = Hoje, Roadmap, Produção, Metas, Planejamento, Produto, Pessoas
  *    (Planejamento + Produto logo DEPOIS de Metas; pp/picklist saíram daqui).
  *  - Seção nova "Estoque" (en "Warehouse Inventory") com o hub #estoque,
- *    Aprovações, Locais, as duas páginas antigas rotuladas "(antigo)",
- *    Product Setup e Configurações.
+ *    Aprovações, Locais, Etiquetas (S15 fase 3, LOGO DEPOIS de Locais — é o
+ *    destino do botão "Imprimir etiquetas" da própria página Locais), as duas
+ *    páginas antigas rotuladas "(antigo)", Product Setup e Configurações.
  *  - Subgrupo "P&P" dentro da MESMA seção, com pp + picklist.
  *  - Seção Estoque gated por view_stock.
  */
@@ -57,13 +58,16 @@ describe('dashboard-v4 Shell NAV — seção Estoque (S15)', () => {
     expect(block).toMatch(/fn:\s*"view_stock"/);
   });
 
-  test('a seção Estoque tem hub, aprovações, locais, as antigas e o subgrupo P&P na ordem', () => {
+  test('a seção Estoque tem hub, aprovações, locais, etiquetas, as antigas e o subgrupo P&P na ordem', () => {
     const ids = idsIn(sectionBlock('Estoque'));
     expect(ids).toEqual([
-      'estoque', 'estoque-aprovacoes', 'estoque-locais',
+      'estoque', 'estoque-aprovacoes', 'estoque-locais', 'estoque-etiquetas',
       'estoque-geral', 'inventory', 'produto-setup', 'config-estoque',
       'pp', 'picklist',
     ]);
+    // Etiquetas entra LOGO DEPOIS de Locais: é pra lá que vai o botão
+    // "Imprimir etiquetas" da página Locais.
+    expect(ids.indexOf('estoque-etiquetas')).toBe(ids.indexOf('estoque-locais') + 1);
   });
 
   test('as páginas antigas ficam rotuladas "(antigo)"', () => {

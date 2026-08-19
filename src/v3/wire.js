@@ -161,6 +161,10 @@ function mount(app) {
     app.use('/op', express2.static(path2.join(process.cwd(), 'src', 'op')));
     // Estação de Impressão (.28) — "User Screen" kiosk (login PIN igual /op). Bruno 07-16.
     app.use('/print', express2.static(path2.join(process.cwd(), 'src', 'print')));
+    // Scanner do CELULAR (S15 Fase 3, Bruno 08-18) — página pareada por QR. Sem
+    // login: o código do pareamento é a credencial (curto, 15 min, renovável).
+    // Empurra cada leitura pro kiosk via POST /api/v3/scan/push.
+    app.use('/scan', express2.static(path2.join(process.cwd(), 'src', 'scan')));
     // Fases B+C — Admin Panel (path NOVO; dashboard V4 intocado).
     const adminPanel = require('../routes/admin');
     app.use('/', adminPanel.createAdminRouter({
@@ -454,6 +458,28 @@ async function startWorker() {
         heartbeat: () => beat('stock_alerts') }).start(30 * 60 * 1000);
     } catch (e) { console.error('[V3] stock-alerts não iniciou:', e.message); }
   }
+  // Divergência de estoque vs Veeqo (S15 Fase 3, Bruno 08-18): reconciliação
+  // CONTÍNUA a cada 10min. Chama computeDrift do warehouse router DIRETO (mesma
+  // conta do hub, sem HTTP). Divergência nova → admin-orin (1×/produto/dia); 8h NY
+  // → resumo. NUNCA sobrescreve estoque. OPT-IN: WORKER_STOCK_DRIFT_ENABLED=true.
+  if (process.env.WORKER_STOCK_DRIFT_ENABLED === 'true') {
+    try {
+      const { StockDriftAlert } = require('../workers/stock-drift-alert');
+      const { computeDrift } = require('./warehouse/router');
+      const { createVeeqoCache } = require('./warehouse/veeqo-cache');
+      const { StockService: DriftStockService } = require('./services/StockService');
+      const { veeqo: driftVeeqo } = require('./services/veeqo-api');
+      const driftCache = createVeeqoCache({ veeqo: driftVeeqo });
+      const driftStock = new DriftStockService({ db: _pool });   // só LEITURA (overview)
+      new StockDriftAlert({
+        db: _pool, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        getDrift: () => computeDrift({ stock: driftStock, veeqoCache: driftCache }),
+        heartbeat: () => beat('stock_drift'),
+      }).start(10 * 60 * 1000);
+    } catch (e) { console.error('[V3] stock-drift-alert não iniciou:', e.message); }
+  }
+
   // Mergeable orders (Bruno 08-02): de manhã, lista no admin-orin os pedidos da
   // Veeqo que precisam ser mergeados (mesmo comprador+endereço via mergeable_id
   // nativo). READ-ONLY. OPT-IN: WORKER_MERGEABLE_ALERT_ENABLED=true.

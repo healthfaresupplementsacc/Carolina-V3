@@ -93,3 +93,34 @@ export const deactivateBin = (id) => whPost('/locations/bin/' + id + '/deactivat
 export const attachSku     = (productId, body) => whPost('/family/' + productId + '/attach', body);
 export const detachSku     = (skuId) => whPost('/family/detach', { sku_id: skuId });
 export const mergeProduct  = (fromId, intoId) => whPost('/family/merge', { from_product_id: fromId, into_product_id: intoId });
+
+// ── S15 Fase 3 (import Veeqo · pesos · etiquetas · drift) ─────────
+/** Importa o total da Veeqo. Sem product_id = tudo (o backend limita a 500).
+ *  Resposta: { data:{ imported:[{product_id,delta}], negative:[...], skipped:n } }
+ *  Delta negativo NUNCA é aplicado sozinho: volta em `negative` pra revisão. */
+export const importVeeqo   = (productId) => whPost('/import-veeqo', productId ? { product_id: productId } : {});
+
+/** Pesos: unidade por produto, tara por prateleira/caixa e presets. */
+export const getWeights    = () => whGet('/weights');
+export const setProductWeight = (id, body) => whPost('/weights/product/' + id, body);
+export const setTarePreset = (body) => whPost('/weights/tare', body);
+export const setBinWeight  = (id, body) => whPost('/weights/bin/' + id, body);
+export const setBoxWeight  = (id, body) => whPost('/weights/box/' + id, body);
+
+/** Pesar pra contar: devolve qty + confiança sem gravar nada. */
+export const computeCount  = (body) => whPost('/count/compute', body);
+
+/** Dados das etiquetas escolhidas. bins/boxes = arrays de id. */
+export const getLabels = (bins, boxes) => {
+  const qs = [];
+  if (bins && bins.length) qs.push('bins=' + bins.join(','));
+  if (boxes && boxes.length) qs.push('boxes=' + boxes.join(','));
+  return whGet('/labels' + (qs.length ? '?' + qs.join('&') : ''));
+};
+/** Carimba que a etiqueta da caixa foi impressa. */
+export const markBoxLabelPrinted = (boxId) => whPost('/locations/box/' + boxId + '/label-printed', {});
+
+/** Lista de produtos com diferença pra Veeqo (o mesmo que alimenta o alerta). */
+export const getDrift      = () => whGet('/drift');
+/** Copia o UPC da Veeqo pros SKUs mapeados. */
+export const importUpc     = () => whPost('/skus/import-upc', {});

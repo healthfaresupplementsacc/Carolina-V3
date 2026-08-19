@@ -137,11 +137,12 @@ describe('op/ws.js — builders de payload (contrato S15)', () => {
       .toEqual({ product_id: 42, qty: 48, kind: 'entrada', reason: 'chegou hoje', box_id: 9 });
   });
   test('toasts do plano, sem em dash', () => {
+    // toda confirmacao diz o que aconteceu E o que acontece depois
     expect(H.submitToast('pick')).toBe('Registrado. Vai pra aprovação do admin, já saiu do disponível.');
-    expect(H.submitToast('damaged')).toBe('Danificada registrada (Separadas)');
-    expect(H.submitToast('entrada')).toBe('Enviado pra aprovação');
-    expect(H.submitToast('count')).toBe('Enviado pra aprovação');
-    expect(H.submitToast('restock')).toBe('Prateleira reposta');
+    expect(H.submitToast('damaged')).toBe('Registrado. Já saiu do vendável e foi pra Separadas.');
+    expect(H.submitToast('entrada')).toBe('Enviado pra aprovação. O admin aprova e o número muda.');
+    expect(H.submitToast('count')).toBe('Enviado pra aprovação. O admin aprova e o número muda.');
+    expect(H.submitToast('restock')).toBe('Prateleira reposta. Saiu da caixa e entrou na prateleira.');
     Object.keys(H).length; // noop
   });
 });

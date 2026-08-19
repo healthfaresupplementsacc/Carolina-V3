@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f4c92">
+  <title>HealthFare · Estoque</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Serif+Display:ital@0;1&family=Sora:wght@500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared/hf-design.css">
+  <link rel="icon" href="/op/assets/healthfare-logo.png">
+  <link rel="manifest" href="/op/manifest.json">
+  <style>
+    /* STYLE-KIT: ground dot-grid claro. O resto do estilo e inline no estoque.js
+       (mesma escolha do ws.js: tokens juntos do markup que os usa). */
+    * { -webkit-tap-highlight-color: transparent; }
+    html, body { margin:0; padding:0; }
+    body {
+      font-family: 'Manrope', system-ui, sans-serif;
+      background:#f4f8fc;
+      background-image: radial-gradient(circle, rgba(26,58,107,.06) 1px, transparent 1px);
+      background-size: 26px 26px;
+      color:#0d1f3c;
+      min-height:100vh;
+    }
+    button, input { font-family: inherit; }
+    #hf-est { min-height:100vh; }
+    /* input de scan sempre focado: invisivel mas ativo (leitor USB "digita" nele) */
+    #scanSink { position:fixed; opacity:0; pointer-events:none; width:1px; height:1px; top:0; left:0; }
+    .hf-scroll::-webkit-scrollbar { width:10px; }
+    .hf-scroll::-webkit-scrollbar-thumb { background:#d4e2f0; border-radius:999px; }
+    @keyframes hfShake { 10%,90%{transform:translateX(-2px)} 30%,70%{transform:translateX(5px)} 50%{transform:translateX(-7px)} }
+    @keyframes hfFlash { 0%{opacity:.85} 100%{opacity:0} }
+  </style>
+</head>
+<body>
+  <div id="hf-est"></div>
+  <input id="scanSink" autocomplete="off" aria-hidden="true" tabindex="-1">
+  <!-- token da pagina (Bearer) — as rotas /api/v3/op/* exigem ele. Igual /op e /print. -->
+  <script src="/op/config.js"></script>
+  <script src="/op/vendor/code128.js"></script>
+  <script src="/op/vendor/qrcode.min.js"></script>
+  <script src="/op/estoque.js"></script>
+</body>
+</html>

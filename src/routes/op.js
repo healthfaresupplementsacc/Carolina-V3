@@ -288,55 +288,55 @@ function createOpRouter(deps = {}) {
   // Workspace abre ao registrar "Impressão de ordens"/"Organização de Stock".
   // Conteúdo: picklist do dia + registrar saída de estoque ("peguei"/danificada).
 
-  // Picklist pro operador — REUSA o handler do data-router (mesma lógica do
-  // dashboard, zero duplicação). Auth = sessão do operador (não PIN admin).
-  router.get('/api/v3/op/picklist', h(async (req, res) => {
-    const s = await requireSession(req, res); if (!s) return;
+  // Picklist + falta de estoque pro operador: REUSAM o handler do data-router
+  // (mesma lógica do dashboard, zero duplicação). Auth = sessão, não PIN admin.
+  const dataEp = async (path) => {
     const { ENDPOINTS, buildServices } = require('../v3/data/router');   // lazy (evita ciclo)
-    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/picklist');
-    const out = await ep.handler({ query: {}, params: {} }, {}, buildServices(db));
-    res.json({ ok: true, ...out.data });
-  }));
+    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/' + path);
+    return (await ep.handler({ query: {}, params: {} }, {}, buildServices(db))).data;
+  };
+  for (const p of ['picklist', 'stock-gaps']) {
+    router.get('/api/v3/op/' + p, h(async (req, res) => {
+      const s = await requireSession(req, res); if (!s) return;
+      res.json({ ok: true, ...(await dataEp(p)) });
+    }));
+  }
 
-  // FALTA DE ESTOQUE pro P&P de hoje: o que está zerado/baixo na picklist cruzado
-  // com o EMS (cápsulas prontas? na linha? já passou?). Bruno 08-06.
-  router.get('/api/v3/op/stock-gaps', h(async (req, res) => {
-    const s = await requireSession(req, res); if (!s) return;
-    const { ENDPOINTS, buildServices } = require('../v3/data/router');   // lazy (evita ciclo)
-    const ep = ENDPOINTS.find((e) => e.path === '/api/v3/data/stock-gaps');
-    const out = await ep.handler({ query: {}, params: {} }, {}, buildServices(db));
-    res.json({ ok: true, ...out.data });
-  }));
-
-  // Registrar estoque (S15 Fase 2) — "peguei do estoque" = PROPOSTA pendente,
-  // "danificada" = Separadas na hora, entrada/contagem/devolução = proposta.
-  // TODA a lógica vive em src/v3/warehouse/op-stock.js (op.js não cresce).
+  // Estoque do operador (S15 Fase 2 + Fase 3). TODA a lógica vive em
+  // src/v3/warehouse/op-stock.js (propostas) e op-warehouse.js (hub: scanner
+  // pareado, organizar, contar por peso, tarefas, caixa nova) — op.js não cresce.
   // O INSERT cru em v3.stock_movements (R076) saiu daqui: escrita só pelo service.
-  const _opStockMod = require('../v3/warehouse/op-stock');
   const { StockRequestService: _StockRequestSvc } = require('../v3/services/StockRequestService');
-  let _opStock = null;
-  const opStock = () => (_opStock || (_opStock = _opStockMod.createOpStock({
-    db, stock: stockKiosk,
-    requests: deps.stockRequests || new _StockRequestSvc({ db, stock: stockKiosk }),
-  })));
-  const sendStock = (res, out) => res.status(out.status || 200).json(out.body);
-
-  router.post('/api/v3/op/stock/take', h(async (req, res) => {
+  let _opStock = null; let _opWh = null;
+  const _stockReqs = () => (deps.stockRequests || new _StockRequestSvc({ db, stock: stockKiosk }));
+  const opStock = () => (_opStock || (_opStock = require('../v3/warehouse/op-stock')
+    .createOpStock({ db, stock: stockKiosk, requests: _stockReqs() })));
+  const opWh = () => (_opWh || (_opWh = require('../v3/warehouse/op-warehouse')
+    .createOpWarehouse({ db, stock: stockKiosk, requests: _stockReqs() })));
+  const sendStock = (res, out) => (out && out.sse ? null : res.status(out.status || 200).json(out.body));
+  const opRoute = (method, path, fn) => router[method]('/api/v3/op/' + path, h(async (req, res) => {
     const s = await requireSession(req, res); if (!s) return;
-    sendStock(res, await opStock().take(s, req.body));
+    sendStock(res, await fn(s, method === 'get' ? req.query : req.body, res));
   }));
-
-  // entrada / contagem / devolução recebida → fila de aprovação do admin
-  router.post('/api/v3/op/stock/propose', h(async (req, res) => {
-    const s = await requireSession(req, res); if (!s) return;
-    sendStock(res, await opStock().propose(s, req.body));
-  }));
-
-  // Registrado hoje (16h) — propostas + danificadas + reposições, com estado
-  router.get('/api/v3/op/stock/recent', h(async (req, res) => {
-    const s = await requireSession(req, res); if (!s) return;
-    sendStock(res, await opStock().recent(s));
-  }));
+  // F2: take/propose/recent. F3: scan pareado, organizar (IMEDIATO), contagem
+  // por peso/manual (proposta), tarefas, busca, caixa nova + etiqueta.
+  opRoute('post', 'stock/take', (s, b) => opStock().take(s, b));
+  opRoute('post', 'stock/propose', (s, b) => opStock().propose(s, b));
+  opRoute('get', 'stock/recent', (s) => opStock().recent(s));
+  opRoute('post', 'scan/pair', (s, b) => opWh().pair(s, b));
+  opRoute('get', 'scan/resolve', (s, q) => opWh().resolve(s, q));
+  opRoute('post', 'stock/organize', (s, b) => opWh().organize(s, b));
+  opRoute('post', 'stock/count/weigh', (s, b) => opWh().countWeigh(s, b));
+  opRoute('post', 'stock/count/manual', (s, b) => opWh().countManual(s, b));
+  opRoute('get', 'stock/tasks', (s) => opWh().tasks(s));
+  opRoute('get', 'stock/lookup', (s, q) => opWh().lookup(s, q));
+  opRoute('post', 'stock/box/new', (s, b) => opWh().boxNew(s, b));
+  opRoute('get', 'stock/box/label', (s, q) => opWh().boxLabel(s, q));
+  // O CELULAR não tem page token nem sessão: o código do pareamento é a credencial.
+  // Por isso /api/v3/scan/* fica FORA do gate de /api/v3/op/* (ver linha ~100).
+  router.post('/api/v3/scan/push', h(async (req, res) => sendStock(res, await opWh().push(req.body))));
+  router.post('/api/v3/scan/keepalive', h(async (req, res) => sendStock(res, await opWh().keepalive(req.body))));
+  router.get('/api/v3/scan/stream', h(async (req, res) => { const s = await opAuth.getSession(db, req.query.t); if (!s) return res.status(401).json({ error: 'invalid_session' }); sendStock(res, await opWh().stream(s, req.query, res)); })); // EventSource não manda header: sessão via ?t=, fora do gate
 
   // HEARTBEAT do lock: reporta o TEMPO ATIVO (teclado/mouse) da pessoa na estação
   // — o "quanto o Vitor ficou mexendo no PC". O lock manda a cada ~20s. Bruno 07-17.

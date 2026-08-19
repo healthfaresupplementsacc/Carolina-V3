@@ -1,0 +1,25 @@
+{
+  "_comment": "S15 Fase 3 — GET /api/v3/warehouse/labels?bins=1,7&boxes=21. Tres etiquetas: duas de prateleira e uma de caixa. A pagina Etiquetas desenha Code 128 e QR no cliente; o backend so manda o texto. line2 = prateleira/area (bin) ou produto (caixa); line3 = minimo/capacidade (bin) ou qtd + lote (caixa).",
+  "data": {
+    "labels": [
+      {
+        "kind": "bin", "bin_id": 1, "code": "A03B2",
+        "line2": "Prateleira S2 · A03", "line3": "Benfotiamine 300 · minimo 20",
+        "area": "P&P", "capacity": 48,
+        "url": "https://hf.local/scan/l/A03B2"
+      },
+      {
+        "kind": "bin", "bin_id": 7, "code": "B03S4",
+        "line2": "Prateleira S4 · B03", "line3": "L-Carnitine 1500 · minimo 24",
+        "area": "P&P", "capacity": 48,
+        "url": "https://hf.local/scan/l/B03S4"
+      },
+      {
+        "kind": "box", "box_id": 21, "code": "BX-0004",
+        "line2": "Benfotiamine 300", "line3": "180 garrafas · lote L-2026-07",
+        "qty": 180, "batch_number": "L-2026-07", "sealed": true,
+        "url": "https://hf.local/scan/l/BX-0004"
+      }
+    ]
+  }
+}

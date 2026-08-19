@@ -174,12 +174,14 @@
   function restockBody(bin, box) {
     return { bin_id: bin.id, box_id: box.id, qty: restockQty(bin, box) };
   }
+  /* Confirmação diz o que aconteceu E o que acontece depois. Mesmas frases do
+     hub de estoque (/op/estoque): o operador usa as duas telas no mesmo dia. */
   var TOASTS = {
     pick: 'Registrado. Vai pra aprovação do admin, já saiu do disponível.',
-    damaged: 'Danificada registrada (Separadas)',
-    entrada: 'Enviado pra aprovação',
-    count: 'Enviado pra aprovação',
-    restock: 'Prateleira reposta',
+    damaged: 'Registrado. Já saiu do vendável e foi pra Separadas.',
+    entrada: 'Enviado pra aprovação. O admin aprova e o número muda.',
+    count: 'Enviado pra aprovação. O admin aprova e o número muda.',
+    restock: 'Prateleira reposta. Saiu da caixa e entrou na prateleira.',
   };
   function submitToast(kind) { return TOASTS[kind] || TOASTS.pick; }
   // Contagem EXIGE local (o admin aplica o count no bin/caixa informado).

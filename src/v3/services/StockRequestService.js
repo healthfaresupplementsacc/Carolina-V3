@@ -68,7 +68,16 @@ class StockRequestService {
 
   /**
    * p: {product_id, kind, direction, qty, bin_id?, box_id?, issue_id?, reason?,
-   *     note?, person_id?, login?, is_test?}
+   *     note?, meta?, person_id?, login?, is_test?}
+   *
+   * `meta` (S15 Fase 3, migration 072) é o DETALHE de como a proposta nasceu:
+   *  - contagem por peso: {gross_g, tare_g, unit_weight_g, computed_qty, residual_g,
+   *    confidence} — sem isso o admin aprovaria um número sem saber de onde veio;
+   *  - contagem manual: {computed_qty, method:'manual'} — carrega o found REAL,
+   *    inclusive 0 (a fila exige qty > 0, mas "está vazio" é uma contagem válida);
+   *  - caixa nova: {box:{new:true, batch_number, area, tare_g}} — o número da caixa
+   *    é alocado só na aprovação (número de caixa nunca se repete, então não se
+   *    queima um na proposta que pode ser recusada).
    */
   async propose(p = {}) {
     if (!p.product_id) throw new Error('propose: product_id obrigatório');
@@ -79,11 +88,12 @@ class StockRequestService {
       const r = await c.query(
         `INSERT INTO v3.stock_change_requests
            (product_id, kind, direction, qty, bin_id, box_id, issue_id, reason, note,
-            proposed_by_person_id, proposed_by_login, is_test)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+            proposed_by_person_id, proposed_by_login, is_test, meta)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb) RETURNING *`,
         [p.product_id, p.kind, p.direction, p.qty, p.bin_id || null, p.box_id || null,
           p.issue_id || null, p.reason || null, p.note || null,
-          p.person_id || null, p.login || null, !!p.is_test]);
+          p.person_id || null, p.login || null, !!p.is_test,
+          p.meta ? JSON.stringify(p.meta) : null]);
       const row = r.rows[0];
       await this._audit(c, {
         actorPersonId: p.person_id, action: 'stock_request.propose', targetId: row.id,
@@ -187,9 +197,33 @@ class StockRequestService {
     });
   }
 
+  /** meta da proposta como objeto (a coluna é jsonb; driver pode devolver string). */
+  _metaOf(req) {
+    const m = req && req.meta;
+    if (!m) return {};
+    if (typeof m === 'string') { try { return JSON.parse(m) || {}; } catch (_) { return {}; } }
+    return m;
+  }
+
+  /**
+   * Aloca o PRÓXIMO número de caixa: BX-0451, sequencial, nunca reusado (S15 F3).
+   * Olha o maior número já existente com o prefixo e soma 1 — caixa deletada ou
+   * esvaziada NÃO libera o número (o histórico de movimentos aponta pra ele).
+   */
+  async _allocateBoxNumber(c) {
+    const r = await c.query(
+      `SELECT box_number FROM v3.stock_boxes
+        WHERE box_number ~ '^BX-[0-9]+$'
+        ORDER BY (substring(box_number from 4))::int DESC LIMIT 1`);
+    const last = r.rows[0] ? parseInt(String(r.rows[0].box_number).slice(3), 10) : 0;
+    const next = (Number.isFinite(last) ? last : 0) + 1;
+    return 'BX-' + String(next).padStart(4, '0');
+  }
+
   /** Aplica a proposta pelo StockService, conforme o kind. */
   async _apply(req, p = {}) {
     const sourceRef = 'request:' + req.id;
+    const meta = this._metaOf(req);
     const common = {
       product_id: req.product_id, person_id: p.person_id || req.proposed_by_person_id || null,
       source: 'request', source_ref: sourceRef, actor_type: 'admin',
@@ -199,12 +233,33 @@ class StockRequestService {
     switch (req.kind) {
       case 'take':
         return this.stock.pick({ ...common, qty: req.qty, bin_id: req.bin_id || null, allow_box: true });
-      case 'entrada':
+      case 'entrada': {
+        // CAIXA NOVA (S15 F3): o operador propôs "chegou uma caixa"; o número é
+        // alocado agora, na aprovação, e a entrada vai direto pra essa caixa.
+        let boxId = req.box_id || null;
+        if (!boxId && meta.box && meta.box.new) {
+          boxId = await this._withTx(async (c) => {
+            const number = await this._allocateBoxNumber(c);
+            const ins = await c.query(
+              `INSERT INTO v3.stock_boxes
+                 (box_number, product_id, area, batch_number, tare_g, created_by_person_id)
+               VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+              [number, req.product_id, meta.box.area || null, meta.box.batch_number || null,
+                meta.box.tare_g != null ? meta.box.tare_g : null,
+                req.proposed_by_person_id || null]);
+            return ins.rows[0].id;
+          });
+        }
         return this.stock.storeIn({ ...common, qty: req.qty,
+          bin_id: req.bin_id || null, box_id: boxId });
+      }
+      case 'count': {
+        // o found REAL mora no meta (contagem-no-zero: qty da fila é > 0 por CHECK,
+        // mas "está vazio" tem que aplicar 0 mesmo).
+        const found = Number.isInteger(meta.computed_qty) ? meta.computed_qty : req.qty;
+        return this.stock.count({ ...common, found,
           bin_id: req.bin_id || null, box_id: req.box_id || null });
-      case 'count':
-        return this.stock.count({ ...common, found: req.qty,
-          bin_id: req.bin_id || null, box_id: req.box_id || null });
+      }
       case 'return_in':
       case 'issue_release':
         if (req.issue_id) {

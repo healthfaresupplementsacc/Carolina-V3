@@ -9,6 +9,10 @@ const APP = fs.readFileSync(path.join(__dirname, '..', 'op', 'app.js'), 'utf8');
 // S15 Fase 2: o workspace (picklist/estoque) saiu do app.js pro ws.js — os fetches
 // de /api/v3/op/stock/* vivem lá, então o guard de endpoints varre OS DOIS.
 const WSJS = fs.readFileSync(path.join(__dirname, '..', 'op', 'ws.js'), 'utf8');
+// S15 Fase 3: o hub de estoque (/op/estoque.html) e a pagina do celular (/scan/)
+// tambem falam com a API do operador — entram no mesmo guard de endpoints.
+const ESTJS = fs.readFileSync(path.join(__dirname, '..', 'op', 'estoque.js'), 'utf8');
+const SCANJS = fs.readFileSync(path.join(__dirname, '..', 'scan', 'scan.js'), 'utf8');
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'op', 'index.html'), 'utf8');
 const SW = fs.readFileSync(path.join(__dirname, '..', 'op', 'sw.js'), 'utf8');
 
@@ -29,8 +33,19 @@ const REAL = [
   '/api/v3/op/picklist', '/api/v3/op/stock-gaps', '/api/v3/op/stock/recent', '/api/v3/op/stock/take',
   // S15 Fase 2 — propostas do operador + contexto/reposição de prateleira
   '/api/v3/op/stock/propose', '/api/v3/op/stock/context', '/api/v3/op/stock/restock',
+  // S15 Fase 3 — hub de estoque: organizar, contar (pesagem), tarefas, busca,
+  // caixa nova + etiqueta, e o pareamento do celular como leitor.
+  '/api/v3/op/stock/organize', '/api/v3/op/stock/count/weigh', '/api/v3/op/stock/count/manual',
+  '/api/v3/op/stock/tasks', '/api/v3/op/stock/lookup',
+  '/api/v3/op/stock/box/new', '/api/v3/op/stock/box/label',
+  '/api/v3/op/scan/pair', '/api/v3/op/scan/resolve',
+  '/api/v3/op/scan/keepalive',
   '/api/v3/architect/person/',
 ];
+
+// A pagina do CELULAR (/scan/) vive FORA do gate do /op: nao tem page token nem
+// sessao de kiosk, a credencial e o proprio codigo do par (plano Fase 3).
+const NON_OP_PREFIXES = ['/api/v3/scan/push', '/api/v3/scan/keepalive', '/api/v3/scan/stream'];
 
 describe('op v4 — screens e handlers', () => {
   test('login: keypad + dots + submitPin', () => {
@@ -101,14 +116,32 @@ describe('op v4 — wiring de API (sem inventar endpoint)', () => {
     expect(APP).toContain("'/api/v3/op/event/start'");
     expect(APP).toContain('startedAt ? '); // ternário escolhe o path
   });
-  test('todo /api/v3/op/ usado é endpoint REAL (app.js + ws.js)', () => {
-    const used = (APP + '\n' + WSJS).match(/\/api\/v3\/(op|architect)\/[a-z0-9/_:+.${}'"\- ]*/gi) || [];
+  test('todo /api/v3/op/ usado é endpoint REAL (app.js + ws.js + estoque.js)', () => {
+    const used = (APP + '\n' + WSJS + '\n' + ESTJS).match(/\/api\/v3\/(op|architect)\/[a-z0-9/_:+.${}'"\- ]*/gi) || [];
     used.forEach((u) => {
       // normaliza: corta em template/interpolação/aspas
       const base = u.replace(/['"`].*$/, '').replace(/\$\{.*$/, '').replace(/' \+.*$/, '');
       const ok = REAL.some((r) => base.indexOf(r) === 0 || r.indexOf(base) === 0 || base.indexOf(r) >= 0);
-      expect(ok).toBe(true);
+      expect(ok ? true : `endpoint inventado: ${base}`).toBe(true);
     });
+  });
+  test('o hub de estoque usa os endpoints da Fase 3 (não inventa caminho)', () => {
+    ['stock/organize', 'stock/count/weigh', 'stock/count/manual', 'stock/tasks',
+      'stock/lookup', 'stock/box/new', 'stock/box/label', 'scan/pair', 'scan/resolve',
+    ].forEach((p) => expect(ESTJS).toContain(p));
+    // o SSE leva a sessão na query (EventSource não manda header)
+    expect(ESTJS).toContain('scan/stream?code=');
+    expect(ESTJS).toContain('&t=');
+  });
+  test('a página do celular só fala com as rotas fora do gate do /op', () => {
+    const used = SCANJS.match(/\/api\/v3\/[a-z0-9/_-]*/gi) || [];
+    expect(used.length).toBeGreaterThan(0);
+    used.forEach((u) => {
+      const ok = NON_OP_PREFIXES.some((p) => u.indexOf(p) === 0);
+      expect(ok ? true : `celular não pode chamar ${u} (fora do gate = só scan/push|keepalive)`).toBe(true);
+    });
+    // sem page token na página do celular: a credencial é o código do par
+    expect(SCANJS).not.toContain('HF_OP_CONFIG');
   });
   test('voice é Web Speech → nota (sem upload no v4; documentado)', () => {
     expect(APP).toContain('SpeechRecognition');
@@ -126,9 +159,11 @@ describe('op v4 — html + sw', () => {
     expect(HTML.indexOf('/op/ws.js')).toBeLessThan(HTML.indexOf('/op/app.js"'));
     expect(HTML).toContain('#0f4c92');
   });
-  test('sw é hf-op-v40 network-first e cacheia ws.js', () => {
-    expect(SW).toContain("'hf-op-v40'");
+  test('sw é hf-op-v41 network-first e cacheia ws.js + o hub de estoque', () => {
+    expect(SW).toContain("'hf-op-v41'");   // S15 Fase 3: bump obriga o cliente a pegar a tela nova
     expect(SW).toContain("'/op/ws.js'");
+    expect(SW).toContain("'/op/estoque.js'");
+    expect(SW).toContain("'/op/vendor/code128.js'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

@@ -1,0 +1,12 @@
+{
+  "_comment": "S15 Fase 3 — resposta de POST /api/v3/warehouse/import-veeqo (bulk). Regra travada: delta = veeqo.physical - nosso total; delta > 0 entra como 'a organizar' (kind import, idempotente por dia); delta < 0 NAO desconta, volta em `negative` pra revisao manual; delta 0 e contado em `skipped`. Derivado da fixture warehouse-overview.json: so o produto 8 (Ashwagandha, +3) entra; o produto 1 (Benfotiamine, -12) volta pra revisao; 5 produtos ja batem; o 7 nao tem SKU base.",
+  "data": {
+    "imported": [
+      { "product_id": 8, "product": "Ashwagandha", "delta": 3 }
+    ],
+    "negative": [
+      { "product_id": 1, "product": "Benfotiamine 300", "delta": -12 }
+    ],
+    "skipped": 5
+  }
+}

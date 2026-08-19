@@ -1,0 +1,251 @@
+{
+  "at": "2026-08-19T04:35:18.175Z",
+  "results": [
+    {
+      "group": "boot",
+      "name": "window.HF_EST definido por /op/estoque.js",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "Code128 e QR vendorados carregaram (sem CDN)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "keypad de PIN renderizou",
+      "pass": true,
+      "detail": "12 teclas"
+    },
+    {
+      "group": "login",
+      "name": "entrou no hub (as 6 acoes aparecem)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "home",
+      "name": "Caixa nova diz que vem da producao, nao de fornecedor",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "home",
+      "name": "Tarefas de hoje veio do stock/tasks",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "home",
+      "name": "Registrado hoje veio do stock/recent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "home",
+      "name": "chip de celular comeca em \"sem celular\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "organizar",
+      "name": "scan do bin selecionou o destino (BIN A03B2)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "organizar",
+      "name": "scan do UPC selecionou o produto (Rutin)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "organizar",
+      "name": "posta stock/organize com product_id, qty e bin_id",
+      "pass": true,
+      "detail": "{\"product_id\":99,\"qty\":12,\"bin_id\":1}"
+    },
+    {
+      "group": "organizar",
+      "name": "toast confirma onde guardou",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "bin escaneado ja traz o produto cadastrado",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "mostra quanto a prateleira vazia pesa (500 g)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "contagem CEGA: nao mostra a quantidade do sistema",
+      "pass": true,
+      "detail": "\"🗄️\\nBIN A03B2 · S4\\nRutin 500mg\\ntrocar\""
+    },
+    {
+      "group": "contar",
+      "name": "explica por que o numero fica escondido",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "previa da pesagem aparece com a conta certa (100)",
+      "pass": true,
+      "detail": "previa=100"
+    },
+    {
+      "group": "contar",
+      "name": "previa mostra liquido 4800 g e sobra 0 g",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "confianca alta (sobra zero)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "Confirmar posta gross_g + tara + bin_id (o servidor recalcula)",
+      "pass": true,
+      "detail": "{\"product_id\":99,\"gross_g\":5300,\"tare_g\":500,\"bin_id\":1}"
+    },
+    {
+      "group": "contar",
+      "name": "toast diz que foi enviada E que o admin aprova",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contar",
+      "name": "\"Esta vazio\" posta count/manual com qty 0",
+      "pass": true,
+      "detail": "{\"product_id\":99,\"qty\":0,\"bin_id\":1}"
+    },
+    {
+      "group": "entrada",
+      "name": "posta stock/box/new com produto, qty e lote",
+      "pass": true,
+      "detail": "{\"product_id\":42,\"qty\":48,\"batch_number\":\"L-22\"}"
+    },
+    {
+      "group": "parear",
+      "name": "codigo de 6 caracteres na tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "parear",
+      "name": "QR renderizou como <svg> de verdade (nao imagem de CDN)",
+      "pass": true,
+      "detail": "{\"found\":true,\"svg\":true,\"canvas\":false,\"rects\":2}"
+    },
+    {
+      "group": "parear",
+      "name": "mostra a URL /scan/?c= pro celular",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "parear",
+      "name": "codigo vindo do celular entra na tela ativa (CAIXA BX-0451)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "etiqueta",
+      "name": "Code 128 vira SVG com barras",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "etiqueta",
+      "name": "QR da etiqueta vira SVG",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "etiqueta",
+      "name": "linha 3 tem quantidade e lote",
+      "pass": true,
+      "detail": "100 garrafas · lote L-22"
+    },
+    {
+      "group": "texto",
+      "name": "sem em dash na tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "texto",
+      "name": "sem entidade HTML crua vazando",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "pagina abriu sem erro de script",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "ZXing vendorado carregou (fallback do BarcodeDetector)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "leu o codigo do par da URL",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "campo \"digitar na mao\" SEMPRE existe (REGRA #0)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "sem camera a pagina avisa e oferece digitar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "diz a qual computador esta ligado",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "celular",
+      "name": "posta /api/v3/scan/push com code do par + barcode",
+      "pass": true,
+      "detail": "{\"code\":\"K7M2QP\",\"barcode\":\"BX-0451\",\"symbology\":\"manual\"}"
+    },
+    {
+      "group": "celular",
+      "name": "mostra o ultimo codigo lido",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "nenhum erro de console no fluxo inteiro",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

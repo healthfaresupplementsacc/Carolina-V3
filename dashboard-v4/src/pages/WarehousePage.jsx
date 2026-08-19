@@ -31,10 +31,13 @@ export function canRead() {
 // ── helpers ───────────────────────────────────────────────────────
 const n = (v) => (v == null ? 0 : Number(v));
 const fmt = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR'));
+/* Chips de status: as MESMAS palavras que o operador vê no hub dele. Nada de
+   jargão de sistema na tela (drift virou "Veeqo diferente", sem_sku virou
+   "SKU sem mapa"): quem lê a tabela decide o que fazer sem traduzir nada. */
 const STATUS_LABEL = {
   ok: 'ok', baixo: 'baixo', zerado: 'zerado', negativo: 'negativo',
-  drift: 'drift', pendente: 'aprovação pendente', organizar: 'organizar',
-  sem_local: 'sem local', sem_sku: 'SKU não mapeado', repor: 'repor prateleira',
+  drift: 'Veeqo diferente', pendente: 'pendente', organizar: 'organizar',
+  sem_local: 'sem local', sem_sku: 'SKU sem mapa', repor: 'repor',
 };
 const STATUS_TONE = {
   ok: 'ok', baixo: 'warn', zerado: 'bad', negativo: 'bad', drift: 'bad',
@@ -50,8 +53,38 @@ const ATTENTION_TONE = {
 };
 const ATTENTION_LABEL = {
   out: 'ZERADO', low: 'BAIXO', negative: 'NEGATIVO', organizar: 'ORGANIZAR',
-  pending: 'PENDENTE', drift: 'DRIFT', sem_local: 'SEM LOCAL',
+  pending: 'PENDENTE', drift: 'VEEQO DIFERENTE', sem_local: 'SEM LOCAL',
 };
+
+/* Valores crus do banco viram palavras que o armazém usa. Se aparecer um valor
+   novo, mostra ele mesmo em vez de sumir: melhor uma palavra estranha do que
+   uma célula vazia. */
+const MOV_LABEL = {
+  entrada: 'entrada', pick: 'saiu em pedido', take: 'pegou do estoque',
+  restock: 'repôs prateleira', place: 'organizou', move: 'moveu',
+  adjust: 'ajuste', count: 'contagem', separate: 'separou',
+  return_in: 'devolução', import: 'importado da Veeqo', issue_release: 'voltou de Separadas',
+};
+const ISSUE_REASON = { label: 'rótulo ruim', seal: 'sem lacre', other: 'outro', return: 'devolução' };
+const ISSUE_STATUS = { separated: 'separada', restocked: 'voltou ao estoque', relabeled: 'rótulo refeito', discarded: 'descartada' };
+const REQ_STATUS = { pending: 'pendente', approved: 'aprovado', rejected: 'recusado', applied: 'aplicado' };
+const word = (map, v) => map[String(v || '')] || String(v || '—');
+
+/* Erro vira instrução. O backend do estoque manda `detail` em português nos
+   4xx (quantidade inválida, sem permissão, etc): essa mensagem é melhor que
+   qualquer texto genérico, então ela passa inteira. O que a gente troca é o
+   resto, onde só sobraria "HTTP 500" na cara de quem está trabalhando. */
+export function friendlyError(e) {
+  const msg = String((e && e.message) || e || '');
+  if (/\b(401|403|forbidden|unauthorized)\b/i.test(msg)) return 'Você não tem permissão pra isso. Fale com o admin.';
+  if (/\b(404)\b/i.test(msg)) return 'Esse item não existe mais. Atualize a página.';
+  if (/\b(409|conflict)\b/i.test(msg)) return 'Alguém mexeu nisso antes de você. Atualize a página e faça de novo.';
+  if (/\b(5\d\d)\b/.test(msg) || /failed to fetch|networkerror/i.test(msg)) {
+    return 'O sistema não respondeu. Espere um pouco e tente de novo. Nada foi salvo.';
+  }
+  if (/^HTTP\s/i.test(msg) || !msg) return 'Não deu pra salvar. Tente de novo.';
+  return msg;
+}
 
 function locChips(row) {
   const out = [];
@@ -61,7 +94,7 @@ function locChips(row) {
 }
 
 // ═══ modal genérico 2 passos ══════════════════════════════════════
-function TwoStepModal({ title, product, baseSku, children, preview, onCancel, onConfirm, confirmLabel, busy, danger }) {
+function TwoStepModal({ title, product, baseSku, children, preview, onCancel, onConfirm, confirmLabel, busy, danger, help }) {
   const [step, setStep] = React.useState(1);
   return (
     <div className="kit-modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}>
@@ -72,6 +105,8 @@ function TwoStepModal({ title, product, baseSku, children, preview, onCancel, on
           {product ? product.nickname || product.name : ''}
           {baseSku ? <span className="kit-chip neutral" style={{ marginLeft: 8 }}>{baseSku}</span> : null}
         </div>
+        {/* uma linha dizendo o que a ação faz, sempre visível nos dois passos */}
+        {help && <div data-help style={{ fontSize: 13, color: 'var(--ink-dim)', marginTop: 8, lineHeight: 1.45 }}>{help}</div>}
 
         {step === 1 && <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>}
 
@@ -159,9 +194,28 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
   }
 
   const TITLES = {
-    entrada: 'Entrada de garrafas', organizar: 'Organizar (colocar em local)',
+    entrada: 'Entrada de garrafas', organizar: 'Organizar',
     mover: 'Mover entre locais', ajustar: 'Ajustar quantidade',
-    separar: 'Separar garrafas', devolucao: 'Registrar devolução',
+    separar: 'Separar garrafas', devolucao: 'Devolução',
+  };
+  /* Confirmação: o que aconteceu, e onde o número foi parar. */
+  const DONE = {
+    entrada: 'Entrada registrada. As garrafas já estão no total.',
+    organizar: 'Organizado. Saiu de A organizar e entrou no local.',
+    mover: 'Movido. O total continua o mesmo.',
+    ajustar: 'Total ajustado. O movimento ficou registrado com o motivo.',
+    separar: 'Separado. Saiu do vendável e foi pra Separadas.',
+    devolucao: 'Devolução registrada. Entrou em Separadas.',
+  };
+  /* O que cada modal FAZ, numa linha, antes dos campos: quem abre "Ajustar"
+     precisa saber que aquilo muda o total de verdade. */
+  const HELP = {
+    entrada: 'Garrafas novas entrando no armazém. Escolha se já vão pra um local ou ficam em A organizar.',
+    organizar: 'Tira de A organizar e coloca numa prateleira ou caixa. O total não muda.',
+    mover: 'Muda de lugar dentro do armazém. O total não muda.',
+    ajustar: 'Corrige o total na mão. Use só quando a contagem física não bater.',
+    separar: 'Tira do vendável e manda pra Separadas. Continua aqui, mas não conta no total.',
+    devolucao: 'Garrafa que voltou de um cliente. Entra em Separadas até alguém conferir.',
   };
 
   async function confirm() {
@@ -192,9 +246,9 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
           qty: q, reason: 'return', order_number: orderNumber || undefined, note: note || undefined,
         });
       }
-      onDone(res && res.data && res.data.product, TITLES[action] + ' salva');
+      onDone(res && res.data && res.data.product, DONE[action] || 'Pronto. Os números já mudaram.');
     } catch (e) {
-      onError(e.message || 'erro ao salvar');
+      onError(e);
     } finally { setBusy(false); }
   }
 
@@ -210,7 +264,8 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
       title={TITLES[action]} product={row} baseSku={row.base_sku} busy={busy}
       danger={action === 'separar' || action === 'ajustar'}
       onCancel={onClose} onConfirm={confirm}
-      confirmLabel={'Confirmar: ' + TITLES[action].toLowerCase()}
+      help={HELP[action]}
+      confirmLabel={'Confirmar ' + TITLES[action].toLowerCase()}
       preview={(
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(96px,1fr))', gap: 10 }}>
           <div><div className="kit-mlabel">Total</div><b>{cur.total} → {next.total}</b></div>
@@ -279,7 +334,7 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
             <div className="kit-seg">
               {['label', 'seal', 'other', 'return'].map((r) => (
                 <button key={r} type="button" className={reason === r ? 'on' : ''} onClick={() => setReason(r)}>
-                  {r === 'label' ? 'label' : r === 'seal' ? 'lacre' : r === 'other' ? 'outro' : 'devolução'}
+                  {r === 'label' ? 'rótulo ruim' : r === 'seal' ? 'sem lacre' : r === 'other' ? 'outro' : 'devolução'}
                 </button>
               ))}
             </div>
@@ -328,7 +383,7 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
   async function act(fn, okMsg) {
     setBusy(true);
     try { const r = await fn(); ack(okMsg); if (r && r.data && r.data.product) onRowUpdate(r.data.product); load(); }
-    catch (e) { ack('erro: ' + (e.message || e)); }
+    catch (e) { ack(friendlyError(e), true); }
     finally { setBusy(false); }
   }
 
@@ -355,8 +410,8 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
             <button className="kit-btn sec sm" onClick={onClose}>Fechar</button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 8, marginTop: 14 }}>
-            {[['Total', p.total], ['Pratel.', p.shelf_qty], ['Caixa', p.box_qty],
-              ['A org.', p.unplaced_qty], ['Reserv.', p.reserved], ['Dispon.', p.available]].map(([l, v]) => (
+            {[['Total', p.total], ['Prateleira', p.shelf_qty], ['Caixa', p.box_qty],
+              ['A organizar', p.unplaced_qty], ['Reservado', p.reserved], ['Disponível', p.available]].map(([l, v]) => (
               <div key={l}>
                 <div className="kit-mlabel">{l}</div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--primary-deep)', fontVariantNumeric: 'tabular-nums' }}>{fmt(v)}</div>
@@ -391,7 +446,9 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
                       <td>{writable && (
                         <span style={{ display: 'flex', gap: 6 }}>
                           <button className="kit-btn xs sec" onClick={() => onAction('mover', p)}>Repor</button>
-                          <button className="kit-btn xs sec" onClick={() => onAction('ajustar', p)}>Contar</button>
+                          {/* abre Ajustar: corrigir o número depois de contar na
+                              prateleira. Contagem em si é do operador (hub /op). */}
+                          <button className="kit-btn xs sec" onClick={() => onAction('ajustar', p)}>Ajustar</button>
                         </span>
                       )}</td>
                     </tr>
@@ -452,7 +509,7 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
                   {((d && d.movements) || []).map((m) => (
                     <tr key={m.id}>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{String(m.created_at || '').slice(0, 16).replace('T', ' ')}</td>
-                      <td><span className="kit-chip neutral">{m.kind}</span></td>
+                      <td><span className="kit-chip neutral">{word(MOV_LABEL, m.kind)}</span></td>
                       <td className="num">{m.qty > 0 ? '+' : ''}{fmt(m.qty)}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{m.bin_code || m.box_number || '—'}</td>
                       <td style={{ color: 'var(--ink-dim)' }}>{m.person || '—'}</td>
@@ -474,11 +531,11 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
                   {((d && d.issues) || []).map((it) => (
                     <tr key={it.id}>
                       <td className="num">{fmt(it.qty)}</td>
-                      <td><span className="kit-chip warn">{it.reason}</span></td>
+                      <td><span className="kit-chip warn">{word(ISSUE_REASON, it.reason)}</span></td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{it.order_number || '—'}</td>
                       <td style={{ color: 'var(--ink-dim)' }}>{it.person || '—'}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{String(it.created_at || '').slice(0, 10)}</td>
-                      <td>{it.status}</td>
+                      <td>{word(ISSUE_STATUS, it.status)}</td>
                       <td>{writable && it.status === 'separated' && (
                         <span style={{ display: 'flex', gap: 5 }}>
                           <button className="kit-btn xs sec" disabled={busy}
@@ -506,10 +563,10 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
                   {((d && d.requests) || []).map((r) => (
                     <tr key={r.id}>
                       <td>{r.proposed_by || '—'}</td>
-                      <td><span className="kit-chip neutral">{r.kind}</span></td>
+                      <td><span className="kit-chip neutral">{word(MOV_LABEL, r.kind)}</span></td>
                       <td className="num">{fmt(r.qty)}</td>
                       <td style={{ color: 'var(--ink-dim)' }}>{r.reason || '—'}</td>
-                      <td><span className={'kit-chip ' + (r.status === 'pending' ? 'warn' : r.status === 'approved' ? 'ok' : 'neutral')}>{r.status}</span></td>
+                      <td><span className={'kit-chip ' + (r.status === 'pending' ? 'warn' : r.status === 'approved' ? 'ok' : 'neutral')}>{word(REQ_STATUS, r.status)}</span></td>
                       <td>{writable && r.status === 'pending' && (
                         <span style={{ display: 'flex', gap: 5 }}>
                           <button className="kit-btn xs" disabled={busy} onClick={() => act(() => wh.approveRequest(r.id), 'aprovado')}>Aprovar</button>
@@ -620,6 +677,184 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
   );
 }
 
+// ═══ importar da Veeqo (S15 Fase 3) ═══════════════════════════════
+/* Traz o total da Veeqo pro nosso estoque. A regra que o Bruno travou:
+   delta = veeqo.physical − nosso total.
+     delta > 0 → entra como "a organizar" (o operador coloca no lugar depois);
+     delta < 0 → NUNCA desconta sozinho, volta na lista de revisão manual;
+     delta = 0 → pula.
+   Por isso o passo 1 mostra a conta antes: quem importa precisa ver quantas
+   garrafas vão aparecer do nada no estoque. */
+function ImportVeeqoModal({ rows, only, onClose, onDone, onError }) {
+  const [busy, setBusy] = React.useState(false);
+
+  const candidates = React.useMemo(() => {
+    const list = only ? [only] : rows;
+    return list
+      .filter((r) => r.base_sku && r.veeqo && r.veeqo.physical != null)
+      .map((r) => ({ row: r, delta: n(r.veeqo.physical) - n(r.total) }));
+  }, [rows, only]);
+
+  const pos = candidates.filter((c) => c.delta > 0);
+  const neg = candidates.filter((c) => c.delta < 0);
+  const zero = candidates.filter((c) => c.delta === 0);
+  const semSku = (only ? [only] : rows).filter((r) => !r.base_sku || !r.veeqo);
+  const totalIn = pos.reduce((a, c) => a + c.delta, 0);
+
+  async function confirm() {
+    setBusy(true);
+    try {
+      const res = await wh.importVeeqo(only ? only.product_id : undefined);
+      const d = (res && res.data) || {};
+      const nImp = (d.imported || []).length;
+      const nNeg = (d.negative || []).length;
+      const msg = nImp
+        ? nImp + (nImp === 1 ? ' produto importado' : ' produtos importados')
+          + (nNeg ? ' · ' + nNeg + ' pra revisar (Veeqo menor que o nosso)' : '')
+        : (nNeg ? 'Nada importado · ' + nNeg + ' pra revisar' : 'Nada pra importar, tudo já bate');
+      onDone(msg, d);
+    } catch (e) {
+      onError(e.message || 'erro ao importar');
+    } finally { setBusy(false); }
+  }
+
+  const listRows = (items, tone) => (
+    <div style={{ maxHeight: 190, overflowY: 'auto', marginTop: 6 }}>
+      {items.slice(0, 40).map((c) => (
+        <div key={c.row.product_id} className="kit-dotted-row" style={{ padding: '6px 0' }}>
+          <b style={{ fontSize: 13, flex: 1 }}>{c.row.nickname || c.row.name}</b>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-dim)' }}>
+            {fmt(c.row.total)} → {fmt(n(c.row.veeqo.physical))}
+          </span>
+          <span className={'kit-chip ' + tone}>{c.delta > 0 ? '+' : ''}{c.delta}</span>
+        </div>
+      ))}
+      {items.length > 40 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-faint)', paddingTop: 6 }}>e mais {items.length - 40}</div>
+      )}
+    </div>
+  );
+
+  return (
+    <TwoStepModal
+      title={only ? 'Importar da Veeqo' : 'Importar da Veeqo (todos)'}
+      product={only} baseSku={only ? only.base_sku : null} busy={busy}
+      onCancel={onClose} onConfirm={confirm}
+      confirmLabel={'Confirmar: importar ' + fmt(totalIn) + ' garrafas'}
+      preview={(
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', gap: 10 }}>
+          <div><div className="kit-mlabel">Entram</div><b>{fmt(pos.length)} produtos</b></div>
+          <div><div className="kit-mlabel">Garrafas</div><b>+{fmt(totalIn)}</b></div>
+          <div><div className="kit-mlabel">Pra revisar</div><b>{fmt(neg.length)}</b></div>
+          <div><div className="kit-mlabel">Já batem</div><b>{fmt(zero.length)}</b></div>
+          <div><div className="kit-mlabel">Sem SKU Veeqo</div><b>{fmt(semSku.length)}</b></div>
+        </div>
+      )}
+    >
+      {/* Uma frase, primeiro, dizendo o que vai acontecer de verdade. O detalhe
+          do caso negativo vem depois, pra quem quiser ler. */}
+      <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5, fontWeight: 600 }}>
+        Vamos usar o número da Veeqo como total e colocar em A organizar. Depois você guarda nas prateleiras e caixas.
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--ink-dim)', lineHeight: 1.5, marginTop: -4 }}>
+        Onde a Veeqo tem MENOS que a gente nada é descontado: essas linhas ficam pra conferir na mão.
+      </div>
+
+      {pos.length > 0 && (
+        <div>
+          <div className="kit-mlabel">Entram no estoque ({pos.length})</div>
+          {listRows(pos, 'ok')}
+        </div>
+      )}
+
+      {neg.length > 0 && (
+        <div>
+          <div className="kit-mlabel">Veeqo menor que o nosso, revisar à mão ({neg.length})</div>
+          {listRows(neg, 'bad')}
+        </div>
+      )}
+
+      {!pos.length && !neg.length && (
+        <div className="kit-card pad" style={{ color: 'var(--ink-dim)' }}>
+          Nada pra importar. Ou os totais já batem, ou nenhum produto tem SKU base da Veeqo mapeado.
+        </div>
+      )}
+    </TwoStepModal>
+  );
+}
+
+/* Painel do drift: a lista dos produtos onde o nosso total e a Veeqo
+   discordam. Chega pelo KPI "Δ Veeqo". Nunca sobrescreve nada sozinho, é uma
+   lista de conferência com atalho pra importar ou abrir o produto. */
+function DriftPanel({ rows, onClose, onOpen, onImport, writable }) {
+  const st = wh.useWarehouse('/drift', [], 0);
+  // fallback: se o endpoint ainda não responder, calcula do overview
+  const fromRows = React.useMemo(() => rows
+    .filter((r) => r.veeqo_match === 'drift' && r.veeqo)
+    .map((r) => ({ product_id: r.product_id, product: r.nickname || r.name,
+                   ours: n(r.total), veeqo: n(r.veeqo.physical), delta: n(r.veeqo.physical) - n(r.total) })),
+  [rows]);
+  const apiList = (st.data && st.data.drift) || (st.data && st.data.products) || null;
+  const list = Array.isArray(apiList) && apiList.length ? apiList : fromRows;
+
+  return (
+    <>
+      <div className="kit-drawer-back" onClick={onClose} />
+      <aside className="kit-drawer" data-panel="drift">
+        <div className="head">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, color: 'var(--primary-deep)', lineHeight: 1.1 }}>
+                Diferença com a Veeqo
+              </div>
+              <div style={{ color: 'var(--ink-dim)', fontSize: 12.5, marginTop: 4 }}>
+                {list.length} {list.length === 1 ? 'produto discorda' : 'produtos discordam'}. A Veeqo é comparação, nunca entra na soma sozinha.
+              </div>
+            </div>
+            <button className="kit-btn sec sm" onClick={onClose}>Fechar</button>
+          </div>
+        </div>
+        <div className="body">
+          <div className="kit-card pad">
+            <table className="kit-table" data-table="drift">
+              <thead><tr><th>Produto</th><th className="num">Aqui</th><th className="num">Veeqo</th><th className="num">Δ</th><th /></tr></thead>
+              <tbody>
+                {list.map((d) => {
+                  const row = rows.find((r) => r.product_id === d.product_id);
+                  const delta = d.delta != null ? n(d.delta) : n(d.veeqo) - n(d.ours);
+                  return (
+                    <tr key={d.product_id}>
+                      <td><b>{d.product || d.name || (row && (row.nickname || row.name)) || ('#' + d.product_id)}</b></td>
+                      <td className="num">{fmt(d.ours != null ? d.ours : (row && row.total))}</td>
+                      <td className="num">{fmt(d.veeqo != null ? d.veeqo : (row && row.veeqo && row.veeqo.physical))}</td>
+                      <td className="num"><span className="kit-chip bad">{delta > 0 ? '+' : ''}{delta}</span></td>
+                      <td>
+                        <span style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                          {row && <button className="kit-btn xs sec" onClick={() => onOpen(row)}>Ver</button>}
+                          {writable && row && delta > 0 && (
+                            <button className="kit-btn xs sec" onClick={() => onImport(row)}>Importar</button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!list.length && (
+                  <tr><td colSpan={5} style={{ color: 'var(--ink-faint)' }}>Nenhuma diferença. Tudo bate com a Veeqo.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 12, lineHeight: 1.6, fontSize: 12.5, color: 'var(--ink-dim)' }}>
+            Diferença com sinal de mais: a Veeqo tem mais que a gente, dá pra importar a diferença.
+            Com sinal de menos: alguém precisa ir lá contar, o sistema nunca desconta sozinho.
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+}
+
 // ═══ menu de ações da linha ═══════════════════════════════════════
 function RowMenu({ row, onAction, writable }) {
   const [open, setOpen] = React.useState(false);
@@ -635,7 +870,9 @@ function RowMenu({ row, onAction, writable }) {
     ['entrada', 'Entrada'],
     ...(n(row.unplaced_qty) > 0 ? [['organizar', 'Organizar']] : []),
     ['mover', 'Mover'], ['ajustar', 'Ajustar'], ['separar', 'Separar'],
-    ['devolucao', 'Devolução'], ['familia', 'Família/SKUs'], ['veeqo', 'Veeqo'],
+    ['devolucao', 'Devolução'], ['familia', 'Família/SKUs'],
+    ...(row.base_sku ? [['importar-veeqo', 'Importar Veeqo']] : []),
+    ['veeqo', 'Veeqo'],
   ];
   return (
     <span ref={ref} style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
@@ -656,6 +893,8 @@ function RowMenu({ row, onAction, writable }) {
 export function WarehousePage() {
   const [modal, setModal] = React.useState(null);       // { action, row }
   const [panel, setPanel] = React.useState(null);
+  const [importOpen, setImportOpen] = React.useState(null); // null | { only:Row|null }
+  const [driftOpen, setDriftOpen] = React.useState(false);
   const [attnAll, setAttnAll] = React.useState(false);      // "ver todos" da caixa de atenção
   const [toast, setToast] = React.useState(null);
   const [rowsPatch, setRowsPatch] = React.useState({}); // product_id → Row atualizado
@@ -666,10 +905,16 @@ export function WarehousePage() {
   const [onlyToday, setOnlyToday] = React.useState(false);
 
   const writable = canWrite();
-  const ack = React.useCallback((m) => { setToast(m); setTimeout(() => setToast(null), 2600); }, []);
+  /* toast guarda o tom junto com o texto: antes o vermelho dependia da frase
+     começar com "erro", então toda mensagem de erro tinha que ser feia. */
+  const ack = React.useCallback((m, bad) => {
+    setToast({ msg: m, bad: !!bad });
+    setTimeout(() => setToast(null), 2600);
+  }, []);
+  const ackErr = React.useCallback((e) => { ack(friendlyError(e), true); }, [ack]);
 
-  // poll 20s, PAUSADO enquanto um modal está aberto
-  const ov = wh.useWarehouse('/overview', [], 20000, !!modal);
+  // poll 20s, PAUSADO enquanto um modal está aberto (inclusive o de import)
+  const ov = wh.useWarehouse('/overview', [], 20000, !!modal || !!importOpen);
   const data = ov.data || {};
   const kpis = data.kpis || {};
   const rawRows = data.products || [];
@@ -724,12 +969,13 @@ export function WarehousePage() {
   function openAction(action, row) {
     if (action === 'familia') { setPanel(row); return; }
     if (action === 'veeqo') { window.location.hash = '#estoque-geral'; return; }
+    if (action === 'importar-veeqo') { setImportOpen({ only: row }); return; }
     setModal({ action, row });
   }
 
   async function approve(requestId) {
-    try { const r = await wh.approveRequest(requestId); ack('aprovado'); if (r && r.data && r.data.product) onRowUpdate(r.data.product); ov.refresh(); }
-    catch (e) { ack('erro: ' + e.message); }
+    try { const r = await wh.approveRequest(requestId); ack('Aprovado. O número do produto já mudou.'); if (r && r.data && r.data.product) onRowUpdate(r.data.product); ov.refresh(); }
+    catch (e) { ackErr(e); }
   }
 
   if (!canRead()) {
@@ -741,15 +987,18 @@ export function WarehousePage() {
     );
   }
 
+  /* Mesmas palavras da tabela e do hub do operador (Total · Reservado ·
+     Disponível · Separadas · A organizar). "Δ Veeqo" virou "Veeqo diferente":
+     ninguém no armazém lê delta. */
   const KPIS = [
-    { k: 'todos',      label: 'Garrafas',            value: kpis.total_bottles },
-    { k: 'reservadas', label: 'Reservadas',          value: kpis.reserved },
-    { k: 'dispon',     label: 'Disponíveis',         value: kpis.available },
-    { k: 'separadas',  label: 'Separadas',           value: kpis.separated },
-    { k: 'organizar',  label: 'A organizar',         value: kpis.unplaced,        tone: n(kpis.unplaced) ? 'warn' : '' },
-    { k: 'repor',      label: 'Prateleiras p/ repor', value: kpis.bins_to_restock, tone: n(kpis.bins_to_restock) ? 'warn' : '' },
-    { k: 'pendente',   label: 'Aprovações',          value: kpis.pending_requests, tone: n(kpis.pending_requests) ? 'warn' : '' },
-    { k: 'drift',      label: 'Δ Veeqo',             value: kpis.drift_products,   tone: n(kpis.drift_products) ? 'bad' : '' },
+    { k: 'todos',      label: 'Total',            value: kpis.total_bottles },
+    { k: 'reservadas', label: 'Reservado',        value: kpis.reserved },
+    { k: 'dispon',     label: 'Disponível',       value: kpis.available },
+    { k: 'separadas',  label: 'Separadas',        value: kpis.separated },
+    { k: 'organizar',  label: 'A organizar',      value: kpis.unplaced,        tone: n(kpis.unplaced) ? 'warn' : '' },
+    { k: 'repor',      label: 'Prateleiras a repor', value: kpis.bins_to_restock, tone: n(kpis.bins_to_restock) ? 'warn' : '' },
+    { k: 'pendente',   label: 'Aprovações',       value: kpis.pending_requests, tone: n(kpis.pending_requests) ? 'warn' : '' },
+    { k: 'drift',      label: 'Veeqo diferente',  value: kpis.drift_products,   tone: n(kpis.drift_products) ? 'bad' : '' },
   ];
 
   return (
@@ -768,8 +1017,13 @@ export function WarehousePage() {
             <button className="kit-btn primary" data-act="entrada-top"
                     onClick={() => filtered[0] && openAction('entrada', filtered[0])}>Entrada</button>
           )}
+          {writable && (
+            <button className="kit-btn sec" data-act="importar-veeqo"
+                    onClick={() => setImportOpen({ only: null })}>Importar da Veeqo</button>
+          )}
           <a className="kit-btn sec" href="#estoque-aprovacoes">Aprovações ({fmt(kpis.pending_requests)})</a>
           <a className="kit-btn sec" href="#estoque-locais">Locais</a>
+          <a className="kit-btn sec" href="#estoque-etiquetas">Etiquetas</a>
         </div>
       </div>
 
@@ -782,6 +1036,9 @@ export function WarehousePage() {
                   onClick={() => {
                     if (kp.k === 'todos') { setStatus('todos'); setOnlyPend(false); return; }
                     if (kp.k === 'pendente') { setOnlyPend(true); setStatus('todos'); return; }
+                    // Δ Veeqo abre a LISTA da diferença: filtrar a tabela não
+                    // responde "quanto e pra que lado", que é o que se quer aqui.
+                    if (kp.k === 'drift') { setDriftOpen(true); return; }
                     if (statuses.includes(kp.k)) setStatus(kp.k); else setStatus('todos');
                   }}>
             <div className="kit-mlabel">{kp.label}</div>
@@ -844,11 +1101,16 @@ export function WarehousePage() {
         <div className="kit-card pad" style={{ marginTop: 16 }} data-empty>
           <div className="kit-h2">Nenhuma prateleira ou caixa cadastrada ainda</div>
           <p className="kit-sub" style={{ marginTop: 6 }}>
-            Nenhuma prateleira ou caixa cadastrada ainda. Cadastre em Locais e faça a primeira Entrada.
+            Comece cadastrando as prateleiras e as caixas em Locais. Sem elas a picklist não sabe pra onde mandar o operador,
+            e o hub do operador não deixa guardar nem contar nada.
           </p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <a className="kit-btn primary" href="#estoque-locais">Cadastrar locais</a>
-            {writable && <button className="kit-btn sec" onClick={() => rows[0] && openAction('entrada', rows[0])}>Fazer a primeira Entrada</button>}
+          <p className="kit-sub" style={{ marginTop: 4 }}>
+            Depois traga os números: Importar da Veeqo puxa o total de cada produto, ou faça a primeira Entrada na mão.
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <a className="kit-btn primary" href="#estoque-locais">1. Cadastrar locais</a>
+            {writable && <button className="kit-btn sec" onClick={() => setImportOpen({ only: null })}>2. Importar da Veeqo</button>}
+            {writable && <button className="kit-btn sec" onClick={() => rows[0] && openAction('entrada', rows[0])}>ou fazer uma Entrada</button>}
           </div>
         </div>
       )}
@@ -875,20 +1137,21 @@ export function WarehousePage() {
         <span className="kit-mlabel">ordenado por disponível ↑ · {filtered.length} produtos</span>
       </div>
 
-      {/* tabela */}
-      <div className="kit-card" style={{ marginTop: 12, padding: '8px 12px 4px', overflowX: 'auto' }}>
+      {/* tabela · cabeçalho GRUDADO: a lista tem ~190 produtos, e sem isso quem
+          rola perde de vista qual coluna é qual e lê o número errado. */}
+      <div className="kit-card" style={{ marginTop: 12, padding: '8px 12px 4px', overflowX: 'auto', overflowY: 'auto', maxHeight: '68vh' }}>
         <table className="kit-table" data-table="produtos">
-          <thead>
+          <thead data-sticky style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--card-bg, #fff)', boxShadow: '0 1px 0 var(--line, #d4e2f0)' }}>
             <tr>
               <th>Produto</th>
               <th className="num">Total</th>
-              <th className="num">Pratel.</th>
+              <th className="num">Prateleira</th>
               <th className="num">Caixa</th>
-              <th className="num">A org.</th>
-              <th className="num">Reserv.</th>
-              <th className="num">Pend.</th>
-              <th className="num">Dispon.</th>
-              <th className="num">Separ.</th>
+              <th className="num">A organizar</th>
+              <th className="num">Reservado</th>
+              <th className="num">Pendente</th>
+              <th className="num">Disponível</th>
+              <th className="num">Separadas</th>
               <th className="num sep">Veeqo</th>
               <th>Status</th>
               <th />
@@ -971,8 +1234,26 @@ export function WarehousePage() {
         <ActionModal
           action={modal.action} row={modal.row}
           onClose={() => setModal(null)}
-          onError={(m) => ack('erro: ' + m)}
+          onError={(m) => ackErr(m)}
           onDone={(product, msg) => { setModal(null); if (product) onRowUpdate(product); ack(msg); ov.refresh(); }}
+        />
+      )}
+
+      {importOpen && (
+        <ImportVeeqoModal
+          rows={rows} only={importOpen.only}
+          onClose={() => setImportOpen(null)}
+          onError={(m) => ackErr(m)}
+          onDone={(msg) => { setImportOpen(null); ack(msg); ov.refresh(); }}
+        />
+      )}
+
+      {driftOpen && (
+        <DriftPanel
+          rows={rows} writable={writable}
+          onClose={() => setDriftOpen(false)}
+          onOpen={(row) => { setDriftOpen(false); setPanel(row); }}
+          onImport={(row) => { setDriftOpen(false); setImportOpen({ only: row }); }}
         />
       )}
 
@@ -988,7 +1269,7 @@ export function WarehousePage() {
         />
       )}
 
-      {toast && <div className={'kit-toast ' + (String(toast).startsWith('erro') ? 'bad' : '')}>{toast}</div>}
+      {toast && <div className={'kit-toast ' + (toast.bad ? 'bad' : '')}>{toast.msg}</div>}
     </div>
   );
 }

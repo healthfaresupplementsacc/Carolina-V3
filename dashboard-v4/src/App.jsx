@@ -47,6 +47,7 @@ import { PicklistPage } from './pages/PicklistPage.jsx';
 import { WarehousePage, canRead as canReadStock } from './pages/WarehousePage.jsx';
 import { ApprovalsPage } from './pages/ApprovalsPage.jsx';
 import { LocationsPage } from './pages/LocationsPage.jsx';
+import { LabelsPrintPage } from './pages/LabelsPrintPage.jsx';
 import { RoadmapPage } from './pages/RoadmapPage.jsx';
 import { SystemHealthPage } from './pages/SystemHealthPage.jsx';
 import {
@@ -151,10 +152,13 @@ function OperatorLinkBar() {
 
 // ── App pós-auth — onde os hooks de dado real moram ─────
 function AuthedApp({ onLogout }) {
-  // Routing by hash
-  const [route, setRoute] = React.useState(() => (location.hash || "#hoje").slice(1));
+  // Routing by hash. S15: a página de etiquetas leva a seleção no próprio hash
+  // (#estoque-etiquetas?bins=1,2&boxes=3), então a rota é só o que vem ANTES
+  // do "?" — a página lê os parâmetros por conta própria.
+  const readRoute = () => (location.hash || "#hoje").slice(1).split("?")[0];
+  const [route, setRoute] = React.useState(readRoute);
   React.useEffect(() => {
-    const onHash = () => setRoute((location.hash || "#hoje").slice(1));
+    const onHash = () => setRoute(readRoute());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -440,6 +444,7 @@ function AuthedApp({ onLogout }) {
     case "estoque":            pageNode = <WarehousePage/>; break;
     case "estoque-aprovacoes": pageNode = <ApprovalsPage/>; break;
     case "estoque-locais":     pageNode = <LocationsPage/>; break;
+    case "estoque-etiquetas":  pageNode = <LabelsPrintPage/>; break;
     case "estoque-geral": pageNode = <StockOverviewPage/>; break;
     case "config-estoque": pageNode = <InventorySettingsPage/>; break;
     case "inventory":     pageNode = <InventoryPage/>; break;
@@ -462,7 +467,7 @@ function AuthedApp({ onLogout }) {
   const ROUTE_FN = { admin: 'admin_page', operadores: 'admin_page', config: 'config_page', sistema: 'manage_system', usuarios: 'manage_users' };
   // S15: as 3 páginas do hub exigem view_stock OU manage_stock; login SEM lista
   // de funções passa (fallback tolerante — ver canRead em WarehousePage).
-  const STOCK_ROUTES = { estoque: 1, 'estoque-aprovacoes': 1, 'estoque-locais': 1 };
+  const STOCK_ROUTES = { estoque: 1, 'estoque-aprovacoes': 1, 'estoque-locais': 1, 'estoque-etiquetas': 1 };
   if (STOCK_ROUTES[route] && !canReadStock()) {
     pageNode = (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>

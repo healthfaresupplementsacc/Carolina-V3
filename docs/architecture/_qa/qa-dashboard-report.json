@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T01:34:48.464Z",
+  "at": "2026-08-19T04:35:56.820Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "202 KB → dash-estoque.png"
+      "detail": "204 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -59,7 +59,7 @@
       "group": "screenshot",
       "name": "estoque-painel",
       "pass": true,
-      "detail": "171 KB → dash-estoque-painel.png"
+      "detail": "169 KB → dash-estoque-painel.png"
     },
     {
       "group": "estoque",
@@ -71,7 +71,7 @@
       "group": "screenshot",
       "name": "estoque-familia",
       "pass": true,
-      "detail": "197 KB → dash-estoque-familia.png"
+      "detail": "194 KB → dash-estoque-familia.png"
     },
     {
       "group": "estoque",
@@ -89,13 +89,13 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "203 KB → dash-estoque-modal.png"
+      "detail": "202 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
       "name": "seção Estoque existe",
       "pass": true,
-      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-geral,#inventory,#produto-setup,#config-estoque,#pp,#picklist"
+      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#estoque-geral,#inventory,#produto-setup,#config-estoque,#pp,#picklist"
     },
     {
       "group": "nav",
@@ -131,7 +131,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "130 KB → dash-estoque-aprovacoes.png"
+      "detail": "138 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -149,7 +149,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "159 KB → dash-estoque-locais.png"
+      "detail": "193 KB → dash-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -167,7 +167,7 @@
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "116 KB → dash-picklist.png"
+      "detail": "118 KB → dash-picklist.png"
     },
     {
       "group": "picklist",
@@ -203,7 +203,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "137 KB → dash-inventory.png"
+      "detail": "139 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -221,7 +221,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "142 KB → dash-produto-setup.png"
+      "detail": "161 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",

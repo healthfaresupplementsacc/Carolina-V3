@@ -86,6 +86,13 @@ const PROCESSES = [
     detail: 'A cada 30min calcula por produto: estoque armazém (bins+caixas) + marketplace (Veeqo) ÷ velocidade 14d = dias de estoque; lead time medido do histórico EMS por fórmula. Zona PLANEJAR → aviso "comece a planejar"; baixo/zerado COM batch no EMS → "rodar na linha ASAP"; SEM batch → "adicionar à lista de fabricação". Dedupe 24h por produto. Canal: STOCK_ALERTS_CHANNEL (sandbox em teste; admin-orin em produção). NUNCA canal de operador.',
   },
   {
+    key: 'stock_drift', name: 'Divergência de estoque vs Veeqo', where: 'railway', tickMs: 600000,
+    heartbeat: true, staleMin: 30, critical: false, since: '2026-08-18',
+    enabledEnv: { var: 'WORKER_STOCK_DRIFT_ENABLED', onValue: 'true' },
+    short: 'A cada 10min compara nosso total com o da Veeqo; divergência nova → admin-orin, e resumo às 8h NY.',
+    detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador).',
+  },
+  {
     key: 'mergeable_alert', name: 'Mergeable orders (Veeqo)', where: 'railway', tickMs: 1800000,
     heartbeat: true, staleMin: 120, critical: false, since: '2026-08-02',
     enabledEnv: { var: 'WORKER_MERGEABLE_ALERT_ENABLED', onValue: 'true', requires: ['VEEQO_API_KEY'] },

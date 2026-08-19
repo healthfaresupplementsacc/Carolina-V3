@@ -7,6 +7,7 @@
    Fonte: /api/v3/data/inventory-settings. Segue o STYLE-KIT (sem travessão). */
 import React from 'react';
 import { usePoll, apiPost } from '../adapters/from-api.js';
+import * as wh from '../adapters/warehouse-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
 
 const KIT = `
@@ -49,6 +50,97 @@ const KIT = `
 `;
 
 function Row({ children }) { return <tr>{children}</tr>; }
+
+/* ── Taras padrão (S15 Fase 3) ────────────────────────────────────
+   Tara = peso do recipiente vazio, em gramas. Sem ela a balança não vira
+   contador: pesa bruto, tira a tara, divide pelo peso da garrafa.
+   Aqui ficam os padrões reutilizáveis ("caixa grande", "bandeja azul"), pra
+   não redigitar o mesmo peso em cada prateleira. O peso específico de uma
+   prateleira ou caixa continua sendo editado na página Locais. */
+function TarePresets({ ro, ack }) {
+  const [st, setSt] = React.useState({ loading: true, tares: [], error: null });
+  const [form, setForm] = React.useState({ name: '', kind: 'bin', tare_g: '' });
+  const [busy, setBusy] = React.useState(false);
+
+  const load = React.useCallback(() => {
+    wh.getWeights().then(
+      (j) => setSt({ loading: false, tares: (j.data && j.data.tares) || [], error: null }),
+      (e) => setSt({ loading: false, tares: [], error: e }),
+    );
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  async function add() {
+    setBusy(true);
+    try {
+      await wh.setTarePreset({ name: form.name.trim(), kind: form.kind, tare_g: Number(form.tare_g) });
+      ack('tara salva');
+      setForm({ name: '', kind: 'bin', tare_g: '' });
+      load();
+    } catch (e) { ack('erro: ' + (e.message || e)); }
+    finally { setBusy(false); }
+  }
+
+  async function update(t, patch) {
+    try { await wh.setTarePreset({ name: t.name, kind: t.kind, tare_g: t.tare_g, ...patch }); ack('tara salva'); load(); }
+    catch (e) { ack('erro: ' + (e.message || e)); }
+  }
+
+  const valid = form.name.trim() && Number(form.tare_g) > 0;
+
+  return (
+    <div className="is-card" data-section="taras">
+      <div className="is-mlabel" style={{ marginBottom: 8 }}>Taras padrão (peso do recipiente vazio)</div>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-dim)', marginBottom: 10 }}>
+        Pesar pra contar só funciona com a tara certa. Cadastre aqui os recipientes que se repetem e reaproveite
+        em cada prateleira ou caixa, em vez de redigitar o peso toda vez.
+      </div>
+
+      {st.error && <div className="is-todo" style={{ marginBottom: 10 }}>Não deu pra carregar as taras: {st.error.message}</div>}
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="is-tbl" data-table="taras">
+          <thead><tr><th>Nome</th><th>Serve pra</th><th>Tara (g)</th><th>Status</th></tr></thead>
+          <tbody>
+            {st.tares.map((t) => (
+              <Row key={t.id || t.name}>
+                <td><b>{t.name}</b></td>
+                <td><span className="is-chip neutral">{t.kind === 'box' ? 'caixa' : 'prateleira'}</span></td>
+                <td>
+                  <input className="is-in" defaultValue={t.tare_g} disabled={ro}
+                         onBlur={(e) => { const v = Number(e.target.value); if (v && v !== Number(t.tare_g)) update(t, { tare_g: v }); }} />
+                </td>
+                <td>{t.active === false
+                  ? <span className="is-chip warn">desativada</span>
+                  : <span className="is-chip ok">em uso</span>}</td>
+              </Row>
+            ))}
+            {!st.tares.length && !st.loading && (
+              <tr><td colSpan={4} style={{ color: 'var(--ink-faint)' }}>
+                Nenhuma tara cadastrada ainda. Pese um recipiente vazio e cadastre abaixo.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {!ro && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input className="is-in" style={{ width: 180 }} placeholder="nome, ex: bandeja azul" value={form.name}
+                 onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <select className="is-in" style={{ width: 120 }} value={form.kind}
+                  onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+            <option value="bin">prateleira</option>
+            <option value="box">caixa</option>
+          </select>
+          <input className="is-in" type="number" placeholder="tara g" value={form.tare_g}
+                 onChange={(e) => setForm({ ...form, tare_g: e.target.value })} />
+          <button className="is-btn" disabled={busy || !valid} onClick={add}>Adicionar tara</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function InventorySettingsPage() {
   const st = usePoll('/inventory-settings', [], 0);
@@ -211,7 +303,9 @@ export function InventorySettingsPage() {
 
       {/* ══ SEÇÃO B: INVENTÁRIO & ESTOQUE ══ */}
       <div className="is-sec">Inventário e estoque</div>
-      <div className="is-secsub">Onde as garrafas ficam e quando avisar que está acabando. Ainda não construído.</div>
+      <div className="is-secsub">Onde as garrafas ficam, quanto pesa cada recipiente e quando avisar que está acabando.</div>
+
+      <TarePresets ro={ro} ack={ack} />
 
       <div className="is-card">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -219,13 +313,14 @@ export function InventorySettingsPage() {
           <span className={'is-chip ' + (nThresholds ? 'ok' : 'neutral')}>{nThresholds} limiares de estoque</span>
         </div>
         <div className="is-todo">
-          <b style={{ color: 'var(--ink)' }}>O que falta construir aqui:</b>
+          <b style={{ color: 'var(--ink)' }}>Onde cada coisa mora agora:</b>
           <ul style={{ margin: '8px 0 0 18px', padding: 0, lineHeight: 1.7 }}>
-            <li><b>Bins e locais</b> — cadastrar prateleira, bin e palete de cada produto. É o que falta pra picklist e etiqueta mostrarem o local em vez de "a definir".</li>
+            <li><b>Bins, caixas e locais</b> — cadastro na página <a href="#estoque-locais">Locais</a>, com tara, capacidade, lote e lacre. É o que faz picklist e etiqueta mostrarem o local em vez de "a definir".</li>
+            <li><b>Etiquetas de local</b> — <a href="#estoque-etiquetas">Etiquetas</a> imprime 4x6 com código grande, Code 128 e QR.</li>
+            <li><b>Peso da garrafa</b> — coluna "Peso da unidade" no <a href="#produto-setup">Product Setup</a>, com Calibrar pela balança.</li>
+            <li><b>Botão "peguei do estoque"</b> — já existe na página dos operadores, vira proposta e cai em <a href="#estoque-aprovacoes">Aprovações</a>.</li>
             <li><b>Limiares de estoque baixo</b> — por produto, quando avisar. Hoje o padrão é 25 garrafas ou menos que o necessário do dia.</li>
-            <li><b>Contagem por bin (cycle counting)</b> — contar 1 ou 2 bins por dia em vez de um inventário gigante por ano.</li>
-            <li><b>Botão "peguei do estoque"</b> — registrar saída fora do fluxo normal, com motivo.</li>
-            <li><b>Reconciliação</b> — comparar o que saiu do físico com o que as etiquetas justificam.</li>
+            <li><b>Reconciliação</b> — comparar o que saiu do físico com o que as etiquetas justificam. Ainda não construído.</li>
           </ul>
         </div>
       </div>

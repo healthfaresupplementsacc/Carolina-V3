@@ -20,7 +20,10 @@
  *  - Princípio #24: toda query schema-qualificada v3.*.
  */
 
-const KINDS = ['store_in', 'pick', 'restock', 'adjust', 'damaged', 'count', 'place', 'move'];
+// 'import' (S15 Fase 3, migration 072): entrada inicial espelhada da Veeqo. Fica
+// distinguível pra sempre de uma entrada real da linha — o dia que a gente virar
+// a fonte da verdade, dá pra saber o que era saldo importado e o que era produção.
+const KINDS = ['store_in', 'pick', 'restock', 'adjust', 'damaged', 'count', 'place', 'move', 'import'];
 
 class StockService {
   /**
@@ -149,17 +152,21 @@ class StockService {
    * fica com status 'organizar' até alguém dar place(). Conta no total do mesmo
    * jeito: total = prateleira + caixa + a organizar.
    * p: {product_id, qty, bin_id?, box_id?, person_id, source, source_ref?,
-   *     authorized_by?, note?, is_test?, actor_type?}
+   *     authorized_by?, note?, is_test?, actor_type?, kind?}
+   * `kind` (S15 F3) só existe pra marcar 'import' (saldo inicial vindo da Veeqo).
+   * Qualquer outro valor cai em 'store_in': a semântica da operação é a mesma,
+   * o que muda é a ETIQUETA do movimento no livro-razão.
    */
   async storeIn(p = {}) {
     this._checkQty(p.qty);
     if (!p.product_id) throw new Error('storeIn: product_id obrigatório');
     if (p.bin_id && p.box_id) throw new Error('storeIn: bin_id OU box_id, não os dois');
     const unplaced = !p.bin_id && !p.box_id;
+    const kind = p.kind === 'import' ? 'import' : 'store_in';
     return this._withTx(async (c) => {
       const baseNote = unplaced ? ('a organizar' + (p.note ? ' — ' + p.note : '')) : p.note;
       const note = p.authorized_by ? `autorizado por ${p.authorized_by}${baseNote ? ' — ' + baseNote : ''}` : baseNote;
-      const ins = await this._insertMovement(c, { ...p, kind: 'store_in', qty: p.qty, note });
+      const ins = await this._insertMovement(c, { ...p, kind, qty: p.qty, note });
       if (ins.duplicate) return { ...ins, applied: 0 };
       if (unplaced) {
         const have = await this._getUnplaced(c, p.product_id);

@@ -32,7 +32,7 @@ Two generations run side by side: a legacy layer (`src/`) and a V3 layer
 - `src/v3/admin-v3/routes` (shadow inspection `/api/admin/v3/*`) — `wire.js:131`.
 - `src/routes/architect` (read-only architect API) — `wire.js:136`.
 - `src/routes/op` (operator page API `/api/v3/op/*`) — `wire.js:149`.
-- static: `/shared`, `/op`, `/print` — `wire.js:160-163`.
+- static: `/shared`, `/op`, `/print`, `/scan` — `wire.js:160-167`. `/scan` (S15 Phase 3) is the phone scanner page: no login, the pair code from the kiosk QR is the credential; it POSTs to `/api/v3/scan/push`.
 - `src/routes/admin` (admin panel API) — `wire.js:166`; static `/admin` — `wire.js:172`.
 - `src/v3/data/router` (dashboard JSON API `/api/v3/data/*`) — `wire.js:200`.
 - `src/v3/warehouse/router` (Warehouse hub API `/api/v3/warehouse/*`) — `wire.js:225`. PIN auth via `data/auth`; reads need `view_stock`|`manage_stock`, writes need `manage_stock`.
@@ -63,6 +63,7 @@ Two generations run side by side: a legacy layer (`src/`) and a V3 layer
   - `ems-activity-sync` (default on, `wire.js:386`)
   - `veeqo-order-sync` (`WORKER_VEEQO_ORDERS_ENABLED`, `wire.js:400`)
   - `stock-alerts` (`WORKER_STOCK_ALERTS_ENABLED`, `wire.js:423`)
+  - `stock-drift-alert` (`WORKER_STOCK_DRIFT_ENABLED`, `wire.js:460`) — S15 Phase 3, 10 min tick; calls `warehouse/router.computeDrift` directly (no HTTP), alerts admin-orin on new drift (dedupe per product per NY day via `audit_log` action `stock_drift_alert`) plus an 08:00 NY digest (`stock_drift_digest`). Never writes stock.
   - `veeqo-mergeable-alert` (`WORKER_MERGEABLE_ALERT_ENABLED`, `wire.js:435`)
   - `print-divergence-watchdog` (`WORKER_PRINT_DIVERGENCE_ENABLED`, `wire.js:448`)
   - `stock-gap-alert` (`WORKER_STOCK_GAP_ALERT_ENABLED`, `wire.js:464`)
@@ -200,11 +201,13 @@ Physical warehouse ledger (bins + boxes), supplies, stock alerts/gaps.
 **Owning files**
 - `src/v3/services/StockService.js:25` — single write door for physical stock: `storeIn`, `pick`, `restock`, `damaged`, `adjust`, `count`, plus the Warehouse hub additions (migration 071) `place`, `move`, `separate`, `resolveIssue`; reads `warehouseByProduct`, `overview`, `productDetail`.
 - `src/v3/services/StockRequestService.js` — approval queue (operators propose, managers decide): `propose`, `list`, `pendingByProduct`, `approve` (applies through StockService, `source_ref` `request:<id>`), `reject`. Writes only `v3.stock_change_requests` + `v3.audit_log`; never touches quantities itself.
-- `src/v3/warehouse/router.js` — Warehouse hub API `/api/v3/warehouse/*` (overview, product record, entrada/place/move/adjust/separate, issue resolve, requests, locations, family). Helpers: `veeqo-cache.js` (SWR 10 min sku → type + warehouse 108841 physical/allocated/available), `locations-repo.js` (bin/box registry, never writes qty), `family-repo.js` (SKU family attach/detach/merge in `v3.product_skus`).
+- `src/v3/warehouse/router.js` — Warehouse hub API `/api/v3/warehouse/*` (overview, product record, entrada/place/move/adjust/separate, issue resolve, requests, locations, family). S15 Phase 3 additions: `POST import-veeqo` (Veeqo physical − our total; positive delta → `StockService.storeIn` unplaced with kind `import`, `source_ref` `veeqo_import:<sku>:<nyDate>` so a re-click is idempotent per day; negative delta is NEVER auto-deducted, it returns in `negative[]`), `GET drift`, `GET weights` + `POST weights/product/:id|tare|bin/:id|box/:id`, `POST count/compute`, `GET labels`, `POST locations/box/:id/label-printed`, `POST skus/import-upc`. Exports `computeDrift(deps)` and `importVeeqo(deps, opts)` for the worker/tests (the worker calls the function, never its own HTTP API). Helpers: `veeqo-cache.js` (SWR 10 min sku → type + warehouse 108841 physical/allocated/available + `upc`), `locations-repo.js` (bin/box registry, never writes qty), `family-repo.js` (SKU family attach/detach/merge in `v3.product_skus`), `weights.js` (unit weight / tare math + repo; `computeQty` returns qty + residual + confidence high|medium|low; writes only weight/tare columns, never qty), `scan-hub.js` (phone↔kiosk pair registry over `v3.scan_pairs` + in-memory SSE client map, modeled on `print-stream.js`).
 - `src/v3/services/SupplyService.js:19` — supplies write door: `consumeForSize:65`, `change:103`.
 - `src/v3/data/stock-repo.js:9` — READ-only: `bins:13`, `boxes:26`, `summary:39`, `picksheet:97`, `restockList:134`.
 - `src/v3/warehouse/op-stock.js` (S15 Phase 2, 2026-08-18) — operator-side stock logic for `/api/v3/op/stock/*`: `take` (pick → proposal, damaged → `StockService.separate`), `propose` (entrada/count/return_in → proposal, count requires bin or box), `recent` (last 16h merged: proposals + issues + restock movements, max 30). `src/routes/op.js` only calls it (that file may not grow).
+- `src/v3/warehouse/op-warehouse.js` (S15 Phase 3, 2026-08-18) — operator warehouse hub logic behind `/api/v3/op/scan/pair|resolve`, `GET /api/v3/scan/stream?code&t=` (SSE, OUTSIDE the op gate because EventSource cannot send headers; the kiosk session token travels as `t` and is validated by `opAuth.getSession`; 403 when the pair belongs to another kiosk), `/api/v3/op/stock/organize|count/weigh|count/manual|tasks|lookup|box/new|box/label` and the unauthenticated-by-session `/api/v3/scan/push|keepalive`: `pair`/`stream` (SSE)/`push`/`keepalive`/`resolve` (barcode order: bin_code → box_number → `product_skus.barcode` UPC → sku → QR URL forms → unknown), `organize` (immediate `StockService.place`), `countWeigh`/`countManual` (proposals kind `count` carrying `meta`; a product with no unit weight returns 409 and proposes nothing), `boxNew` (proposal kind `entrada` with `meta.box`), `tasks`, `lookup`, `boxLabel`. `src/routes/op.js` only registers thin routes (that file may not grow).
 - `src/workers/stock-alerts.js:23` — days-of-stock planner + rupture alerts.
+- `src/workers/stock-drift-alert.js` (S15 Phase 3, 2026-08-18) — continuous Veeqo reconciliation, 10 min. Reads only (`computeDrift`), posts to admin-orin, never writes stock.
 - `src/workers/stock-gap-alert.js:20` — P&P stock-gap alerts.
 - `src/v3/services/stock-gap-service.js:62` — crosses picklist need × Veeqo stock × EMS.
 
@@ -212,8 +215,12 @@ Physical warehouse ledger (bins + boxes), supplies, stock alerts/gaps.
 - `v3.stock_movements` — WRITE (append-only) `StockService.js:77` — **now the ONLY writer** (S15 Phase 2, 2026-08-18: the raw kiosk INSERT that used to live at `op.js:324` was removed; the operator "Peguei do estoque" became a proposal in `v3.stock_change_requests`). READ `StockService.js:70`, `stock-repo.js:81`.
 - `v3.stock_bins` / `v3.stock_boxes` — READ/WRITE `StockService.js:93,106,100,111`; READ `stock-repo.js`, `stock-alerts.js:158,159`, picklist `router.js:1018`.
 - `v3.stock_issues` — WRITE `StockService.js:307` (`damaged`) + `separate`/`resolveIssue` (migration 071 added `reason='return'` and the `order_number` column). `v3.stock_thresholds` — READ `stock-alerts.js:117`, `StockService.overview`.
-- `v3.stock_change_requests` (migration 071) — approval queue. WRITE `StockRequestService.js` only (propose/approve/reject). READ `StockService.overview` (pending in/out per product), warehouse router `GET /api/v3/warehouse/requests`.
+- `v3.stock_change_requests` (migration 071, `meta` added in 072) — approval queue. WRITE `StockRequestService.js` only (propose/approve/reject). READ `StockService.overview` (pending in/out per product), warehouse router `GET /api/v3/warehouse/requests`.
+- `v3.stock_boxes` also gets a row from `StockRequestService._apply` (S15 Phase 3) when approving an `entrada` whose `meta.box.new` is set: it allocates the next `BX-<4 digits>` (never reused) and then hands the quantity to `StockService.storeIn`. Row creation only; the quantity still goes through the single write door.
 - `v3.stock_unplaced` (migration 071) — the "A organizar" bucket per product (bottles in the warehouse not yet on a shelf or in a box; `total = shelf + box + unplaced`). WRITE `StockService` only (`storeIn` without bin/box, `place`). READ `StockService.overview`.
+- `v3.tare_presets` (migration 072) — reusable empty-container weights (`name` UNIQUE, `kind` bin|box, `tare_g`). WRITE/READ `warehouse/weights.js` (`upsertTare`, `list`). Holds no quantities.
+- `v3.scan_pairs` (migration 072) — phone↔kiosk pairing (6-char `code` PK is the phone's only credential, 15 min renewable, bound to the kiosk `session_token`). WRITE/READ `warehouse/scan-hub.js` only (`pair`, `renew`, `get`, `sweep`).
+- Migration 072 also adds columns, no new writers of quantity: `v3.products.unit_weight_g|unit_weight_samples|unit_weight_updated_at` (WRITE `weights.js:setUnitWeight`), `v3.stock_bins.tare_g|capacity` (WRITE `weights.js:setBin`), `v3.stock_boxes.tare_g|batch_number|sealed|label_printed_at` (WRITE `weights.js:setBox`, plus `label_printed_at` stamped by `warehouse/router.js POST locations/box/:id/label-printed`), `v3.stock_change_requests.meta` jsonb (WRITE `StockRequestService.propose`), and `stock_movements.kind` gains `import`.
 - `v3.products` / `v3.product_skus` / `v3.pnp_order_lines` — READ (joins, velocity).
 - Supplies: `v3.supply_movements` WRITE `SupplyService.js:85,115`; `v3.supply_items` READ/WRITE `:88,107,118`; `v3.package_size_supply` READ `:55`.
 - `v3.audit_log` — WRITE (audit + alert dedupe) `StockService.js:57`, `stock-alerts.js:145`, `stock-gap-alert.js:56`.
@@ -429,10 +436,15 @@ View-only PIN-gated proxy to the camera-PC gateway + machine-motion signal.
 - `src/op/fuse-data.js` (2418) — `<script src="/op/fuse-data.js">` (`op/index.html:31`).
 - `src/op/state-machine.js` (128) — `op/index.html:32`.
 - `src/op/offline-queue.js` (58) — `op/index.html:33`.
-- `src/op/sw.js` (54) — service worker for /op.
+- `src/op/sw.js` (54) — service worker for /op. Cache `hf-op-v41` (S15 Phase 3 bump) also holds the stock hub + its vendored libs.
 - `src/admin/app.js` (1078) — served `wire.js:172`.
 - `src/shared/hf-design.js` (111) — `<script src="/shared/hf-design.js">` (`op/index.html:34`).
 - `src/print/print.js` (155) — `<script src="/print/print.js">` (`print/index.html:30`).
+- **S15 Phase 3 (2026-08-18) — operator stock hub + phone scanner (static, no build):**
+  - `src/op/estoque.js` — the operator warehouse hub served at `/op/estoque.html` (same `/op` static mount, `wire.js:161`). PIN login via `POST /api/v3/op/auth/login` with the `/op/config.js` page token (same flow as `src/print/print.js`); session kept in `sessionStorage`. Screens: Home, Organizar, Contar (weigh-to-count), Repor, Entrada caixa nova, Devolução, Danificada, Parear celular. Calls `/api/v3/op/`: `stock/organize`, `stock/count/weigh`, `stock/count/manual`, `stock/tasks`, `stock/lookup`, `stock/box/new`, `stock/box/label`, `stock/context`, `stock/recent`, `stock/restock`, `stock/take`, `stock/propose`, `scan/pair`, `scan/resolve`, `scan/keepalive`, and opens the SSE `scan/stream?code=<pair>&t=<session_token>` (EventSource cannot send headers, so the kiosk session travels as query `t`).
+  - `src/op/vendor/code128.js` — Code 128 B/C → SVG encoder written in-house (no CDN: the hub prints 4×6 box labels offline).
+  - `src/op/vendor/qrcode.min.js` — vendored `qrcode-generator` 1.4.4 (MIT) for the pairing QR and the label QR.
+  - `src/scan/index.html` + `src/scan/scan.js` — the phone page (`/scan/?c=<pair>`): rear camera via `getUserMedia`, decoding with `BarcodeDetector` when available else the vendored `src/scan/vendor/zxing.min.js` (`@zxing/library` 0.21.3, MIT). Posts `POST /api/v3/scan/push {code, barcode, symbology}` and `POST /api/v3/scan/keepalive` — **these two are outside the `/op` gate** (no page token, no kiosk session): the short-lived pair code is the credential. Manual typing always available (RULE #0). Needs a `/scan` static mount in `wire.js` next to `/print` (backend agent owns that wiring).
 
 **Reachable via directory-index require (NOT dead):**
 - `src/db/index.js` (736) — `require('../db')` (e.g. `src/admin/audit.js:12`, many).

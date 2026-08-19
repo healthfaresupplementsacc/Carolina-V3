@@ -7,11 +7,27 @@
  * e atualiza em background. Enquanto o 1º refresh não volta, o mapa é vazio → a
  * coluna Veeqo mostra 'unknown' (nunca um número errado).
  *
- * Mapa: SKU (upper/trim) → { type:'kit'|'variant'|null, wh:{physical,allocated,available}|null }
+ * Mapa: SKU (upper/trim) → { type:'kit'|'variant'|null, wh:{physical,allocated,available}|null,
+ *                            upc:string|null }
  * Regra do estudo (V1 08-18): a comparação usa SÓ o SKU BASE; kits nunca somam.
+ *
+ * `upc` (S15 F3): o código de barras impresso na garrafa. É o que o operador vai
+ * escanear no hub; sem ele o scan não resolve produto nenhum. Vem do sellable da
+ * Veeqo quando o client expõe (upc_code/upc/barcode) — null quando não vem, e aí
+ * o import-upc simplesmente não tem o que copiar (nunca inventa código).
  */
 
 const TTL_MS = 10 * 60 * 1000;
+
+/** Uma linha do listSellables → a entrada do mapa. Um lugar só (SWR e warm). */
+function _entryOf(s) {
+  const upc = s.upc_code || s.upc || s.barcode || null;
+  return {
+    type: s.type || null,
+    wh: s.wh || null,
+    upc: upc ? String(upc).trim() : null,
+  };
+}
 
 function createVeeqoCache(deps = {}) {
   const veeqo = deps.veeqo || null;
@@ -28,10 +44,7 @@ function createVeeqoCache(deps = {}) {
         const m = {};
         for (const s of (rows || [])) {
           if (!s || s.sku == null) continue;
-          m[String(s.sku).trim().toUpperCase()] = {
-            type: s.type || null,
-            wh: s.wh || null,
-          };
+          m[String(s.sku).trim().toUpperCase()] = _entryOf(s);
         }
         state.bySku = m; state.at = now(); state.error = null;
       })
@@ -56,7 +69,7 @@ function createVeeqoCache(deps = {}) {
           const m = {};
           for (const s of (rows || [])) {
             if (!s || s.sku == null) continue;
-            m[String(s.sku).trim().toUpperCase()] = { type: s.type || null, wh: s.wh || null };
+            m[String(s.sku).trim().toUpperCase()] = _entryOf(s);
           }
           state.bySku = m; state.at = now();
         } catch (e) { state.error = e && e.message; }

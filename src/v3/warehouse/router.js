@@ -22,8 +22,14 @@ const { makeAuthMiddleware, hasFunction } = require('../data/auth');
 const { createVeeqoCache } = require('./veeqo-cache');
 const { LocationsRepo } = require('./locations-repo');
 const { FamilyRepo } = require('./family-repo');
+const { WeightsRepo, computeQty } = require('./weights');
 
 const BASE = '/api/v3/warehouse';
+const EDT = 'America/New_York';
+const IMPORT_BULK_CAP = 500;
+
+/** Data de hoje em NY (o source_ref do import é por dia: reimportar não duplica). */
+const nyDate = (d) => (d || new Date()).toLocaleDateString('en-CA', { timeZone: EDT });
 
 const err = (res, code, message, status) =>
   res.status(status || 400).json({ error: { code, message } });
@@ -44,6 +50,87 @@ const intOf = (v) => {
   return Number.isInteger(n) ? n : null;
 };
 
+// ── DRIFT e IMPORT: funções puras, reusáveis fora do HTTP ───────────────────
+// O worker de drift (src/workers/stock-drift-alert.js) chama computeDrift DIRETO,
+// sem passar por HTTP — worker batendo na própria API é caminho duplo esperando
+// pra divergir. Mesmas contas do overview, um lugar só.
+
+/**
+ * Produtos onde a Veeqo e a gente discordam. Usa os MESMOS números do overview
+ * (comparação sempre contra o SKU base; kits derivam do base e somá-los contaria
+ * a mesma garrafa duas vezes).
+ * @param {object} deps {stock, veeqoCache}
+ * @returns {Promise<Array<{product_id,name,nickname,base_sku,ours,veeqo,delta}>>}
+ */
+async function computeDrift(deps = {}) {
+  const bySku = await deps.veeqoCache.bySku();
+  const rows = await deps.stock.overview({});
+  const out = [];
+  for (const r of rows) {
+    const key = r.base_sku ? String(r.base_sku).trim().toUpperCase() : null;
+    const v = key ? bySku[key] : null;
+    if (!v || !v.wh) continue;                       // sem número da Veeqo = 'unknown', não é drift
+    const veeqo = Number(v.wh.physical);
+    const ours = Number(r.total);
+    if (!Number.isFinite(veeqo) || veeqo === ours) continue;
+    out.push({
+      product_id: r.product_id, name: r.name, nickname: r.nickname || r.name,
+      base_sku: r.base_sku, ours, veeqo, delta: veeqo - ours,
+    });
+  }
+  return out;
+}
+
+/**
+ * IMPORTAR DA VEEQO: a Veeqo é a fonte do total POR ENQUANTO (decisão do Bruno,
+ * round 3). Traz o saldo dela pro nosso livro.
+ *
+ *   delta = veeqo.physical − nosso total
+ *   delta > 0 → entrada de verdade, no bucket "a organizar", kind 'import'
+ *   delta < 0 → NUNCA deduz sozinho. Some garrafa de graça no sistema é como se
+ *               perde estoque de verdade; volta em `negative` pra alguém olhar.
+ *   delta = 0 → pula
+ *
+ * Idempotente POR DIA: source_ref 'veeqo_import:<sku>:<yyyy-mm-dd>' — clicar duas
+ * vezes no botão não importa duas vezes.
+ *
+ * @param {object} deps {stock, veeqoCache}
+ * @param {object} opts {product_id?, person_id?, login?, now?}
+ */
+async function importVeeqo(deps = {}, opts = {}) {
+  const stock = deps.stock;
+  const bySku = await deps.veeqoCache.bySku();
+  const only = opts.product_id ? Number(opts.product_id) : null;
+  const rows = await stock.overview(only ? { product_id: only } : {});
+  const day = nyDate(opts.now ? new Date(opts.now) : null);
+  const imported = []; const negative = [];
+  let skipped = 0; let processed = 0;
+
+  for (const r of rows) {
+    if (!only && processed >= IMPORT_BULK_CAP) break;
+    processed += 1;
+    const key = r.base_sku ? String(r.base_sku).trim().toUpperCase() : null;
+    const v = key ? bySku[key] : null;
+    if (!v || !v.wh || !Number.isFinite(Number(v.wh.physical))) { skipped += 1; continue; }
+    const delta = Number(v.wh.physical) - Number(r.total);
+    if (delta === 0) { skipped += 1; continue; }
+    if (delta < 0) {
+      negative.push({ product_id: r.product_id, name: r.name, nickname: r.nickname,
+        base_sku: r.base_sku, ours: Number(r.total), veeqo: Number(v.wh.physical), delta });
+      continue;
+    }
+    const out = await stock.storeIn({
+      product_id: r.product_id, qty: delta, kind: 'import',
+      person_id: opts.person_id || null, actor_type: 'admin',
+      source: 'veeqo_import', source_ref: 'veeqo_import:' + key + ':' + day,
+      note: `import Veeqo${opts.login ? ' [' + opts.login + ']' : ''}: Veeqo ${v.wh.physical}, aqui ${r.total}`,
+    });
+    imported.push({ product_id: r.product_id, name: r.name, nickname: r.nickname,
+      base_sku: r.base_sku, delta, applied: out.applied || 0, duplicate: !!out.duplicate });
+  }
+  return { imported, negative, skipped };
+}
+
 function createWarehouseRouter(deps = {}) {
   const db = deps.db;
   const stock = deps.stock;
@@ -51,6 +138,7 @@ function createWarehouseRouter(deps = {}) {
   const veeqoCache = deps.veeqoCache || createVeeqoCache({ veeqo: deps.veeqo });
   const locations = deps.locations || new LocationsRepo({ db });
   const family = deps.family || new FamilyRepo({ db, veeqoCache });
+  const weights = deps.weights || new WeightsRepo({ db });
   const router = express.Router();
 
   router.use(BASE, express.json({ limit: '256kb' }));
@@ -454,8 +542,149 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, moved: out.moved, product: await freshRow(into) });
   });
 
+  // ── S15 FASE 3 — IMPORT DA VEEQO ───────────────────────────
+  // Botão "Importar da Veeqo": traz o saldo dela pro nosso livro. Sobe estoque
+  // (entrada de verdade, pelo StockService), nunca desce sozinho.
+  route('post', '/import-veeqo', 'write', async (req, res) => {
+    const b = req.body || {};
+    const productId = intOf(b.product_id) || null;
+    await veeqoCache.warm();                 // o import não pode rodar com cache vazio
+    const out = await importVeeqo({ stock, veeqoCache }, {
+      product_id: productId,
+      person_id: (req.login && req.login.person_id) || null,
+      login: (req.login && req.login.name) || null,
+    });
+    await audit(req, 'warehouse.import_veeqo', productId, {
+      imported: out.imported.length, negative: out.negative.length, skipped: out.skipped });
+    ok(res, out);
+  });
+
+  // ── S15 FASE 3 — DRIFT (mesma conta que o worker do Slack usa) ──
+  route('get', '/drift', 'read', async (req, res) => {
+    const items = await computeDrift({ stock, veeqoCache });
+    ok(res, { drift: items, checked_at: veeqoCache.checkedAt(),
+      generated_at: new Date().toISOString() });
+  });
+
+  // ── S15 FASE 3 — PESOS E TARAS ─────────────────────────────
+  route('get', '/weights', 'read', async (req, res) => {
+    ok(res, await weights.list());
+  });
+
+  // peso por garrafa: direto OU calibrado de uma amostra pesada
+  route('post', '/weights/product/:id', 'write', async (req, res) => {
+    const id = productIdOf(req);
+    const b = req.body || {};
+    const row = await weights.setUnitWeight({ product_id: id, ...b });
+    await audit(req, 'warehouse.unit_weight', id, { unit_weight_g: row.unit_weight_g, samples: row.samples });
+    ok(res, { ok: true, product: row });
+  });
+
+  route('post', '/weights/tare', 'write', async (req, res) => {
+    const row = await weights.upsertTare(req.body || {});
+    await audit(req, 'warehouse.tare_preset', row.id, { name: row.name, kind: row.kind, tare_g: row.tare_g });
+    ok(res, { ok: true, tare: row });
+  });
+
+  route('post', '/weights/bin/:id', 'write', async (req, res) => {
+    const id = intOf(req.params.id);
+    if (!id) throw new Error('bin_id inválido');
+    const row = await weights.setBin(id, req.body || {});
+    await audit(req, 'warehouse.bin_weight', id, { tare_g: row.tare_g, capacity: row.capacity });
+    ok(res, { ok: true, bin: row });
+  });
+
+  route('post', '/weights/box/:id', 'write', async (req, res) => {
+    const id = intOf(req.params.id);
+    if (!id) throw new Error('box_id inválido');
+    const row = await weights.setBox(id, req.body || {});
+    await audit(req, 'warehouse.box_weight', id, { tare_g: row.tare_g,
+      batch_number: row.batch_number, sealed: row.sealed });
+    ok(res, { ok: true, box: row });
+  });
+
+  // ── S15 FASE 3 — PESO VIRA CONTAGEM (só calcula, não escreve) ──
+  route('post', '/count/compute', 'read', async (req, res) => {
+    const b = req.body || {};
+    const productId = intOf(b.product_id);
+    if (!productId) throw new Error('product_id inválido');
+    ok(res, await weights.compute({
+      product_id: productId, gross_g: b.gross_g, tare_g: b.tare_g,
+      bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null,
+    }));
+  });
+
+  // ── S15 FASE 3 — ETIQUETAS (o dashboard desenha Code128 + QR no cliente) ──
+  // A etiqueta é sempre: código grande, uma linha de onde/o quê, uma de quanto.
+  route('get', '/labels', 'read', async (req, res) => {
+    const idsOf = (v) => String(v || '').split(',').map((x) => intOf(x)).filter((x) => x);
+    const binIds = idsOf(req.query.bins);
+    const boxIds = idsOf(req.query.boxes);
+    const labels = [];
+    if (binIds.length) {
+      const rows = (await db.query(
+        `SELECT b.id, b.bin_code, b.shelf_code, b.area, b.qty, b.capacity,
+                COALESCE(p.nickname, p.canonical_name) AS product
+           FROM v3.stock_bins b LEFT JOIN v3.products p ON p.id = b.product_id
+          WHERE b.id = ANY($1::int[]) ORDER BY b.bin_code`, [binIds])).rows;
+      for (const r of rows) {
+        labels.push({ kind: 'bin', id: r.id, code: r.bin_code,
+          line2: [r.shelf_code, r.area].filter(Boolean).join(' · ') || (r.product || 'sem produto'),
+          line3: r.product ? r.product : (r.capacity ? 'cabe ' + r.capacity : ''),
+          url: '/scan/?b=' + encodeURIComponent(r.bin_code) });
+      }
+    }
+    if (boxIds.length) {
+      const rows = (await db.query(
+        `SELECT x.id, x.box_number, x.area, x.qty, x.batch_number, x.sealed,
+                COALESCE(p.nickname, p.canonical_name) AS product
+           FROM v3.stock_boxes x LEFT JOIN v3.products p ON p.id = x.product_id
+          WHERE x.id = ANY($1::int[]) ORDER BY x.box_number`, [boxIds])).rows;
+      for (const r of rows) {
+        labels.push({ kind: 'box', id: r.id, code: r.box_number,
+          line2: r.product || 'sem produto',
+          line3: (Number(r.qty) || 0) + ' garrafas'
+            + (r.batch_number ? ' · lote ' + r.batch_number : ''),
+          url: '/scan/?x=' + encodeURIComponent(r.box_number) });
+      }
+    }
+    ok(res, { labels });
+  });
+
+  // etiqueta saiu da impressora → carimba (a caixa sem etiqueta é caixa perdida)
+  route('post', '/locations/box/:id/label-printed', 'write', async (req, res) => {
+    const id = intOf(req.params.id);
+    if (!id) throw new Error('box_id inválido');
+    const r = await db.query(
+      `UPDATE v3.stock_boxes SET label_printed_at = NOW(), updated_at = NOW()
+        WHERE id = $1 RETURNING id, box_number, label_printed_at`, [id]);
+    if (!r.rows[0]) return err(res, 'not_found', 'caixa não existe: ' + id, 404);
+    await audit(req, 'warehouse.box_label_printed', id, { box_number: r.rows[0].box_number });
+    ok(res, { ok: true, box: r.rows[0] });
+  });
+
+  // ── S15 FASE 3 — UPC da Veeqo → product_skus.barcode ───────
+  // Sem isso o operador escaneia a garrafa e o sistema não sabe o que é. O UPC
+  // já está na Veeqo; só falta copiar pros SKUs que a gente mapeou.
+  route('post', '/skus/import-upc', 'write', async (req, res) => {
+    await veeqoCache.warm();
+    const bySku = await veeqoCache.bySku();
+    const rows = (await db.query(
+      'SELECT id, sku, barcode FROM v3.product_skus WHERE channel = $1', ['veeqo'])).rows;
+    let updated = 0;
+    for (const s of rows) {
+      const info = bySku[String(s.sku).trim().toUpperCase()];
+      const upc = info && info.upc ? String(info.upc).trim() : null;
+      if (!upc || upc === s.barcode) continue;
+      await db.query('UPDATE v3.product_skus SET barcode = $2 WHERE id = $1', [s.id, upc]);
+      updated += 1;
+    }
+    await audit(req, 'warehouse.import_upc', null, { updated });
+    ok(res, { updated });
+  });
+
   console.log('[V3] Warehouse hub montado: ' + BASE + '/*');
   return router;
 }
 
-module.exports = { createWarehouseRouter, BASE };
+module.exports = { createWarehouseRouter, BASE, computeDrift, importVeeqo, IMPORT_BULK_CAP };

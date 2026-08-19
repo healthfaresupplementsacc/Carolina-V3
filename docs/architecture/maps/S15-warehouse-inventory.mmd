@@ -26,7 +26,13 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_NOW["S15.03 CURRENT nav 'Estoque & Produtos': Ver estoque · Estoque detalhado · Product Setup · Configurações · Planejamento · Produto (P&P + Picklist are under 'Operação' today)"]:::verified
   A_PLAN["S15.10 PLANNED ONE section 'Warehouse Inventory': Ver estoque · Estoque detalhado · Product Setup · Configurações + P&P subsection: Pick & Pack · Picklist · End Of Day Shipment · 4x6 Printer Settings (channel pages Amazon/eBay/Walmart/TikTok DEFERRED)"]:::planned
   A_APPROVE["S15.14/S15.18 BUILT 08-18: approval queue (StockRequestService + Aprovações page); operator side Phase 2"]:::verified
-  A_HUB["S15.21 BUILT 08-18: hub #estoque (WarehousePage) + Locais + Aprovações on kit.css (STYLE-KIT light theme)"]:::verified
+  A_HUB["S15.21/27 BUILT: hub #estoque + Importar da Veeqo + drift panel · Locais (tara/lote/lacre) · Etiquetas Code128+QR · Aprovações (meta pesagem) · Product Setup peso · Configurações taras"]:::verified
+  A_SCAN["S15.25 BUILT: celular pareado /scan/ → SSE → hub do operador; USB scanner também"]:::verified
+  A_OPHUB["S15.26 BUILT: /op/estoque.html Organizar · Contar (pesar/manual, cego) · Repor · Caixa nova · Devolução · Danificada"]:::verified
+  A_DRIFT["S15.28 BUILT: stock-drift-alert (10 min, contínuo, só alerta)"]:::verified
+  A_SCAN --> A_OPHUB
+  A_OPHUB --> SVC
+  A_OPHUB --> A_APPROVE
   A_API["S15.17 BUILT 08-18: /api/v3/warehouse/* router + veeqo-cache + locations-repo + family-repo"]:::verified
   A_HUB --> A_API
   A_API --> SVC

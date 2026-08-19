@@ -1,0 +1,21 @@
+{
+  "_comment": "S15 Fase 3 — GET /api/v3/warehouse/locations com os campos NOVOS da fase 3: bins ganham tare_g + capacity; boxes ganham tare_g, batch_number, sealed e label_printed_at. Mesmas 8 prateleiras / 4 caixas da fixture da fase 1 (o harness compartilhado conta 8 e 4), so que agora com peso e lote. Numero de caixa no formato novo BX-0004 (nunca reusado).",
+  "data": {
+    "bins": [
+      { "id": 1, "bin_code": "A03", "shelf_code": "S2", "area": "P&P", "product_id": 1, "product": "Benfotiamine 300", "qty": 46, "min_qty": 20, "needs_restock": false, "active": true, "tare_g": 420, "capacity": 48 },
+      { "id": 3, "bin_code": "A05", "shelf_code": "S2", "area": "P&P", "product_id": 2, "product": "Berberine 500", "qty": 0, "min_qty": 20, "needs_restock": true, "active": true, "tare_g": 420, "capacity": 48 },
+      { "id": 4, "bin_code": "A07", "shelf_code": "S2", "area": "P&P", "product_id": 3, "product": "Chlorophyll", "qty": 41, "min_qty": 15, "needs_restock": false, "active": true, "tare_g": 355, "capacity": 36 },
+      { "id": 5, "bin_code": "A09", "shelf_code": "S3", "area": "P&P", "product_id": 4, "product": "Collagen", "qty": 0, "min_qty": 10, "needs_restock": true, "active": true, "tare_g": null, "capacity": 48 },
+      { "id": 6, "bin_code": "B01", "shelf_code": "S4", "area": "Palete 2", "product_id": 5, "product": "NAC 600", "qty": 0, "min_qty": 10, "needs_restock": false, "active": true, "tare_g": null, "capacity": null },
+      { "id": 7, "bin_code": "B03", "shelf_code": "S4", "area": "P&P", "product_id": 6, "product": "L-Carnitine 1500", "qty": 48, "min_qty": 24, "needs_restock": false, "active": true, "tare_g": 420, "capacity": 48 },
+      { "id": 8, "bin_code": "C01", "shelf_code": "S5", "area": "P&P", "product_id": 8, "product": "Ashwagandha", "qty": 6, "min_qty": 15, "needs_restock": true, "active": true, "tare_g": 355, "capacity": 24 },
+      { "id": 9, "bin_code": "C09", "shelf_code": "S5", "area": "P&P", "product_id": null, "product": null, "qty": 0, "min_qty": 0, "needs_restock": false, "active": false, "tare_g": null, "capacity": null }
+    ],
+    "boxes": [
+      { "id": 21, "box_number": "BX-0004", "area": "Palete 1", "product_id": 1, "product": "Benfotiamine 300", "qty": 180, "tare_g": 980, "batch_number": "L-2026-07", "sealed": true, "label_printed_at": "2026-08-10T14:00:00Z" },
+      { "id": 22, "box_number": "BX-0012", "area": "Palete 1", "product_id": 2, "product": "Berberine 500", "qty": 110, "tare_g": 980, "batch_number": "L-2026-08", "sealed": false, "label_printed_at": null },
+      { "id": 23, "box_number": "BX-0021", "area": "Palete 2", "product_id": 6, "product": "L-Carnitine 1500", "qty": 252, "tare_g": 1040, "batch_number": null, "sealed": false, "label_printed_at": null },
+      { "id": 24, "box_number": "BX-0030", "area": "Palete 3", "product_id": null, "product": null, "qty": 0, "tare_g": null, "batch_number": null, "sealed": false, "label_printed_at": null }
+    ]
+  }
+}

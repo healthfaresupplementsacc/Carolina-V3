@@ -1,0 +1,53 @@
+{
+  "_comment": "S15 Fase 3 — GET /api/v3/warehouse/requests com o campo `meta`. Contagem por PESO leva os numeros da balanca (bruto, tara, peso da unidade, quantidade calculada, sobra e confianca); entrada de CAIXA NOVA leva lote e area, porque o numero da caixa so e sorteado na aprovacao. As propostas sem meta continuam existindo (fase 2) e a pagina nao pode quebrar com elas.",
+  "data": {
+    "requests": [
+      {
+        "id": 101, "product_id": 6, "product": "L-Carnitine 1500", "nickname": "L-Carnitine 1500",
+        "kind": "count", "direction": "in", "qty": 47, "status": "pending",
+        "proposed_by": "Simone", "created_at": "2026-08-18T13:10:00Z",
+        "reason": "contagem do dia", "bin_code": "B03",
+        "meta": {
+          "gross_g": 8327.75, "tare_g": 420, "net_g": 7907.75,
+          "unit_weight_g": 168.25, "computed_qty": 47, "residual_g": 0,
+          "confidence": "high"
+        }
+      },
+      {
+        "id": 102, "product_id": 8, "product": "Ashwagandha", "nickname": "Ashwagandha",
+        "kind": "count", "direction": "in", "qty": 12, "status": "pending",
+        "proposed_by": "Vitor", "created_at": "2026-08-18T12:05:00Z",
+        "reason": "cycle count", "bin_code": "C01",
+        "meta": {
+          "gross_g": 1887.8, "tare_g": 355, "net_g": 1532.8,
+          "unit_weight_g": 121.9, "computed_qty": 12, "residual_g": 70,
+          "confidence": "low"
+        }
+      },
+      {
+        "id": 103, "product_id": 2, "product": "Berberine 500", "nickname": "Berberine 500",
+        "kind": "entrada", "direction": "in", "qty": 120, "status": "pending",
+        "proposed_by": "Ana Kesya", "created_at": "2026-08-18T11:40:00Z",
+        "reason": "chegou da produção",
+        "meta": { "box": true, "new_box": true, "batch_number": "L-2026-09", "area": "Palete 3", "qty": 120 }
+      },
+      {
+        "id": 104, "product_id": 3, "product": "Chlorophyll", "nickname": "Chlorophyll",
+        "kind": "take", "direction": "out", "qty": 3, "status": "pending",
+        "proposed_by": "Simone", "created_at": "2026-08-18T10:20:00Z",
+        "reason": "extra pro pedido 12-345", "meta": null
+      },
+      {
+        "id": 90, "product_id": 1, "product": "Benfotiamine 300", "nickname": "Benfotiamine 300",
+        "kind": "count", "direction": "in", "qty": 46, "status": "approved",
+        "proposed_by": "Vitor", "decided_by": "Bruno", "created_at": "2026-08-17T15:00:00Z",
+        "reason": "contagem por peso", "bin_code": "A03",
+        "meta": {
+          "gross_g": 6326.4, "tare_g": 420, "net_g": 5906.4,
+          "unit_weight_g": 128.4, "computed_qty": 46, "residual_g": 0,
+          "confidence": "high"
+        }
+      }
+    ]
+  }
+}

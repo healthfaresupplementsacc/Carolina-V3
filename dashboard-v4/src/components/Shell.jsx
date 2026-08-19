@@ -34,6 +34,7 @@ const NAV = [
     { id: "estoque",            pt: "Estoque",                   en: "Warehouse",          icon: "product" },
     { id: "estoque-aprovacoes", pt: "Aprovações",                en: "Approvals",          icon: "target" },
     { id: "estoque-locais",     pt: "Locais",                    en: "Locations",          icon: "plan" },
+    { id: "estoque-etiquetas",  pt: "Etiquetas",                 en: "Labels",             icon: "product" },
     { id: "estoque-geral",      pt: "Ver estoque (antigo)",      en: "Stock (legacy)",     icon: "product" },
     { id: "inventory",          pt: "Estoque detalhado (antigo)", en: "Stock (legacy detailed)", icon: "product" },
     { id: "produto-setup",      pt: "Product Setup",             en: "Product Setup",      icon: "config" },

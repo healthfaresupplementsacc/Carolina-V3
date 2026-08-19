@@ -1,0 +1,407 @@
+{
+  "at": "2026-08-19T04:36:18.667Z",
+  "results": [
+    {
+      "group": "hub",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hub",
+      "name": "botão \"Importar da Veeqo\" no cabeçalho",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hub",
+      "name": "texto do botão em PT-BR sem travessão",
+      "pass": true,
+      "detail": "\"Importar da Veeqo\""
+    },
+    {
+      "group": "screenshot",
+      "name": "hub-import-btn",
+      "pass": true,
+      "detail": "204 KB → p3-hub-import-btn.png"
+    },
+    {
+      "group": "hub-import",
+      "name": "modal abre no passo 1 de 2",
+      "pass": true,
+      "detail": "Passo 1 de 2 · preencherImportar da Veeqo (todos)V"
+    },
+    {
+      "group": "hub-import",
+      "name": "passo 1 mostra a conta antes de aplicar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hub-import",
+      "name": "conta bate com a fixture (1 entra +3, 1 revisar)",
+      "pass": true,
+      "detail": "Passo 1 de 2 · preencherImportar da Veeqo (todos)Vamos usar o número da Veeqo como total e colocar em A organizar. Depois você guarda nas prateleiras e caixas.Onde a Veeqo tem MENOS que a gente nada é"
+    },
+    {
+      "group": "screenshot",
+      "name": "hub-import-modal",
+      "pass": true,
+      "detail": "232 KB → p3-hub-import-modal.png"
+    },
+    {
+      "group": "hub-import",
+      "name": "passo 2 pede confirmação explícita",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hub-import",
+      "name": "confirmar chama POST /warehouse/import-veeqo",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/import-veeqo\"]"
+    },
+    {
+      "group": "hub-import",
+      "name": "toast resume importados e pendentes de revisão",
+      "pass": true,
+      "detail": "1 produto importado · 1 pra revisar (Veeqo menor que o nosso)"
+    },
+    {
+      "group": "hub",
+      "name": "continua com os 8 KPIs",
+      "pass": true,
+      "detail": "kpis=8"
+    },
+    {
+      "group": "hub-drift",
+      "name": "KPI Δ Veeqo abre o painel da lista",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "hub-drift",
+      "name": "lista os 2 produtos com diferença",
+      "pass": true,
+      "detail": "linhas=2"
+    },
+    {
+      "group": "hub-drift",
+      "name": "mostra o Δ com sinal dos dois lados",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "hub-drift",
+      "pass": true,
+      "detail": "180 KB → p3-hub-drift.png"
+    },
+    {
+      "group": "hub-drift",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "prateleiras têm coluna Tara e Cabe",
+      "pass": true,
+      "detail": "|Bin|Prateleira|Área|Produto|Qtd|Mín|Tara|Cabe|Status|"
+    },
+    {
+      "group": "locais",
+      "name": "tara editável em cada prateleira",
+      "pass": true,
+      "detail": "inputs=8"
+    },
+    {
+      "group": "locais",
+      "name": "tara vem preenchida da fixture (A03 = 420 g)",
+      "pass": true,
+      "detail": "valor=420"
+    },
+    {
+      "group": "locais",
+      "name": "caixas têm Lote, Tara, Lacrada e Etiqueta",
+      "pass": true,
+      "detail": "|Caixa|Área / palete|Produto|Qtd|Lote|Tara|Lacrada|Etiqueta|Status"
+    },
+    {
+      "group": "locais",
+      "name": "lote vem preenchido (BX-0004 = L-2026-07)",
+      "pass": true,
+      "detail": "valor=L-2026-07"
+    },
+    {
+      "group": "locais",
+      "name": "lacre marcado na caixa lacrada",
+      "pass": true,
+      "detail": "checked=true"
+    },
+    {
+      "group": "screenshot",
+      "name": "locais-tara",
+      "pass": true,
+      "detail": "193 KB → p3-locais-tara.png"
+    },
+    {
+      "group": "locais",
+      "name": "editar a tara chama POST /warehouse/weights/bin/5",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/weights/bin/5\"]"
+    },
+    {
+      "group": "locais",
+      "name": "botão \"Imprimir etiquetas\" conta a seleção",
+      "pass": true,
+      "detail": "\"Imprimir etiquetas (3)\""
+    },
+    {
+      "group": "locais",
+      "name": "leva pro hash das etiquetas com a seleção",
+      "pass": true,
+      "detail": "#estoque-etiquetas?bins=1,7&boxes=21"
+    },
+    {
+      "group": "etiquetas",
+      "name": "renderiza as 3 etiquetas escolhidas",
+      "pass": true,
+      "detail": "etiquetas=3"
+    },
+    {
+      "group": "etiquetas",
+      "name": "códigos vêm do backend (2 prateleiras + 1 caixa)",
+      "pass": true,
+      "detail": "A03B2,B03S4,BX-0004"
+    },
+    {
+      "group": "etiquetas",
+      "name": "a variante de caixa existe junto com as de prateleira",
+      "pass": true,
+      "detail": "bin,bin,box"
+    },
+    {
+      "group": "etiquetas",
+      "name": "cada etiqueta tem um <svg> Code 128",
+      "pass": true,
+      "detail": "svgs=3"
+    },
+    {
+      "group": "etiquetas",
+      "name": "as barras decodificam de volta pro código (Code 128 de verdade)",
+      "pass": true,
+      "detail": "3/3 conferidas"
+    },
+    {
+      "group": "etiquetas",
+      "name": "cada etiqueta tem um QR renderizado",
+      "pass": true,
+      "detail": "containers=3 svgs=3"
+    },
+    {
+      "group": "etiquetas",
+      "name": "o QR tem desenho, não é caixa vazia",
+      "pass": true,
+      "detail": "paths=6"
+    },
+    {
+      "group": "etiquetas",
+      "name": "etiqueta tem 4in x 6in (384x576 px a 96dpi)",
+      "pass": true,
+      "detail": "{\"w\":384,\"h\":576,\"brk\":\"always\"}"
+    },
+    {
+      "group": "etiquetas",
+      "name": "uma etiqueta por folha (page-break-after)",
+      "pass": true,
+      "detail": "always"
+    },
+    {
+      "group": "etiquetas",
+      "name": "@page 4in 6in declarado pra impressão",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "etiquetas",
+      "name": "código humano bem grande (>= 48px)",
+      "pass": true,
+      "detail": "69.12px"
+    },
+    {
+      "group": "etiquetas",
+      "name": "line2 e line3 aparecem nas 3 etiquetas",
+      "pass": true,
+      "detail": "\"Benfotiamine 300\" / \"180 garrafas · lote L-2026-07\""
+    },
+    {
+      "group": "etiquetas",
+      "name": "etiqueta de caixa traz produto, qtd e lote",
+      "pass": true,
+      "detail": "180 garrafas · lote L-2026-07"
+    },
+    {
+      "group": "screenshot",
+      "name": "etiquetas",
+      "pass": true,
+      "detail": "139 KB → p3-etiquetas.png"
+    },
+    {
+      "group": "etiquetas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "etiquetas",
+      "name": "imprimir carimba label-printed só na caixa",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/locations/box/21/label-printed\"]"
+    },
+    {
+      "group": "produto-setup",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto-setup",
+      "name": "coluna \"Peso da unidade\" existe",
+      "pass": true,
+      "detail": "Produto|Nickname|Cor da garrafa|Estoque Veeqo|Validade (rótulo)|Peso da unidade|SKUs (por canal)"
+    },
+    {
+      "group": "produto-setup",
+      "name": "peso vem de /warehouse/weights e aparece na linha",
+      "pass": true,
+      "detail": "[\"128.40 gn=10Calibrar\",\"142.00 gn=12Calibrar\",\"sem pesoCalibrar\"]"
+    },
+    {
+      "group": "produto-setup",
+      "name": "mostra o tamanho da amostra (n=)",
+      "pass": true,
+      "detail": "\"128.40 gn=10Calibrar\""
+    },
+    {
+      "group": "produto-setup",
+      "name": "Calibrar faz a conta (1704 - 420) / 10 = 128.40 g",
+      "pass": true,
+      "detail": "preview=128.40 g"
+    },
+    {
+      "group": "screenshot",
+      "name": "produto-setup-calibrar",
+      "pass": true,
+      "detail": "208 KB → p3-produto-setup-calibrar.png"
+    },
+    {
+      "group": "produto-setup",
+      "name": "salvar manda sample_gross_g / sample_count / sample_tare_g",
+      "pass": true,
+      "detail": "{\"sample_gross_g\":1704,\"sample_count\":10,\"sample_tare_g\":420}"
+    },
+    {
+      "group": "aprovacoes",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovacoes",
+      "name": "lista as 4 propostas pendentes",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "aprovacoes",
+      "name": "as 2 contagens por peso mostram o detalhe",
+      "pass": true,
+      "detail": "metas=2"
+    },
+    {
+      "group": "aprovacoes",
+      "name": "detalhe traz bruto, tara, unidade, contou e confiança",
+      "pass": true,
+      "detail": "ver como foi contadoconfiança altaBruto8.327,75 gTara420 gLíquido7.907,75 gUnidade168,25 gContou47Sobra0 g"
+    },
+    {
+      "group": "aprovacoes",
+      "name": "confiança baixa aparece marcada em vermelho",
+      "pass": true,
+      "detail": "[\"kit-chip ok:confiança alta\",\"kit-chip bad:confiança baixa\"]"
+    },
+    {
+      "group": "aprovacoes",
+      "name": "entrada de caixa nova mostra lote e área",
+      "pass": true,
+      "detail": "caixa novaLoteL-2026-09ÁreaPalete 3Qtd120o número da caixa sai na aprovação"
+    },
+    {
+      "group": "aprovacoes",
+      "name": "avisa que o número da caixa sai só na aprovação",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovacoes",
+      "name": "proposta sem meta não quebra a linha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "aprovacoes-meta",
+      "pass": true,
+      "detail": "166 KB → p3-aprovacoes-meta.png"
+    },
+    {
+      "group": "config-estoque",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "seção de taras padrão existe",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "config-estoque",
+      "name": "lista as 3 taras da fixture",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "config-estoque",
+      "name": "mostra pra que serve cada tara (prateleira / caixa)",
+      "pass": true,
+      "detail": "Taras padrão (peso do recipiente vazio)Pesar pra contar só funciona com a tara certa. Cadastre aqui os recipientes que s"
+    },
+    {
+      "group": "config-estoque",
+      "name": "adicionar tara chama POST /warehouse/weights/tare",
+      "pass": true,
+      "detail": "{\"name\":\"bandeja verde\",\"kind\":\"bin\",\"tare_g\":390}"
+    },
+    {
+      "group": "screenshot",
+      "name": "config-taras",
+      "pass": true,
+      "detail": "173 KB → p3-config-taras.png"
+    },
+    {
+      "group": "nav",
+      "name": "Etiquetas entra logo depois de Locais",
+      "pass": true,
+      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#estoque-geral,#inventory,#produto-setup,#config-estoque,#pp,#picklist"
+    }
+  ]
+}
