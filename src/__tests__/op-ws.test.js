@@ -26,6 +26,14 @@ describe('op/ws.js — carrega fora do browser (sem DOM)', () => {
     const docUses = SRC.match(/document\./g) || [];
     expect(docUses.length).toBe(4); // print(): write+close · printLabel(): write+close
   });
+  test('a etiqueta vem do renderizador ÚNICO (/shared/label-sheet.js)', () => {
+    // ws.js NÃO pode ter uma segunda cópia do desenho: duas cópias = duas
+    // etiquetas diferentes da mesma caixa no palete.
+    expect(SRC).toContain('HF_LABELS');
+    expect(SRC).toContain('sheetHtml');
+    expect(SRC).not.toContain('@page { size: 4in 6in; margin: 0.15in; }');
+    expect(SRC).not.toContain('HF_CODE128');
+  });
   test('sem em dash em nenhum texto', () => {
     expect(SRC).not.toContain('—');
   });
@@ -552,5 +560,319 @@ describe('op/ws.js — Registrado hoje: caixa + etiqueta (contrato 2)', () => {
     });
     WS.acts.wsPrintLabel('8');
     expect(calls[0]).toBe('/api/v3/op/stock/box/label?box_id=8');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════
+   S15.29 · FILA DE IMPRESSÃO DO CELULAR + RENDERIZADOR ÚNICO
+   O admin pede a etiqueta do iPhone; o papel sai onde tem impressora.
+   As duas peças novas são compartilhadas (Central + hub de estoque +
+   estação /print), então os testes moram junto do primeiro cliente.
+   ══════════════════════════════════════════════════════════════════ */
+const LABELS = require(path.join(__dirname, '..', 'shared', 'label-sheet.js'));
+const PQ = require(path.join(__dirname, '..', 'shared', 'print-queue-card.js'));
+
+describe('shared/label-sheet.js — o desenho da etiqueta mora num lugar só', () => {
+  const L = { kind: 'box', code: 'BX-0451', line2: 'Rutin 500mg', line3: '100 garrafas · lote L-22', url: '/scan/?box=BX-0451' };
+
+  test('carrega em node e expõe sheetHtml/labelHtml', () => {
+    expect(typeof LABELS.sheetHtml).toBe('function');
+    expect(typeof LABELS.labelHtml).toBe('function');
+  });
+  test('a folha é 4x6 e imprime sozinha ao abrir', () => {
+    const doc = LABELS.sheetHtml([L]);
+    expect(doc).toContain('@page { size: 4in 6in; margin: 0.15in; }');
+    expect(doc).toContain('window.print()');
+    expect(doc.indexOf('<!doctype html>')).toBe(0);
+  });
+  test('mostra código gigante, produto, quantidade/lote e a marca', () => {
+    const doc = LABELS.sheetHtml([L]);
+    expect(doc).toContain('BX-0451');
+    expect(doc).toContain('Rutin 500mg');
+    expect(doc).toContain('100 garrafas');
+    expect(doc).toContain('HEALTHFARE');
+    expect(doc).toContain('font-size: 54px');   // o código lido a 3 metros
+  });
+  test('uma etiqueta por folha quando vêm várias', () => {
+    const doc = LABELS.sheetHtml([L, Object.assign({}, L, { code: 'BX-0452' }), Object.assign({}, L, { code: 'A03B2', kind: 'bin' })]);
+    expect((doc.match(/class="sheet-page"/g) || []).length).toBe(3);
+    expect(doc).toContain('page-break-after: always');
+  });
+  test('sem Code128/QR carregados a etiqueta AINDA sai (REGRA #0)', () => {
+    // o papel com o código humano já serve; papel nenhum não serve
+    const doc = LABELS.sheetHtml([L]);
+    expect(doc).toContain('BX-0451');
+    expect(doc).not.toContain('undefined');
+  });
+  test('escapa o que vem do banco (nada de HTML injetado na etiqueta)', () => {
+    const doc = LABELS.sheetHtml([{ code: 'BX<1>', line2: '"x"&y' }]);
+    expect(doc).toContain('BX&lt;1&gt;');
+    expect(doc).toContain('&quot;x&quot;&amp;y');
+  });
+  test('lista vazia não gera folha em branco muda', () => {
+    expect(LABELS.sheetHtml([])).toContain('Nenhuma etiqueta');
+  });
+  test('sem em dash', () => {
+    expect(LABELS.sheetHtml([L]).includes('—')).toBe(false);
+    expect(fs.readFileSync(path.join(__dirname, '..', 'shared', 'label-sheet.js'), 'utf8').includes('—')).toBe(false);
+  });
+});
+
+describe('shared/print-queue-card.js — fila do celular (helpers puros)', () => {
+  test('tipo de job em PT-BR', () => {
+    expect(PQ.kindLabel('bin_labels')).toBe('Etiquetas de prateleira');
+    expect(PQ.kindLabel('box_label')).toBe('Etiqueta de caixa');
+    expect(PQ.kindLabel('picklist')).toBe('Picklist de hoje');
+    expect(PQ.kindLabel('coisa-nova')).toBe('Impressão');
+  });
+  test('conta quantas folhas o job manda pro papel', () => {
+    expect(PQ.jobCount({ kind: 'bin_labels', payload: { labels: [1, 2, 3] } })).toBe(3);
+    expect(PQ.jobCount({ kind: 'picklist', payload: { date: '2026-08-19' } })).toBe(1);
+    expect(PQ.jobCount({ kind: 'box_label', payload: {} })).toBe(0);
+  });
+  test('idade em português de gente', () => {
+    expect(PQ.ageText(0)).toBe('agora mesmo');
+    expect(PQ.ageText(2)).toBe('há 2 min');
+    expect(PQ.ageText(75)).toBe('há 1 h 15 min');
+    expect(PQ.ageText(120)).toBe('há 2 h');
+  });
+  test('job travado há 10+ min volta a ser oferecido', () => {
+    // quem pegou pode ter fechado a aba: a etiqueta não pode ficar presa
+    expect(PQ.isTakeable({ status: 'queued', age_min: 0 })).toBe(true);
+    expect(PQ.isTakeable({ status: 'taken', age_min: 3 })).toBe(false);
+    expect(PQ.isTakeable({ status: 'taken', age_min: 12 })).toBe(true);
+    expect(PQ.isTakeable({ status: 'done', age_min: 99 })).toBe(false);
+    expect(PQ.isTakeable(null)).toBe(false);
+  });
+  test('o botão avisa que é 2a tentativa e a linha diz por quê', () => {
+    expect(PQ.actionLabel({ status: 'queued' })).toBe('Imprimir');
+    expect(PQ.actionLabel({ status: 'taken' })).toBe('Tentar de novo');
+    expect(PQ.stateNote({ status: 'taken', age_min: 14 })).toBe('travado há 14 min · tentar de novo');
+    expect(PQ.stateNote({ status: 'taken', age_min: 2, taken_by: 'Simone' })).toBe('imprimindo em Simone');
+    expect(PQ.stateNote({ status: 'queued' })).toBe('');
+  });
+  test('done e cancelled somem da tela do operador', () => {
+    const list = PQ.visibleJobs([
+      { id: 1, status: 'queued' }, { id: 2, status: 'taken' },
+      { id: 3, status: 'done' }, { id: 4, status: 'cancelled' }, { id: 5, status: 'error' },
+    ]);
+    expect(list.map((j) => j.id)).toEqual([1, 2]);
+  });
+  test('o motivo do erro chega em texto de gente, nunca "[object Object]"', () => {
+    // o backend da fila responde {error:{code,message}} e o api() do kiosk monta
+    // a Error com j.detail || j.error: sem peneira o admin lia [object Object]
+    const e = new Error('[object Object]');
+    e.body = { error: { code: 'not_queued', message: 'Este trabalho não está esperando.' } };
+    expect(PQ.errNote(e)).toBe('Este trabalho não está esperando.');
+    expect(PQ.errNote(Object.assign(new Error('[object Object]'), { body: { detail: 'sem papel' } }))).toBe('sem papel');
+    expect(PQ.errNote(new Error('[object Object]'))).toBe('falhou na estação');
+    expect(PQ.errNote(new Error('não deu pra abrir a janela'))).toBe('não deu pra abrir a janela');
+    expect(PQ.errNote(null)).toBe('falhou na estação');
+  });
+  test('sem em dash no módulo inteiro', () => {
+    expect(fs.readFileSync(path.join(__dirname, '..', 'shared', 'print-queue-card.js'), 'utf8').includes('—')).toBe(false);
+  });
+});
+
+describe('shared/print-queue-card.js — take: pega, imprime e marca como feito', () => {
+  const JOB = { id: 7, kind: 'bin_labels', status: 'queued', age_min: 1, requested_by: 'Bruno',
+    payload: { labels: [{ kind: 'bin', code: 'A03B2', line2: 'S4', line3: 'cabe 48', url: '/scan/?bin=A03B2' }] } };
+
+  function mk(overrides) {
+    const calls = [];
+    const toasts = [];
+    const win = { document: { written: '', write(s) { this.written += s; }, close() {} } };
+    const base = {
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET', body: o && o.body });
+        if (/\?status=/.test(p)) return Promise.resolve({ data: { jobs: [JOB] } });
+        return Promise.resolve({ data: { job: {} } });
+      },
+      by: () => 'QA Operadora',
+      onChange: () => {},
+      toast: (m) => toasts.push(m),
+      openWindow: () => win,
+    };
+    const q = PQ.create(Object.assign(base, overrides || {}));
+    return { q, calls, toasts, win };
+  }
+
+  beforeAll(() => { global.HF_LABELS = LABELS; });
+  afterAll(() => { delete global.HF_LABELS; });
+
+  test('o poll só pede o que está na fila', async () => {
+    const { q, calls } = mk();
+    q.start();
+    await new Promise((r) => setTimeout(r, 5));
+    q.stop();
+    expect(calls[0].p).toBe('/api/v3/print-queue?status=queued&limit=50');
+    expect(q.jobs.length).toBe(1);
+  });
+
+  test('take → POST /take, abre a janela com a etiqueta, POST /done', async () => {
+    const { q, calls, toasts, win } = mk();
+    q.start();
+    await new Promise((r) => setTimeout(r, 5));
+    calls.length = 0;
+    await q.take(7);
+    const posts = calls.filter((c) => c.method === 'POST').map((c) => c.p);
+    expect(posts[0]).toBe('/api/v3/print-queue/7/take');
+    expect(posts[1]).toBe('/api/v3/print-queue/7/done');
+    // quem imprimiu vai no corpo: o admin precisa saber quem pegou o papel
+    expect(calls.find((c) => /\/take$/.test(c.p)).body).toEqual({ by: 'QA Operadora' });
+    // a janela recebeu a etiqueta DO RENDERIZADOR ÚNICO
+    expect(win.document.written).toContain('A03B2');
+    expect(win.document.written).toContain('@page { size: 4in 6in');
+    expect(toasts.join(' ')).toContain('Pode tirar do papel');
+    q.stop();
+  });
+
+  test('popup bloqueado vira POST /error com o motivo (ninguém fica esperando papel)', async () => {
+    const { q, calls, toasts } = mk({ openWindow: () => null });
+    q.start();
+    await new Promise((r) => setTimeout(r, 5));
+    calls.length = 0;
+    await q.take(7);
+    const errPost = calls.find((c) => /\/error$/.test(c.p));
+    expect(errPost).toBeTruthy();
+    expect(String(errPost.body.note)).toMatch(/janela/i);
+    expect(calls.find((c) => /\/done$/.test(c.p))).toBeFalsy();
+    expect(toasts.join(' ')).toContain('já foi avisado');
+    q.stop();
+  });
+
+  test('409 (outro PC pegou antes) não vira erro do job', async () => {
+    const calls = [];
+    const toasts = [];
+    const q = PQ.create({
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET' });
+        if (/\?status=/.test(p)) return Promise.resolve({ data: { jobs: [JOB] } });
+        if (/\/take$/.test(p)) { const e = new Error('not_queued'); e.status = 409; return Promise.reject(e); }
+        return Promise.resolve({});
+      },
+      by: () => 'QA', onChange: () => {}, toast: (m) => toasts.push(m),
+      openWindow: () => ({ document: { write() {}, close() {} } }),
+    });
+    q.start();
+    await new Promise((r) => setTimeout(r, 5));
+    await q.take(7);
+    expect(calls.find((c) => /\/error$/.test(c.p))).toBeFalsy();
+    expect(toasts.join(' ')).toContain('pegou esse pedido primeiro');
+    q.stop();
+  });
+
+  test('picklist usa o print() da Central, não o desenho de etiqueta', async () => {
+    let usedPicklist = 0;
+    const calls = [];
+    const q = PQ.create({
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET' });
+        if (/\?status=/.test(p)) return Promise.resolve({ data: { jobs: [{ id: 9, kind: 'picklist', status: 'queued', age_min: 0, payload: { date: '2026-08-19' } }] } });
+        return Promise.resolve({});
+      },
+      by: () => 'QA', onChange: () => {}, toast: () => {},
+      openWindow: () => ({ document: { write() {}, close() {} } }),
+      printPicklist: () => { usedPicklist += 1; return true; },
+    });
+    q.start();
+    await new Promise((r) => setTimeout(r, 5));
+    await q.take(9);
+    expect(usedPicklist).toBe(1);
+    expect(calls.filter((c) => /\/done$/.test(c.p)).length).toBe(1);
+    q.stop();
+  });
+
+  test('fila fora do ar não atrapalha quem está trabalhando (REGRA #0)', async () => {
+    const q = PQ.create({
+      api: () => Promise.reject(new Error('offline')),
+      by: () => 'QA', onChange: () => {}, toast: () => {},
+    });
+    q.start();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(q.jobs).toEqual([]);
+    q.stop();
+  });
+});
+
+describe('op/ws.js — cartão da fila do celular na Central', () => {
+  function boot(jobs) {
+    global.HF_PRINT_QUEUE = PQ;
+    global.HF_LABELS = LABELS;
+    const calls = [];
+    const S = { workspaceOpen: true, myTasks: [{ slug: 'order_printing' }], ws: null, person: { display_name: 'QA Operadora' } };
+    WS.init({
+      S, CFG: { workspace: true }, DATA: { supplements: [] },
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET', body: o && o.body });
+        if (/print-queue\?/.test(p)) return Promise.resolve({ data: { jobs } });
+        return Promise.resolve({});
+      },
+      toast: () => {}, render: () => {}, esc: (s) => String(s == null ? '' : s),
+      isSandbox: () => false, typeMeta: () => ({}), openWindow: () => ({ document: { write() {}, close() {} } }),
+      loadData: () => Promise.resolve(null),
+    });
+    return { S, calls };
+  }
+  afterEach(() => { WS.stopQueue(); delete global.HF_PRINT_QUEUE; delete global.HF_LABELS; });
+
+  test('abrir a Central começa a puxar a fila', async () => {
+    const { calls } = boot([]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(calls.some((c) => c.p === '/api/v3/print-queue?status=queued&limit=50')).toBe(true);
+  });
+
+  test('fila vazia NÃO desenha cartão nenhum', async () => {
+    boot([]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(WS.inner()).not.toContain('data-card="print-queue"');
+  });
+
+  test('com pedido: cartão com tipo em PT, quem pediu, idade e botão', async () => {
+    boot([{ id: 7, kind: 'bin_labels', status: 'queued', age_min: 2, requested_by: 'Bruno',
+      payload: { labels: [{ kind: 'bin', code: 'A03B2' }, { kind: 'bin', code: 'A04' }] } }]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    const h = WS.inner();
+    expect(h).toContain('data-card="print-queue"');
+    expect(h).toContain('Etiquetas de prateleira');
+    expect(h).toContain('2 folhas');
+    expect(h).toContain('Bruno');
+    expect(h).toContain('há 2 min');
+    expect(h).toContain('data-act="wsPrintJob" data-arg="7"');
+  });
+
+  test('job travado há 12 min oferece "Tentar de novo"', async () => {
+    boot([{ id: 8, kind: 'box_label', status: 'taken', age_min: 12, requested_by: 'Bruno', taken_by: 'Simone',
+      payload: { labels: [{ kind: 'box', code: 'BX-0451' }] } }]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    const h = WS.inner();
+    expect(h).toContain('Tentar de novo');
+    expect(h).toContain('travado há 12 min');
+  });
+
+  test('a key muda quando um pedido chega (senão o cartão não aparece sozinho)', async () => {
+    boot([]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    const k1 = WS.key();
+    WS.stopQueue();
+    boot([{ id: 7, kind: 'bin_labels', status: 'queued', age_min: 0, payload: { labels: [{ code: 'A03B2' }] } }]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(WS.key()).not.toBe(k1);
+  });
+
+  test('fechar a Central para de puxar a fila', async () => {
+    const { calls } = boot([]);
+    WS.acts.openWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    WS.acts.closeWorkspace();
+    calls.length = 0;
+    await new Promise((r) => setTimeout(r, 5));
+    expect(calls.filter((c) => /print-queue/.test(c.p)).length).toBe(0);
   });
 });

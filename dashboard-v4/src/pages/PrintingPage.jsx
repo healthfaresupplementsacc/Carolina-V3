@@ -15,6 +15,7 @@
 import React from 'react';
 import { Icon } from '../components/Icons.jsx';
 import { usePoll, getPin } from '../adapters/from-api.js';
+import { getPrintQueue, cancelPrintJob } from '../adapters/warehouse-api.js';
 import './pages-admin.css';
 
 // Mapa de rótulo de status físico → tom do kit + texto amigável.
@@ -135,6 +136,135 @@ function useSpoolerStream() {
   return live;
 }
 
+/* ── Fila do celular (S15.29) ────────────────────────────────────────────────
+   Quem pede etiqueta do iPhone não tem impressora na mão: o pedido entra numa
+   fila e os PCs com papel (Central do /op, hub de Estoque, estação .28) puxam.
+   Este painel é a janela do admin pra ESSA fila: o que está esperando, quem
+   pediu, há quanto tempo e quem pegou. Cancelar só vale enquanto ninguém pegou;
+   depois disso o papel já pode estar saindo, e "cancelar" seria mentira. */
+const QUEUE_KIND = {
+  bin_labels: 'Etiquetas de prateleira',
+  box_label: 'Etiqueta de caixa',
+  picklist: 'Picklist de hoje',
+};
+const QUEUE_STATUS = {
+  queued: { txt: 'na fila', tone: 'warn' },
+  taken: { txt: 'imprimindo', tone: 'info' },
+  done: { txt: 'impresso', tone: 'ok' },
+  error: { txt: 'deu erro', tone: 'bad' },
+  cancelled: { txt: 'cancelado', tone: 'neutral' },
+};
+function queueAge(min) {
+  const m = Math.max(0, Math.round(Number(min) || 0));
+  if (m < 1) return 'agora mesmo';
+  if (m < 60) return 'há ' + m + ' min';
+  const h = Math.floor(m / 60); const r = m % 60;
+  return 'há ' + h + ' h' + (r ? ' ' + r + ' min' : '');
+}
+function queueCount(job) {
+  const p = (job && job.payload) || {};
+  if (Array.isArray(p.labels)) return p.labels.length;
+  return job && job.kind === 'picklist' ? 1 : 0;
+}
+
+function MobileQueuePanel() {
+  const [jobs, setJobs] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [busy, setBusy] = React.useState(null);
+  const [bump, setBump] = React.useState(0);
+
+  React.useEffect(() => {
+    let alive = true;
+    const load = () => getPrintQueue('all', 30).then(
+      (j) => { if (alive) { setJobs((j.data && j.data.jobs) || []); setErr(null); } },
+      (e) => { if (alive) setErr(e); },
+    );
+    load();
+    const t = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [bump]);
+
+  async function cancel(id) {
+    setBusy(id);
+    try { await cancelPrintJob(id); setBump((b) => b + 1); }
+    catch (e) { setErr(e); }
+    finally { setBusy(null); }
+  }
+
+  // painel silencioso quando não há nada: a página é das impressoras, a fila é
+  // um extra que só ocupa espaço quando tem alguém esperando papel.
+  const list = jobs || [];
+  const live = list.filter((j) => j.status === 'queued' || j.status === 'taken');
+  if (!err && jobs && !list.length) return null;
+
+  return (
+    <div data-panel="fila-celular">
+      <div className="adm-sec" style={{ marginTop: 20 }}>
+        {live.length > 0 && <span className="kit-chip warn">{live.length} esperando</span>}
+        <span className="kit-mlabel">Fila do celular · pedidos de impressão</span>
+        <span className="rule"/>
+      </div>
+      {err ? (
+        <div className="adm-state">
+          Não deu pra ler a fila agora. Ela não atrapalha o resto da página; tente atualizar em alguns segundos.
+        </div>
+      ) : !jobs ? (
+        <div className="adm-state">Carregando a fila…</div>
+      ) : (
+        <div className="kit-card pad" style={{ marginBottom: 18 }}>
+          <p className="adm-note faint" style={{ marginTop: 0, marginBottom: 10 }}>
+            Quem pede do celular não tem impressora na mão. O papel sai na Central do operador, no hub de Estoque ou na estação de impressão,
+            onde o pedido aparece com um botão de Imprimir.
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="kit-table" data-table="fila-celular">
+              <thead>
+                <tr>
+                  <th>O quê</th>
+                  <th className="num">Folhas</th>
+                  <th>Quem pediu</th>
+                  <th>Quando</th>
+                  <th>Estado</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((j) => {
+                  const sv = QUEUE_STATUS[j.status] || QUEUE_STATUS.queued;
+                  return (
+                    <tr key={j.id} data-job={j.id}>
+                      <td>
+                        <b>{QUEUE_KIND[j.kind] || j.kind}</b>
+                        {j.is_test && <span className="kit-chip neutral" style={{ marginLeft: 6 }}>teste</span>}
+                      </td>
+                      <td className="num">{queueCount(j) || '—'}</td>
+                      <td>{j.requested_by || '—'}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{queueAge(j.age_min)}</td>
+                      <td>
+                        <span className={'kit-chip ' + sv.tone}>{sv.txt}</span>
+                        {j.status === 'taken' && j.taken_by && <span className="adm-note faint" style={{ marginLeft: 6 }}>{j.taken_by}</span>}
+                        {j.status === 'error' && j.error_note && <span className="adm-note faint" style={{ marginLeft: 6 }}>{j.error_note}</span>}
+                      </td>
+                      <td>
+                        {j.status === 'queued' ? (
+                          <button className="kit-btn sec sm" data-act="cancelar-job" disabled={busy === j.id}
+                                  onClick={() => cancel(j.id)}>
+                            {busy === j.id ? 'Cancelando…' : 'Cancelar'}
+                          </button>
+                        ) : <span className="adm-note faint">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PrintingPage({ date }) {
   const { data, loading } = usePoll(date ? `/printers?date=${date}` : '/printers', [date], 12000);
   const stream = useSpoolerStream();
@@ -220,6 +350,9 @@ function PrintingPage({ date }) {
           )}
         </div>
       </div>
+
+      {/* ── Fila de impressão pedida pelo celular ── */}
+      <MobileQueuePanel/>
 
       {/* ── Incidentes ABERTOS (impressora com problema agora) ── */}
       {incidents.length > 0 && (

@@ -125,6 +125,51 @@ export const getLabels = (bins, boxes) => {
 /** Carimba que a etiqueta da caixa foi impressa. */
 export const markBoxLabelPrinted = (boxId) => whPost('/locations/box/' + boxId + '/label-printed', {});
 
+/* ── Fila de impressão (S15.29) ────────────────────────────────────
+   Quem está no dashboard tem impressora do lado, mas quem está no celular NÃO:
+   por isso existe uma fila que os PCs com papel (Central do /op, hub de Estoque
+   e a estação .28) puxam. "Mandar pro computador da impressora" põe o pedido
+   nessa fila; o servidor resolve as etiquetas AGORA (mesma função do GET
+   /labels) e guarda o desenho no payload, pra impressão não depender do que
+   mudar no estoque entre o pedido e o papel.
+   A fila não fica em /api/v3/warehouse: ela é falada também pelo kiosk e pela
+   estação, com credenciais que não são o PIN de admin. */
+const QUEUE_BASE = '/api/v3/print-queue';
+
+async function queueCall(method, path, body) {
+  let r;
+  try {
+    r = await fetch(QUEUE_BASE + path, {
+      method,
+      headers: {
+        'x-admin-pin': getPin(),
+        ...(body != null ? { 'content-type': 'application/json' } : {}),
+      },
+      body: body != null ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    throw new Error('sem conexão com a API');
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error((j.error && j.error.message) || (j.error && typeof j.error === 'string' ? j.error : null) || ('erro ' + r.status));
+    err.code = j.error && (j.error.code || j.error);
+    err.status = r.status;
+    throw err;
+  }
+  return j;
+}
+
+/** Manda as etiquetas escolhidas pro computador da impressora. */
+export const submitPrintJob = (body) => whPost('/mobile/print/submit', body);
+
+/** Fila: o que está esperando papel. status = queued|taken|done|all */
+export const getPrintQueue = (status = 'queued', limit = 50) =>
+  queueCall('GET', '?status=' + encodeURIComponent(status) + '&limit=' + encodeURIComponent(limit));
+
+/** Cancela um pedido que ainda não foi pego (admin ou quem pediu). */
+export const cancelPrintJob = (id) => queueCall('POST', '/' + encodeURIComponent(id) + '/cancel', {});
+
 /** Lista de produtos com diferença pra Veeqo (o mesmo que alimenta o alerta). */
 export const getDrift      = () => whGet('/drift');
 /** Copia o UPC da Veeqo pros SKUs mapeados. */

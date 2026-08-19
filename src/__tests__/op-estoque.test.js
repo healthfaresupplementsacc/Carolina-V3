@@ -345,10 +345,26 @@ describe('estoque — arquivos da casca (html + sw + vendor)', () => {
     // o menu tem que existir ANTES do app: o header do hub o desenha no 1º render
     expect(html.indexOf('/op/nav.js')).toBeLessThan(html.indexOf('/op/estoque.js'));
   });
+  test('estoque.html carrega o desenho da etiqueta e a fila ANTES do app', () => {
+    const html = read('op', 'estoque.html');
+    ['/shared/label-sheet.js', '/shared/print-queue-card.js'].forEach((s) => {
+      expect(html).toContain(s);
+      expect(html.indexOf(s)).toBeLessThan(html.indexOf('/op/estoque.js'));
+    });
+  });
+  test('a estacao /print tambem carrega etiqueta + fila (o papel sai la)', () => {
+    const html = read('print', 'index.html');
+    ['/op/vendor/code128.js', '/op/vendor/qrcode.min.js', '/shared/label-sheet.js', '/shared/print-queue-card.js']
+      .forEach((s) => {
+        expect(html).toContain(s);
+        expect(html.indexOf(s)).toBeLessThan(html.indexOf('/print/print.js'));
+      });
+  });
   test('sw cacheia a tela nova e subiu de versao', () => {
     const sw = read('op', 'sw.js');
-    expect(sw).toContain("'hf-op-v42'");
-    ['/op/estoque.html', '/op/estoque.js', '/op/nav.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js']
+    expect(sw).toContain("'hf-op-v43'");
+    ['/op/estoque.html', '/op/estoque.js', '/op/nav.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js',
+      '/shared/label-sheet.js', '/shared/print-queue-card.js']
       .forEach((s) => expect(sw).toContain(s));
   });
   test('pagina do celular tem camera + fallback manual (REGRA #0)', () => {
@@ -370,6 +386,50 @@ describe('estoque — arquivos da casca (html + sw + vendor)', () => {
     expect(read('op', 'vendor', 'qrcode.min.js').slice(0, 400)).toMatch(/MIT/i);
     expect(fs.existsSync(path.join(__dirname, '..', 'scan', 'vendor', 'zxing.min.js'))).toBe(true);
     expect(fs.existsSync(path.join(__dirname, '..', 'scan', 'vendor', 'LICENSE.zxing.txt'))).toBe(true);
+  });
+});
+
+describe('estoque — etiqueta e fila vem dos modulos compartilhados', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'op', 'estoque.js'), 'utf8');
+  test('nao existe uma 2a copia do desenho da etiqueta aqui', () => {
+    // duas copias = duas etiquetas diferentes da mesma caixa no palete
+    expect(src).toContain('HF_LABELS');
+    expect(src).toContain('sheetHtml');
+    expect(src).not.toContain('@page { size: 4in 6in; margin: 0.15in; }');
+    expect(src).not.toContain('HF_CODE128');
+  });
+  test('a fila do celular usa a peca compartilhada, nao uma copia', () => {
+    expect(src).toContain('HF_PRINT_QUEUE');
+    expect(src).toContain('printJob');
+    // a URL da fila mora num lugar so (o modulo), nao espalhada pela tela
+    expect(src).not.toContain('/api/v3/print-queue');
+  });
+  test('o hub expoe start/stop da fila (login liga, logout desliga)', () => {
+    expect(typeof EST.startQueue).toBe('function');
+    expect(typeof EST.stopQueue).toBe('function');
+  });
+
+  test('a estacao /print usa as mesmas pecas, sem copia de desenho nem de fila', () => {
+    const ps = fs.readFileSync(path.join(__dirname, '..', 'print', 'print.js'), 'utf8');
+    expect(ps).toContain('HF_PRINT_QUEUE');
+    expect(ps).toContain('printJob');
+    expect(ps).not.toContain('@page');          // nada de etiqueta desenhada aqui
+    expect(ps).not.toContain('HF_CODE128');
+    expect(ps).not.toContain('/api/v3/print-queue');
+    /* Em dash: a tela de login da estacao ja tinha os dela desde 07-16 e mexer
+       neles e outra tarefa. O que a FILA acrescentou tem que estar limpo. */
+    const fila = ps.slice(ps.indexOf('FILA DE IMPRESSÃO DO CELULAR'), ps.indexOf('function printingCard'));
+    expect(fila.length).toBeGreaterThan(500);
+    expect(fila.includes('—')).toBe(false);
+  });
+  test('a confirmacao da estacao vive FORA do cartao da fila', () => {
+    /* o ultimo job impresso esvazia a fila e o cartao some: se o "Pode tirar do
+       papel" morasse dentro dele, ninguem veria o aviso justo na hora em que
+       ele importa. Regressao real pega pelo harness. */
+    const ps = fs.readFileSync(path.join(__dirname, '..', 'print', 'print.js'), 'utf8');
+    expect(ps).toContain('queueMsgCard');
+    const card = ps.slice(ps.indexOf('function queueCard'), ps.indexOf('function queueMsgCard'));
+    expect(card).not.toContain('S.queueMsg');
   });
 });
 

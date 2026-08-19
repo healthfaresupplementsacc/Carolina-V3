@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T05:27:06.738Z",
+  "at": "2026-08-19T13:03:39.258Z",
   "results": [
     {
       "group": "hub",
@@ -23,7 +23,7 @@
       "group": "screenshot",
       "name": "hub-import-btn",
       "pass": true,
-      "detail": "204 KB → p3-hub-import-btn.png"
+      "detail": "203 KB → p3-hub-import-btn.png"
     },
     {
       "group": "hub-import",
@@ -47,7 +47,7 @@
       "group": "screenshot",
       "name": "hub-import-modal",
       "pass": true,
-      "detail": "233 KB → p3-hub-import-modal.png"
+      "detail": "232 KB → p3-hub-import-modal.png"
     },
     {
       "group": "hub-import",
@@ -251,7 +251,7 @@
       "group": "screenshot",
       "name": "etiquetas",
       "pass": true,
-      "detail": "132 KB → p3-etiquetas.png"
+      "detail": "138 KB → p3-etiquetas.png"
     },
     {
       "group": "etiquetas",
@@ -264,6 +264,42 @@
       "name": "imprimir carimba label-printed só na caixa",
       "pass": true,
       "detail": "[\"/api/v3/warehouse/locations/box/21/label-printed\"]"
+    },
+    {
+      "group": "fila",
+      "name": "botão \"Mandar pro computador da impressora\" ao lado do Imprimir",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila",
+      "name": "texto em PT-BR sem travessão",
+      "pass": true,
+      "detail": "\"Mandar pro computador da impressora\""
+    },
+    {
+      "group": "fila",
+      "name": "manda a seleção pro submit do contrato",
+      "pass": true,
+      "detail": "{\"kind\":\"bin_labels\",\"bins\":[1,7],\"boxes\":[21]}"
+    },
+    {
+      "group": "fila",
+      "name": "a tela diz onde o papel vai sair e que dá pra cancelar",
+      "pass": true,
+      "detail": "3 etiquetas na fila do computador da impressora. Aparece na Central do operador, no hub de Estoque e na estação de impressão. Quem estiver p"
+    },
+    {
+      "group": "screenshot",
+      "name": "etiquetas-mandar-estacao",
+      "pass": true,
+      "detail": "158 KB → p3-etiquetas-mandar-estacao.png"
+    },
+    {
+      "group": "fila-etiquetas",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "produto-setup",
@@ -359,7 +395,7 @@
       "group": "screenshot",
       "name": "aprovacoes-meta",
       "pass": true,
-      "detail": "159 KB → p3-aprovacoes-meta.png"
+      "detail": "160 KB → p3-aprovacoes-meta.png"
     },
     {
       "group": "config-estoque",
@@ -396,6 +432,72 @@
       "name": "config-taras",
       "pass": true,
       "detail": "159 KB → p3-config-taras.png"
+    },
+    {
+      "group": "fila-impressao",
+      "name": "painel \"Fila do celular\" existe na página Impressão",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila-impressao",
+      "name": "lista os 4 pedidos (o mandado agora + os 3 do stub)",
+      "pass": true,
+      "detail": "linhas=4"
+    },
+    {
+      "group": "fila-impressao",
+      "name": "tipo em PT, quem pediu e idade em cada linha",
+      "pass": true,
+      "detail": "\"Etiquetas de prateleira 2 Bruno há 3 min na fila Cancelar\""
+    },
+    {
+      "group": "fila-impressao",
+      "name": "chip de estado por linha (na fila · imprimindo · impresso)",
+      "pass": true,
+      "detail": "na fila|na fila|imprimindo|impresso"
+    },
+    {
+      "group": "fila-impressao",
+      "name": "quem pegou aparece na linha que está imprimindo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila-impressao",
+      "name": "pedido de teste sai marcado como teste",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila-impressao",
+      "name": "Cancelar só nos que ninguém pegou ainda",
+      "pass": true,
+      "detail": "com botão=2/4"
+    },
+    {
+      "group": "screenshot",
+      "name": "impressao-fila-celular",
+      "pass": true,
+      "detail": "135 KB → p3-impressao-fila-celular.png"
+    },
+    {
+      "group": "fila-impressao",
+      "name": "Cancelar chama POST /print-queue/:id/cancel",
+      "pass": true,
+      "detail": "[\"/api/v3/print-queue/21/cancel\"]"
+    },
+    {
+      "group": "fila-impressao",
+      "name": "o pedido cancelado some da lista",
+      "pass": true,
+      "detail": "99,22,23"
+    },
+    {
+      "group": "fila-impressao",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "nav",

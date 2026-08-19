@@ -165,6 +165,11 @@ function mount(app) {
     // login: o código do pareamento é a credencial (curto, 15 min, renovável).
     // Empurra cada leitura pro kiosk via POST /api/v3/scan/push.
     app.use('/scan', express2.static(path2.join(process.cwd(), 'src', 'scan')));
+    // ADMIN MOBILE (S15.29, Bruno 08-19) — o inventário e a impressão inteiros no
+    // iPhone. Estático como /scan e /print: página de celular não precisa de build,
+    // e um bundle de dashboard no 4G do armazém é um começo lento toda vez. Auth =
+    // o MESMO x-admin-pin de sempre, guardado 12h no localStorage do telefone.
+    app.use('/m', express2.static(path2.join(process.cwd(), 'src', 'm')));
     // Fases B+C — Admin Panel (path NOVO; dashboard V4 intocado).
     const adminPanel = require('../routes/admin');
     app.use('/', adminPanel.createAdminRouter({
@@ -226,8 +231,16 @@ function mount(app) {
     },
   });
   const whRequests = new StockRequestService({ db: _pool, stock: whStock });
+  // FILA DE IMPRESSÃO (S15.34, Bruno 08-19) — o celular pede, a estação puxa. O
+  // service é COMPARTILHADO: o warehouse router enfileira (mobile/print/submit) e o
+  // print-queue router é onde a estação toma/conclui. Uma instância, uma fila.
+  const printQueueApi = require('./print-queue/router');
+  const { PrintQueueService } = require('./print-queue/service');
+  const printQueue = new PrintQueueService({ db: _pool });
+  app.use('/', printQueueApi.createPrintQueueRouter({ db: _pool, queue: printQueue }));
   app.use('/', warehouseApi.createWarehouseRouter({
-    db: _pool, stock: whStock, requests: whRequests, veeqo: whVeeqo, adminChannelId }));
+    db: _pool, stock: whStock, requests: whRequests, veeqo: whVeeqo,
+    printQueue, adminChannelId }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
   // buildada em public/dashboard/. Aditivo — não toca nada.
   const express = require('express');
@@ -259,7 +272,7 @@ function mount(app) {
   // Lateral total — não toca v3.events/messages/Observer/dashboard.
   app.use('/foto', express.static(path.join(process.cwd(), 'public', 'foto')));
   app.use('/', imagesApi.createImagesRouter({}));
-  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /api/v3/print-queue/* + /m + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */

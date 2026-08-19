@@ -319,6 +319,7 @@
     S.workspaceOpen = true;
     st().justLooking = true;      // veio pelo link: não pergunta nada de cara
     load();
+    startQueue();
     try {
       var clean = (loc.pathname || '/op/') + (loc.search || '').replace(/([?&])ws=1\b&?/, '$1').replace(/[?&]$/, '');
       if (window.history && window.history.replaceState) window.history.replaceState(null, '', clean);
@@ -421,37 +422,87 @@
     win.document.write(doc); win.document.close();
   }
 
-  /* Etiqueta 4x6 da caixa (Code128 + QR gerados aqui, sem CDN). Mesmo layout
-     do hub de estoque: número gigante, produto, quantidade/lote, barras e QR. */
-  function printLabel(L) {
+  /* Etiqueta 4x6 da caixa. O DESENHO mora em /shared/label-sheet.js, um
+     renderizador só pra Central, pro hub de estoque, pra estação /print e pra
+     fila do celular: duas cópias do mesmo papel viram duas etiquetas
+     diferentes da mesma caixa no palete. */
+  function labelsRenderer() {
     var W = typeof window !== 'undefined' ? window : null;
-    var C128 = (W && W.HF_CODE128) || null;
-    var QR = (W && W.qrcode) || null;
-    var bar = C128 ? C128.svg(L.code, { width: 520, height: 90 }) : '';
-    var qr = '';
-    if (QR) {
-      try { var q = QR(0, 'M'); q.addData(String(L.url || L.code)); q.make(); qr = q.createSvgTag({ cellSize: 3, margin: 0 }); }
-      catch (e) { qr = ''; }
-    }
-    var doc = '<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta ' + D.esc(L.code) + '</title><style>'
-      + '@page { size: 4in 6in; margin: 0.15in; }'
-      + 'body { font-family: Arial, Helvetica, sans-serif; margin:0; color:#000; }'
-      + '.code { font-size: 54px; font-weight: 900; letter-spacing:.02em; line-height:1; margin-bottom:8px; }'
-      + '.l2 { font-size: 19px; font-weight: 700; line-height:1.15; margin-bottom:4px; }'
-      + '.l3 { font-size: 16px; font-weight: 700; margin-bottom:10px; }'
-      + '.foot { display:flex; align-items:flex-end; justify-content:space-between; margin-top:8px; }'
-      + '.qr { width:96px; height:96px; }'
-      + '.hf { font-size:10px; font-weight:700; letter-spacing:.08em; }'
-      + '</style></head><body>'
-      + '<div class="code">' + D.esc(L.code) + '</div>'
-      + (L.line2 ? '<div class="l2">' + D.esc(L.line2) + '</div>' : '')
-      + (L.line3 ? '<div class="l3">' + D.esc(L.line3) + '</div>' : '')
-      + '<div class="bar">' + bar + '</div>'
-      + '<div class="foot"><div class="hf">HEALTHFARE</div><div class="qr">' + qr + '</div></div>'
-      + '<script>window.onload=function(){window.print();}<\/script></body></html>';
+    return (W && W.HF_LABELS) || (typeof global !== 'undefined' && global.HF_LABELS) || null;
+  }
+  function printLabel(L) {
+    var HL = labelsRenderer();
+    if (!HL) { D.toast('O desenho da etiqueta n&atilde;o carregou. Recarregue a p&aacute;gina e tente de novo.'); return; }
     var win = D.openWindow();
     if (!win) { D.toast('Popup bloqueado. Libera popup pra imprimir'); return; }
-    win.document.write(doc); win.document.close();
+    win.document.write(HL.sheetHtml([L], { title: 'Etiqueta ' + String((L && L.code) || '') }));
+    win.document.close();
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // FILA DE IMPRESSÃO DO CELULAR
+  // O admin pede a etiqueta do iPhone; o papel sai AQUI, onde tem impressora.
+  // A máquina de estados mora em /shared/print-queue-card.js (mesma do hub de
+  // estoque e da estação /print); aqui só ligamos os fios da Central.
+  // ════════════════════════════════════════════════════════════
+  var queue = null;
+  function PQ() {
+    var W = typeof window !== 'undefined' ? window : null;
+    return (W && W.HF_PRINT_QUEUE) || (typeof global !== 'undefined' && global.HF_PRINT_QUEUE) || null;
+  }
+  function startQueue() {
+    var M = PQ();
+    if (!M || queue) return;
+    queue = M.create({
+      api: function (path, opts) { return D.api(path, opts); },
+      /* QUEM imprimiu vai no take/done: o admin no celular precisa saber onde
+         o papel saiu. No /op a pessoa logada mora em S.session.person
+         (app.js:1524); S.person é o formato do hub de estoque. */
+      by: function () {
+        var S = D.S || {};
+        var p = (S.session && S.session.person) || S.person || null;
+        return (p && (p.display_name || p.name)) || 'Central';
+      },
+      onChange: function () { D.render(); },
+      toast: function (m) { D.toast(m); },
+      openWindow: function () { return D.openWindow(); },
+      // picklist da fila usa o MESMO print() do botão PRINT: um papel só existe
+      printPicklist: function () { print(); return true; },
+    });
+    queue.start();
+  }
+  function stopQueue() { if (queue) { queue.stop(); queue = null; } }
+
+  /* Cartão só aparece quando tem pedido esperando. Nunca empurra nada pra
+     baixo quando a fila está vazia: a Central é do P&P, não da impressão. */
+  function queueHtml() {
+    var M = PQ();
+    if (!M || !queue || !queue.jobs.length) return '';
+    var h = '<div style="grid-column:1 / -1; ' + CARD + ' padding:16px 20px; border-color:' + T.neuLn + ';" data-card="print-queue">'
+      + '<div style="display:flex; align-items:center; gap:9px; margin-bottom:4px;">'
+      + '<span style="font-size:18px;">&#128424;</span>' + microLbl('Impress&atilde;o pedida pelo celular') + '</div>'
+      + '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:8px;">Algu&eacute;m pediu do celular e o papel sai aqui. Toque em Imprimir e tire da impressora.</div>';
+    queue.jobs.forEach(function (j) {
+      var n = M.jobCount(j);
+      var note = M.stateNote(j);
+      var can = M.isTakeable(j);
+      var busy = String(queue.busy) === String(j.id);
+      h += '<div style="border-top:1px dotted ' + T.dot + '; padding:10px 2px; display:flex; align-items:center; gap:9px; flex-wrap:wrap;" data-job="' + D.esc(String(j.id)) + '">'
+        + '<span style="flex:1; min-width:150px; font-size:13.5px; font-weight:700; color:' + T.ink2 + ';">' + D.esc(M.kindLabel(j.kind))
+        + (n ? '<span style="font-family:' + MONO + '; font-size:11.5px; color:' + T.mute2 + '; font-weight:600; margin-left:7px;">' + n + (n === 1 ? ' folha' : ' folhas') + '</span>' : '')
+        + '</span>'
+        + chip(D.esc(j.requested_by || 'admin'), T.neuBg, T.neuFg, T.neuLn)
+        + chip(D.esc(M.ageText(j.age_min)), T.neuBg, T.mute2, T.neuLn)
+        + (j.is_test ? chip('teste', T.warnBg, T.warnFg, T.warnLn) : '')
+        + (can
+          ? '<button data-act="wsPrintJob" data-arg="' + D.esc(String(j.id)) + '" ' + (busy ? 'disabled' : '')
+            + ' style="border:0; cursor:pointer; border-radius:999px; min-height:46px; padding:0 22px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:14px; font-family:' + SORA + ';">'
+            + (busy ? 'Imprimindo&hellip;' : D.esc(M.actionLabel(j))) + '</button>'
+          : chip('imprimindo', T.warnBg, T.warnFg, T.warnLn))
+        + (note ? '<div style="width:100%; font-size:12px; color:' + T.mute2 + ';">' + D.esc(note) + '</div>' : '')
+        + '</div>';
+    });
+    return h + '</div>';
   }
 
   function key() {
@@ -467,7 +518,12 @@
       + '|' + (w.ctx ? restockList(w.ctx).length : 'L')
       // gaps chega por último (Veeqo+EMS): sem ele na key a camada nunca remontava
       // e o card ficava preso em "verificando estoque".
-      + '|' + (w.gaps ? ((w.gaps.items || []).length + '.' + (w.gaps.out_count || 0)) : 'L');
+      + '|' + (w.gaps ? ((w.gaps.items || []).length + '.' + (w.gaps.out_count || 0)) : 'L')
+      // fila do celular: sem ela na key o cartão não aparece quando um pedido
+      // chega no poll, e o operador só veria o papel pedido depois de clicar
+      // em outra coisa.
+      + '|q' + (queue ? queue.jobs.map(function (j) { return j.id + '.' + j.status; }).join(',') : '')
+      + (queue && queue.busy ? 'B' : '');
   }
 
   // ── coluna 2: segmento Registrar ────────────────────────────
@@ -607,6 +663,9 @@
     // body: 2 colunas
     h += '<div class="hf-scroll" style="flex:1; overflow-y:auto; padding:14px 34px 40px;"><div style="display:grid; grid-template-columns:1.2fr 1fr; gap:20px; max-width:1240px; margin:0 auto;">';
 
+    // ── FILA DO CELULAR (primeiro: alguém está esperando papel sair daqui)
+    h += queueHtml();
+
     // ── "Você está fazendo P&P agora?" (só quando NÃO tem task de P&P aberta)
     h += ppAskHtml();
 
@@ -715,8 +774,11 @@
   // ════════════════════════════════════════════════════════════
   var acts = {
     // abre SEMPRE (com ou sem task de P&P aberta): a Central virou item de menu
-    openWorkspace: function () { D.S.workspaceOpen = true; load(); D.render(); },
-    closeWorkspace: function () { D.S.workspaceOpen = false; D.render(); },
+    openWorkspace: function () { D.S.workspaceOpen = true; load(); startQueue(); D.render(); },
+    // fecha a camada e para de puxar a fila: quem está na Linha não imprime
+    closeWorkspace: function () { D.S.workspaceOpen = false; stopQueue(); D.render(); },
+    // fila do celular: pega o job, imprime e marca como feito
+    wsPrintJob: function (arg) { if (queue) queue.take(arg); },
     // "Só olhar": some a pergunta pelo resto da sessão, nada mais muda
     wsJustLook: function () { st().justLooking = true; D.render(); },
     /* Inicia a task de P&P daqui mesmo. Mesmo corpo do postStart do app.js
@@ -822,6 +884,7 @@
     init: init, acts: acts, input: input,
     banner: banner, load: load, inner: inner, key: key, print: print,
     allowed: allowed, task: wsTask, slugs: WS_SLUGS, state: st,
+    queue: function () { return queue; }, startQueue: startQueue, stopQueue: stopQueue,
     // helpers puros (testes)
     _: {
       cleanName: cleanName, mgOf: mgOf, capsOf: capsOf, packOf: packOf,

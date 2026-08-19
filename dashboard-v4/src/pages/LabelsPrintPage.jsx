@@ -174,6 +174,8 @@ export function LabelsPrintPage() {
   const [st, setSt] = React.useState({ loading: true, labels: null, error: null });
   const [toast, setToast] = React.useState(null);
   const [printed, setPrinted] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
+  const [queued, setQueued] = React.useState(null);
 
   const ack = (m, bad) => { setToast({ msg: m, bad: !!bad }); setTimeout(() => setToast(null), 2600); };
 
@@ -223,6 +225,30 @@ export function LabelsPrintPage() {
     }
   }
 
+  /* "Mandar pro computador da impressora": quem está no celular (ou num PC sem
+     impressora de etiqueta do lado) não pode imprimir daqui. O pedido entra na
+     fila e QUEM tem papel puxa: a Central do /op, o hub de Estoque e a estação
+     .28 mostram o cartão e imprimem com um toque. O servidor resolve o desenho
+     das etiquetas na hora do pedido, então o papel sai igual ao que está na
+     tela agora, mesmo que o estoque mude no meio do caminho. */
+  async function sendToStation() {
+    if (sending || !labels.length) return;
+    setSending(true);
+    try {
+      const kind = boxLabels.length && !sel.bins.length ? 'box_label' : 'bin_labels';
+      const j = await wh.submitPrintJob({ kind, bins: sel.bins, boxes: sel.boxes });
+      const n = (j.data && j.data.queued) || labels.length;
+      setQueued({ id: j.data && j.data.job_id, n });
+      ack(n === 1
+        ? 'Pedido na fila. O papel sai no computador da impressora, é só alguém tocar em Imprimir por lá.'
+        : n + ' etiquetas na fila. O papel sai no computador da impressora, é só alguém tocar em Imprimir por lá.');
+    } catch (e) {
+      ack('Não deu pra mandar pro computador da impressora. ' + friendlyError(e), true);
+    } finally {
+      setSending(false);
+    }
+  }
+
   if (!canRead()) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-dim)' }}>
@@ -247,11 +273,28 @@ export function LabelsPrintPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <a className="kit-btn sec" href="#estoque-locais">Voltar aos Locais</a>
+          {writable && (
+            <button className="kit-btn sec" data-act="mandar-estacao" disabled={!labels.length || sending}
+                    onClick={sendToStation}
+                    title="Põe na fila; o papel sai no computador que tem a impressora de etiqueta">
+              {sending ? 'Mandando…' : 'Mandar pro computador da impressora'}
+            </button>
+          )}
           <button className="kit-btn primary" data-act="imprimir" disabled={!labels.length} onClick={print}>
             Imprimir {labels.length ? '(' + labels.length + ')' : ''}
           </button>
         </div>
       </div>
+
+      {queued && (
+        <div className="kit-card pad ok" style={{ marginTop: 16 }} data-card="fila-enviada">
+          <b>{queued.n === 1 ? 'Pedido na fila do computador da impressora.' : queued.n + ' etiquetas na fila do computador da impressora.'}</b>
+          <p className="kit-sub" style={{ marginTop: 4 }}>
+            Aparece na Central do operador, no hub de Estoque e na estação de impressão. Quem estiver por lá toca em Imprimir e tira o papel.
+            Dá pra acompanhar e cancelar na página Impressão.
+          </p>
+        </div>
+      )}
 
       {st.error && (
         <div className="kit-card pad bad" style={{ marginTop: 16 }}>

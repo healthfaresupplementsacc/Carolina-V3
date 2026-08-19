@@ -27,6 +27,12 @@
   </div>
   <!-- token da página (Bearer) — as rotas /api/v3/op/* exigem ele. Mesmo do /op. -->
   <script src="/op/config.js"></script>
+  <!-- Code128 + QR vendorados: a etiqueta pedida pelo celular sai deste PC -->
+  <script src="/op/vendor/code128.js"></script>
+  <script src="/op/vendor/qrcode.min.js"></script>
+  <!-- desenho ÚNICO da etiqueta 4x6 + fila de impressão pedida pelo celular -->
+  <script src="/shared/label-sheet.js"></script>
+  <script src="/shared/print-queue-card.js"></script>
   <script src="/print/print.js"></script>
 </body>
 </html>

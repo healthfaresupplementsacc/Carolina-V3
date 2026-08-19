@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T05:26:12.626Z",
+  "at": "2026-08-19T13:02:14.388Z",
   "results": [
     {
       "group": "boot",
@@ -251,7 +251,55 @@
       "group": "etiqueta",
       "name": "a etiqueta 4x6 sai com o codigo, o produto e o QR",
       "pass": true,
-      "detail": "<!doctype html><html><head><meta charset=\"utf-8\"><title>Etiq"
+      "detail": "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8"
+    },
+    {
+      "group": "fila",
+      "name": "cartao \"Impressao pedida pelo celular\" aparece quando tem pedido",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila",
+      "name": "diz o tipo em PT, quantas folhas, quem pediu e ha quanto tempo",
+      "pass": true,
+      "detail": "🖨 IMPRESSÃO PEDIDA PELO CELULAR Alguém pediu do celular e o papel sai aqui. Toque em Imprimir e tire da impressora. Etiquetas de prateleira2 folhas Bruno há 2 min Imprimir"
+    },
+    {
+      "group": "fila",
+      "name": "botao Imprimir com alvo de toque de 46px+",
+      "pass": true,
+      "detail": "51px"
+    },
+    {
+      "group": "fila",
+      "name": "toca em Imprimir e o job vai take -> done",
+      "pass": true,
+      "detail": "[\"/api/v3/print-queue/7/take\",\"/api/v3/print-queue/7/done\"]"
+    },
+    {
+      "group": "fila",
+      "name": "o take leva o NOME de quem pegou (o admin precisa saber onde saiu o papel)",
+      "pass": true,
+      "detail": "{\"by\":\"QA Operadora\"}"
+    },
+    {
+      "group": "fila",
+      "name": "a janela abriu com as 2 etiquetas 4x6 do renderizador unico",
+      "pass": true,
+      "detail": "paginas=2"
+    },
+    {
+      "group": "fila",
+      "name": "confirma \"Pode tirar do papel\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila",
+      "name": "job impresso some do cartao (fila vazia = sem cartao)",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "menu",

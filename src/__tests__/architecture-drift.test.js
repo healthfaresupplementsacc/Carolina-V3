@@ -63,6 +63,7 @@ describe('drift: route surfaces mounted are documented', () => {
     '/dashboard-v4',      // wire.js:216
     '/api/images/upload', // wire.js:232
     '/foto',              // wire.js:231
+    '/api/v3/print-queue', // wire.js:234 (S15.34 print queue, pulled by the .28)
   ];
   test.each(EXPECTED_ROUTE_MARKERS)('route surface "%s" is named in ARCHITECTURE.md', (r) => {
     expect(DOC.includes(r) ? true : `route surface ${r} is mounted but not in ARCHITECTURE.md. ${NEEDS_UPDATE}`).toBe(true);
@@ -74,7 +75,8 @@ describe('drift: route surfaces mounted are documented', () => {
     './slack/events', './routes/cameras', './slack/client',
     './admin-v3/routes', './data/router', './images/router', '../routes/architect',
     '../routes/op', '../routes/admin',
-    './warehouse/router',   // Warehouse hub /api/v3/warehouse/* — wire.js:225 (documented §4 Stock)
+    './warehouse/router',   // Warehouse hub /api/v3/warehouse/* — wire.js:236 (documented §4 Stock)
+    './print-queue/router', // Print queue /api/v3/print-queue/* — wire.js:234 (documented §4 Stock + §6 Printing)
   ]);
   const idx = read('src/index.js');
   const wire = read('src/v3/wire.js');

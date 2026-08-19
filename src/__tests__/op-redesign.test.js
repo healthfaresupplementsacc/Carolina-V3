@@ -164,13 +164,20 @@ describe('op v4 — html + sw', () => {
     expect(HTML).toContain('/op/vendor/code128.js');
     expect(HTML).toContain('/op/vendor/qrcode.min.js');
     expect(HTML).toContain('#0f4c92');
+    // desenho ÚNICO da etiqueta + fila do celular, antes do ws.js que os usa
+    expect(HTML).toContain('/shared/label-sheet.js');
+    expect(HTML).toContain('/shared/print-queue-card.js');
+    expect(HTML.indexOf('/shared/label-sheet.js')).toBeLessThan(HTML.indexOf('/op/ws.js'));
+    expect(HTML.indexOf('/shared/print-queue-card.js')).toBeLessThan(HTML.indexOf('/op/ws.js'));
   });
-  test('sw é hf-op-v42 network-first e cacheia nav.js + ws.js + o hub de estoque', () => {
-    expect(SW).toContain("'hf-op-v42'");   // bump obriga o cliente a pegar o menu novo
+  test('sw é hf-op-v43 network-first e cacheia nav.js + ws.js + o hub de estoque', () => {
+    expect(SW).toContain("'hf-op-v43'");   // bump obriga o cliente a pegar a etiqueta única + a fila
     expect(SW).toContain("'/op/ws.js'");
     expect(SW).toContain("'/op/nav.js'");
     expect(SW).toContain("'/op/estoque.js'");
     expect(SW).toContain("'/op/vendor/code128.js'");
+    expect(SW).toContain("'/shared/label-sheet.js'");
+    expect(SW).toContain("'/shared/print-queue-card.js'");
     expect(SW).toContain('NETWORK-FIRST');
   });
 });

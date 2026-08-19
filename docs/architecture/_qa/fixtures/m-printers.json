@@ -1,0 +1,7 @@
+{
+  "printers": [
+    { "name": "EPSON CW-C6500 (etiquetas)", "status_label": "pronta", "error_label": null, "jobs_today": 34, "updated_at": "2026-08-19T13:39:00.000Z" },
+    { "name": "Brother HL-L2350 (Central)", "status_label": "pronta", "error_label": null, "jobs_today": 8, "updated_at": "2026-08-19T13:36:00.000Z" },
+    { "name": "Zebra ZD421 (envio)", "status_label": "parada", "error_label": "sem papel", "jobs_today": 0, "updated_at": "2026-08-19T13:20:00.000Z" }
+  ]
+}

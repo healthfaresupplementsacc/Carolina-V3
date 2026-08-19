@@ -1,0 +1,527 @@
+{
+  "at": "2026-08-19T13:01:52.214Z",
+  "results": [
+    {
+      "group": "boot",
+      "name": "window.HF_M definido por /m/m.js",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "Code128, QR e a folha de etiqueta carregaram (sem CDN)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "ZXing NÃO baixa no boot (300 kB só quando a câmera abre)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "keypad de PIN renderizou com 12 teclas",
+      "pass": true,
+      "detail": "12 teclas"
+    },
+    {
+      "group": "login",
+      "name": "tecla do PIN com alvo de 44 px+",
+      "pass": true,
+      "detail": "91x91"
+    },
+    {
+      "group": "login",
+      "name": "PIN errado volta pro teclado dizendo \"PIN inválido\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "PIN errado NÃO fica guardado no celular",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "PIN certo entra no app (barra de abas apareceu)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "PIN guardado com validade de 12 h no localStorage",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "login",
+      "name": "nome de quem entrou aparece no topo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "os 4 KPIs com o vocabulário do hub",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "os números do bootstrap chegaram na tela",
+      "pass": true,
+      "detail": "1.840 | 1.520 | 96 | 3"
+    },
+    {
+      "group": "inicio",
+      "name": "lista \"Precisa de atenção\" com as 4 linhas do backend",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "a linha de atenção mostra o motivo, sem repetir o nome",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "nome e motivo não ficam colados na mesma linha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "conta de \"Veeqo diferente\" na home",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "badge de Aprovações na aba de baixo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "as 5 abas com alvo de 44 px+",
+      "pass": true,
+      "detail": "48/48/48/48/48"
+    },
+    {
+      "group": "inicio",
+      "name": "botão flutuante da câmera existe em todas as abas",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "nenhum ícone virou cartaz (todo SVG com tamanho travado)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "o botão da câmera não cobre nenhum botão da lista",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inicio",
+      "name": "ação \"Aprovar\" da atenção leva pra aba Aprovar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "as 3 propostas viraram cartão",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "quem · o quê · quanto · onde numa linha só",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "idade em palavras, com cor por atraso",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "a proposta de 25 h fica marcada como problema (cartão vermelho)",
+      "pass": true,
+      "detail": "card bad | card warn | card"
+    },
+    {
+      "group": "aprovar",
+      "name": "\"ver como foi contado\" existe na contagem por peso",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "a entrada de caixa nova mostra lote e área",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "Aprovar abre a folha com nota opcional",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "aprovar",
+      "name": "posta requests/501/approve com a nota",
+      "pass": true,
+      "detail": "{\"note\":\"conferi na prateleira\"}"
+    },
+    {
+      "group": "aprovar",
+      "name": "confirmação diz que o número mudou",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produtos",
+      "name": "os 3 produtos do bootstrap na lista",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produtos",
+      "name": "busca por nome filtra a lista",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produtos",
+      "name": "busca por SKU também acha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "ficha abre com os 8 números do vocabulário do hub",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "chip do Veeqo aparece",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "locais do produto (prateleira e caixa) listados",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "últimos movimentos vieram do GET /product/:id",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "os movimentos usam as palavras do hub, não o verbo do banco",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "as 5 ações do estoque existem na ficha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "folha de Entrada abre com stepper de quantidade",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "Entrada posta product/99/entrada com qty e bin_id",
+      "pass": true,
+      "detail": "{\"qty\":48,\"bin_id\":1}"
+    },
+    {
+      "group": "produto",
+      "name": "confirmação diz o que aconteceu, não \"ok\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "Ajustar sem motivo é barrado no celular (motivo é obrigatório)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "Ajustar posta qty negativo + reason",
+      "pass": true,
+      "detail": "{\"qty\":-3,\"reason\":\"conferi e faltavam 3\"}"
+    },
+    {
+      "group": "locais",
+      "name": "lista de prateleiras com código, corredor e produto",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "as 3 prateleiras do bootstrap",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "aba de caixas mostra as 2 caixas com lote",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "o \"+\" de Nova prateleira é ícone, não cartaz",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "folha da prateleira mostra quantidade, mínimo e o botão de etiqueta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "Nova prateleira posta locations/bin com o código em maiúsculas",
+      "pass": true,
+      "detail": "{\"bin_code\":\"C01A\",\"shelf_code\":\"S9\",\"area\":\"MEZ\",\"product_id\":null}"
+    },
+    {
+      "group": "locais",
+      "name": "confirmação nomeia a prateleira criada",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "locais",
+      "name": "marcar 2 prateleiras mostra a barra de seleção",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "as 2 etiquetas escolhidas chegaram na aba",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "os dois botões grandes existem",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "fila veio do GET /api/v3/print-queue com os 3 estados",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "nenhum título da fila corta na largura do iPhone",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "o erro da fila diz o que houve",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "impressoras vieram do mobile/printers com o estado",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "picklist de hoje tem botão próprio",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "Imprimir daqui abriu a janela e desenhou a folha 4x6",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "a folha tem Code 128 e QR de verdade (SVG, sem CDN)",
+      "pass": true,
+      "detail": "4 svg"
+    },
+    {
+      "group": "imprimir",
+      "name": "a folha chama window.print sozinha (AirPrint do iPhone)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "Mandar pro computador posta print/submit com kind e bins",
+      "pass": true,
+      "detail": "{\"kind\":\"bin_labels\",\"bins\":[1,2]}"
+    },
+    {
+      "group": "imprimir",
+      "name": "confirmação diz onde e em quanto tempo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "a escolha some depois de mandar (não manda duas vezes)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "imprimir",
+      "name": "Picklist posta kind picklist",
+      "pass": true,
+      "detail": "{\"kind\":\"picklist\"}"
+    },
+    {
+      "group": "imprimir",
+      "name": "Cancelar posta print-queue/71/cancel",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "scan",
+      "name": "câmera de tela cheia abriu",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "scan",
+      "name": "sem câmera no headless a tela AVISA e oferece digitar (REGRA #0)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "scan",
+      "name": "a câmera fica ACIMA do toast (nada tapa o campo do código)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "scan",
+      "name": "código digitado resolve e cai na folha da caixa",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "scan",
+      "name": "UPC da garrafa resolve e cai na ficha do produto",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "scan",
+      "name": "código desconhecido ensina o que fazer, não dá erro cru",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pwa",
+      "name": "manifest, apple-mobile-web-app-capable, status bar e apple-touch-icon",
+      "pass": true,
+      "detail": "{\"manifest\":true,\"capable\":true,\"statusbar\":true,\"touchicon\":true,\"theme\":\"#0d1f3c\",\"sw\":false}"
+    },
+    {
+      "group": "pwa",
+      "name": "theme-color navy do STYLE-KIT",
+      "pass": true,
+      "detail": "#0d1f3c"
+    },
+    {
+      "group": "pwa",
+      "name": "NENHUM service worker (cache velho de estoque é pior que recarregar)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pwa",
+      "name": "manifest com nome, standalone e start_url /m/",
+      "pass": true,
+      "detail": "3 ícones"
+    },
+    {
+      "group": "texto",
+      "name": "sem travessão (em dash) na tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "texto",
+      "name": "sem entidade HTML crua vazando",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "texto",
+      "name": "PT-BR com acento de verdade na tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contrato",
+      "name": "a página só chamou rotas da lista combinada",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "contrato",
+      "name": "todo pedido levou o header x-admin-pin",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "rbac",
+      "name": "sem manage_stock não aparece Aprovar nem Recusar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "rbac",
+      "name": "e a tela explica por quê",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "rbac",
+      "name": "sem manage_stock não aparece \"Nova prateleira\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "nenhum erro de console no fluxo inteiro",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

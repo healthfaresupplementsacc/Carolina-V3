@@ -1,0 +1,321 @@
+/* ═══════════════════════════════════════════════════════════════════
+   HEALTHFARE — ADMIN NO CELULAR (/m/). S15.29.
+
+   Uma tela de iPhone, na mão de quem anda pelo armazém. Tudo com um
+   polegar: nada de hover, nada abaixo de 44 px, uma ação principal por
+   tela e as barras respeitando as safe areas do notch e do home bar.
+
+   STYLE-KIT (Bruno 08-18, os tokens são lei): fundo dot-grid #f4f8fc,
+   títulos DM Serif Display com UMA palavra itálica verde, micro-rótulos
+   DM Mono, cartões raio 18, pílulas navy, chips tonais.
+   REGRAS: PT-BR com acento, sem travessão (em dash) em texto de UI.
+
+   As fontes vêm do Google Fonts quando há internet; sem ela cai no
+   system-ui e a tela continua legível (nada depende da fonte carregar).
+   ═══════════════════════════════════════════════════════════════════ */
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0,1&family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --primary:#1a3a6b; --primary-deep:#0d1f3c;
+  --green:#3ab54a; --green-d:#2e8b3c; --teal:#1a7a7a;
+  --primary-soft:#eaf0fb; --primary-soft-line:#cddcf0; --primary-line:#b9cbe2;
+  --ground:#f4f8fc; --surface:#ffffff; --surface-2:#f7fafd;
+  --line:#d4e2f0; --line-strong:#b9cbe2; --dotline:#c6d7e8;
+  --ink:#1c2b3a; --ink-dim:#54687c; --ink-faint:#6b7f92;
+  --ok:#2e8b3c; --ok-bg:#e8f7ea; --ok-line:#c8ecce; --ok-deep:#1e6b2e;
+  --warn:#96690a; --warn-bg:#fdf6e3; --warn-line:#eeddad; --warn-deep:#6b4c07;
+  --bad:#c0392b; --bad-bg:#fdeeec; --bad-line:#f5cdc7; --bad-deep:#a02c20;
+  --info:#1a7a7a; --info-bg:#e6f3f3; --info-line:#c7e4e4;
+  --neutral-bg:#eaf0fb; --neutral-line:#d4e2f0;
+  --r-sm:12px; --r-md:14px; --r-lg:18px; --r-xl:22px; --r-pill:999px;
+  --shadow-card:0 1px 2px rgba(13,31,60,.03),0 10px 30px rgba(13,31,60,.05);
+  --shadow-pop:0 10px 32px rgba(13,31,60,.16);
+  --font:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-display:'DM Serif Display',Georgia,serif;
+  --font-mono:'DM Mono',ui-monospace,monospace;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px);
+  --bar-h:60px;
+}
+
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body {
+  margin:0; padding:0; min-height:100%;
+  background:var(--ground);
+  background-image:radial-gradient(circle, rgba(26,58,107,.06) 1px, transparent 1px);
+  background-size:26px 26px;
+  color:var(--ink); font-family:var(--font); font-size:15px;
+  -webkit-text-size-adjust:100%; overscroll-behavior-y:none;
+}
+button, input, select, textarea { font-family:inherit; font-size:16px; color:inherit; }
+/* 16px no input: abaixo disso o Safari dá zoom sozinho ao focar. */
+button { cursor:pointer; }
+
+/* ── tipografia do kit ─────────────────────────────────────────── */
+.eyebrow { font:500 10px var(--font-mono); letter-spacing:.14em; text-transform:uppercase; color:var(--green-d); }
+.mlabel { font:500 10px var(--font-mono); letter-spacing:.14em; text-transform:uppercase; color:var(--ink-faint); }
+.h1 { font-family:var(--font-display); font-weight:400; font-size:27px; line-height:1.1;
+  color:var(--primary-deep); margin:2px 0 3px; }
+.h1 em { color:var(--green-d); font-style:italic; }
+.h2 { font-family:var(--font-display); font-weight:400; font-size:19px; color:var(--primary-deep); margin:0; }
+.sub { color:var(--ink-dim); font-size:13.5px; line-height:1.35; }
+.mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+
+/* ── casca: topo fixo, conteúdo rolável, abas embaixo ──────────── */
+#app { min-height:100vh; }
+/* O respiro de baixo conta a barra de abas E o botão da câmera (56 px):
+   sem isso a última linha da lista fica embaixo do botão, impossível de
+   tocar. */
+.shell { padding:calc(var(--safe-top) + 54px) 0 calc(var(--safe-bot) + var(--bar-h) + 82px); }
+.topbar {
+  position:fixed; top:0; left:0; right:0; z-index:40;
+  padding:calc(var(--safe-top) + 9px) 16px 9px;
+  display:flex; align-items:center; gap:9px;
+  background:rgba(244,248,252,.92); backdrop-filter:saturate(1.6) blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.brand-dot { width:10px; height:10px; border-radius:50%; background:var(--green); flex:none;
+  box-shadow:0 0 0 3px rgba(58,181,74,.18); }
+.brand { font-weight:700; font-size:13.5px; color:var(--primary-deep); letter-spacing:-.01em; }
+.who { margin-left:auto; display:flex; align-items:center; gap:8px; }
+.who .name { font:500 11px var(--font-mono); color:var(--ink-faint); max-width:32vw;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.icon-btn { width:36px; height:36px; border-radius:50%; border:1px solid var(--line);
+  background:var(--surface); display:flex; align-items:center; justify-content:center; padding:0;
+  color:var(--ink-dim); }
+.icon-btn svg { width:18px; height:18px; }
+
+.page { padding:14px 16px 8px; }
+.page-head { margin-bottom:14px; }
+
+/* ── abas de baixo: 5 destinos, alvo de 44 px+ ─────────────────── */
+.tabbar {
+  position:fixed; bottom:0; left:0; right:0; z-index:40;
+  display:grid; grid-template-columns:repeat(5,1fr);
+  padding:6px 4px calc(var(--safe-bot) + 6px);
+  background:rgba(255,255,255,.96); backdrop-filter:saturate(1.6) blur(12px);
+  border-top:1px solid var(--line);
+}
+.tab {
+  border:0; background:none; padding:5px 2px 4px; min-height:48px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  color:var(--ink-faint); font-size:10.5px; font-weight:600; position:relative;
+}
+.tab svg { width:21px; height:21px; }
+.tab.on { color:var(--primary-deep); }
+.tab.on svg { stroke:var(--primary-deep); }
+.tab .badge {
+  position:absolute; top:1px; left:calc(50% + 7px);
+  min-width:17px; height:17px; padding:0 4px; border-radius:999px;
+  background:var(--bad-deep); color:#fff; font:600 10px var(--font-mono);
+  display:flex; align-items:center; justify-content:center;
+}
+
+/* botão flutuante da câmera: em toda aba, sempre no mesmo lugar */
+.fab {
+  position:fixed; right:16px; bottom:calc(var(--safe-bot) + var(--bar-h) + 14px); z-index:41;
+  width:56px; height:56px; border-radius:50%; border:0;
+  background:var(--primary-deep); color:#fff;
+  box-shadow:0 10px 26px -8px rgba(13,31,60,.7);
+  display:flex; align-items:center; justify-content:center;
+}
+.fab svg { width:25px; height:25px; }
+
+/* ── cartões ───────────────────────────────────────────────────── */
+.card { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); padding:15px 16px; margin-bottom:11px; }
+.card.warn { border-color:var(--warn-line); background:var(--warn-bg); }
+.card.bad { border-color:var(--bad-line); background:var(--bad-bg); }
+.card.flat { box-shadow:none; }
+.card-row { display:flex; align-items:center; gap:10px; }
+
+/* ── KPIs ──────────────────────────────────────────────────────── */
+.kpis { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.kpi { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); padding:12px 14px; text-align:left; min-height:74px; }
+.kpi .v { font-family:var(--font-display); font-size:30px; line-height:1;
+  color:var(--primary-deep); font-variant-numeric:tabular-nums; margin-top:4px; }
+.kpi .v.warn { color:var(--warn-deep); }
+.kpi .v.bad { color:var(--bad-deep); }
+.kpi .v.ok { color:var(--ok-deep); }
+
+/* ── chips ─────────────────────────────────────────────────────── */
+.chip { display:inline-flex; align-items:center; height:22px; padding:0 10px; border-radius:var(--r-pill);
+  font:500 11px var(--font-mono); white-space:nowrap; }
+.chip.ok { background:var(--ok-bg); color:var(--ok-deep); box-shadow:inset 0 0 0 1px var(--ok-line); }
+.chip.warn { background:var(--warn-bg); color:var(--warn-deep); box-shadow:inset 0 0 0 1px var(--warn-line); }
+.chip.bad { background:var(--bad-bg); color:var(--bad-deep); box-shadow:inset 0 0 0 1px var(--bad-line); }
+.chip.neutral { background:var(--neutral-bg); color:var(--primary); box-shadow:inset 0 0 0 1px var(--neutral-line); }
+.chip.info { background:var(--info-bg); color:var(--info); box-shadow:inset 0 0 0 1px var(--info-line); }
+.chip.solid { background:var(--primary-deep); color:#fff; }
+
+/* ── botões ────────────────────────────────────────────────────── */
+.btn { border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  border-radius:var(--r-pill); min-height:44px; padding:0 18px; font-weight:600; font-size:14.5px;
+  display:inline-flex; align-items:center; justify-content:center; gap:7px; }
+.btn.primary { background:var(--primary-deep); color:#fff; border-color:var(--primary-deep);
+  box-shadow:0 10px 24px -12px rgba(13,31,60,.75); }
+.btn.ok { background:var(--ok-deep); color:#fff; border-color:var(--ok-deep); }
+.btn.danger { background:#fff; color:var(--bad-deep); border-color:var(--bad-line); }
+.btn.block { width:100%; }
+.btn.big { min-height:52px; font-size:16px; font-weight:700; }
+.btn.sm { min-height:38px; padding:0 14px; font-size:13px; }
+.btn[disabled] { opacity:.45; }
+.btn-row { display:flex; gap:9px; }
+.btn-row > .btn { flex:1; }
+
+/* ── campos ────────────────────────────────────────────────────── */
+.field { margin-bottom:12px; }
+.field > .mlabel { display:block; margin-bottom:5px; }
+.input, select.input, textarea.input {
+  width:100%; min-height:48px; padding:12px 14px; border-radius:var(--r-md);
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink); outline:none;
+  -webkit-appearance:none; appearance:none;
+}
+.input:focus { border-color:var(--primary-line); box-shadow:0 0 0 3px rgba(26,58,107,.12); background:#fff; }
+select.input { background-image:linear-gradient(45deg,transparent 50%,var(--ink-faint) 50%),linear-gradient(135deg,var(--ink-faint) 50%,transparent 50%);
+  background-position:calc(100% - 18px) 21px, calc(100% - 13px) 21px; background-size:5px 5px,5px 5px; background-repeat:no-repeat; }
+.search { position:relative; margin-bottom:12px; }
+.search .input { padding-left:40px; }
+.search svg { position:absolute; left:13px; top:15px; width:18px; height:18px; stroke:var(--ink-faint); }
+
+/* stepper de quantidade: dedo grosso, número grande */
+.stepper { display:flex; align-items:center; gap:10px; }
+.stepper button { width:52px; height:52px; border-radius:50%; border:1px solid var(--line);
+  background:var(--surface); font-size:24px; font-weight:700; color:var(--primary-deep);
+  display:flex; align-items:center; justify-content:center; padding:0; }
+.stepper .input { text-align:center; font-family:var(--font-mono); font-size:22px; font-weight:600; min-height:52px; }
+
+/* ── listas ────────────────────────────────────────────────────── */
+.list { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  box-shadow:var(--shadow-card); overflow:hidden; margin-bottom:11px; }
+.item { display:flex; align-items:center; gap:11px; width:100%; text-align:left;
+  padding:13px 15px; min-height:56px; border:0; border-bottom:1px dotted var(--dotline);
+  background:none; color:inherit; font-size:14.5px; }
+.item:last-child { border-bottom:0; }
+.item .grow { flex:1; min-width:0; }
+/* título e subtítulo em linhas próprias: como spans soltos eles colavam
+   ("Rutin 500disponível 12") pra quem lê com leitor de tela. */
+.item .t, .item .s { display:block; }
+.item .t { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.item .s { font-size:12.5px; color:var(--ink-dim); margin-top:2px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Um SVG sem largura fixa CRESCE até encher o flex container: já virou
+   cartaz duas vezes (chevron do cartão, mais de "Nova prateleira"). A
+   regra vale pra todo ícone da página; quem precisar de outro tamanho
+   pede explicitamente. */
+svg { flex:none; }
+.item .chev, .card-row .chev { stroke:var(--ink-faint); width:17px; height:17px; }
+.card-row > svg, .btn > svg, .selbar > svg { width:18px; height:18px; }
+.card-row > .chip { flex:none; }
+.item.sel { background:var(--primary-soft); }
+
+/* números do produto: grade de 4, dois olhares */
+.nums { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin:12px 0; }
+.num { text-align:center; }
+.num .v { font-family:var(--font-mono); font-size:19px; font-weight:600; color:var(--primary-deep);
+  font-variant-numeric:tabular-nums; }
+.num .v.bad { color:var(--bad-deep); }
+.num .v.warn { color:var(--warn-deep); }
+.num .mlabel { font-size:9px; margin-top:2px; display:block; }
+
+.sect { margin:18px 0 8px; display:flex; align-items:center; gap:9px; }
+.sect .mlabel { flex:none; }
+.sect .rule { flex:1; height:1px; background:var(--dotline); }
+
+/* ── estado vazio: ensina o que fazer ──────────────────────────── */
+.empty { text-align:center; padding:34px 22px; color:var(--ink-dim); }
+.empty .big { font-size:34px; margin-bottom:8px; }
+.empty .t { font-weight:600; color:var(--ink); margin-bottom:5px; font-size:15px; }
+.empty .s { font-size:13px; line-height:1.45; }
+
+/* ── PIN ───────────────────────────────────────────────────────── */
+.pin-wrap { min-height:100vh; display:flex; align-items:center; justify-content:center;
+  padding:calc(var(--safe-top) + 20px) 20px calc(var(--safe-bot) + 20px); }
+.pin-card { width:min(94vw,400px); background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r-xl); box-shadow:var(--shadow-pop); padding:30px 26px; text-align:center; }
+.pin-dots { display:flex; justify-content:center; gap:15px; margin:16px 0 8px; }
+.pin-dots i { width:15px; height:15px; border-radius:50%; border:2px solid rgba(15,40,90,.26); transition:all .18s; }
+.pin-dots i.on { background:var(--green-d); border-color:var(--green-d); transform:scale(1.16); }
+.pin-err { min-height:21px; color:var(--bad-deep); font-weight:600; font-size:13.5px; margin-bottom:10px; }
+.keypad { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; max-width:300px; margin:0 auto; }
+.keypad button { aspect-ratio:1; border-radius:50%; border:1px solid var(--line); background:#fff;
+  font-weight:700; font-size:25px; color:var(--primary-deep);
+  display:flex; align-items:center; justify-content:center; min-height:0; padding:0; }
+.keypad button.ok { border:0; color:#fff; background:linear-gradient(135deg,#19c277,var(--green-d)); }
+.keypad button.del { background:var(--surface-2); color:var(--ink-faint); font-size:20px; }
+@keyframes shk { 10%,90%{transform:translateX(-2px)} 30%,70%{transform:translateX(4px)} 50%{transform:translateX(-6px)} }
+.shake { animation:shk .4s; }
+
+/* ── folha de baixo (bottom sheet) ─────────────────────────────── */
+.scrim { position:fixed; inset:0; z-index:60; background:rgba(13,31,60,.42);
+  backdrop-filter:blur(2px); display:flex; align-items:flex-end; }
+.sheet { width:100%; max-height:92vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  background:var(--ground); border-radius:var(--r-xl) var(--r-xl) 0 0;
+  padding:8px 16px calc(var(--safe-bot) + 18px); box-shadow:0 -14px 40px rgba(13,31,60,.24);
+  animation:up .22s cubic-bezier(.25,.6,.3,1); }
+@keyframes up { from { transform:translateY(14%); opacity:.6 } to { transform:none; opacity:1 } }
+.grab { width:38px; height:4px; border-radius:999px; background:var(--line-strong); margin:6px auto 12px; }
+.sheet-head { display:flex; align-items:flex-start; gap:10px; margin-bottom:12px; }
+.sheet-head .grow { flex:1; min-width:0; }
+.sheet-x { width:36px; height:36px; border-radius:50%; border:1px solid var(--line); background:#fff;
+  font-size:19px; color:var(--ink-dim); display:flex; align-items:center; justify-content:center; padding:0; flex:none; }
+
+/* ── toast ─────────────────────────────────────────────────────── */
+#toast { position:fixed; left:14px; right:14px; bottom:calc(var(--safe-bot) + var(--bar-h) + 20px);
+  z-index:80; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+.toast { background:var(--primary-deep); color:#fff; border-radius:var(--r-md); padding:13px 16px;
+  font-size:14px; font-weight:600; line-height:1.35; box-shadow:var(--shadow-pop);
+  animation:up .2s cubic-bezier(.25,.6,.3,1); }
+.toast.ok { background:var(--ok-deep); }
+.toast.bad { background:var(--bad-deep); }
+
+/* ── câmera de tela cheia ──────────────────────────────────────── */
+/* acima do toast (80): com a câmera aberta o aviso de outra tela não
+   pode tapar a dica nem o campo de digitar o código. */
+.cam { position:fixed; inset:0; z-index:90; background:#000; display:flex; flex-direction:column; }
+.cam video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.cam .aim { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+.cam .aim i { width:min(78vw,320px); height:min(44vw,196px); border:3px solid rgba(255,255,255,.9);
+  border-radius:18px; box-shadow:0 0 0 4000px rgba(0,0,0,.42); }
+.cam .flash { position:absolute; inset:0; background:#2e8b3c; opacity:0; transition:opacity .12s; pointer-events:none; }
+.cam .flash.on { opacity:.6; transition:none; }
+.cam .cam-top { position:relative; z-index:2; padding:calc(var(--safe-top) + 12px) 16px 12px;
+  display:flex; align-items:center; gap:10px;
+  background:linear-gradient(180deg,rgba(0,0,0,.6),transparent); color:#fff; }
+.cam .cam-top .t { font-weight:700; font-size:15px; }
+.cam .cam-bot { position:relative; z-index:2; margin-top:auto;
+  padding:14px 16px calc(var(--safe-bot) + 16px); background:rgba(13,31,60,.94); color:#fff; }
+.cam .cam-bot .mlabel { color:rgba(255,255,255,.6); }
+.cam .hint { font-size:13px; color:rgba(255,255,255,.78); margin:4px 0 10px; min-height:18px; }
+.cam .row { display:flex; gap:9px; }
+.cam .row .input { flex:1; min-width:0; background:rgba(255,255,255,.13); border:0; color:#fff;
+  font-family:var(--font-mono); }
+.cam .row .input::placeholder { color:rgba(255,255,255,.5); font-family:var(--font); }
+.cam .row .btn { background:#fff; color:var(--primary-deep); border:0; flex:none; }
+.cam .close { margin-left:auto; width:38px; height:38px; border-radius:50%; border:0;
+  background:rgba(255,255,255,.18); color:#fff; font-size:19px; display:flex;
+  align-items:center; justify-content:center; padding:0; }
+
+/* ── seleção de etiquetas ──────────────────────────────────────── */
+.selbar { position:sticky; top:calc(var(--safe-top) + 54px); z-index:20;
+  background:var(--primary-deep); color:#fff; border-radius:var(--r-md);
+  padding:11px 14px; margin-bottom:11px; display:flex; align-items:center; gap:10px; }
+.selbar .btn { min-height:36px; background:#fff; border:0; color:var(--primary-deep); font-size:13px; }
+.tick { width:24px; height:24px; border-radius:7px; border:2px solid var(--line-strong);
+  flex:none; display:flex; align-items:center; justify-content:center; }
+.tick.on { background:var(--primary-deep); border-color:var(--primary-deep); }
+.tick.on svg { stroke:#fff; width:14px; height:14px; }
+
+/* ── faixa offline ─────────────────────────────────────────────── */
+.offline { background:var(--warn-bg); color:var(--warn-deep); border:1px solid var(--warn-line);
+  border-radius:var(--r-md); padding:10px 14px; font-size:13.5px; font-weight:600; margin-bottom:11px; }
+
+.spin { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,.35);
+  border-top-color:#fff; border-radius:50%; animation:sp .7s linear infinite; }
+@keyframes sp { to { transform:rotate(360deg) } }
+.loading { padding:40px 0; text-align:center; color:var(--ink-faint); font-size:13.5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}

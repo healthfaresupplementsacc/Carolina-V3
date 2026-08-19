@@ -1,0 +1,165 @@
+{
+  "kpis": {
+    "total_bottles": 1840,
+    "reserved": 260,
+    "available": 1520,
+    "separated": 18,
+    "unplaced": 96,
+    "bins_to_restock": 1,
+    "pending_requests": 3,
+    "drift_products": 1
+  },
+  "pending_summary": { "count": 3, "oldest_age_min": 1500 },
+  "attention": [
+    {
+      "kind": "low",
+      "product_id": 99,
+      "product": "Rutin 500",
+      "text": "Rutin 500 · disponível 12, mínimo 40",
+      "action": { "type": "entrada" }
+    },
+    {
+      "kind": "organizar",
+      "product_id": 42,
+      "product": "Benfotiamine 300",
+      "text": "Benfotiamine 300 · 96 garrafas a organizar, ainda sem prateleira ou caixa",
+      "action": { "type": "organizar" }
+    },
+    {
+      "kind": "pending",
+      "product_id": 99,
+      "product": "Rutin 500",
+      "text": "Rutin 500 · saída de 24 esperando aprovação",
+      "action": { "type": "aprovar" }
+    },
+    {
+      "kind": "drift",
+      "product_id": 7,
+      "product": "Magnésio Glicinato",
+      "text": "Magnésio Glicinato · Veeqo 310, aqui 288, diferença de +22",
+      "action": { "type": "ver" }
+    }
+  ],
+  "products": [
+    {
+      "product_id": 99,
+      "name": "Rutin 500mg",
+      "nickname": "Rutin 500",
+      "base_sku": "HF-RUT-500",
+      "total": 140,
+      "shelf_qty": 40,
+      "box_qty": 100,
+      "unplaced_qty": 0,
+      "reserved": 128,
+      "available": 12,
+      "separated": 6,
+      "days_of_stock": 3,
+      "status": ["low"],
+      "veeqo_match": "ok"
+    },
+    {
+      "product_id": 42,
+      "name": "Benfotiamine 300mg",
+      "nickname": "Benfotiamine 300",
+      "base_sku": "HF-BENF-300",
+      "total": 1412,
+      "shelf_qty": 316,
+      "box_qty": 1000,
+      "unplaced_qty": 96,
+      "reserved": 120,
+      "available": 1292,
+      "separated": 12,
+      "days_of_stock": 61,
+      "status": ["organizar"],
+      "veeqo_match": "ok"
+    },
+    {
+      "product_id": 7,
+      "name": "Magnésio Glicinato 400mg",
+      "nickname": "Magnésio Glicinato",
+      "base_sku": "HF-MAG-400",
+      "total": 288,
+      "shelf_qty": 88,
+      "box_qty": 200,
+      "unplaced_qty": 0,
+      "reserved": 12,
+      "available": 276,
+      "separated": 0,
+      "days_of_stock": 24,
+      "status": ["drift"],
+      "veeqo_match": "drift",
+      "veeqo": { "physical": 310 }
+    }
+  ],
+  "requests": [
+    {
+      "id": 501,
+      "kind": "count",
+      "direction": "in",
+      "qty": 100,
+      "product": "Rutin 500mg",
+      "product_id": 99,
+      "proposed_by": "Simone",
+      "age_min": 1500,
+      "bin_code": "A03B2",
+      "box_number": null,
+      "reason": null,
+      "note": "contagem por peso",
+      "status": "pending",
+      "meta": {
+        "gross_g": 5300,
+        "tare_g": 500,
+        "net_g": 4800,
+        "unit_weight_g": 48,
+        "computed_qty": 100,
+        "residual_g": 0,
+        "confidence": "high"
+      }
+    },
+    {
+      "id": 502,
+      "kind": "take",
+      "direction": "out",
+      "qty": 24,
+      "product": "Rutin 500mg",
+      "product_id": 99,
+      "proposed_by": "Vitor",
+      "age_min": 310,
+      "bin_code": "A03B2",
+      "box_number": null,
+      "reason": "pedido grande do dia",
+      "note": null,
+      "status": "pending"
+    },
+    {
+      "id": 503,
+      "kind": "entrada",
+      "direction": "in",
+      "qty": 480,
+      "product": "Benfotiamine 300mg",
+      "product_id": 42,
+      "proposed_by": "Ana Kesya",
+      "age_min": 22,
+      "bin_code": null,
+      "box_number": "BX-0452",
+      "reason": null,
+      "note": null,
+      "status": "pending",
+      "meta": { "box": true, "batch_number": "L-22", "area": "MEZ", "qty": 480 }
+    }
+  ],
+  "locations": {
+    "bins": [
+      { "id": 1, "bin_code": "A03B2", "shelf_code": "S4", "area": "P&P", "product_id": 99, "product": "Rutin 500mg", "qty": 40, "min_qty": 40, "capacity": 48, "tare_g": 500 },
+      { "id": 2, "bin_code": "A04", "shelf_code": "S4", "area": "P&P", "product_id": 42, "product": "Benfotiamine 300mg", "qty": 316, "min_qty": 60, "capacity": 400, "tare_g": 500 },
+      { "id": 3, "bin_code": "B01", "shelf_code": "S1", "area": "MEZ", "product_id": 7, "product": "Magnésio Glicinato 400mg", "qty": 88, "min_qty": 20, "capacity": 120, "tare_g": 480 }
+    ],
+    "boxes": [
+      { "id": 8, "box_number": "BX-0451", "area": "MEZ", "product_id": 99, "product": "Rutin 500mg", "qty": 100, "batch_number": "L-21", "sealed": true, "tare_g": 900 },
+      { "id": 9, "box_number": "BX-0452", "area": "MEZ", "product_id": 42, "product": "Benfotiamine 300mg", "qty": 1000, "batch_number": "L-22", "sealed": false, "tare_g": 900 }
+    ]
+  },
+  "queue": { "queued": 1 },
+  "me": { "name": "Bruno", "role": "admin", "functions": ["*"] },
+  "generated_at": "2026-08-19T13:40:00.000Z"
+}

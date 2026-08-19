@@ -1,0 +1,43 @@
+{
+  "jobs": [
+    {
+      "id": 71,
+      "kind": "bin_labels",
+      "payload": { "labels": [{ "kind": "bin", "code": "A03B2", "line2": "S4 · P&P", "line3": "Rutin 500mg", "url": "/scan/?b=A03B2" }] },
+      "requested_by": "Bruno",
+      "status": "queued",
+      "created_at": "2026-08-19T13:38:00.000Z",
+      "age_min": 2,
+      "taken_by": null,
+      "taken_at": null,
+      "done_at": null,
+      "error_note": null
+    },
+    {
+      "id": 70,
+      "kind": "box_label",
+      "payload": { "labels": [{ "kind": "box", "code": "BX-0451", "line2": "Rutin 500mg", "line3": "100 garrafas · lote L-21", "url": "/scan/?x=BX-0451" }] },
+      "requested_by": "Bruno",
+      "status": "done",
+      "created_at": "2026-08-19T12:05:00.000Z",
+      "age_min": 95,
+      "taken_by": "estacao-28",
+      "taken_at": "2026-08-19T12:05:20.000Z",
+      "done_at": "2026-08-19T12:05:44.000Z",
+      "error_note": null
+    },
+    {
+      "id": 69,
+      "kind": "picklist",
+      "payload": { "date": "2026-08-19" },
+      "requested_by": "Bruno",
+      "status": "error",
+      "created_at": "2026-08-19T11:00:00.000Z",
+      "age_min": 160,
+      "taken_by": "estacao-28",
+      "taken_at": "2026-08-19T11:00:10.000Z",
+      "done_at": null,
+      "error_note": "papel acabou"
+    }
+  ]
+}

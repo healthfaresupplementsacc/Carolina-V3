@@ -59,8 +59,35 @@ const LOGIN = { name: 'QA Admin', role: 'admin', functions: ['*'] };
 /** POSTs que a página faz. Guardado pra conferir que a UI chamou o endpoint certo. */
 const posted = [];
 
+/* S15.29 · FILA DE IMPRESSAO PEDIDA PELO CELULAR (contrato 1, 2 e 3).
+   Quem esta no celular nao tem impressora na mao: manda pra fila e QUEM tem
+   papel puxa. A pagina Impressao e a janela do admin pra essa fila. */
+let QUEUE = [
+  { id: 21, kind: 'bin_labels', payload: { labels: [{ kind: 'bin', code: 'A03B2' }, { kind: 'bin', code: 'B03S4' }] },
+    requested_by: 'Bruno', status: 'queued', age_min: 3, taken_by: null, is_test: false, created_at: '2026-08-19T13:00:00Z' },
+  { id: 22, kind: 'box_label', payload: { labels: [{ kind: 'box', code: 'BX-0004' }] },
+    requested_by: 'Bruno', status: 'taken', age_min: 9, taken_by: 'Simone', is_test: false, created_at: '2026-08-19T12:54:00Z' },
+  { id: 23, kind: 'picklist', payload: { date: '2026-08-19' },
+    requested_by: 'Bruno', status: 'done', age_min: 41, taken_by: 'Vitor', is_test: true, created_at: '2026-08-19T12:22:00Z' },
+];
+
 function apiFixture(pathname, search, method, body) {
   if (method === 'POST') posted.push({ pathname, body });
+
+  // ── /api/v3/print-queue/* (fila do celular) ─────────────────
+  if (pathname.startsWith('/api/v3/print-queue')) {
+    const m = pathname.match(/\/api\/v3\/print-queue\/(\d+)\/(take|done|error|cancel)$/);
+    if (m) {
+      const id = Number(m[1]); const op = m[2];
+      const job = QUEUE.find((j) => j.id === id);
+      if (!job) return { error: { code: 'not_found', message: 'job sumiu' } };
+      if (op === 'cancel') { job.status = 'cancelled'; QUEUE = QUEUE.filter((j) => j.id !== id); }
+      return { data: { job } };
+    }
+    const st = new URLSearchParams(search).get('status');
+    const list = (!st || st === 'all') ? QUEUE : QUEUE.filter((j) => j.status === st);
+    return { data: { jobs: list } };
+  }
 
   // ── /api/v3/warehouse/* ─────────────────────────────────────
   if (pathname.startsWith('/api/v3/warehouse/')) {
@@ -78,6 +105,20 @@ function apiFixture(pathname, search, method, body) {
       const all = LABELS.data.labels;
       const list = all.filter((l) => (l.kind === 'bin' ? bins.includes(l.bin_id) : boxes.includes(l.box_id)));
       return { data: { labels: list.length ? list : all } };
+    }
+    /* contrato (2): "Mandar pro computador da impressora". O servidor resolve
+       as etiquetas AGORA (mesma função do GET /labels) e guarda o desenho no
+       payload, pra o papel sair igual ao que estava na tela. */
+    if (p === 'mobile/print/submit') {
+      const b = body || {};
+      const ids = (b.bins || []).length + (b.boxes || []).length;
+      const all = LABELS.data.labels;
+      const list = all.filter((l) => (l.kind === 'bin' ? (b.bins || []).includes(l.bin_id) : (b.boxes || []).includes(l.box_id)));
+      const labels = list.length ? list : all.slice(0, Math.max(1, ids));
+      const job = { id: 99, kind: b.kind || 'bin_labels', payload: { labels }, requested_by: 'QA Admin',
+        status: 'queued', age_min: 0, taken_by: null, is_test: false, created_at: new Date().toISOString() };
+      QUEUE = [job].concat(QUEUE);
+      return { data: { job_id: 99, queued: labels.length, labels } };
     }
     if (p === 'requests') {
       const st = new URLSearchParams(search).get('status');
@@ -114,6 +155,13 @@ function apiFixture(pathname, search, method, body) {
     return { data: { tiers: [], mix: [], supplies: [], size_supply: [], questions: [], bins: [{ n: 8 }], thresholds: [{ n: 0 }] } };
   }
   if (pathname === '/api/v3/data/rbac') return { data: { functions: [], roles: [] } };
+  /* Página Impressão: o painel da fila é o que este harness testa; o resto da
+     página (impressoras, spooler, histórico) vem vazio de propósito, senão o
+     stub viraria uma segunda implementação do backend de impressão. */
+  if (pathname === '/api/v3/data/printers') {
+    return { data: { printers: [], stats: { jobs: 0, labels: 0, operators: 0 },
+      byPrinter: [], byOperator: [], byProduct: [], history: [], transitions: [], incidents: [], errorLog: [] } };
+  }
   if (pathname === '/api/v3/data/timeline') return { data: { events: [], operators: [], gaps: [] } };
   if (pathname === '/api/v3/data/deadlines') return { data: { deadlines: [] } };
   return { data: {} };
@@ -453,6 +501,30 @@ async function main() {
       posted.length === 1 && posted[0].pathname === '/api/v3/warehouse/locations/box/21/label-printed',
       JSON.stringify(posted.map((p) => p.pathname)));
 
+  /* ══ 4b. MANDAR PRO COMPUTADOR DA IMPRESSORA (S15.29) ══════════
+     Quem está no celular (ou num PC sem impressora de etiqueta do lado) não
+     imprime daqui: manda pra fila e QUEM tem papel puxa. */
+  const sendBtn = await page.$('[data-act="mandar-estacao"]');
+  rec('fila', 'botão "Mandar pro computador da impressora" ao lado do Imprimir', !!sendBtn);
+  const sendTxt = sendBtn ? await page.evaluate((e) => e.textContent.trim(), sendBtn) : '';
+  rec('fila', 'texto em PT-BR sem travessão',
+      sendTxt === 'Mandar pro computador da impressora', JSON.stringify(sendTxt));
+  posted.length = 0;
+  if (sendBtn) await sendBtn.click();
+  await sleep(900);
+  const sub = posted.find((p) => p.pathname === '/api/v3/warehouse/mobile/print/submit');
+  rec('fila', 'manda a seleção pro submit do contrato',
+      !!sub && Array.isArray(sub.body.bins) && sub.body.bins.join(',') === '1,7'
+        && Array.isArray(sub.body.boxes) && sub.body.boxes.join(',') === '21',
+      sub ? JSON.stringify(sub.body) : 'sem post');
+  const queuedCard = await page.$('[data-card="fila-enviada"]');
+  const queuedTxt = queuedCard ? await page.evaluate((e) => e.innerText.replace(/\s+/g, ' '), queuedCard) : '';
+  rec('fila', 'a tela diz onde o papel vai sair e que dá pra cancelar',
+      /fila do computador da impressora/i.test(queuedTxt) && /Central do operador/.test(queuedTxt)
+        && /cancelar/i.test(queuedTxt), queuedTxt.slice(0, 140));
+  await shot('etiquetas-mandar-estacao');
+  noErr('fila-etiquetas');
+
   // ══ 5. PRODUCT SETUP: coluna de peso + Calibrar ═══════════════
   await go('produto-setup');
   await page.waitForSelector('[data-table="produto-setup"] tbody tr', { timeout: 8000 }).catch(() => {});
@@ -543,6 +615,50 @@ async function main() {
       !!tarePost && tarePost.body.name === 'bandeja verde' && Number(tarePost.body.tare_g) === 390,
       JSON.stringify(tarePost && tarePost.body));
   await shot('config-taras');
+
+  /* ══ 7b. IMPRESSÃO: painel "Fila do celular" (S15.29) ══════════
+     A janela do admin pra fila: o que está esperando papel, quem pediu, há
+     quanto tempo, quem pegou. Cancelar só vale enquanto ninguém pegou. */
+  await go('impressao');
+  await page.waitForSelector('[data-table="fila-celular"] tbody tr', { timeout: 8000 }).catch(() => {});
+  await sleep(500);
+
+  const qPanel = await page.$('[data-panel="fila-celular"]');
+  rec('fila-impressao', 'painel "Fila do celular" existe na página Impressão', !!qPanel);
+  const qRows = await page.$$eval('[data-table="fila-celular"] tbody tr', (rs) => rs.map((r) => ({
+    job: r.dataset.job,
+    txt: r.innerText.replace(/\s+/g, ' ').trim(),
+    hasCancel: !!r.querySelector('[data-act="cancelar-job"]'),
+  })));
+  rec('fila-impressao', 'lista os 4 pedidos (o mandado agora + os 3 do stub)',
+      qRows.length === 4, 'linhas=' + qRows.length);
+  rec('fila-impressao', 'tipo em PT, quem pediu e idade em cada linha',
+      qRows.some((r) => /Etiquetas de prateleira/.test(r.txt) && /Bruno/.test(r.txt) && /há 3 min/.test(r.txt)),
+      JSON.stringify(qRows[1] && qRows[1].txt));
+  rec('fila-impressao', 'chip de estado por linha (na fila · imprimindo · impresso)',
+      qRows.some((r) => /na fila/.test(r.txt)) && qRows.some((r) => /imprimindo/.test(r.txt))
+        && qRows.some((r) => /impresso/.test(r.txt)),
+      qRows.map((r) => (r.txt.match(/na fila|imprimindo|impresso|deu erro|cancelado/) || [''])[0]).join('|'));
+  rec('fila-impressao', 'quem pegou aparece na linha que está imprimindo',
+      qRows.some((r) => /imprimindo/.test(r.txt) && /Simone/.test(r.txt)), '');
+  rec('fila-impressao', 'pedido de teste sai marcado como teste',
+      qRows.some((r) => /teste/.test(r.txt)), '');
+  // Cancelar SÓ no que ainda está na fila: depois de pego o papel já pode estar saindo
+  const cancelable = qRows.filter((r) => r.hasCancel);
+  rec('fila-impressao', 'Cancelar só nos que ninguém pegou ainda',
+      cancelable.length === 2 && cancelable.every((r) => /na fila/.test(r.txt)),
+      'com botão=' + cancelable.length + '/' + qRows.length);
+  await shot('impressao-fila-celular');
+
+  posted.length = 0;
+  await page.click('[data-table="fila-celular"] tr[data-job="21"] [data-act="cancelar-job"]');
+  await sleep(900);
+  rec('fila-impressao', 'Cancelar chama POST /print-queue/:id/cancel',
+      posted.some((p) => p.pathname === '/api/v3/print-queue/21/cancel'),
+      JSON.stringify(posted.map((p) => p.pathname)));
+  const afterRows = await page.$$eval('[data-table="fila-celular"] tbody tr', (rs) => rs.map((r) => r.dataset.job));
+  rec('fila-impressao', 'o pedido cancelado some da lista', afterRows.indexOf('21') < 0, afterRows.join(','));
+  noErr('fila-impressao');
 
   // ══ 8. NAV: Etiquetas logo depois de Locais ═══════════════════
   await page.evaluate(() => {

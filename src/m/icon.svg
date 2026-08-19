@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!-- Ícone do app na tela de início do iPhone. Navy do STYLE-KIT com o
+       ponto verde da marca: o mesmo par que abre a barra de cima. -->
+  <rect width="180" height="180" rx="40" fill="#0d1f3c"/>
+  <circle cx="90" cy="52" r="11" fill="#3ab54a"/>
+  <text x="90" y="126" text-anchor="middle" font-family="Georgia,serif" font-size="62" fill="#ffffff">HF</text>
+</svg>

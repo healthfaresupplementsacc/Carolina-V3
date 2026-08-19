@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T05:25:54.593Z",
+  "at": "2026-08-19T13:02:40.380Z",
   "results": [
     {
       "group": "boot",
@@ -254,6 +254,54 @@
       "detail": "100 garrafas · lote L-22"
     },
     {
+      "group": "fila",
+      "name": "cartao \"Impressao pedida pelo celular\" aparece quando tem pedido",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila",
+      "name": "diz o tipo em PT, quantas folhas, quem pediu e ha quanto tempo",
+      "pass": true,
+      "detail": "🖨️ IMPRESSÃO PEDIDA PELO CELULAR Alguém pediu do celular e o papel sai aqui. Toque em Imprimir e tire da impressora. Etiqueta de caixa1 folha Bruno há 4 min Imprimir Etiquetas de prateleira1 folha Bruno há 1 min Imprimir"
+    },
+    {
+      "group": "fila",
+      "name": "botao Imprimir com alvo de toque de 44px+ (luva)",
+      "pass": true,
+      "detail": "46px"
+    },
+    {
+      "group": "fila",
+      "name": "toca em Imprimir e o job vai take -> done",
+      "pass": true,
+      "detail": "[\"/api/v3/print-queue/12/take\",\"/api/v3/print-queue/12/done\"]"
+    },
+    {
+      "group": "fila",
+      "name": "o take leva o NOME de quem pegou",
+      "pass": true,
+      "detail": "{\"by\":\"QA Operadora\"}"
+    },
+    {
+      "group": "fila",
+      "name": "a janela abriu com a etiqueta 4x6 do renderizador unico (Code128 + QR)",
+      "pass": true,
+      "detail": "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8"
+    },
+    {
+      "group": "fila",
+      "name": "confirma \"Pode tirar do papel\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "fila",
+      "name": "o job impresso sai do cartao e o que sobra continua la",
+      "pass": true,
+      "detail": "13"
+    },
+    {
       "group": "texto",
       "name": "sem em dash na tela",
       "pass": true,
@@ -262,6 +310,54 @@
     {
       "group": "texto",
       "name": "sem entidade HTML crua vazando",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estacao",
+      "name": "carrega o desenho da etiqueta e a fila (sem CDN)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estacao",
+      "name": "PIN libera o PC e diz quem entrou",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estacao",
+      "name": "a fila do celular aparece na estacao logo depois do login",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estacao",
+      "name": "diz o tipo em PT, quem pediu e ha quanto tempo",
+      "pass": true,
+      "detail": "Impressão pedida pelo celular Toque em Imprimir e tire o papel da impressora. Etiquetas de prateleira1 folha Bruno · há 1 min Imprimir"
+    },
+    {
+      "group": "estacao",
+      "name": "imprime pelo mesmo caminho take -> done",
+      "pass": true,
+      "detail": "[\"/api/v3/print-queue/13/take\",\"/api/v3/print-queue/13/done\"]"
+    },
+    {
+      "group": "estacao",
+      "name": "sai a MESMA etiqueta 4x6 do renderizador unico",
+      "pass": true,
+      "detail": "<!doctype html><html lang=\"pt-BR\"><head><meta char"
+    },
+    {
+      "group": "estacao",
+      "name": "confirma \"Pode tirar do papel\" na propria tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estacao",
+      "name": "nenhum erro de script na estacao",
       "pass": true,
       "detail": ""
     },

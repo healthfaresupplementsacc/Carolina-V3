@@ -1483,10 +1483,20 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_DRIFT["S15.28 BUILT: stock-drift-alert (10 min, contínuo, só alerta) · LIGADO 08-19"]:::verified
   A_NAV["S15.32 BUILT: menu fixo do operador Linha · Central de P&P · Estoque (nav.js) · Central sempre disponível · deep link ?ws=1"]:::verified
   A_DASH2["S15.33 BUILT: seção Estoque final (antigo escondido) · Dias de estoque · badge/aviso de propostas · Criar várias prateleiras (bulk) · auditoria STYLE-KIT 28 rotas"]:::verified
-  A_MOB["S15.29 PLANNED: admin mobile /m/ (iPhone) · bootstrap · scan/resolve · print queue"]:::planned
+  A_MOB["S15.29 BUILT 08-19: admin mobile /m/ estático no iPhone · PIN 12h no localStorage · Hoje · Aprovar · Produto · Ler código · Imprimir"]:::verified
+  A_MOBAPI["S15.35 BUILT 08-19: warehouse/mobile.js · bootstrap uma chamada só · scan/resolve com PIN de admin · print/submit · printers · SÓ projeção, zero regra nova"]:::verified
+  A_PQ["S15.34 BUILT 08-19: v3.print_queue + /api/v3/print-queue · auth tripla: PIN admin, kiosk Bearer+sessão, x-print-token do .28 · celular pede, estação PUXA"]:::verified
+  A_SHEET["S15.36 BUILT: /shared/label-sheet.js UM renderizador 4x6 + print-queue-card.js · Central/hub/estação fazem poll da fila · dashboard Etiquetas manda pro computador"]:::verified
+  A_PQ --> A_SHEET
+  A_SHEET --> A_OPHUB
   A_NAV --> A_OPHUB
   A_DASH2 --> A_HUB
-  A_MOB -.-> SVC
+  A_MOB --> A_MOBAPI
+  A_MOBAPI --> A_API
+  A_MOBAPI -->|enfileira etiquetas já resolvidas| A_PQ
+  A_MOBAPI -->|resolveBarcode: zero lógica duplicada| A_SCAN
+  A_PQ -->|done carimba label_printed_at| T_BOXES
+  STATION -->|poll: toma, imprime, marca done| A_PQ
   A_SCAN --> A_OPHUB
   A_OPHUB --> SVC
   A_OPHUB --> A_APPROVE

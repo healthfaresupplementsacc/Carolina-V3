@@ -355,6 +355,59 @@
   }
 
   // ════════════════════════════════════════════════════════════
+  // FILA DE IMPRESSÃO DO CELULAR
+  // O admin pede a etiqueta do iPhone; quem tem papel é que imprime. A lógica
+  // mora em /shared/print-queue-card.js (a Central e a estação /print usam a
+  // mesma), aqui só ligamos os fios da tela.
+  // ════════════════════════════════════════════════════════════
+  var queue = null;
+  function PQ() { return (typeof window !== 'undefined' && window.HF_PRINT_QUEUE) || null; }
+  function startQueue() {
+    var M = PQ();
+    if (!M || queue) return;
+    queue = M.create({
+      api: api,
+      by: function () { return (S.person && (S.person.display_name || S.person.name)) || 'Estoque'; },
+      onChange: render,
+      toast: toast,
+      openWindow: function () { return window.open('', '_blank', 'width=520,height=760'); },
+    });
+    queue.start();
+  }
+  function stopQueue() { if (queue) { queue.stop(); queue = null; } }
+
+  /* Cartão só aparece quando tem pedido esperando: tela cheia de caixa vazia
+     ensina o operador a ignorar a tela. */
+  function queueHtml() {
+    var M = PQ();
+    if (!M || !queue || !queue.jobs.length) return '';
+    var h = '<div style="' + CARD + ' padding:16px 20px; margin-bottom:16px; border-color:' + T.neuLn + ';" data-card="print-queue">'
+      + '<div style="display:flex; align-items:center; gap:9px; margin-bottom:4px;">'
+      + '<span style="font-size:18px;">🖨️</span>' + microLbl('Impressão pedida pelo celular') + '</div>'
+      + '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:8px;">Alguém pediu do celular e o papel sai aqui. Toque em Imprimir e tire da impressora.</div>';
+    queue.jobs.forEach(function (j) {
+      var n = M.jobCount(j);
+      var note = M.stateNote(j);
+      var can = M.isTakeable(j);
+      var busy = String(queue.busy) === String(j.id);
+      h += '<div style="border-top:1px dotted ' + T.dot + '; padding:10px 2px; display:flex; align-items:center; gap:9px; flex-wrap:wrap;" data-job="' + esc(j.id) + '">'
+        + '<span style="flex:1; min-width:150px; font-size:13.5px; font-weight:700; color:' + T.ink2 + ';">' + esc(M.kindLabel(j.kind))
+        + (n ? '<span style="font-family:' + MONO + '; font-size:11.5px; color:' + T.mute2 + '; font-weight:600; margin-left:7px;">' + n + (n === 1 ? ' folha' : ' folhas') + '</span>' : '')
+        + '</span>'
+        + chip(esc(j.requested_by || 'admin'), T.neuBg, T.neuFg, T.neuLn)
+        + chip(esc(M.ageText(j.age_min)), T.neuBg, T.mute2, T.neuLn)
+        + (j.is_test ? chip('teste', T.warnBg, T.warnFg, T.warnLn) : '')
+        + (can
+          ? btn('printJob', busy ? 'Imprimindo&hellip;' : esc(M.actionLabel(j)), esc(j.id),
+            'border:0; cursor:pointer; border-radius:999px; min-height:46px; padding:0 22px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:14px; font-family:' + SORA + ';')
+          : chip('imprimindo', T.warnBg, T.warnFg, T.warnLn))
+        + (note ? '<div style="width:100%; font-size:12px; color:' + T.mute2 + ';">' + esc(note) + '</div>' : '')
+        + '</div>';
+    });
+    return h + '</div>';
+  }
+
+  // ════════════════════════════════════════════════════════════
   // LOGIN (PIN igual ao /op e ao /print)
   // ════════════════════════════════════════════════════════════
   function saveSession() {
@@ -385,7 +438,7 @@
         if (!tok) throw new Error('PIN incorreto');
         S.session = tok; S.person = j.person || null;
         S.busy = false; S.pin = ''; S.pinError = ''; S.screen = 'hub'; S.scr = 'home';
-        saveSession(); render(); loadAll(); focusSink();
+        saveSession(); render(); loadAll(); startQueue(); focusSink();
       })
       .catch(function (e) {
         S.busy = false; S.pin = '';
@@ -398,6 +451,7 @@
   function logout() {
     api('auth/logout', { method: 'POST', body: {} }).catch(function () {});
     stopStream();
+    stopQueue();
     clearSession();
     S.screen = 'login'; S.pin = ''; S.scr = 'home';
     render();
@@ -725,39 +779,16 @@
       .then(function (j) { openLabel(labelPayload((j && (j.label || j.data)) || j)); })
       .catch(function () { toast('A etiqueta ainda não está pronta. Ela sai depois que o admin aprovar a caixa.'); });
   }
+  /* O DESENHO da etiqueta mora em /shared/label-sheet.js: um renderizador só
+     pro hub, pra Central, pra estação /print e pra fila do celular. Duas cópias
+     do mesmo papel viram duas etiquetas diferentes da mesma caixa. */
   function openLabel(L) {
-    var C128 = (typeof window !== 'undefined' && window.HF_CODE128) || null;
-    var QR = (typeof window !== 'undefined' && window.qrcode) || null;
-    var bar = C128 ? C128.svg(L.code, { width: 520, height: 90 }) : '';
-    var qr = '';
-    if (QR) {
-      try {
-        var q = QR(0, 'M');
-        q.addData(String(L.url || L.code));
-        q.make();
-        qr = q.createSvgTag({ cellSize: 3, margin: 0 });
-      } catch (e) { qr = ''; }
-    }
-    var doc = '<!doctype html><html><head><meta charset="utf-8"><title>Etiqueta ' + esc(L.code) + '</title><style>'
-      + '@page { size: 4in 6in; margin: 0.15in; }'
-      + 'body { font-family: Arial, Helvetica, sans-serif; margin:0; color:#000; }'
-      + '.code { font-size: 54px; font-weight: 900; letter-spacing:.02em; line-height:1; margin-bottom:8px; }'
-      + '.l2 { font-size: 19px; font-weight: 700; line-height:1.15; margin-bottom:4px; }'
-      + '.l3 { font-size: 16px; font-weight: 700; margin-bottom:10px; }'
-      + '.bar { margin: 6px 0 4px; }'
-      + '.foot { display:flex; align-items:flex-end; justify-content:space-between; margin-top:8px; }'
-      + '.qr { width:96px; height:96px; }'
-      + '.hf { font-size:10px; font-weight:700; letter-spacing:.08em; }'
-      + '</style></head><body>'
-      + '<div class="code">' + esc(L.code) + '</div>'
-      + (L.line2 ? '<div class="l2">' + esc(L.line2) + '</div>' : '')
-      + (L.line3 ? '<div class="l3">' + esc(L.line3) + '</div>' : '')
-      + '<div class="bar">' + bar + '</div>'
-      + '<div class="foot"><div class="hf">HEALTHFARE</div><div class="qr">' + qr + '</div></div>'
-      + '<script>window.onload=function(){window.print();}<\/script></body></html>';
+    var HL = (typeof window !== 'undefined' && window.HF_LABELS) || null;
+    if (!HL) { toast('O desenho da etiqueta não carregou. Recarregue a página e tente de novo.'); return; }
     var win = window.open('', '_blank', 'width=520,height=760');
     if (!win) { toast('O navegador bloqueou a janela. Libere os popups deste site e clique de novo.'); return; }
-    win.document.write(doc); win.document.close();
+    win.document.write(HL.sheetHtml([L], { title: 'Etiqueta ' + String(L && L.code || '') }));
+    win.document.close();
   }
 
   // ════════════════════════════════════════════════════════════
@@ -920,6 +951,7 @@
   // ── HOME ────────────────────────────────────────────────────
   function homeHtml() {
     var h = scanBarHtml('Escaneie a prateleira, a caixa ou o produto');
+    h += queueHtml();
     h += day1Html();
     h += '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:14px; margin-bottom:20px;">';
     MENU.forEach(function (m) {
@@ -1372,6 +1404,8 @@
       doRestock(intOf(p[0]), intOf(p[1]));
     },
     printLabel: function (boxId) { printLabel(boxId); },
+    // fila do celular: pega o job, imprime e marca como feito
+    printJob: function (id) { if (queue) queue.take(id); },
   };
 
   var INPUTS = {
@@ -1454,7 +1488,7 @@
     sink = document.getElementById('scanSink');
     if (!el) return;
     bindEvents();
-    if (loadSession()) { S.screen = 'hub'; render(); loadAll(); focusSink(); }
+    if (loadSession()) { S.screen = 'hub'; render(); loadAll(); startQueue(); focusSink(); }
     else render();
     // service worker: mesma casca do /op
     if ('serviceWorker' in navigator) {
@@ -1465,6 +1499,7 @@
   return {
     boot: boot, render: render, state: S, dispatchScan: dispatchScan, api: api,
     acts: ACT, inputs: INPUTS,
+    queue: function () { return queue; }, startQueue: startQueue, stopQueue: stopQueue,
     _: {
       guessKind: guessKind, normScan: normScan, weighPreview: weighPreview, tareFor: tareFor,
       placeLabel: placeLabel, targetLabel: targetLabel, targetBody: targetBody,

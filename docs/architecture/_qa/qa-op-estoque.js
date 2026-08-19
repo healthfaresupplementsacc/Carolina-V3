@@ -25,6 +25,7 @@ const ROOT = path.join(QA, '..', '..', '..');
 const OPDIR = path.join(ROOT, 'src', 'op');
 const SHAREDDIR = path.join(ROOT, 'src', 'shared');
 const SCANDIR = path.join(ROOT, 'src', 'scan');
+const PRINTDIR = path.join(ROOT, 'src', 'print');
 
 const results = [];
 const rec = (group, name, pass, detail) => {
@@ -73,6 +74,19 @@ const RECENT = {
   ],
 };
 
+/* S15.29 · FILA DE IMPRESSAO PEDIDA PELO CELULAR (contrato 1 e 3).
+   O admin pede a etiqueta do iPhone; o papel sai onde tem impressora. O hub
+   puxa GET /api/v3/print-queue?status=queued e imprime com take -> done. */
+let QUEUE = [
+  { id: 12, kind: 'box_label', payload: { labels: [
+    { kind: 'box', code: 'BX-0451', line2: 'Rutin 500mg', line3: '100 garrafas · lote L-22', url: '/scan/?box=BX-0451' },
+  ] }, requested_by: 'Bruno', status: 'queued', age_min: 4, taken_by: null, is_test: false },
+  // 2o pedido: fica pro teste da estacao /print (o hub consome o de cima)
+  { id: 13, kind: 'bin_labels', payload: { labels: [
+    { kind: 'bin', code: 'A03B2', line2: 'Prateleira S4 · P&P', line3: 'cabe 48 · Rutin', url: '/scan/?bin=A03B2' },
+  ] }, requested_by: 'Bruno', status: 'queued', age_min: 1, taken_by: null, is_test: false },
+];
+
 const posted = [];
 
 /** resolve de codigo de barras: bin, caixa, produto ou nada. */
@@ -91,6 +105,21 @@ function apiFixture(pathname, method, body, query) {
   if (method === 'POST') posted.push({ pathname, body });
   if (pathname === '/api/v3/scan/push') return { ok: true };
   if (pathname === '/api/v3/scan/keepalive') return { ok: true };
+  // ── fila de impressão do celular ─────────────────────────────
+  if (pathname.startsWith('/api/v3/print-queue')) {
+    const m = pathname.match(/\/api\/v3\/print-queue\/(\d+)\/(take|done|error|cancel)$/);
+    if (m) {
+      const id = Number(m[1]); const op = m[2];
+      const job = QUEUE.find((j) => j.id === id);
+      if (!job) return { error: { code: 'not_found', message: 'job sumiu' } };
+      if (op === 'take') { job.status = 'taken'; job.taken_by = (body && body.by) || '?'; }
+      if (op === 'done') { job.status = 'done'; QUEUE = QUEUE.filter((j) => j.id !== id); }
+      if (op === 'error') { job.status = 'error'; job.error_note = body && body.note; }
+      if (op === 'cancel') { job.status = 'cancelled'; QUEUE = QUEUE.filter((j) => j.id !== id); }
+      return { data: { job } };
+    }
+    return { data: { jobs: QUEUE.filter((j) => j.status === 'queued' || j.status === 'taken') } };
+  }
   const p = pathname.replace('/api/v3/op/', '');
   if (p === 'auth/login') return { ok: true, session_token: 'qa-session', person: PERSON };
   if (p === 'auth/logout') return { ok: true };
@@ -150,8 +179,10 @@ function startServer() {
       let file = null;
       if (p === '/' || p === '/op' || p === '/op/') file = path.join(OPDIR, 'index.html');
       else if (p === '/scan' || p === '/scan/') file = path.join(SCANDIR, 'index.html');
+      else if (p === '/print' || p === '/print/') file = path.join(PRINTDIR, 'index.html');
       else if (p.startsWith('/op/')) file = path.join(OPDIR, p.slice(4));
       else if (p.startsWith('/scan/')) file = path.join(SCANDIR, p.slice(6));
+      else if (p.startsWith('/print/')) file = path.join(PRINTDIR, p.slice(7));
       else if (p.startsWith('/shared/')) file = path.join(SHAREDDIR, p.slice(8));
       if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end('not found'); return; }
       res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
@@ -437,6 +468,51 @@ async function main() {
   rec('etiqueta', 'QR da etiqueta vira SVG', label.qrHasSvg);
   rec('etiqueta', 'linha 3 tem quantidade e lote', /100 garrafas/.test(label.line3) && /L-22/.test(label.line3), label.line3);
 
+  // ── FILA DE IMPRESSAO PEDIDA PELO CELULAR (S15.29) ───────────
+  // Alguem pediu a etiqueta do iPhone; o papel sai NESTE PC. O poll e de 30s,
+  // entao forcamos uma leitura pra nao segurar o harness meio minuto.
+  await (await page.$('[data-act="go"][data-arg="home"]')).click();
+  await sleep(300);
+  await page.evaluate(() => { const q = window.HF_EST.queue(); if (q) q.load(); });
+  await sleep(700);
+  const qCard = await page.$('[data-card="print-queue"]');
+  rec('fila', 'cartao "Impressao pedida pelo celular" aparece quando tem pedido', !!qCard);
+  const qTxt = qCard ? await page.evaluate((e) => e.innerText.replace(/\s+/g, ' '), qCard) : '';
+  rec('fila', 'diz o tipo em PT, quantas folhas, quem pediu e ha quanto tempo',
+    /Etiqueta de caixa/.test(qTxt) && /1 folha/.test(qTxt) && /Bruno/.test(qTxt) && /há 4 min/.test(qTxt), qTxt);
+  const qBtn = await page.$('[data-act="printJob"]');
+  rec('fila', 'botao Imprimir com alvo de toque de 44px+ (luva)',
+    !!qBtn && (await page.evaluate((e) => Math.round(e.getBoundingClientRect().height), qBtn)) >= 44,
+    qBtn ? String(await page.evaluate((e) => Math.round(e.getBoundingClientRect().height), qBtn)) + 'px' : 'sem botao');
+  await shot('11-fila-celular');
+
+  await page.evaluate(() => {
+    window.__lastLabel = null;
+    const open = window.open;
+    window.open = function () { const w = { document: { write: (d) => { window.__lastLabel = d; }, close: () => {} } }; window.open = open; return w; };
+  });
+  posted.length = 0;
+  if (qBtn) await qBtn.click();
+  await sleep(1200);
+  const qPosts = posted.map((x) => x.pathname);
+  rec('fila', 'toca em Imprimir e o job vai take -> done',
+    qPosts.indexOf('/api/v3/print-queue/12/take') >= 0 && qPosts.indexOf('/api/v3/print-queue/12/done') >= 0,
+    JSON.stringify(qPosts));
+  const takeBody = posted.find((x) => /\/take$/.test(x.pathname));
+  rec('fila', 'o take leva o NOME de quem pegou',
+    !!takeBody && !!takeBody.body && takeBody.body.by === PERSON.display_name,
+    takeBody ? JSON.stringify(takeBody.body) : 'sem body');
+  const qDoc = await page.evaluate(() => window.__lastLabel || '');
+  rec('fila', 'a janela abriu com a etiqueta 4x6 do renderizador unico (Code128 + QR)',
+    /BX-0451/.test(qDoc) && /4in 6in/.test(qDoc) && /<svg/.test(qDoc) && /100 garrafas/.test(qDoc),
+    qDoc ? qDoc.slice(0, 60) : 'sem documento');
+  const doneTxt = await page.evaluate(() => document.body.innerText);
+  rec('fila', 'confirma "Pode tirar do papel"', /Pode tirar do papel/.test(doneTxt), '');
+  await sleep(400);
+  const leftJobs = await page.$$eval('[data-card="print-queue"] [data-job]', (e) => e.map((x) => x.dataset.job));
+  rec('fila', 'o job impresso sai do cartao e o que sobra continua la',
+    leftJobs.indexOf('12') < 0 && leftJobs.indexOf('13') >= 0, leftJobs.join(','));
+
   // ── texto: regras do Bruno ──────────────────────────────────
   await (await page.$('[data-act="go"][data-arg="home"]')).click();
   await sleep(400);
@@ -444,6 +520,54 @@ async function main() {
   rec('texto', 'sem em dash na tela', !/—/.test(allTxt), (allTxt.match(/.{0,20}—.{0,20}/) || [''])[0]);
   rec('texto', 'sem entidade HTML crua vazando', !/&[a-z]+;/.test(allTxt), (allTxt.match(/&[a-z]+;/) || [''])[0]);
   await shot('08-home-final');
+
+  // ── ESTACAO DE IMPRESSAO /print (o PC .28) ──────────────────
+  // Mesmo login por PIN do /op; depois de entrar ela mostra a MESMA fila e
+  // imprime o mesmo papel. E o PC que tem a impressora de etiqueta do lado.
+  const station = await browser.newPage();
+  await station.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+  const stErrors = [];
+  station.on('pageerror', (e) => stErrors.push('pageerror: ' + e.message));
+  station.on('console', (m) => { if (m.type() === 'error' && !EXTERNAL.test(m.text())) stErrors.push(m.text().slice(0, 200)); });
+  await station.goto(BASE + '/print/', { waitUntil: 'domcontentloaded' });
+  await sleep(600);
+  rec('estacao', 'carrega o desenho da etiqueta e a fila (sem CDN)',
+    await station.evaluate(() => !!window.HF_LABELS && !!window.HF_PRINT_QUEUE && !!window.HF_CODE128));
+  for (const d of ['1', '2', '3', '4']) {
+    const b = await station.$('[data-act="pinkey"][data-arg="' + d + '"]');
+    if (b) await b.click();
+  }
+  await sleep(1000);
+  const stTxt0 = await station.evaluate(() => document.body.innerText);
+  rec('estacao', 'PIN libera o PC e diz quem entrou', /QA Operadora/.test(stTxt0), '');
+  const stCard = await station.$('[data-card="print-queue"]');
+  rec('estacao', 'a fila do celular aparece na estacao logo depois do login', !!stCard);
+  const stTxt = stCard ? await station.evaluate((e) => e.innerText.replace(/\s+/g, ' '), stCard) : '';
+  rec('estacao', 'diz o tipo em PT, quem pediu e ha quanto tempo',
+    /Etiquetas de prateleira/.test(stTxt) && /Bruno/.test(stTxt) && /há 1 min/.test(stTxt), stTxt);
+  await station.screenshot({ path: path.join(QA, 'op-estoque-12-estacao-fila.png') });
+  console.log('    shot → docs/architecture/_qa/op-estoque-12-estacao-fila.png');
+
+  await station.evaluate(() => {
+    window.__lastLabel = null;
+    const open = window.open;
+    window.open = function () { const w = { document: { write: (d) => { window.__lastLabel = d; }, close: () => {} } }; window.open = open; return w; };
+  });
+  posted.length = 0;
+  const stBtn = await station.$('[data-act="printJob"]');
+  if (stBtn) await stBtn.click();
+  await sleep(1200);
+  const stPosts = posted.map((x) => x.pathname);
+  rec('estacao', 'imprime pelo mesmo caminho take -> done',
+    stPosts.indexOf('/api/v3/print-queue/13/take') >= 0 && stPosts.indexOf('/api/v3/print-queue/13/done') >= 0,
+    JSON.stringify(stPosts));
+  const stDoc = await station.evaluate(() => window.__lastLabel || '');
+  rec('estacao', 'sai a MESMA etiqueta 4x6 do renderizador unico',
+    /A03B2/.test(stDoc) && /4in 6in/.test(stDoc) && /<svg/.test(stDoc), stDoc ? stDoc.slice(0, 50) : 'sem documento');
+  const stDone = await station.evaluate(() => document.body.innerText);
+  rec('estacao', 'confirma "Pode tirar do papel" na propria tela', /Pode tirar do papel/.test(stDone), '');
+  rec('estacao', 'nenhum erro de script na estacao', stErrors.length === 0, stErrors.slice(0, 2).join(' | '));
+  await station.close();
 
   // ── PAGINA DO CELULAR ───────────────────────────────────────
   const phone = await browser.newPage();

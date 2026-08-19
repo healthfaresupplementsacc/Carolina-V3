@@ -6,7 +6,7 @@
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v42'; // v42: menu persistente /op/nav.js + Central sempre disponível
+const CACHE = 'hf-op-v43'; // v43: renderizador único da etiqueta + fila de impressão do celular
 const SHELL = [
   '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/nav.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',
@@ -15,6 +15,8 @@ const SHELL = [
   '/op/estoque.html', '/op/estoque.js',
   '/op/vendor/code128.js', '/op/vendor/qrcode.min.js',
   '/shared/hf-design.css', '/shared/hf-design.js',
+  // desenho único da etiqueta + fila de impressão do celular (Central, hub e /print)
+  '/shared/label-sheet.js', '/shared/print-queue-card.js',
   '/op/assets/healthfare-logo.png',
 ];
 const IMG_RE = /\.(png|webp|jpg|jpeg|svg|woff2?)$/i;

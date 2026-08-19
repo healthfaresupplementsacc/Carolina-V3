@@ -7,7 +7,7 @@
 (function () {
   var AC = '#1f5fd0';                 // accent (mesmo azul do /op)
   var LOCK_MS = 10 * 60 * 1000;       // 10 min → volta pro login
-  var S = { screen: 'login', pin: '', pinError: '', shake: false, session: null, person: null, other: { name: '', what: '' }, busy: false };
+  var S = { screen: 'login', pin: '', pinError: '', shake: false, session: null, person: null, other: { name: '', what: '' }, busy: false, queueMsg: '' };
   var lockTimer = null;
   var center = document.getElementById('pcenter');
 
@@ -62,16 +62,78 @@
       + '</div></div>';
   }
 
+  // ── FILA DE IMPRESSÃO DO CELULAR ──────────────────────────────────────────
+  // O admin pede a etiqueta do iPhone; o papel sai NESTE PC. A máquina de
+  // estados mora em /shared/print-queue-card.js (a mesma da Central e do hub de
+  // estoque); aqui só ligamos os fios da estação.
+  var queue = null;
+  function PQ() { return window.HF_PRINT_QUEUE || null; }
+  function startQueue() {
+    var M = PQ();
+    if (!M || queue) return;
+    queue = M.create({
+      api: api2,
+      by: function () { return S.person ? S.person.display_name : (S.other.name || 'Estação'); },
+      onChange: render,
+      toast: function (m) { S.queueMsg = String(m || ''); render(); setTimeout(function () { S.queueMsg = ''; render(); }, 4000); },
+      openWindow: function () { return window.open('', '_blank', 'width=520,height=760'); },
+    });
+    queue.start();
+  }
+  function stopQueue() { if (queue) { queue.stop(); queue = null; } }
+
+  /* Cartão só aparece quando tem pedido esperando. Este PC existe pra imprimir:
+     quando alguém pede do celular, o pedido tem que estar visível de longe. */
+  function queueCard() {
+    var M = PQ();
+    if (!M || !queue || !queue.jobs.length) return '';
+    var h = '<div style="width:min(94vw,460px); margin-top:14px; background:rgba(255,255,255,.82); border:1px solid rgba(255,255,255,.9); border-radius:24px; padding:18px 20px; box-shadow:0 30px 70px -34px rgba(15,40,90,.5); text-align:left;" data-card="print-queue">'
+      + '<div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:15px; color:#0c2545;">Impressão pedida pelo celular</div>'
+      + '<div style="font-size:12.5px; color:#566681; margin:3px 0 8px;">Toque em Imprimir e tire o papel da impressora.</div>';
+    queue.jobs.forEach(function (j) {
+      var n = M.jobCount(j);
+      var note = M.stateNote(j);
+      var can = M.isTakeable(j);
+      var busy = String(queue.busy) === String(j.id);
+      h += '<div style="border-top:1px dotted rgba(15,40,90,.16); padding:10px 0; display:flex; align-items:center; gap:9px; flex-wrap:wrap;" data-job="' + esc(String(j.id)) + '">'
+        + '<span style="flex:1; min-width:130px; font-size:13.5px; font-weight:700; color:#0c2545;">' + esc(M.kindLabel(j.kind))
+        + (n ? '<span style="font-size:11.5px; color:#6c819b; font-weight:600; margin-left:7px;">' + n + (n === 1 ? ' folha' : ' folhas') + '</span>' : '')
+        + '</span>'
+        + '<span style="font-size:11.5px; color:#566681;">' + esc(j.requested_by || 'admin') + ' · ' + esc(M.ageText(j.age_min)) + '</span>'
+        + (can
+          ? '<button data-act="printJob" data-arg="' + esc(String(j.id)) + '" ' + (busy ? 'disabled' : '')
+            + ' style="border:0; cursor:pointer; border-radius:999px; min-height:46px; padding:0 22px; background:linear-gradient(135deg,#2f7ae0,#0f4c92); color:#fff; font-weight:800; font-size:14px;">'
+            + (busy ? 'Imprimindo…' : esc(M.actionLabel(j))) + '</button>'
+          : '<span style="font-size:12px; color:#6b4c07; font-weight:700;">imprimindo</span>')
+        + (note ? '<div style="width:100%; font-size:12px; color:#6c819b;">' + esc(note) + '</div>' : '')
+        + '</div>';
+    });
+    return h + '</div>';
+  }
+
+  /* A confirmação vive FORA do cartão: o último job impresso esvazia a fila, o
+     cartão some, e sem isto o operador não veria o "Pode tirar do papel" logo
+     depois de mandar imprimir. Aviso sem retorno é aviso que não existe. */
+  function queueMsgCard() {
+    if (!S.queueMsg) return '';
+    return '<div style="width:min(94vw,460px); margin-top:14px; background:rgba(232,247,234,.92); border:1px solid #c8ecce; border-radius:20px; padding:14px 20px; text-align:center; font-size:14px; font-weight:700; color:#1e6b2e;" data-card="print-queue-msg">'
+      + esc(S.queueMsg) + '</div>';
+  }
+
   // ── tela pós-login: "está imprimindo labels" ──────────────────────────────
   function printingCard() {
     var who = S.person ? S.person.display_name : (S.other.name || 'Convidado');
     var sub = S.person ? 'Impressão de Labels' : esc(S.other.what || 'usando o computador');
-    return '<div style="width:min(94vw,460px); background:rgba(255,255,255,.72); backdrop-filter:blur(26px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:30px; padding:clamp(28px,4vw,40px); box-shadow:0 40px 90px -36px rgba(15,40,90,.5); text-align:center;">'
+    return '<div style="display:flex; flex-direction:column; align-items:center;">'
+      + '<div style="width:min(94vw,460px); background:rgba(255,255,255,.72); backdrop-filter:blur(26px) saturate(1.5); border:1px solid rgba(255,255,255,.85); border-radius:30px; padding:clamp(28px,4vw,40px); box-shadow:0 40px 90px -36px rgba(15,40,90,.5); text-align:center;">'
       + '<div style="font-size:44px; margin-bottom:8px;">🖨️</div>'
       + '<div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:22px; color:#0c2545;">' + esc(who) + '</div>'
       + '<div style="font-size:15px; color:#1f5fd0; font-weight:700; margin-top:4px;">' + sub + '</div>'
       + '<div style="font-size:13px; color:#566681; margin-top:14px;">O computador está liberado. Pode imprimir seus labels.<br>A tela volta a pedir o PIN em 10 minutos.</div>'
       + '<button data-act="lockNow" style="margin-top:22px; padding:13px 26px; border-radius:14px; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; font-weight:700; font-size:14px; cursor:pointer;">Sair / trancar agora</button>'
+      + '</div>'
+      + queueCard()
+      + queueMsgCard()
       + '</div>';
   }
 
@@ -91,7 +153,7 @@
     window.HF_PRINT_WHO = unlocked ? (S.person ? S.person.display_name : (S.other.name || 'Convidado')) : '';
   }
   function armLock() { if (lockTimer) clearTimeout(lockTimer); lockTimer = setTimeout(lock, LOCK_MS); }
-  function lock() { S.screen = 'login'; S.pin = ''; S.pinError = ''; S.session = null; S.person = null; S.other = { name: '', what: '' }; if (lockTimer) clearTimeout(lockTimer); signal(false); render(); }
+  function lock() { S.screen = 'login'; S.pin = ''; S.pinError = ''; S.session = null; S.person = null; S.other = { name: '', what: '' }; S.queueMsg = ''; if (lockTimer) clearTimeout(lockTimer); stopQueue(); signal(false); render(); }
 
   async function api(path, body, headers) {
     // Bearer pageToken (as rotas /api/v3/op/* exigem; vem do /op/config.js). Igual /op.
@@ -101,6 +163,32 @@
     var r = await fetch(path, { method: 'POST', headers: Object.assign(base, headers || {}), body: JSON.stringify(body || {}) });
     var j = null; try { j = await r.json(); } catch (e) {}
     return { ok: r.ok, status: r.status, j: j || {} };
+  }
+
+  /* api2: a MESMA credencial do api() acima (Bearer da página + a sessão do PIN),
+     no formato que /shared/print-queue-card.js espera (GET/POST, promessa que
+     rejeita no erro). O api() antigo é só POST e devolve {ok,status,j}: mudá-lo
+     quebraria o login, então a fila ganha este irmão em vez de uma exceção. */
+  function api2(path, opts) {
+    var o = opts || {};
+    var PT = (window.HF_OP_CONFIG && window.HF_OP_CONFIG.pageToken) || '';
+    var headers = { 'Content-Type': 'application/json' };
+    if (PT) headers.Authorization = 'Bearer ' + PT;
+    if (S.session) headers['X-Session-Token'] = S.session;
+    return fetch(path, {
+      method: o.method || 'GET',
+      headers: headers,
+      body: o.body ? JSON.stringify(o.body) : undefined,
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) {
+          var e = new Error((j && (j.detail || (j.error && (j.error.message || j.error)))) || ('HTTP ' + r.status));
+          e.body = j; e.status = r.status;
+          throw e;
+        }
+        return j;
+      });
+    });
   }
 
   async function submitPin() {
@@ -113,7 +201,7 @@
     S.session = login.j.session_token; S.person = login.j.person;
     // abre a task "Impressão de Labels" (nunca bloqueia o acesso se falhar)
     try { await api('/api/v3/op/event/start', { activity_slug: 'label_printing' }, { 'X-Session-Token': S.session }); } catch (e) {}
-    S.busy = false; S.pinError = ''; S.screen = 'printing'; signal(true); armLock(); render();
+    S.busy = false; S.pinError = ''; S.screen = 'printing'; signal(true); armLock(); startQueue(); render();
   }
 
   async function otherGo() {
@@ -121,7 +209,7 @@
     if (!S.other.name.trim() || !S.other.what.trim()) { S.pinError = 'Preencha nome e o que vai fazer'; render(); return; }
     S.busy = true; render();
     try { await api('/api/v3/print/other', { name: S.other.name.trim(), what: S.other.what.trim() }); } catch (e) {}
-    S.busy = false; S.pinError = ''; S.screen = 'printing'; signal(true); armLock(); render();
+    S.busy = false; S.pinError = ''; S.screen = 'printing'; signal(true); armLock(); startQueue(); render();
   }
 
   document.addEventListener('click', function (e) {
@@ -136,6 +224,8 @@
     else if (act === 'otherCancel') { S.screen = 'login'; S.pin = ''; S.pinError = ''; render(); }
     else if (act === 'otherGo') { otherGo(); }
     else if (act === 'lockNow') { lock(); }
+    // fila do celular: pega o job, imprime e marca como feito
+    else if (act === 'printJob') { if (queue) { armLock(); queue.take(b.getAttribute('data-arg')); } }
   });
   document.addEventListener('input', function (e) {
     var el = e.target.closest('[data-input]'); if (!el) return;

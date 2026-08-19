@@ -27,6 +27,8 @@
  *       staleMin   — minutos sem heartbeat pra considerar MORTO (só se heartbeat)
  *       enabledEnv — { var, offValue } que liga/desliga; enabled() calcula o estado
  *       critical   — true = se cair, alerta no admin-orin
+ *       pending    — true = DESENHADO mas ainda não instalado (nunca vira alerta de
+ *                    processo morto; está aqui pra ninguém redesenhar do zero)
  *       since      — data que entrou no ar (rastro histórico)
  */
 
@@ -221,6 +223,18 @@ const PROCESSES = [
     heartbeat: false, critical: true, since: '2026-07-24', signalVia: '/api/print-watchdog',
     short: 'Revive printmon/epson_status se caírem no .28 e avisa o admin.',
     detail: 'Roda no .28 como tarefa SYSTEM. Vigia printmon + epson_status; se um morre, revive (via WMI) e POSTa em /api/print-watchdog → o backend avisa o admin-orin (debounce 10min). É o que mantém a captura de impressão viva após reboot.',
+  },
+  {
+    // AINDA NÃO INSTALADO no .28 (Bruno 08-19). Fica aqui porque este arquivo é a
+    // verdade do que DEVERIA existir, e a fila já está de pé do lado do servidor:
+    // sem o puxador, o que o celular manda imprimir espera na fila até alguém
+    // abrir a estação. `pending: true` mantém fora da vigia de heartbeat (não dá
+    // pra cobrar batida de processo que ninguém instalou ainda).
+    key: 'printqueue_agent', name: 'Puxador da fila de impressão (.28)', where: 'win28',
+    tickMs: 5000, heartbeat: false, critical: false, pending: true, since: '2026-08-19',
+    signalVia: '/api/v3/print-queue',
+    short: 'Puxa da fila o que o admin mandou imprimir do celular e imprime no .28.',
+    detail: 'A construir no .28. Poll a cada poucos segundos em GET /api/v3/print-queue com x-print-token (o MESMO PRINT_EVENT_TOKEN do /api/print-event, nenhum segredo novo): toma o job (POST /:id/take), desenha Code128 + QR do payload já resolvido, imprime 4x6, e fecha com POST /:id/done (que carimba label_printed_at nas caixas) ou POST /:id/error com o motivo. Enquanto ele não existe, a estação logada (/print ou /op) consegue tomar e concluir pela mesma API com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token.',
   },
 ];
 

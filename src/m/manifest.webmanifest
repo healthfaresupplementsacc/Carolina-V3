@@ -1,0 +1,17 @@
+{
+  "name": "HealthFare Admin",
+  "short_name": "HF Admin",
+  "description": "Estoque e impressão do armazém, do celular.",
+  "lang": "pt-BR",
+  "display": "standalone",
+  "orientation": "portrait",
+  "start_url": "/m/",
+  "scope": "/m/",
+  "theme_color": "#0d1f3c",
+  "background_color": "#f4f8fc",
+  "icons": [
+    { "src": "/m/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/m/icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "/m/icon.png", "sizes": "180x180", "type": "image/png", "purpose": "maskable" }
+  ]
+}

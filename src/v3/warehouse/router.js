@@ -23,6 +23,7 @@ const { createVeeqoCache } = require('./veeqo-cache');
 const { LocationsRepo } = require('./locations-repo');
 const { FamilyRepo } = require('./family-repo');
 const { WeightsRepo, computeQty } = require('./weights');
+const { createMobile } = require('./mobile');
 
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
@@ -673,12 +674,13 @@ function createWarehouseRouter(deps = {}) {
 
   // ── S15 FASE 3 — ETIQUETAS (o dashboard desenha Code128 + QR no cliente) ──
   // A etiqueta é sempre: código grande, uma linha de onde/o quê, uma de quanto.
-  route('get', '/labels', 'read', async (req, res) => {
-    const idsOf = (v) => String(v || '').split(',').map((x) => intOf(x)).filter((x) => x);
-    const binIds = idsOf(req.query.bins);
-    const boxIds = idsOf(req.query.boxes);
+  //
+  // labelsFor é uma FUNÇÃO (não só um handler) porque o celular precisa das
+  // mesmas etiquetas resolvidas do mesmo jeito na hora de enfileirar a impressão
+  // (mobile.printSubmit). Duas montagens do mesmo texto sairiam diferentes um dia.
+  async function labelsFor(binIds, boxIds) {
     const labels = [];
-    if (binIds.length) {
+    if (binIds && binIds.length) {
       const rows = (await db.query(
         `SELECT b.id, b.bin_code, b.shelf_code, b.area, b.qty, b.capacity,
                 COALESCE(p.nickname, p.canonical_name) AS product
@@ -691,7 +693,7 @@ function createWarehouseRouter(deps = {}) {
           url: '/scan/?b=' + encodeURIComponent(r.bin_code) });
       }
     }
-    if (boxIds.length) {
+    if (boxIds && boxIds.length) {
       const rows = (await db.query(
         `SELECT x.id, x.box_number, x.area, x.qty, x.batch_number, x.sealed,
                 COALESCE(p.nickname, p.canonical_name) AS product
@@ -705,7 +707,12 @@ function createWarehouseRouter(deps = {}) {
           url: '/scan/?x=' + encodeURIComponent(r.box_number) });
       }
     }
-    ok(res, { labels });
+    return labels;
+  }
+
+  route('get', '/labels', 'read', async (req, res) => {
+    const csv = (v) => String(v || '').split(',').map((x) => intOf(x)).filter((x) => x);
+    ok(res, { labels: await labelsFor(csv(req.query.bins), csv(req.query.boxes)) });
   });
 
   // etiqueta saiu da impressora → carimba (a caixa sem etiqueta é caixa perdida)
@@ -740,7 +747,38 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { updated });
   });
 
-  console.log('[V3] Warehouse hub montado: ' + BASE + '/*');
+  // ── S15.35 — MOBILE (/m/ no iPhone, Bruno 08-19) ───────────
+  // Mesmo router, mesma auth, mesmo RBAC, mesmo envelope: o celular é só mais um
+  // cliente do hub. O módulo mobile.js reusa rowsWithVeeqo / kpisFrom /
+  // attentionFrom / pendingSummary / labelsFor — nenhum número é recalculado por
+  // outro caminho, então o celular e o dashboard nunca discordam.
+  const mobile = deps.mobile || createMobile({
+    db, requests, locations, queue: deps.printQueue || null,
+    rowsWithVeeqo, kpisFrom, attentionFrom, pendingSummary, labelsFor,
+    opWarehouse: deps.opWarehouse || null,
+  });
+
+  route('get', '/mobile/bootstrap', 'read', async (req, res) => {
+    ok(res, await mobile.bootstrap(req));
+  });
+
+  route('get', '/mobile/scan/resolve', 'read', async (req, res) => {
+    ok(res, await mobile.scanResolve(req));
+  });
+
+  route('get', '/mobile/printers', 'read', async (req, res) => {
+    ok(res, await mobile.printers());
+  });
+
+  // enfileirar impressão MEXE em papel do armazém → manage_stock, como toda ação
+  route('post', '/mobile/print/submit', 'write', async (req, res) => {
+    const out = await mobile.printSubmit(req);
+    await audit(req, 'warehouse.mobile_print_submit', out.job_id,
+      { kind: out.job.kind, queued: out.queued });
+    ok(res, { job_id: out.job_id, queued: out.queued, labels: out.labels, job: out.job });
+  });
+
+  console.log('[V3] Warehouse hub montado: ' + BASE + '/* (+ mobile)');
   return router;
 }
 

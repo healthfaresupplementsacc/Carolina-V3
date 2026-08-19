@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T05:31:19.888Z",
+  "at": "2026-08-19T13:03:12.684Z",
   "results": [
     {
       "group": "screenshot",
@@ -221,7 +221,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "130 KB → dash-estoque-aprovacoes.png"
+      "detail": "131 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -353,13 +353,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"21h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"28h\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"17h\"},{\"tone\":\"warn\",\"txt\":\"21h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"28h\"}]"
     },
     {
       "group": "estoque-locais",

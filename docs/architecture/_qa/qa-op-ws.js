@@ -86,11 +86,40 @@ const PP_EVENT = { id: 501, slug: 'order_printing', started_at: new Date(Date.no
 const DONE_EVENT = { id: 500, slug: 'labeling', started_at: new Date(Date.now() - 120 * 60000).toISOString(), ended_at: new Date(Date.now() - 60 * 60000).toISOString() };
 let TODAY = { ok: true, goal: 8, events: [DONE_EVENT] };   // começa SEM P&P aberto
 
+/* S15.29 · FILA DE IMPRESSÃO PEDIDA PELO CELULAR (contrato 1 e 3).
+   O admin pede a etiqueta do iPhone; o papel sai onde tem impressora. A Central
+   puxa GET /api/v3/print-queue?status=queued e imprime com take → done.
+   O stub segue o contrato do agente P: {data:{jobs:[...]}}, POST devolve
+   {data:{job}} e o job some da fila depois do done. */
+let QUEUE = [
+  { id: 7, kind: 'bin_labels', payload: { labels: [
+    { kind: 'bin', code: 'A03B2', line2: 'Prateleira S4 · P&P', line3: 'cabe 48 · Benfotiamine', url: '/scan/?bin=A03B2' },
+    { kind: 'bin', code: 'A04', line2: 'Prateleira S4 · P&P', line3: 'cabe 48 · Rutin', url: '/scan/?bin=A04' },
+  ] }, requested_by: 'Bruno', status: 'queued', age_min: 2, taken_by: null, is_test: false },
+];
+
 // requisicoes POST observadas (as assercoes leem daqui)
 const posted = [];
 
 function apiFixture(pathname, method, body) {
   if (method === 'POST') posted.push({ pathname, body });
+
+  // ── fila de impressão do celular ─────────────────────────────
+  if (pathname.startsWith('/api/v3/print-queue')) {
+    const m = pathname.match(/\/api\/v3\/print-queue\/(\d+)\/(take|done|error|cancel)$/);
+    if (m) {
+      const id = Number(m[1]); const op = m[2];
+      const job = QUEUE.find((j) => j.id === id);
+      if (!job) return { error: { code: 'not_found', message: 'job sumiu' } };
+      if (op === 'take') { job.status = 'taken'; job.taken_by = (body && body.by) || '?'; }
+      if (op === 'done') { job.status = 'done'; QUEUE = QUEUE.filter((j) => j.id !== id); }
+      if (op === 'error') { job.status = 'error'; job.error_note = body && body.note; }
+      if (op === 'cancel') { job.status = 'cancelled'; QUEUE = QUEUE.filter((j) => j.id !== id); }
+      return { data: { job } };
+    }
+    return { data: { jobs: QUEUE.filter((j) => j.status === 'queued' || j.status === 'taken') } };
+  }
+
   const p = pathname.replace('/api/v3/op/', '');
   if (p === 'auth/login') return { ok: true, token: 'qa-session', person: PERSON, auto_logoff_seconds: 999999 };
   if (p === 'auth/heartbeat') return { ok: true };
@@ -389,6 +418,49 @@ async function main() {
   rec('etiqueta', 'a etiqueta 4x6 sai com o codigo, o produto e o QR',
     /BX-0451/.test(labelDoc) && /4in 6in/.test(labelDoc) && /<svg/.test(labelDoc),
     labelDoc ? labelDoc.slice(0, 60) : 'sem documento · ' + labelPath);
+
+  // ── FILA DE IMPRESSAO PEDIDA PELO CELULAR (S15.29) ───────────
+  // O poll e de 30s; forcamos uma leitura pra nao segurar o harness meio minuto.
+  await page.evaluate(() => { const q = window.HF_WS.queue(); if (q) q.load(); });
+  await sleep(700);
+  const qCard = await page.$('[data-card="print-queue"]');
+  rec('fila', 'cartao "Impressao pedida pelo celular" aparece quando tem pedido', !!qCard);
+  const qTxt = qCard ? await page.evaluate((e) => e.innerText.replace(/\s+/g, ' '), qCard) : '';
+  rec('fila', 'diz o tipo em PT, quantas folhas, quem pediu e ha quanto tempo',
+    /Etiquetas de prateleira/.test(qTxt) && /2 folhas/.test(qTxt) && /Bruno/.test(qTxt) && /há 2 min/.test(qTxt), qTxt);
+  const qBtn = await page.$('[data-act="wsPrintJob"]');
+  rec('fila', 'botao Imprimir com alvo de toque de 46px+',
+    !!qBtn && (await page.evaluate((e) => Math.round(e.getBoundingClientRect().height), qBtn)) >= 44,
+    qBtn ? String(await page.evaluate((e) => Math.round(e.getBoundingClientRect().height), qBtn)) + 'px' : 'sem botao');
+  await shot('10-fila-celular');
+
+  // imprime: take → janela com AS DUAS etiquetas do renderizador unico → done
+  await page.evaluate(() => {
+    window.__lastLabel = null;
+    const open = window.open;
+    window.open = function () { const w = { document: { write: (d) => { window.__lastLabel = d; }, close: () => {} } }; window.open = open; return w; };
+  });
+  posted.length = 0;
+  if (qBtn) await qBtn.click();
+  await sleep(1200);
+  const qPosts = posted.map((x) => x.pathname);
+  rec('fila', 'toca em Imprimir e o job vai take -> done',
+    qPosts.indexOf('/api/v3/print-queue/7/take') >= 0 && qPosts.indexOf('/api/v3/print-queue/7/done') >= 0,
+    JSON.stringify(qPosts));
+  const takeBody = posted.find((x) => /\/take$/.test(x.pathname));
+  rec('fila', 'o take leva o NOME de quem pegou (o admin precisa saber onde saiu o papel)',
+    !!takeBody && !!takeBody.body && takeBody.body.by === PERSON.display_name,
+    takeBody ? JSON.stringify(takeBody.body) : 'sem body');
+  const qDoc = await page.evaluate(() => window.__lastLabel || '');
+  rec('fila', 'a janela abriu com as 2 etiquetas 4x6 do renderizador unico',
+    /A03B2/.test(qDoc) && /A04/.test(qDoc) && /4in 6in/.test(qDoc) && (qDoc.match(/sheet-page/g) || []).length >= 2,
+    qDoc ? 'paginas=' + (qDoc.match(/class="sheet-page"/g) || []).length : 'sem documento');
+  const doneTxt = await page.evaluate(() => document.body.innerText);
+  rec('fila', 'confirma "Pode tirar do papel"', /Pode tirar do papel/.test(doneTxt), '');
+  await sleep(400);
+  rec('fila', 'job impresso some do cartao (fila vazia = sem cartao)',
+    !(await page.$('[data-card="print-queue"]')));
+  await shot('11-fila-impressa');
 
   // fecha e volta pra home pelo MENU (aba Linha)
   const close = await page.$('[data-nav-item="linha"]');
