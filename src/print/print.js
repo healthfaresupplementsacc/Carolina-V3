@@ -74,6 +74,8 @@
     queue = M.create({
       api: api2,
       by: function () { return S.person ? S.person.display_name : (S.other.name || 'Estação'); },
+      // a aba do PDF das etiquetas de envio não manda header: token vai na query
+      sessionToken: function () { return S.session || ''; },
       onChange: render,
       toast: function (m) { S.queueMsg = String(m || ''); render(); setTimeout(function () { S.queueMsg = ''; render(); }, 4000); },
       openWindow: function () { return window.open('', '_blank', 'width=520,height=760'); },
@@ -111,6 +113,21 @@
     return h + '</div>';
   }
 
+  /* Etiquetas de envio: o PDF abriu numa aba e o job espera alguém dizer que o
+     papel saiu (é o done que carimba printed_at). Sem esta faixa o job ficaria
+     preso nesta estação sem botão nenhum pra fechar. */
+  function queueAwaitCard() {
+    var aw = queue && queue.awaiting;
+    if (!aw) return '';
+    return '<div style="width:min(94vw,460px); margin-top:14px; background:rgba(253,246,227,.94); border:1px solid #eeddad; border-radius:20px; padding:16px 20px; text-align:left;" data-card="print-await">'
+      + '<div style="font-size:14px; font-weight:800; color:#6b4c07; margin-bottom:11px;">PDF aberto. Imprima na 4x6 e toque em Já imprimi.</div>'
+      + '<div style="display:flex; gap:9px; flex-wrap:wrap; align-items:center;">'
+      + '<button data-act="printJobDone" style="border:0; cursor:pointer; border-radius:999px; min-height:48px; padding:0 24px; background:linear-gradient(135deg,#2f7ae0,#0f4c92); color:#fff; font-weight:800; font-size:15px;">Já imprimi</button>'
+      + '<button data-act="printJobFail" style="border:1px solid #f5cdc7; cursor:pointer; border-radius:999px; min-height:48px; padding:0 20px; background:#fff; color:#a02c20; font-weight:700; font-size:14px;">Deu erro</button>'
+      + '<a href="' + esc(aw.url) + '" target="_blank" rel="noopener" style="font-size:12.5px; color:#1f5fd0; font-weight:700;">abrir o PDF de novo</a>'
+      + '</div></div>';
+  }
+
   /* A confirmação vive FORA do cartão: o último job impresso esvazia a fila, o
      cartão some, e sem isto o operador não veria o "Pode tirar do papel" logo
      depois de mandar imprimir. Aviso sem retorno é aviso que não existe. */
@@ -132,6 +149,7 @@
       + '<div style="font-size:13px; color:#566681; margin-top:14px;">O computador está liberado. Pode imprimir seus labels.<br>A tela volta a pedir o PIN em 10 minutos.</div>'
       + '<button data-act="lockNow" style="margin-top:22px; padding:13px 26px; border-radius:14px; border:1px solid rgba(15,40,90,.14); background:rgba(255,255,255,.6); color:#42566f; font-weight:700; font-size:14px; cursor:pointer;">Sair / trancar agora</button>'
       + '</div>'
+      + queueAwaitCard()
       + queueCard()
       + queueMsgCard()
       + '</div>';
@@ -226,6 +244,9 @@
     else if (act === 'lockNow') { lock(); }
     // fila do celular: pega o job, imprime e marca como feito
     else if (act === 'printJob') { if (queue) { armLock(); queue.take(b.getAttribute('data-arg')); } }
+    // etiquetas de envio: quem viu o papel sair é quem fecha o job
+    else if (act === 'printJobDone') { if (queue) { armLock(); queue.confirm(); } }
+    else if (act === 'printJobFail') { if (queue) { armLock(); queue.fail('não saiu na 4x6'); } }
   });
   document.addEventListener('input', function (e) {
     var el = e.target.closest('[data-input]'); if (!el) return;

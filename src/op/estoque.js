@@ -368,6 +368,8 @@
     queue = M.create({
       api: api,
       by: function () { return (S.person && (S.person.display_name || S.person.name)) || 'Estoque'; },
+      // a aba do PDF das etiquetas de envio nao manda header: o token vai na query
+      sessionToken: function () { return S.session || ''; },
       onChange: render,
       toast: toast,
       openWindow: function () { return window.open('', '_blank', 'width=520,height=760'); },
@@ -378,6 +380,21 @@
 
   /* Cartão só aparece quando tem pedido esperando: tela cheia de caixa vazia
      ensina o operador a ignorar a tela. */
+  /* Etiquetas de envio: o PDF abriu numa aba e o job fica ESPERANDO alguem
+     dizer que o papel saiu (e o done que carimba printed_at). Sem esta faixa o
+     job ficaria presvo aqui sem botao nenhum pra fechar. */
+  function queueAwaitHtml() {
+    var aw = queue && queue.awaiting;
+    if (!aw) return '';
+    return '<div style="' + CARD + ' padding:14px 18px; margin-bottom:16px; background:' + T.warnBg + '; border-color:' + T.warnLn + ';" data-card="print-await">'
+      + '<div style="font-size:13.5px; font-weight:700; color:' + T.warnFg + '; margin-bottom:10px;">PDF aberto. Imprima na 4x6 e toque em J&aacute; imprimi.</div>'
+      + '<div style="display:flex; gap:9px; flex-wrap:wrap; align-items:center;">'
+      + btn('printJobDone', 'J&aacute; imprimi', '', 'border:0; cursor:pointer; border-radius:999px; min-height:48px; padding:0 24px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:15px; font-family:' + SORA + ';')
+      + btn('printJobFail', 'Deu erro', '', 'border:1px solid ' + T.badLn + '; cursor:pointer; border-radius:999px; min-height:48px; padding:0 20px; background:#fff; color:' + T.badFg + '; font-weight:700; font-size:14px; font-family:' + SORA + ';')
+      + '<a href="' + esc(aw.url) + '" target="_blank" rel="noopener" style="font-size:12.5px; color:' + T.neuFg + '; font-weight:700;">abrir o PDF de novo</a>'
+      + '</div></div>';
+  }
+
   function queueHtml() {
     var M = PQ();
     if (!M || !queue || !queue.jobs.length) return '';
@@ -951,6 +968,7 @@
   // ── HOME ────────────────────────────────────────────────────
   function homeHtml() {
     var h = scanBarHtml('Escaneie a prateleira, a caixa ou o produto');
+    h += queueAwaitHtml();
     h += queueHtml();
     h += day1Html();
     h += '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:14px; margin-bottom:20px;">';
@@ -1406,6 +1424,9 @@
     printLabel: function (boxId) { printLabel(boxId); },
     // fila do celular: pega o job, imprime e marca como feito
     printJob: function (id) { if (queue) queue.take(id); },
+    // etiquetas de envio: quem viu o papel sair e quem fecha o job
+    printJobDone: function () { if (queue) queue.confirm(); },
+    printJobFail: function () { if (queue) queue.fail('n&atilde;o saiu na 4x6'); },
   };
 
   var INPUTS = {

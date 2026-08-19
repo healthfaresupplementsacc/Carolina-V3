@@ -71,8 +71,41 @@ let QUEUE = [
     requested_by: 'Bruno', status: 'done', age_min: 41, taken_by: 'Vitor', is_test: true, created_at: '2026-08-19T12:22:00Z' },
 ];
 
+/* S2 · o que a Veeqo tem pra hoje (contrato 2). Inline: e o contrato do agente
+   S1 que este harness precisa provar, nao um dump de dado real. */
+const SHIP_DAY = '2026-08-19';
+const SHIP_READY = [
+  { order_number: '12-345', shipment_id: 'S-1', channel: 'TikTok', bottles: 2, envelope: '9x12', printed_at: null,
+    products: [{ product_id: 42, nickname: 'BENF-300', sku: 'HF-BENF-200', bottles: 2, bin_code: 'A03B2', shelf_code: 'S4', area: 'P&P' }] },
+  { order_number: '12-401', shipment_id: 'S-2', channel: 'eBay', bottles: 1, envelope: '7x10', printed_at: null,
+    products: [{ product_id: 42, nickname: 'BENF-300', sku: 'HF-BENF-200', bottles: 1, bin_code: 'A03B2', shelf_code: 'S4', area: 'P&P' }] },
+  { order_number: '12-999', shipment_id: 'S-3', channel: 'Walmart', bottles: 2, envelope: 'BX', printed_at: null,
+    products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 2, bin_code: null, shelf_code: 'S6', area: 'P&P' }] },
+  { order_number: '12-100', shipment_id: 'S-4', channel: 'TikTok', bottles: 1, envelope: '4x8', printed_at: '2026-08-19T13:00:00Z',
+    products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 1, bin_code: 'B01', shelf_code: 'S6', area: 'P&P' }] },
+];
+let SHIP_JOB_SEQ = 900;
+// GETs do PDF composto: prova que o arquivo foi buscado COM credencial
+const fileHits = [];
+
 function apiFixture(pathname, search, method, body) {
   if (method === 'POST') posted.push({ pathname, body });
+
+  /* S2 · ETIQUETAS DE ENVIO DE HOJE (contratos 2, 3 e 4). O admin ve o que a
+     Veeqo tem pra hoje e escolhe: manda pra 4x6 da Central ou abre o PDF aqui.
+     O PDF inteiro e composto no servidor (agente S1). */
+  if (pathname === '/api/v3/print-queue/shipping-labels/preview') {
+    return { data: { day: SHIP_DAY, ready: SHIP_READY, counts: { ready: 4, printed: 1, to_print: 3 } } };
+  }
+  if (pathname === '/api/v3/print-queue/shipping-labels') {
+    const id = ++SHIP_JOB_SEQ;
+    return { data: {
+      job: { id, kind: 'shipping_labels', status: (body && body.take) ? 'taken' : 'queued',
+        requested_by: 'Bruno', age_min: 0, payload: { day: SHIP_DAY, count: 3, pages: 5 } },
+      file_url: '/api/v3/print-queue/' + id + '/file',
+      counts: { labels: 3, pages: 5, groups: 2 },
+    } };
+  }
 
   // ── /api/v3/print-queue/* (fila do celular) ─────────────────
   if (pathname.startsWith('/api/v3/print-queue')) {
@@ -273,6 +306,15 @@ async function main() {
     if (url.startsWith('data:') || url.startsWith('blob:')) { req.continue(); return; }
     if (url.startsWith(ORIGIN)) {
       const u = new URL(url);
+      /* O PDF composto (contrato 4): bytes, nao JSON. A pagina busca com o PIN
+         no header e abre um blob local, porque uma aba nova nao manda header. */
+      if (/^\/api\/v3\/print-queue\/\d+\/file$/.test(u.pathname)) {
+        fileHits.push({ path: u.pathname, pin: req.headers()['x-admin-pin'] || '' });
+        req.respond({ status: 200, contentType: 'application/pdf',
+          headers: { 'content-disposition': 'inline; filename=etiquetas-envio-' + SHIP_DAY + '.pdf' },
+          body: Buffer.from('%PDF-1.4\n% etiquetas de envio (stub do harness)\n%%EOF\n') });
+        return;
+      }
       if (u.pathname.startsWith('/api/')) {
         let body = null;
         try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch (e) { body = req.postData(); }
@@ -659,6 +701,67 @@ async function main() {
   const afterRows = await page.$$eval('[data-table="fila-celular"] tbody tr', (rs) => rs.map((r) => r.dataset.job));
   rec('fila-impressao', 'o pedido cancelado some da lista', afterRows.indexOf('21') < 0, afterRows.join(','));
   noErr('fila-impressao');
+
+  /* ══ 7c. IMPRESSÃO: etiquetas de envio de hoje (S2) ════════════
+     A etiqueta da transportadora sai do NOSSO sistema, com rodapé (produto,
+     local, garrafas, envelope, quem separou/embalou). Daqui o admin manda pra
+     4x6 da Central ou abre o PDF pra conferir. */
+  await page.waitForSelector('[data-table="etiquetas-envio"] tbody tr', { timeout: 8000 }).catch(() => {});
+  const sPanel = await page.$('[data-panel="etiquetas-envio"]');
+  rec('envio', 'painel "Etiquetas de envio de hoje" existe na página Impressão', !!sPanel);
+  const sTxt = sPanel ? await page.evaluate((e) => e.innerText.replace(/\s+/g, ' '), sPanel) : '';
+  rec('envio', 'conta prontas na Veeqo, já impressas e pra imprimir',
+      /4 prontas na Veeqo/.test(sTxt) && /1 já impressas/.test(sTxt) && /3 pra imprimir/.test(sTxt), sTxt.slice(0, 160));
+  rec('envio', 'explica o que o rodapé leva (o que a Veeqo sozinha não faz)',
+      /local/.test(sTxt) && /envelope/.test(sTxt) && /separou/.test(sTxt), '');
+  const sRows = await page.$$eval('[data-table="etiquetas-envio"] tbody tr',
+    (rs) => rs.map((r) => r.innerText.replace(/\s+/g, ' ').trim()));
+  rec('envio', 'uma linha por produto com apelido, quantas e local',
+      sRows.length === 2 && sRows.some((r) => /BENF-300/.test(r) && /A03B2/.test(r))
+        && sRows.some((r) => /RUT-500/.test(r)), JSON.stringify(sRows));
+  // pedido sem bin cai no shelf: quem separa precisa de um lugar, nunca de vazio
+  rec('envio', 'produto sem bin mostra a prateleira em vez de nada',
+      sRows.some((r) => /S6/.test(r)), JSON.stringify(sRows));
+  await shot('impressao-etiquetas-envio');
+
+  // MANDAR PRO COMPUTADOR: sem take, o job entra na fila e a Central imprime
+  posted.length = 0;
+  await page.click('[data-act="mandar-envio"]');
+  await sleep(900);
+  const sendPost = posted.find((p) => p.pathname === '/api/v3/print-queue/shipping-labels');
+  rec('envio', 'Mandar pro computador posta shipping-labels SEM take (vai pra fila)',
+      !!sendPost && !!sendPost.body.day && !sendPost.body.take,
+      sendPost ? JSON.stringify(sendPost.body) : 'sem post');
+  rec('envio', 'o dia é o de Nova York (fuso da fábrica, não o do navegador)',
+      !!sendPost && /^\d{4}-\d{2}-\d{2}$/.test(sendPost.body.day), sendPost ? sendPost.body.day : '');
+  const sendMsg = await page.$eval('[data-msg="envio"]', (e) => e.innerText).catch(() => '');
+  rec('envio', 'a confirmação diz onde sai e em quanto tempo',
+      /Sai na 4x6 da Central em até 30 s\./.test(sendMsg), sendMsg);
+
+  // ABRIR PDF AQUI: take + GET do arquivo COM o PIN, e a aba recebe um blob
+  await page.evaluate(() => {
+    window.__shipWin = null;
+    window.open = function () {
+      const w = { _loc: '', document: { open() {}, close() {}, write() {} }, close() {} };
+      Object.defineProperty(w, 'location', { set: (v) => { w._loc = String(v); window.__shipWin = String(v); }, get: () => w._loc });
+      return w;
+    };
+  });
+  posted.length = 0; fileHits.length = 0;
+  await page.click('[data-act="abrir-envio"]');
+  await page.waitForFunction(() => !!window.__shipWin, { timeout: 8000 }).catch(() => {});
+  await sleep(200);
+  const openPost = posted.find((p) => p.pathname === '/api/v3/print-queue/shipping-labels');
+  rec('envio', 'Abrir PDF aqui posta com take:true (quem abre é quem pegou)',
+      !!openPost && openPost.body.take === true, openPost ? JSON.stringify(openPost.body) : 'sem post');
+  rec('envio', 'o PDF é buscado COM o PIN no header (não por link solto)',
+      fileHits.length === 1 && !!fileHits[0].pin,
+      JSON.stringify(fileHits.map((f) => f.path + ' pin=' + (f.pin ? 'ok' : 'vazio'))));
+  const sWin = await page.evaluate(() => window.__shipWin || '');
+  rec('envio', 'a aba recebe um blob local (o navegador abre o arquivo, não a rota)',
+      /^blob:/.test(sWin), sWin || 'aba sem endereço');
+  await shot('impressao-envio-aberto');
+  noErr('envio');
 
   // ══ 8. NAV: Etiquetas logo depois de Locais ═══════════════════
   await page.evaluate(() => {

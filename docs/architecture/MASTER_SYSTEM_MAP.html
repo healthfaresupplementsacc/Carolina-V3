@@ -1487,6 +1487,7 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_MOBAPI["S15.35 BUILT 08-19: warehouse/mobile.js · bootstrap uma chamada só · scan/resolve com PIN de admin · print/submit · printers · SÓ projeção, zero regra nova"]:::verified
   A_PQ["S15.34 BUILT 08-19: v3.print_queue + /api/v3/print-queue · auth tripla: PIN admin, kiosk Bearer+sessão, x-print-token do .28 · celular pede, estação PUXA"]:::verified
   A_SHEET["S15.36 BUILT: /shared/label-sheet.js UM renderizador 4x6 + print-queue-card.js · Central/hub/estação fazem poll da fila · dashboard Etiquetas manda pro computador"]:::verified
+  A_SHIP["S15.37 BUILT 08-19: shipping-labels/service+envelope+footer · etiqueta de envio do NOSSO sistema · rodapé nickname·local·garrafas·envelope·Pick/Pack · agrupado por produto na ordem de caminhada com folha divisória · v3.print_files + v3.shipping_label_prints · compor NÃO é imprimir · ZERO escrita de estoque"]:::verified
   A_PQ --> A_SHEET
   A_SHEET --> A_OPHUB
   A_NAV --> A_OPHUB
@@ -1496,6 +1497,11 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_MOBAPI -->|enfileira etiquetas já resolvidas| A_PQ
   A_MOBAPI -->|resolveBarcode: zero lógica duplicada| A_SCAN
   A_PQ -->|done carimba label_printed_at| T_BOXES
+  A_SHIP -->|enfileira kind shipping_labels com o PDF pronto| A_PQ
+  A_SHIP -->|baixa o PDF 4x6 por shipment| EXT_VEEQO
+  A_SHIP -->|nickname, cor e melhor bin| T_SKUS
+  A_SHIP -->|local na ordem de caminhada| T_BINS
+  A_PQ -->|done de etiqueta de envio carimba printed_at| A_SHIP
   STATION -->|poll: toma, imprime, marca done| A_PQ
   A_SCAN --> A_OPHUB
   A_OPHUB --> SVC

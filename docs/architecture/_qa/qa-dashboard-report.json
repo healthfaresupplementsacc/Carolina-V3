@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T13:03:12.684Z",
+  "at": "2026-08-19T13:48:39.244Z",
   "results": [
     {
       "group": "screenshot",
@@ -161,7 +161,7 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "213 KB → dash-estoque-modal.png"
+      "detail": "214 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
@@ -221,7 +221,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "131 KB → dash-estoque-aprovacoes.png"
+      "detail": "132 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -239,7 +239,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "182 KB → dash-estoque-locais.png"
+      "detail": "183 KB → dash-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -275,7 +275,7 @@
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "158 KB → dash-hoje.png"
+      "detail": "159 KB → dash-hoje.png"
     },
     {
       "group": "hoje",
@@ -353,13 +353,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"28h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"29h\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"24h\"},{\"tone\":\"bad\",\"txt\":\"28h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"25h\"},{\"tone\":\"bad\",\"txt\":\"29h\"}]"
     },
     {
       "group": "estoque-locais",

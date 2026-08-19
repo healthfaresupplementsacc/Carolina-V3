@@ -15,7 +15,8 @@
 import React from 'react';
 import { Icon } from '../components/Icons.jsx';
 import { usePoll, getPin } from '../adapters/from-api.js';
-import { getPrintQueue, cancelPrintJob } from '../adapters/warehouse-api.js';
+import { getPrintQueue, cancelPrintJob,
+  getShippingPreview, submitShippingLabels, fetchPrintFile } from '../adapters/warehouse-api.js';
 import './pages-admin.css';
 
 // Mapa de rótulo de status físico → tom do kit + texto amigável.
@@ -146,6 +147,7 @@ const QUEUE_KIND = {
   bin_labels: 'Etiquetas de prateleira',
   box_label: 'Etiqueta de caixa',
   picklist: 'Picklist de hoje',
+  shipping_labels: 'Etiquetas de envio',
 };
 const QUEUE_STATUS = {
   queued: { txt: 'na fila', tone: 'warn' },
@@ -165,6 +167,166 @@ function queueCount(job) {
   const p = (job && job.payload) || {};
   if (Array.isArray(p.labels)) return p.labels.length;
   return job && job.kind === 'picklist' ? 1 : 0;
+}
+
+/* ── Etiquetas de envio de hoje ───────────────────────────────────────────────
+   A etiqueta da transportadora sai do NOSSO sistema, com um rodapé que a Veeqo
+   não tem: apelido do produto, local na prateleira, garrafas, tamanho do
+   envelope e quem separou / quem embalou. Vão agrupadas por produto e na ordem
+   do local, com folha divisória entre produtos, pra quem separa andar a
+   prateleira uma vez só. O PDF é composto no servidor; aqui o admin decide
+   entre mandar pra 4x6 da Central ou abrir o arquivo pra conferir. */
+
+/** Hoje em Nova York: o dia do P&P é o da fábrica, não o do navegador. */
+function todayNY() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+  } catch { return new Date().toISOString().slice(0, 10); }
+}
+
+/** Uma linha por produto: apelido · quantas · local. Ordem = a do servidor. */
+function shippingGroups(prev) {
+  const by = new Map();
+  ((prev && prev.ready) || []).forEach((o) => {
+    const p = (o.products || [])[0] || {};
+    const nick = p.nickname || p.sku || 'sem produto';
+    if (!by.has(nick)) by.set(nick, { nickname: nick, count: 0, location: p.bin_code || p.shelf_code || 'sem local' });
+    by.get(nick).count += 1;
+  });
+  return [...by.values()];
+}
+
+function ShippingLabelsPanel() {
+  const [prev, setPrev] = React.useState(null);
+  const [down, setDown] = React.useState(false);
+  const [busy, setBusy] = React.useState('');
+  const [msg, setMsg] = React.useState(null);
+
+  const load = React.useCallback(() => getShippingPreview(todayNY()).then(
+    (j) => { setPrev((j && j.data) || j || {}); setDown(false); },
+    () => { setDown(true); setPrev(null); },
+  ), []);
+
+  React.useEffect(() => {
+    let alive = true;
+    const run = () => { if (alive) load(); };
+    run();
+    const t = setInterval(run, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [load]);
+
+  const counts = (prev && prev.counts) || {};
+  const ready = Number(counts.ready) || 0;
+  const printed = Number(counts.printed) || 0;
+  const toPrint = Number(counts.to_print) || 0;
+
+  /** Manda pro computador: compõe SEM take, a Central puxa da fila e imprime. */
+  async function send() {
+    setBusy('send'); setMsg(null);
+    try {
+      await submitShippingLabels({ day: todayNY() });
+      setMsg({ tone: 'ok', txt: 'Mandado. Sai na 4x6 da Central em até 30 s.' });
+      load();
+    } catch (e) {
+      setMsg(e && e.code === 'nothing_to_print'
+        ? { tone: 'ok', txt: 'Nada novo pra imprimir. As de hoje já saíram.' }
+        : { tone: 'bad', txt: (e && e.message) || 'não deu pra montar as etiquetas' });
+    } finally { setBusy(''); }
+  }
+
+  /* Abrir aqui: a aba nasce ANTES do await (popup que não vem do clique é
+     bloqueado) e recebe um blob local, porque o arquivo mora atrás do PIN e
+     uma aba nova não manda header nenhum. */
+  async function open() {
+    const win = window.open('', '_blank');
+    setBusy('open'); setMsg(null);
+    try {
+      const r = await submitShippingLabels({ day: todayNY(), take: true });
+      const d = (r && r.data) || r || {};
+      const id = d.job && d.job.id;
+      if (!id) throw new Error('o servidor não devolveu o arquivo');
+      const blob = await fetchPrintFile(id);
+      const url = URL.createObjectURL(blob);
+      if (win) win.location = url;
+      setMsg({ tone: 'ok', txt: 'PDF aberto na outra aba. Imprima na 4x6 e confirme na Central.' });
+      load();
+    } catch (e) {
+      if (win) { try { win.close(); } catch { /* já fechada */ } }
+      setMsg(e && e.code === 'nothing_to_print'
+        ? { tone: 'ok', txt: 'Nada novo pra imprimir. As de hoje já saíram.' }
+        : { tone: 'bad', txt: (e && e.message) || 'não deu pra abrir o PDF' });
+    } finally { setBusy(''); }
+  }
+
+  const groups = shippingGroups(prev);
+
+  return (
+    <div data-panel="etiquetas-envio">
+      <div className="adm-sec" style={{ marginTop: 20 }}>
+        {toPrint > 0 && <span className="kit-chip warn">{toPrint} pra imprimir</span>}
+        <span className="kit-mlabel">Etiquetas de envio de hoje</span>
+        <span className="rule"/>
+        <button className="kit-btn sec sm" data-act="atualizar-envio" onClick={load}>Atualizar</button>
+      </div>
+      <div className="kit-card pad" style={{ marginBottom: 18 }}>
+        {down ? (
+          <div className="adm-state">
+            Não deu pra falar com a Veeqo agora. Toque em Atualizar daqui a pouco; o resto da página continua.
+          </div>
+        ) : !prev ? (
+          <div className="adm-state">Vendo o que a Veeqo tem pra hoje…</div>
+        ) : (
+          <>
+            <p className="adm-note faint" style={{ marginTop: 0, marginBottom: 10 }}>
+              Saem com o rodapé do nosso sistema (produto, local, garrafas, envelope e quem separou/embalou),
+              agrupadas por produto e na ordem do local.
+            </p>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 12 }} data-counts="shipping">
+              <span className="kit-chip neutral">{ready} prontas na Veeqo</span>
+              <span className="kit-chip ok">{printed} já impressas</span>
+              <span className={'kit-chip ' + (toPrint ? 'warn' : 'neutral')}>{toPrint} pra imprimir</span>
+            </div>
+            {groups.length > 0 && (
+              <div style={{ overflowX: 'auto', marginBottom: 12 }}>
+                <table className="kit-table" data-table="etiquetas-envio">
+                  <thead><tr><th>Produto</th><th className="num">Etiquetas</th><th>Local</th></tr></thead>
+                  <tbody>
+                    {groups.map((g) => (
+                      <tr key={g.nickname}>
+                        <td><b>{g.nickname}</b></td>
+                        <td className="num">{g.count}</td>
+                        <td>{g.location}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {toPrint === 0 && (
+              <div className="adm-note" style={{ marginBottom: 10 }}>
+                {ready ? 'Tudo de hoje já saiu no papel.' : 'Nenhuma etiqueta comprada na Veeqo hoje ainda.'}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+              <button className="kit-btn" data-act="mandar-envio" disabled={!!busy || !toPrint} onClick={send}>
+                {busy === 'send' ? 'Mandando…' : 'Mandar pro computador'}
+              </button>
+              <button className="kit-btn sec" data-act="abrir-envio" disabled={!!busy || (!toPrint && !ready)} onClick={open}>
+                {busy === 'open' ? 'Montando…' : 'Abrir PDF aqui'}
+              </button>
+            </div>
+            {msg && (
+              <div className={'adm-note ' + (msg.tone === 'bad' ? 'bad' : '')} style={{ marginTop: 10 }} data-msg="envio">
+                {msg.txt}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function MobileQueuePanel() {
@@ -350,6 +512,9 @@ function PrintingPage({ date }) {
           )}
         </div>
       </div>
+
+      {/* ── Etiquetas de envio de hoje (o que vai pro cliente) ── */}
+      <ShippingLabelsPanel/>
 
       {/* ── Fila de impressão pedida pelo celular ── */}
       <MobileQueuePanel/>

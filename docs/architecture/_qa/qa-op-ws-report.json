@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T13:02:14.388Z",
+  "at": "2026-08-19T13:46:36.085Z",
   "results": [
     {
       "group": "boot",
@@ -252,6 +252,120 @@
       "name": "a etiqueta 4x6 sai com o codigo, o produto e o QR",
       "pass": true,
       "detail": "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8"
+    },
+    {
+      "group": "envio",
+      "name": "cartao \"Etiquetas de envio de hoje\" existe na Central",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "conta prontas na Veeqo, ja impressas e pra imprimir",
+      "pass": true,
+      "detail": "📦 ETIQUETAS DE ENVIO DE HOJE Atualizar 4 prontas na Veeqo 1 já impressas 3 pra imprimir BENF-300 2 etiquetas A03B2 RUT-500 2 etiquetas S6 Imprimir etiquetas de"
+    },
+    {
+      "group": "envio",
+      "name": "mini lista por produto com apelido, quantas e local",
+      "pass": true,
+      "detail": "📦 ETIQUETAS DE ENVIO DE HOJE Atualizar 4 prontas na Veeqo 1 já impressas 3 pra imprimir BENF-300 2 etiquetas A03B2 RUT-500 2 etiquetas S6 Imprimir etiquetas de envio (3) reimprimir tudo de hoje"
+    },
+    {
+      "group": "envio",
+      "name": "produto sem bin mostra a prateleira em vez de nada",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "o cartao vem antes da fila do celular na coluna do P&P",
+      "pass": true,
+      "detail": "true"
+    },
+    {
+      "group": "envio",
+      "name": "botao grande diz quantas vao sair",
+      "pass": true,
+      "detail": "Imprimir etiquetas de envio (3)"
+    },
+    {
+      "group": "envio",
+      "name": "alvo de toque de 48px+ (a Simone usa luva)",
+      "pass": true,
+      "detail": "62px"
+    },
+    {
+      "group": "envio",
+      "name": "link discreto de reimprimir tudo (nunca um botao grande)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "Imprimir posta {day, take:true} em shipping-labels",
+      "pass": true,
+      "detail": "{\"day\":\"2026-08-19\",\"take\":true}"
+    },
+    {
+      "group": "envio",
+      "name": "o dia e o de Nova York (fuso da fabrica, nao o do navegador)",
+      "pass": true,
+      "detail": "2026-08-19"
+    },
+    {
+      "group": "envio",
+      "name": "a janela abriu no file_url do job com o token da sessao na query",
+      "pass": true,
+      "detail": "/api/v3/print-queue/901/file?t=qa-session"
+    },
+    {
+      "group": "envio",
+      "name": "o cartao troca de cara: \"Imprima na 4x6 e toque em Ja imprimi\"",
+      "pass": true,
+      "detail": "📦 ETIQUETAS DE ENVIO DE HOJE Atualizar 4 prontas na Veeqo 1 já impressas 3 pra imprimir BENF-300 2 etiquetas A03B2 RUT-500 2 etiquetas S6 PDF aberto. Imprima n"
+    },
+    {
+      "group": "envio",
+      "name": "as duas saidas aparecem (Ja imprimi / Deu erro)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "Ja imprimi posta done no job (carimba printed_at)",
+      "pass": true,
+      "detail": "/api/v3/print-queue/901/done"
+    },
+    {
+      "group": "envio",
+      "name": "o done leva o NOME de quem confirmou",
+      "pass": true,
+      "detail": "{\"by\":\"QA Operadora\"}"
+    },
+    {
+      "group": "envio",
+      "name": "confirma \"Etiquetas registradas como impressas\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "depois do done o cartao diz que tudo de hoje ja saiu",
+      "pass": true,
+      "detail": "📦 ETIQUETAS DE ENVIO DE HOJE Atualizar 4 prontas na Veeqo 4 já impressas 0 pra imprimir BENF-300 2 etiquetas A03B2 RUT-500 2 etiquetas S6 ✓ Tudo de hoje já sai"
+    },
+    {
+      "group": "envio",
+      "name": "409 nothing_to_print vira \"Nada novo pra imprimir. As de hoje ja sairam.\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "reimprimir tudo de hoje manda reprint:true",
+      "pass": true,
+      "detail": "{\"day\":\"2026-08-19\",\"take\":true,\"reprint\":true}"
     },
     {
       "group": "fila",

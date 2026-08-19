@@ -170,6 +170,37 @@ export const getPrintQueue = (status = 'queued', limit = 50) =>
 /** Cancela um pedido que ainda não foi pego (admin ou quem pediu). */
 export const cancelPrintJob = (id) => queueCall('POST', '/' + encodeURIComponent(id) + '/cancel', {});
 
+/* ── ETIQUETAS DE ENVIO ──────────────────────────────────────────────────────
+   A etiqueta da transportadora com o rodapé do nosso sistema (apelido, local,
+   garrafas, envelope, quem separou e quem embalou), agrupada por produto e na
+   ordem do local. O PDF inteiro é composto no servidor; daqui o admin só vê o
+   que tem pra hoje, manda pra Central ou abre o arquivo. */
+
+/** O que a Veeqo tem pra hoje: prontas, já impressas e o que falta. */
+export const getShippingPreview = (day) =>
+  queueCall('GET', '/shipping-labels/preview' + (day ? '?day=' + encodeURIComponent(day) : ''));
+
+/** Compõe o PDF. take:true = pega o job agora (quem vai abrir o arquivo é quem
+    pediu); sem take o job fica na fila e a Central imprime na 4x6. */
+export const submitShippingLabels = (body) => queueCall('POST', '/shipping-labels', body || {});
+
+/**
+ * Baixa o PDF composto. Uma aba nova não manda header nenhum, e o arquivo mora
+ * atrás do PIN: buscamos os bytes com a credencial e devolvemos um blob pro
+ * chamador abrir localmente.
+ */
+export async function fetchPrintFile(jobId) {
+  const r = await fetch(QUEUE_BASE + '/' + encodeURIComponent(jobId) + '/file', {
+    headers: { 'x-admin-pin': getPin() },
+  });
+  if (!r.ok) {
+    const err = new Error('não deu pra baixar o PDF das etiquetas');
+    err.status = r.status;
+    throw err;
+  }
+  return r.blob();
+}
+
 /** Lista de produtos com diferença pra Veeqo (o mesmo que alimenta o alerta). */
 export const getDrift      = () => whGet('/drift');
 /** Copia o UPC da Veeqo pros SKUs mapeados. */

@@ -674,6 +674,191 @@ describe('shared/print-queue-card.js — fila do celular (helpers puros)', () =>
   });
 });
 
+describe('shared/print-queue-card.js — etiquetas de envio (kind de ARQUIVO)', () => {
+  test('o tipo novo tem nome em PT e não vira "Impressão"', () => {
+    expect(PQ.kindLabel('shipping_labels')).toBe('Etiquetas de envio');
+  });
+  test('só shipping_labels é kind de arquivo (os outros seguem desenhando)', () => {
+    expect(PQ.isFileKind('shipping_labels')).toBe(true);
+    ['bin_labels', 'box_label', 'picklist', '', null].forEach((k) => expect(PQ.isFileKind(k)).toBe(false));
+  });
+  test('conta as PÁGINAS do PDF composto (não tem payload.labels pra contar)', () => {
+    expect(PQ.jobCount({ kind: 'shipping_labels', payload: { pages: 14, count: 12 } })).toBe(14);
+    // sem pages ainda dá pra dizer quantas etiquetas vão sair
+    expect(PQ.jobCount({ kind: 'shipping_labels', payload: { count: 12 } })).toBe(12);
+    expect(PQ.jobCount({ kind: 'shipping_labels', payload: {} })).toBe(0);
+  });
+  test('o botão diz "Abrir PDF": o papel não sai só de apertar', () => {
+    expect(PQ.actionLabel({ kind: 'shipping_labels', status: 'queued' })).toBe('Abrir PDF');
+    // travado continua sendo "tentar de novo" em qualquer kind
+    expect(PQ.actionLabel({ kind: 'shipping_labels', status: 'taken' })).toBe('Tentar de novo');
+  });
+  test('a credencial vai na QUERY: uma aba nova não manda header', () => {
+    expect(PQ.fileUrl({ id: 9 }, 'tok-1')).toBe('/api/v3/print-queue/9/file?t=tok-1');
+    // token com caractere especial não pode quebrar a URL
+    expect(PQ.fileUrl({ id: 9 }, 'a b&c')).toBe('/api/v3/print-queue/9/file?t=a%20b%26c');
+    // sem token ainda aponta pro arquivo (o servidor aceita cookie/PIN)
+    expect(PQ.fileUrl({ id: 9 }, '')).toBe('/api/v3/print-queue/9/file');
+    expect(PQ.fileUrl(null, 'x')).toBe('');
+  });
+  test('resumo dos grupos: produto · quantas · local', () => {
+    const job = { payload: { groups: [
+      { nickname: 'BENF-300', count: 12, location: 'A03B2' },
+      { nickname: 'RUT-500', count: 3 },
+    ] } };
+    // grupo sem local NÃO some: quem separa precisa de um lugar, mesmo que seja
+    // "sem local" escrito por extenso
+    expect(PQ.groupLines(job)).toEqual(['BENF-300 · 12 · A03B2', 'RUT-500 · 3 · sem local']);
+    expect(PQ.groupLines({ payload: {} })).toEqual([]);
+  });
+});
+
+describe('shared/print-queue-card.js — etiquetas de envio: abrir, confirmar, errar', () => {
+  const SHIP = { id: 42, kind: 'shipping_labels', status: 'queued', age_min: 0, requested_by: 'Bruno',
+    payload: { day: '2026-08-19', count: 3, pages: 5, groups: [{ nickname: 'BENF-300', count: 3, location: 'A03B2' }] } };
+
+  function mkShip(apiImpl) {
+    const calls = [];
+    const toasts = [];
+    const win = { loc: '', document: { write() {}, close() {} }, close() {} };
+    Object.defineProperty(win, 'location', { set(v) { this.loc = String(v); }, get() { return this.loc; } });
+    let opened = 0;
+    const q = PQ.create({
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET', body: o && o.body });
+        if (apiImpl) { const r = apiImpl(p, o); if (r) return r; }
+        if (/\?status=/.test(p)) return Promise.resolve({ data: { jobs: [SHIP] } });
+        if (/\/take$/.test(p)) return Promise.resolve({ data: { job: SHIP, file_url: '/api/v3/print-queue/42/file' } });
+        return Promise.resolve({ data: { job: SHIP } });
+      },
+      by: () => 'Simone',
+      sessionToken: () => 'sess-9',
+      onChange: () => {},
+      toast: (m) => toasts.push(m),
+      openWindow: () => { opened += 1; return win; },
+    });
+    return { q, calls, toasts, win, opened: () => opened };
+  }
+
+  test('take de arquivo NÃO fecha o job sozinho: só abre e espera confirmação', async () => {
+    const { q, calls, toasts, win } = mkShip();
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(42);
+    // pegou o job, mas NÃO postou done: o papel ainda não saiu
+    expect(calls.filter((c) => /\/take$/.test(c.p)).length).toBe(1);
+    expect(calls.filter((c) => /\/done$/.test(c.p)).length).toBe(0);
+    // a janela foi apontada pro arquivo do servidor
+    expect(win.loc).toBe('/api/v3/print-queue/42/file');
+    expect(q.awaiting && q.awaiting.id).toBe(42);
+    expect(toasts.join(' ')).toMatch(/Imprima na 4x6 e toque em Já imprimi/);
+    q.stop();
+  });
+
+  test('sem file_url na resposta o link é montado com o token da sessão', async () => {
+    const { q, win } = mkShip((p) => (/\/take$/.test(p) ? Promise.resolve({ data: { job: SHIP } }) : null));
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(42);
+    expect(win.loc).toBe('/api/v3/print-queue/42/file?t=sess-9');
+    q.stop();
+  });
+
+  test('"Já imprimi" é o ÚNICO caminho pro done (é ele que carimba printed_at)', async () => {
+    const { q, calls, toasts } = mkShip();
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(42);
+    await q.confirm();
+    const done = calls.find((c) => /\/done$/.test(c.p));
+    expect(done).toBeTruthy();
+    expect(done.body.by).toBe('Simone');       // quem confirmou vai no registro
+    expect(q.awaiting).toBe(null);
+    expect(toasts.join(' ')).toMatch(/Etiquetas registradas como impressas/);
+    q.stop();
+  });
+
+  test('"Deu erro" devolve o job SEM carimbar impressão nenhuma', async () => {
+    const { q, calls, toasts } = mkShip();
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(42);
+    await q.fail('a 4x6 travou');
+    const err = calls.find((c) => /\/error$/.test(c.p));
+    expect(err).toBeTruthy();
+    expect(err.body.note).toBe('a 4x6 travou');
+    expect(calls.filter((c) => /\/done$/.test(c.p)).length).toBe(0);
+    expect(q.awaiting).toBe(null);
+    expect(toasts.join(' ')).toMatch(/As etiquetas continuam pra imprimir/);
+    q.stop();
+  });
+
+  test('popup bloqueado nem chega a pegar o job (senão ficaria preso em outro PC)', async () => {
+    const calls = [];
+    const toasts = [];
+    const q = PQ.create({
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET' });
+        if (/\?status=/.test(p)) return Promise.resolve({ data: { jobs: [SHIP] } });
+        return Promise.resolve({ data: { job: SHIP } });
+      },
+      by: () => 'Simone',
+      onChange: () => {}, toast: (m) => toasts.push(m),
+      openWindow: () => null,        // o navegador bloqueou
+    });
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(42);
+    expect(calls.filter((c) => /\/take$/.test(c.p)).length).toBe(0);
+    expect(toasts.join(' ')).toMatch(/bloqueou a janela/);
+    expect(q.awaiting).toBe(null);
+    q.stop();
+  });
+
+  test('409 no take (outro PC pegou antes) fecha a janela e explica a corrida', async () => {
+    const toastsSeen = [];
+    const { q, toasts } = mkShip((p) => {
+      if (/\/take$/.test(p)) {
+        const e = new Error('já pego'); e.status = 409;
+        return Promise.reject(e);
+      }
+      return null;
+    });
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(42);
+    toastsSeen.push(...toasts);
+    expect(q.awaiting).toBe(null);
+    expect(toastsSeen.join(' ')).toMatch(/Outro computador pegou esse pedido primeiro/);
+    q.stop();
+  });
+
+  test('os outros kinds continuam no fluxo antigo (take → imprime → done)', async () => {
+    // o kind de arquivo não pode ter mudado o caminho da etiqueta de prateleira
+    const JOB2 = { id: 8, kind: 'bin_labels', status: 'queued', age_min: 0,
+      payload: { labels: [{ kind: 'bin', code: 'A03B2', line2: 'S4', line3: 'cabe 48', url: '/scan/?b=A03B2' }] } };
+    const calls = [];
+    const win = { document: { written: '', write(s) { this.written += s; }, close() {} } };
+    global.HF_LABELS = LABELS;
+    const q = PQ.create({
+      api: (p, o) => {
+        calls.push({ p, method: (o && o.method) || 'GET' });
+        if (/\?status=/.test(p)) return Promise.resolve({ data: { jobs: [JOB2] } });
+        return Promise.resolve({ data: { job: JOB2 } });
+      },
+      by: () => 'Simone', onChange: () => {}, toast: () => {},
+      openWindow: () => win,
+    });
+    q.start();
+    await Promise.resolve(); await Promise.resolve();
+    await q.take(8);
+    expect(calls.filter((c) => /\/take$/.test(c.p)).length).toBe(1);
+    expect(calls.filter((c) => /\/done$/.test(c.p)).length).toBe(1);
+    expect(win.document.written).toMatch(/A03B2/);
+    q.stop();
+  });
+});
+
 describe('shared/print-queue-card.js — take: pega, imprime e marca como feito', () => {
   const JOB = { id: 7, kind: 'bin_labels', status: 'queued', age_min: 1, requested_by: 'Bruno',
     payload: { labels: [{ kind: 'bin', code: 'A03B2', line2: 'S4', line3: 'cabe 48', url: '/scan/?bin=A03B2' }] } };
@@ -874,5 +1059,279 @@ describe('op/ws.js — cartão da fila do celular na Central', () => {
     calls.length = 0;
     await new Promise((r) => setTimeout(r, 5));
     expect(calls.filter((c) => /print-queue/.test(c.p)).length).toBe(0);
+  });
+});
+
+/* ── S2 · ETIQUETAS DE ENVIO DE HOJE ─────────────────────────────────────────
+   A etiqueta da transportadora sai do NOSSO sistema, com rodapé (apelido, local,
+   garrafas, envelope, quem separou/embalou), agrupada por produto e na ordem do
+   local. O PDF inteiro é composto no servidor; a Central pede, abre e confirma.
+   O "Já imprimi" é o único caminho pro done: papel que não saiu não pode ser
+   marcado como impresso, senão o pedido some da lista e o cliente fica sem
+   etiqueta. */
+describe('op/ws.js — etiquetas de envio: o dia e os grupos', () => {
+  test('todayNY devolve AAAA-MM-DD (fuso da fábrica, não o do navegador)', () => {
+    expect(H.todayNY()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+  test('agrupa por apelido, conta pedidos e mostra o bin', () => {
+    const prev = { ready: [
+      { order_number: '1', products: [{ nickname: 'BENF-300', bin_code: 'A03B2', shelf_code: 'S4' }] },
+      { order_number: '2', products: [{ nickname: 'BENF-300', bin_code: 'A03B2', shelf_code: 'S4' }] },
+      { order_number: '3', products: [{ nickname: 'RUT-500', bin_code: 'B01', shelf_code: 'S6' }] },
+    ] };
+    expect(H.shipGroups(prev)).toEqual([
+      { nickname: 'BENF-300', count: 2, location: 'A03B2' },
+      { nickname: 'RUT-500', count: 1, location: 'B01' },
+    ]);
+  });
+  test('sem bin cai na prateleira; sem nada avisa "sem local" (nunca vazio)', () => {
+    // quem separa precisa de um lugar pra andar, mesmo que seja aproximado
+    const prev = { ready: [
+      { products: [{ nickname: 'RUT-500', bin_code: null, shelf_code: 'S6' }] },
+      { products: [{ nickname: 'X-1', bin_code: null, shelf_code: null }] },
+    ] };
+    expect(H.shipGroups(prev).map((g) => g.location)).toEqual(['S6', 'sem local']);
+  });
+  test('SKU sem produto mapeado vira o próprio SKU, não "undefined"', () => {
+    const prev = { ready: [{ products: [{ sku: 'HF-NOVO-1', bin_code: 'C9' }] }] };
+    expect(H.shipGroups(prev)[0].nickname).toBe('HF-NOVO-1');
+  });
+  test('pedido sem produto nenhum não derruba a lista', () => {
+    expect(H.shipGroups({ ready: [{ products: [] }, {}] })[0].nickname).toBe('sem produto');
+    expect(H.shipGroups(null)).toEqual([]);
+  });
+});
+
+describe('op/ws.js — etiquetas de envio: o cartão da Central', () => {
+  function boot(preview, opts) {
+    const o = opts || {};
+    global.HF_PRINT_QUEUE = PQ;
+    const calls = [];
+    const toasts = [];
+    const win = { loc: '', document: { write() {}, close() {} }, close() {} };
+    Object.defineProperty(win, 'location', { set(v) { this.loc = String(v); }, get() { return this.loc; } });
+    const S = { workspaceOpen: true, myTasks: [{ slug: 'order_printing' }], ws: null,
+      session: { token: 'sess-9', person: { display_name: 'QA Operadora' } } };
+    WS.init({
+      S, CFG: { workspace: true }, DATA: { supplements: [] },
+      api: (p, opt) => {
+        calls.push({ p, method: (opt && opt.method) || 'GET', body: opt && opt.body });
+        if (/shipping-labels\/preview/.test(p)) {
+          return preview === 'down' ? Promise.reject(new Error('veeqo fora')) : Promise.resolve({ data: preview });
+        }
+        if (/shipping-labels$/.test(p)) {
+          if (o.nothing) {
+            const e = new Error('nada'); e.status = 409; e.body = { error: { code: 'nothing_to_print' } };
+            return Promise.reject(e);
+          }
+          return Promise.resolve({ data: { job: { id: 77, kind: 'shipping_labels', payload: {} },
+            file_url: '/api/v3/print-queue/77/file' } });
+        }
+        if (/print-queue\?/.test(p)) return Promise.resolve({ data: { jobs: [] } });
+        return Promise.resolve({});
+      },
+      toast: (m) => toasts.push(m), render: () => {}, esc: (s) => String(s == null ? '' : s),
+      isSandbox: () => false, typeMeta: () => ({}), openWindow: () => (o.noPopup ? null : win),
+      loadData: () => Promise.resolve(null),
+    });
+    return { S, calls, toasts, win };
+  }
+  const READY = {
+    day: '2026-08-19',
+    counts: { ready: 4, printed: 1, to_print: 3 },
+    ready: [
+      { order_number: '1', products: [{ nickname: 'BENF-300', bin_code: 'A03B2' }] },
+      { order_number: '2', products: [{ nickname: 'BENF-300', bin_code: 'A03B2' }] },
+      { order_number: '3', products: [{ nickname: 'RUT-500', shelf_code: 'S6' }] },
+    ],
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  afterEach(() => { WS.stopQueue(); delete global.HF_PRINT_QUEUE; });
+
+  test('abrir a Central pede o preview do dia', async () => {
+    const { calls } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    const q = calls.find((c) => /shipping-labels\/preview/.test(c.p));
+    expect(q).toBeTruthy();
+    expect(q.p).toMatch(/day=\d{4}-\d{2}-\d{2}/);
+  });
+
+  test('o cartão diz as 3 contas e lista os produtos com o local', async () => {
+    boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    const h = WS.inner();
+    expect(h).toContain('data-card="shipping-labels"');
+    expect(h).toContain('4 prontas na Veeqo');
+    expect(h).toContain('1 j&aacute; impressas');
+    expect(h).toContain('3 pra imprimir');
+    expect(h).toContain('BENF-300');
+    expect(h).toContain('A03B2');
+    expect(h).toContain('Imprimir etiquetas de envio (3)');
+  });
+
+  test('nada pra imprimir troca o botão por uma frase, sem botão morto', async () => {
+    boot({ day: '2026-08-19', counts: { ready: 4, printed: 4, to_print: 0 }, ready: READY.ready });
+    WS.acts.openWorkspace();
+    await tick();
+    const h = WS.inner();
+    expect(h).not.toContain('data-act="wsShipPrint"');
+    expect(h).toContain('j&aacute; saiu no papel');
+    // reimprimir continua ali: é o único jeito de repetir um papel perdido
+    expect(h).toContain('data-act="wsShipReprint"');
+  });
+
+  test('dia sem venda nenhuma não oferece reimpressão de coisa nenhuma', async () => {
+    boot({ day: '2026-08-19', counts: { ready: 0, printed: 0, to_print: 0 }, ready: [] });
+    WS.acts.openWorkspace();
+    await tick();
+    const h = WS.inner();
+    expect(h).toContain('Nenhuma etiqueta comprada na Veeqo hoje ainda.');
+    expect(h).not.toContain('data-act="wsShipReprint"');
+  });
+
+  test('REGRA #0: Veeqo fora do ar não trava a Central, só avisa', async () => {
+    boot('down');
+    WS.acts.openWorkspace();
+    await tick();
+    const h = WS.inner();
+    expect(h).toContain('data-card="shipping-labels"');
+    expect(h).toMatch(/N&atilde;o deu pra falar com a Veeqo/);
+    // o resto da Central segue de pé
+    expect(h).toContain('Picklist de hoje');
+    expect(h).toContain('data-act="wsPrint"');
+  });
+
+  test('Imprimir posta {day, take:true} e abre o PDF com o token na query', async () => {
+    const { calls, win } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.wsShipPrint();
+    await tick();
+    const post = calls.find((c) => c.method === 'POST' && /shipping-labels$/.test(c.p));
+    expect(post).toBeTruthy();
+    expect(post.body.take).toBe(true);
+    expect(post.body.reprint).toBeUndefined();
+    expect(post.body.day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(win.loc).toBe('/api/v3/print-queue/77/file?t=sess-9');
+  });
+
+  test('popup bloqueado avisa e NÃO monta PDF nenhum', async () => {
+    const { calls, toasts } = boot(READY, { noPopup: true });
+    WS.acts.openWorkspace();
+    await tick();
+    calls.length = 0;
+    WS.acts.wsShipPrint();
+    await tick();
+    expect(calls.filter((c) => c.method === 'POST').length).toBe(0);
+    expect(toasts.join(' ')).toMatch(/bloqueou a janela/);
+  });
+
+  test('a janela nasce ANTES do await (popup que não vem do toque é bloqueado)', async () => {
+    /* Prova pelo TEMPO: o openWindow tem que acontecer no mesmo tique do clique,
+       antes de qualquer resposta do servidor. Se ele estivesse depois do await,
+       o navegador mataria o popup e o operador apertaria duas vezes. */
+    const { win } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    let openedBeforeAnyResponse = false;
+    let responded = false;
+    WS.init({
+      openWindow: () => { openedBeforeAnyResponse = !responded; return win; },
+      api: () => { responded = true; return Promise.resolve({ data: { job: { id: 77 }, file_url: '/x' } }); },
+    });
+    WS.acts.wsShipPrint();
+    expect(openedBeforeAnyResponse).toBe(true);
+  });
+
+  test('depois do POST o cartão pede a confirmação em vez de imprimir de novo', async () => {
+    boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.wsShipPrint();
+    await tick();
+    const h = WS.inner();
+    expect(h).toContain('data-state="aguardando"');
+    expect(h).toContain('J&aacute; imprimi');
+    expect(h).toContain('data-act="wsShipDone"');
+    expect(h).toContain('data-act="wsShipError"');
+    // o botão de imprimir some: dois PDFs do mesmo dia = papel repetido
+    expect(h).not.toContain('data-act="wsShipPrint"');
+  });
+
+  test('"Já imprimi" posta done no job que o POST devolveu', async () => {
+    const { calls } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.wsShipPrint();
+    await tick();
+    calls.length = 0;
+    WS.acts.wsShipDone();
+    await tick();
+    const done = calls.find((c) => /\/print-queue\/77\/done$/.test(c.p));
+    expect(done).toBeTruthy();
+    expect(done.body.by).toBe('QA Operadora');
+  });
+
+  test('"Deu erro" posta error e NUNCA done', async () => {
+    const { calls } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.wsShipPrint();
+    await tick();
+    calls.length = 0;
+    WS.acts.wsShipError();
+    await tick();
+    expect(calls.some((c) => /\/print-queue\/77\/error$/.test(c.p))).toBe(true);
+    expect(calls.some((c) => /\/done$/.test(c.p))).toBe(false);
+  });
+
+  test('409 nothing_to_print vira frase de gente, não erro cru', async () => {
+    const { toasts } = boot(READY, { nothing: true });
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.wsShipPrint();
+    await tick();
+    expect(toasts.join(' ')).toContain('Nada novo pra imprimir. As de hoje já saíram.');
+    // nada de "HTTP 409" ou "[object Object]" na cara do operador
+    expect(toasts.join(' ')).not.toMatch(/409|object Object/);
+  });
+
+  test('reimprimir manda reprint:true (o único jeito de repetir papel)', async () => {
+    const { calls } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.wsShipReprint();
+    await tick();
+    const post = calls.find((c) => c.method === 'POST' && /shipping-labels$/.test(c.p));
+    expect(post.body.reprint).toBe(true);
+    expect(post.body.take).toBe(true);
+  });
+
+  test('a key muda quando as contas mudam (senão o cartão não se atualiza)', async () => {
+    boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    const k1 = WS.key();
+    WS.state().ship.prev.counts = { ready: 5, printed: 1, to_print: 4 };
+    expect(WS.key()).not.toBe(k1);
+  });
+
+  test('fechar a Central para de puxar o preview', async () => {
+    const { calls } = boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    WS.acts.closeWorkspace();
+    calls.length = 0;
+    await tick();
+    expect(calls.filter((c) => /shipping-labels/.test(c.p)).length).toBe(0);
+  });
+
+  test('nenhum texto do cartão usa em dash', async () => {
+    boot(READY);
+    WS.acts.openWorkspace();
+    await tick();
+    expect(WS.inner()).not.toContain('—');
   });
 });

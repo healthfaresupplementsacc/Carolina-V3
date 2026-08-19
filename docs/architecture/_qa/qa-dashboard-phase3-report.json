@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T13:03:39.258Z",
+  "at": "2026-08-19T13:48:06.888Z",
   "results": [
     {
       "group": "hub",
@@ -479,7 +479,7 @@
       "group": "screenshot",
       "name": "impressao-fila-celular",
       "pass": true,
-      "detail": "135 KB → p3-impressao-fila-celular.png"
+      "detail": "139 KB → p3-impressao-fila-celular.png"
     },
     {
       "group": "fila-impressao",
@@ -495,6 +495,90 @@
     },
     {
       "group": "fila-impressao",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "painel \"Etiquetas de envio de hoje\" existe na página Impressão",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "conta prontas na Veeqo, já impressas e pra imprimir",
+      "pass": true,
+      "detail": "3 pra imprimir ETIQUETAS DE ENVIO DE HOJE Atualizar Saem com o rodapé do nosso sistema (produto, local, garrafas, envelope e quem separou/embalou), agrupadas po"
+    },
+    {
+      "group": "envio",
+      "name": "explica o que o rodapé leva (o que a Veeqo sozinha não faz)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "uma linha por produto com apelido, quantas e local",
+      "pass": true,
+      "detail": "[\"BENF-300 2 A03B2\",\"RUT-500 2 S6\"]"
+    },
+    {
+      "group": "envio",
+      "name": "produto sem bin mostra a prateleira em vez de nada",
+      "pass": true,
+      "detail": "[\"BENF-300 2 A03B2\",\"RUT-500 2 S6\"]"
+    },
+    {
+      "group": "screenshot",
+      "name": "impressao-etiquetas-envio",
+      "pass": true,
+      "detail": "138 KB → p3-impressao-etiquetas-envio.png"
+    },
+    {
+      "group": "envio",
+      "name": "Mandar pro computador posta shipping-labels SEM take (vai pra fila)",
+      "pass": true,
+      "detail": "{\"day\":\"2026-08-19\"}"
+    },
+    {
+      "group": "envio",
+      "name": "o dia é o de Nova York (fuso da fábrica, não o do navegador)",
+      "pass": true,
+      "detail": "2026-08-19"
+    },
+    {
+      "group": "envio",
+      "name": "a confirmação diz onde sai e em quanto tempo",
+      "pass": true,
+      "detail": "Mandado. Sai na 4x6 da Central em até 30 s."
+    },
+    {
+      "group": "envio",
+      "name": "Abrir PDF aqui posta com take:true (quem abre é quem pegou)",
+      "pass": true,
+      "detail": "{\"day\":\"2026-08-19\",\"take\":true}"
+    },
+    {
+      "group": "envio",
+      "name": "o PDF é buscado COM o PIN no header (não por link solto)",
+      "pass": true,
+      "detail": "[\"/api/v3/print-queue/902/file pin=ok\"]"
+    },
+    {
+      "group": "envio",
+      "name": "a aba recebe um blob local (o navegador abre o arquivo, não a rota)",
+      "pass": true,
+      "detail": "blob:http://127.0.0.1:62318/00671981-e366-40fd-9efe-46cc854cd7d5"
+    },
+    {
+      "group": "screenshot",
+      "name": "impressao-envio-aberto",
+      "pass": true,
+      "detail": "143 KB → p3-impressao-envio-aberto.png"
+    },
+    {
+      "group": "envio",
       "name": "sem erro de console",
       "pass": true,
       "detail": ""

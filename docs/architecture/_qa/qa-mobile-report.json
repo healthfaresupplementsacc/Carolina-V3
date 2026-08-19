@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T13:01:52.214Z",
+  "at": "2026-08-19T13:47:38.457Z",
   "results": [
     {
       "group": "boot",
@@ -408,6 +408,72 @@
       "name": "Cancelar posta print-queue/71/cancel",
       "pass": true,
       "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "cartao \"Etiquetas de envio de hoje\" existe na aba Imprimir",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "conta prontas, ja impressas e pra imprimir",
+      "pass": true,
+      "detail": "Etiquetas de envio de hoje 4 prontas 1 impressas 3 pra imprimir BENF-300 A03B2 2 etiquetas RUT-500 S6 2 etiquetas Mandar pro computadorAbrir"
+    },
+    {
+      "group": "envio",
+      "name": "lista por produto com apelido, quantas e local",
+      "pass": true,
+      "detail": "Etiquetas de envio de hoje 4 prontas 1 impressas 3 pra imprimir BENF-300 A03B2 2 etiquetas RUT-500 S6 2 etiquetas Mandar pro computadorAbrir PDF aqui Mandar pro computador põe na fila da Central, que "
+    },
+    {
+      "group": "envio",
+      "name": "produto sem bin mostra a prateleira em vez de nada",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "os dois caminhos existem (mandar pra Central / abrir aqui)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "botao com alvo de toque de 44px+",
+      "pass": true,
+      "detail": "52px"
+    },
+    {
+      "group": "envio",
+      "name": "Mandar pro computador posta shipping-labels SEM take (vai pra fila)",
+      "pass": true,
+      "detail": "{\"day\":\"2026-08-19\"}"
+    },
+    {
+      "group": "envio",
+      "name": "confirmacao diz onde sai e em quanto tempo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "envio",
+      "name": "Abrir PDF aqui posta com take:true (quem abre e quem pegou)",
+      "pass": true,
+      "detail": "{\"day\":\"2026-08-19\",\"take\":true}"
+    },
+    {
+      "group": "envio",
+      "name": "o PDF e buscado COM o PIN no header (nao por link solto)",
+      "pass": true,
+      "detail": "pin=ok"
+    },
+    {
+      "group": "envio",
+      "name": "a aba recebe um blob local (o AirPrint abre o arquivo, nao a rota)",
+      "pass": true,
+      "detail": "blob:http://127.0.0.1:51030/06471238-68af-4ef7-bd85-c5e2a539dd27"
     },
     {
       "group": "scan",

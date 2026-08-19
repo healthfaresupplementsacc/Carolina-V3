@@ -98,17 +98,75 @@ let QUEUE = [
   ] }, requested_by: 'Bruno', status: 'queued', age_min: 2, taken_by: null, is_test: false },
 ];
 
+/* S2 · ETIQUETAS DE ENVIO DE HOJE (contratos 2, 3, 4 e 5).
+   A etiqueta da transportadora sai do NOSSO sistema com rodape (apelido, local,
+   garrafas, envelope, quem separou/embalou), agrupada por produto e na ordem do
+   local. O PDF inteiro e composto no servidor (agente S1); a Central so pede,
+   abre o arquivo e confirma que saiu no papel. O stub segue o contrato:
+   preview → {data:{day,ready,counts}}, POST → {data:{job,file_url,counts}}. */
+const SHIP_DAY = '2026-08-19';
+const SHIP_READY = [
+  { order_number: '12-345', external_order_id: 'V-1', shipment_id: 'S-1', tracking: '9400111', carrier: 'USPS',
+    service: 'Ground Advantage', channel: 'TikTok', bottles: 2, envelope: '9x12', printed_at: null, mixed: false,
+    products: [{ product_id: 42, nickname: 'BENF-300', sku: 'HF-BENF-200', bottles: 2, bin_code: 'A03B2', shelf_code: 'S4', area: 'P&P' }] },
+  { order_number: '12-401', external_order_id: 'V-2', shipment_id: 'S-2', tracking: '9400112', carrier: 'USPS',
+    service: 'Ground Advantage', channel: 'eBay', bottles: 1, envelope: '7x10', printed_at: null, mixed: false,
+    products: [{ product_id: 42, nickname: 'BENF-300', sku: 'HF-BENF-200', bottles: 1, bin_code: 'A03B2', shelf_code: 'S4', area: 'P&P' }] },
+  { order_number: '12-999', external_order_id: 'V-3', shipment_id: 'S-3', tracking: '9400113', carrier: 'DHL',
+    service: 'Expedited', channel: 'Walmart', bottles: 2, envelope: 'BX', printed_at: null, mixed: true,
+    products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 2, bin_code: null, shelf_code: 'S6', area: 'P&P' }] },
+  // ja impressa: entra em "ready" e em "printed", nao no "pra imprimir"
+  { order_number: '12-100', external_order_id: 'V-4', shipment_id: 'S-4', tracking: '9400114', carrier: 'USPS',
+    service: 'Ground Advantage', channel: 'TikTok', bottles: 1, envelope: '4x8',
+    printed_at: '2026-08-19T13:00:00Z', mixed: false,
+    products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 1, bin_code: 'B01', shelf_code: 'S6', area: 'P&P' }] },
+];
+let SHIP_PRINTED = 1;             // quantas ja sairam no papel hoje
+let SHIP_JOB_SEQ = 900;
+let SHIP_LAST_JOB = null;         // o job devolvido pelo ultimo POST
+function shipCounts() {
+  return { ready: SHIP_READY.length, printed: SHIP_PRINTED, to_print: SHIP_READY.length - SHIP_PRINTED };
+}
+
 // requisicoes POST observadas (as assercoes leem daqui)
 const posted = [];
+// GETs do PDF composto: quem abriu e com que credencial na query
+const fileHits = [];
 
 function apiFixture(pathname, method, body) {
   if (method === 'POST') posted.push({ pathname, body });
+
+  // ── etiquetas de envio ───────────────────────────────────────
+  if (pathname.indexOf('/api/v3/print-queue/shipping-labels/preview') === 0) {
+    return { data: { day: SHIP_DAY, ready: SHIP_READY, counts: shipCounts() } };
+  }
+  if (pathname === '/api/v3/print-queue/shipping-labels') {
+    const n = (body && body.reprint) ? SHIP_READY.length : shipCounts().to_print;
+    // 409 de VERDADE (contrato 3): status 200 com erro no corpo nao faria o
+    // api() do /op rejeitar, e a tela nunca veria o caso "nada novo".
+    if (!n) return { _status: 409, error: { code: 'nothing_to_print', message: 'nada novo pra imprimir' } };
+    const id = ++SHIP_JOB_SEQ;
+    SHIP_LAST_JOB = {
+      id, kind: 'shipping_labels', status: (body && body.take) ? 'taken' : 'queued',
+      requested_by: 'QA Operadora', age_min: 0, is_test: false,
+      payload: { day: SHIP_DAY, count: n, pages: n + 2, file_id: 5, shipment_ids: ['S-1', 'S-2', 'S-3'],
+        groups: [{ nickname: 'BENF-300', count: 2, location: 'A03B2' }, { nickname: 'RUT-500', count: 1, location: 'S6' }] },
+    };
+    return { data: { job: SHIP_LAST_JOB, file_url: '/api/v3/print-queue/' + id + '/file',
+      counts: { labels: n, pages: n + 2, groups: 2 } } };
+  }
 
   // ── fila de impressão do celular ─────────────────────────────
   if (pathname.startsWith('/api/v3/print-queue')) {
     const m = pathname.match(/\/api\/v3\/print-queue\/(\d+)\/(take|done|error|cancel)$/);
     if (m) {
       const id = Number(m[1]); const op = m[2];
+      // job de etiquetas de envio: done carimba printed_at (contrato 5)
+      if (SHIP_LAST_JOB && SHIP_LAST_JOB.id === id) {
+        if (op === 'done') { SHIP_LAST_JOB.status = 'done'; SHIP_PRINTED = SHIP_READY.length; }
+        if (op === 'error') { SHIP_LAST_JOB.status = 'error'; SHIP_LAST_JOB.error_note = body && body.note; }
+        return { data: { job: SHIP_LAST_JOB } };
+      }
       const job = QUEUE.find((j) => j.id === id);
       if (!job) return { error: { code: 'not_found', message: 'job sumiu' } };
       if (op === 'take') { job.status = 'taken'; job.taken_by = (body && body.by) || '?'; }
@@ -121,7 +179,10 @@ function apiFixture(pathname, method, body) {
   }
 
   const p = pathname.replace('/api/v3/op/', '');
-  if (p === 'auth/login') return { ok: true, token: 'qa-session', person: PERSON, auto_logoff_seconds: 999999 };
+  /* session_token, nao "token": e o nome que o app.js le (submitPin). Com o
+     nome errado a sessao ficava sem token e o link assinado do PDF (?t=) saia
+     vazio: o harness passava e a aba real levaria 401. */
+  if (p === 'auth/login') return { ok: true, session_token: 'qa-session', person: PERSON, auto_logoff_seconds: 999999 };
   if (p === 'auth/heartbeat') return { ok: true };
   if (p === 'auth/logout') return { ok: true };
   if (p === 'active-operators') return { ok: true, operators: [] };
@@ -157,14 +218,28 @@ function startServer() {
         res.end('window.HF_OP_CONFIG = ' + JSON.stringify({ pageToken: TOKEN, workspace: true }) + ';');
         return;
       }
+      /* O PDF composto (contrato 4). Uma aba nova nao manda header: a
+         credencial vem em ?t=. O harness so precisa devolver ALGO com
+         content-type de PDF; o desenho e do agente S1. */
+      if (/^\/api\/v3\/print-queue\/\d+\/file$/.test(p)) {
+        fileHits.push({ path: p, query: u.search });
+        res.writeHead(200, { 'content-type': 'application/pdf',
+          'content-disposition': 'inline; filename=etiquetas-envio-' + SHIP_DAY + '.pdf' });
+        res.end(Buffer.from('%PDF-1.4\n% etiquetas de envio (stub do harness)\n%%EOF\n'));
+        return;
+      }
       // API interceptada
       if (p.startsWith('/api/')) {
         let raw = '';
         req.on('data', (c) => { raw += c; });
         req.on('end', () => {
           let body = null; try { body = raw ? JSON.parse(raw) : null; } catch (e) { body = raw; }
-          res.writeHead(200, { 'content-type': 'application/json' });
-          res.end(JSON.stringify(apiFixture(p, req.method, body)));
+          const out = apiFixture(p, req.method, body) || {};
+          // _status: a fixture pode pedir um codigo HTTP de verdade (409, 404).
+          const code = out._status || 200;
+          delete out._status;
+          res.writeHead(code, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(out));
         });
         return;
       }
@@ -418,6 +493,136 @@ async function main() {
   rec('etiqueta', 'a etiqueta 4x6 sai com o codigo, o produto e o QR',
     /BX-0451/.test(labelDoc) && /4in 6in/.test(labelDoc) && /<svg/.test(labelDoc),
     labelDoc ? labelDoc.slice(0, 60) : 'sem documento · ' + labelPath);
+
+  // ── ETIQUETAS DE ENVIO DE HOJE (S2) ──────────────────────────
+  // O cartao mais alto da Central: e o que vai pro cliente hoje.
+  // volta o scroll pro topo: as telas deste bloco sao do cartao de envio
+  /* A home continua montada por baixo (camadas) e tem o SEU .hf-scroll: sobe o
+     scroll do container que realmente contem o cartao de envio, senao a foto
+     sai da picklist e ninguem ve o que este bloco esta testando. */
+  const toTop = async () => {
+    await page.evaluate(() => {
+      const c = document.querySelector('[data-card="shipping-labels"]');
+      let sc = c && c.parentElement;
+      while (sc && sc.scrollHeight <= sc.clientHeight) sc = sc.parentElement;
+      if (sc) sc.scrollTop = 0;
+    });
+    await sleep(250);
+  };
+  await toTop();
+  const shipCard = await page.$('[data-card="shipping-labels"]');
+  rec('envio', 'cartao "Etiquetas de envio de hoje" existe na Central', !!shipCard);
+  const shipTxt = shipCard ? await page.evaluate((e) => e.innerText.replace(/\s+/g, ' '), shipCard) : '';
+  rec('envio', 'conta prontas na Veeqo, ja impressas e pra imprimir',
+    /4 prontas na Veeqo/.test(shipTxt) && /1 j[aá] impressas/.test(shipTxt) && /3 pra imprimir/.test(shipTxt), shipTxt.slice(0, 160));
+  rec('envio', 'mini lista por produto com apelido, quantas e local',
+    /BENF-300/.test(shipTxt) && /RUT-500/.test(shipTxt) && /A03B2/.test(shipTxt), shipTxt.slice(0, 200));
+  // pedido SEM bin cai no shelf: quem separa precisa de um lugar, nunca de vazio
+  rec('envio', 'produto sem bin mostra a prateleira em vez de nada', /S6/.test(shipTxt), '');
+  // o cartao fica ACIMA da picklist: a ordem da tela e a ordem do trabalho
+  const shipFirst = await page.evaluate(() => {
+    const c = document.querySelector('[data-card="shipping-labels"]');
+    const q = document.querySelector('[data-card="print-queue"]');
+    if (!c) return null;
+    return !q || (c.compareDocumentPosition(q) & Node.DOCUMENT_POSITION_FOLLOWING) > 0;
+  });
+  rec('envio', 'o cartao vem antes da fila do celular na coluna do P&P', shipFirst !== false, String(shipFirst));
+  const shipBtn = await page.$('[data-act="wsShipPrint"]');
+  rec('envio', 'botao grande diz quantas vao sair', !!shipBtn
+    && /Imprimir etiquetas de envio \(3\)/.test(await page.evaluate((e) => e.innerText, shipBtn)),
+    shipBtn ? await page.evaluate((e) => e.innerText, shipBtn) : 'sem botao');
+  rec('envio', 'alvo de toque de 48px+ (a Simone usa luva)',
+    !!shipBtn && (await page.evaluate((e) => Math.round(e.getBoundingClientRect().height), shipBtn)) >= 48,
+    shipBtn ? String(await page.evaluate((e) => Math.round(e.getBoundingClientRect().height), shipBtn)) + 'px' : '');
+  rec('envio', 'link discreto de reimprimir tudo (nunca um botao grande)',
+    !!(await page.$('[data-act="wsShipReprint"]')));
+  await toTop(); await shot('12-etiquetas-envio');
+
+  // IMPRIMIR: POST {day, take:true} → abre o PDF com o token na query
+  await page.evaluate(() => {
+    window.__shipWin = null;
+    const open = window.open;
+    window.open = function () {
+      const w = { _loc: '', document: { write: () => {}, close: () => {} }, close: () => {} };
+      Object.defineProperty(w, 'location', { set: (v) => { w._loc = String(v); window.__shipWin = String(v); }, get: () => w._loc });
+      window.open = open;
+      return w;
+    };
+  });
+  posted.length = 0; fileHits.length = 0;
+  if (shipBtn) await shipBtn.click();
+  await sleep(1200);
+  const shipPost = posted.find((x) => x.pathname === '/api/v3/print-queue/shipping-labels');
+  rec('envio', 'Imprimir posta {day, take:true} em shipping-labels',
+    !!shipPost && !!shipPost.body.day && shipPost.body.take === true && !shipPost.body.reprint,
+    shipPost ? JSON.stringify(shipPost.body) : 'sem post');
+  rec('envio', 'o dia e o de Nova York (fuso da fabrica, nao o do navegador)',
+    !!shipPost && /^\d{4}-\d{2}-\d{2}$/.test(shipPost.body.day), shipPost ? shipPost.body.day : '');
+  const shipWin = await page.evaluate(() => window.__shipWin || '');
+  rec('envio', 'a janela abriu no file_url do job com o token da sessao na query',
+    /\/api\/v3\/print-queue\/\d+\/file\?t=/.test(shipWin), shipWin || 'janela sem endereco');
+  const afterPrint = await page.evaluate(() => {
+    const c = document.querySelector('[data-card="shipping-labels"]');
+    return c ? c.innerText.replace(/\s+/g, ' ') : '';
+  });
+  rec('envio', 'o cartao troca de cara: "Imprima na 4x6 e toque em Ja imprimi"',
+    /Imprima na 4x6 e toque em J[aá] imprimi/.test(afterPrint), afterPrint.slice(0, 160));
+  rec('envio', 'as duas saidas aparecem (Ja imprimi / Deu erro)',
+    !!(await page.$('[data-act="wsShipDone"]')) && !!(await page.$('[data-act="wsShipError"]')));
+  await toTop(); await shot('13-envio-aguardando');
+
+  // JA IMPRIMI: e AQUI que o printed_at e carimbado (contrato 5)
+  posted.length = 0;
+  const doneBtn = await page.$('[data-act="wsShipDone"]');
+  if (doneBtn) await doneBtn.click();
+  await sleep(1200);
+  const shipDone = posted.find((x) => /\/print-queue\/\d+\/done$/.test(x.pathname));
+  rec('envio', 'Ja imprimi posta done no job (carimba printed_at)', !!shipDone,
+    shipDone ? shipDone.pathname : JSON.stringify(posted.map((x) => x.pathname)));
+  rec('envio', 'o done leva o NOME de quem confirmou',
+    !!shipDone && shipDone.body && shipDone.body.by === PERSON.display_name,
+    shipDone ? JSON.stringify(shipDone.body) : '');
+  const doneScreen = await page.evaluate(() => document.body.innerText);
+  rec('envio', 'confirma "Etiquetas registradas como impressas"',
+    /Etiquetas registradas como impressas/.test(doneScreen), '');
+  await sleep(700);
+  const afterDone = await page.evaluate(() => {
+    const c = document.querySelector('[data-card="shipping-labels"]');
+    return c ? c.innerText.replace(/\s+/g, ' ') : '';
+  });
+  rec('envio', 'depois do done o cartao diz que tudo de hoje ja saiu',
+    /0 pra imprimir/.test(afterDone) && /j[aá] saiu no papel/.test(afterDone), afterDone.slice(0, 160));
+  await toTop(); await shot('14-envio-impresso');
+
+  // NADA PRA IMPRIMIR: 409 vira frase de gente, nao erro cru
+  posted.length = 0;
+  await page.evaluate(() => {
+    const open = window.open;
+    window.open = function () { const w = { document: { write: () => {}, close: () => {} }, close: () => {} }; window.open = open; return w; };
+    window.HF_WS.acts.wsShipPrint();
+  });
+  await sleep(1000);
+  const nothingTxt = await page.evaluate(() => document.body.innerText);
+  rec('envio', '409 nothing_to_print vira "Nada novo pra imprimir. As de hoje ja sairam."',
+    /Nada novo pra imprimir\. As de hoje j[aá] sa[ií]ram\./.test(nothingTxt), '');
+  await toTop(); await shot('15-envio-nada-novo');
+
+  // REIMPRIMIR: manda reprint:true (o unico jeito de repetir papel)
+  posted.length = 0;
+  await page.evaluate(() => {
+    const open = window.open;
+    window.open = function () {
+      const w = { _loc: '', document: { write: () => {}, close: () => {} }, close: () => {} };
+      Object.defineProperty(w, 'location', { set: (v) => { w._loc = String(v); }, get: () => w._loc });
+      window.open = open; return w;
+    };
+    window.HF_WS.acts.wsShipReprint();
+  });
+  await sleep(1000);
+  const rePost = posted.find((x) => x.pathname === '/api/v3/print-queue/shipping-labels');
+  rec('envio', 'reimprimir tudo de hoje manda reprint:true',
+    !!rePost && rePost.body.reprint === true && rePost.body.take === true,
+    rePost ? JSON.stringify(rePost.body) : 'sem post');
 
   // ── FILA DE IMPRESSAO PEDIDA PELO CELULAR (S15.29) ───────────
   // O poll e de 30s; forcamos uma leitura pra nao segurar o harness meio minuto.

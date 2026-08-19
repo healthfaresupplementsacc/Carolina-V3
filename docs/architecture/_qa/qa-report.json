@@ -1,13 +1,13 @@
 {
-  "when": "2026-08-18T20:55:48.377Z",
+  "when": "2026-08-19T13:24:19.482Z",
   "tabStats": [
     {
       "key": "MASTER",
-      "nodes": 136,
+      "nodes": 137,
       "pass": true,
-      "kb": 137,
+      "kb": 142,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-01-MASTER.png",
-      "status": "rendered ✓  Master map  (425 lines, 136 nodes)"
+      "status": "rendered ✓  Master map  (429 lines, 137 nodes)"
     },
     {
       "key": "S02-http-surface",
@@ -83,11 +83,11 @@
     },
     {
       "key": "S15-warehouse-inventory",
-      "nodes": 42,
+      "nodes": 55,
       "pass": true,
-      "kb": 191,
+      "kb": 167,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-11-S15-warehouse-inventory.png",
-      "status": "rendered ✓  S15-warehouse-inventory  (128 lines, 42 nodes)"
+      "status": "rendered ✓  S15-warehouse-inventory  (159 lines, 55 nodes)"
     }
   ],
   "results": [
@@ -101,13 +101,13 @@
       "group": "tab-fit",
       "name": "MASTER",
       "pass": true,
-      "detail": "fit scale=0.054 (whole diagram visible, 20552x5577)"
+      "detail": "fit scale=0.060 (whole diagram visible, 18719x5742)"
     },
     {
       "group": "tab",
       "name": "MASTER",
       "pass": true,
-      "detail": "136 nodes, status=\"rendered ✓  Master map  (425 lines\", shot 137KB, bodyClean=true"
+      "detail": "137 nodes, status=\"rendered ✓  Master map  (429 lines\", shot 142KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
@@ -221,19 +221,19 @@
       "group": "tab-fit",
       "name": "S15-warehouse-inventory",
       "pass": true,
-      "detail": "fit scale=0.200 (whole diagram visible, 5600x2512)"
+      "detail": "fit scale=0.122 (whole diagram visible, 9152x3114)"
     },
     {
       "group": "tab",
       "name": "S15-warehouse-inventory",
       "pass": true,
-      "detail": "42 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 191KB, bodyClean=true"
+      "detail": "55 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 167KB, bodyClean=true"
     },
     {
       "group": "behaviour",
       "name": "a1 live re-render after typing",
       "pass": true,
-      "detail": "status=\"rendered ✓  Master map  (426 lines, 136 nodes)\""
+      "detail": "status=\"rendered ✓  Master map  (430 lines, 137 nodes)\""
     },
     {
       "group": "behaviour",
@@ -287,13 +287,13 @@
       "group": "behaviour",
       "name": "e3 fit changes the transform",
       "pass": true,
-      "detail": "translate(20px, 308.038px) scale(0.0544959)"
+      "detail": "translate(20px, 288.219px) scale(0.0598333)"
     },
     {
       "group": "behaviour",
       "name": "e4 fit is not degenerate (stays legible)",
       "pass": true,
-      "detail": "scale=0.0544959 fillW=0.97 fillH=0.33"
+      "detail": "scale=0.0598333 fillW=0.97 fillH=0.37"
     },
     {
       "group": "behaviour",
@@ -311,7 +311,7 @@
       "group": "behaviour",
       "name": "g syntax error -> red error in #status, svg kept",
       "pass": true,
-      "detail": "status=\"Mermaid error: Parse error on line 2:\n... TB  A[Broken --> B\" class=err color=rgb(198, 40, 40) nodes 136->136"
+      "detail": "status=\"Mermaid error: Parse error on line 2:\n... TB  A[Broken --> B\" class=err color=rgb(198, 40, 40) nodes 137->137"
     },
     {
       "group": "behaviour",
@@ -335,7 +335,7 @@
       "group": "feature",
       "name": "a2 search pans to first match",
       "pass": true,
-      "detail": "{\"dx\":0,\"dy\":0.000030517578125}"
+      "detail": "{\"dx\":0.00006103515625,\"dy\":0}"
     },
     {
       "group": "feature",
@@ -365,7 +365,7 @@
       "group": "feature",
       "name": "b1 unchecking \"verified\" dims verified nodes",
       "pass": true,
-      "detail": "dimmed=95 opacity=0.13 verifiedDimmed=true"
+      "detail": "dimmed=96 opacity=0.13 verifiedDimmed=true"
     },
     {
       "group": "feature",
@@ -437,13 +437,13 @@
       "group": "feature",
       "name": "c3 map still renders with directives appended",
       "pass": true,
-      "detail": "rendered ✓  Master map  (432 lines, 136 nodes) nodes=136"
+      "detail": "rendered ✓  Master map  (436 lines, 137 nodes) nodes=137"
     },
     {
       "group": "feature",
       "name": "c4 missing ids -> red warning, no append",
       "pass": true,
-      "detail": "len 20090->20090 cls=err"
+      "detail": "len 20574->20574 cls=err"
     },
     {
       "group": "feature",

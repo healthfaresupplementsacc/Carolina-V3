@@ -131,8 +131,16 @@ describe('/m/ — só as rotas combinadas, e nenhuma escrita por fora', () => {
 
   test('todo pedido leva o PIN do admin no header', () => {
     expect(JS).toContain("'x-admin-pin'");
-    // uma função só faz fetch: não há caminho paralelo sem credencial
-    expect((JS.match(/fetch\(/g) || []).length).toBe(1);
+    /* O header é montado num lugar SÓ (pinHeaders) e o PIN literal aparece
+       só lá dentro: é isso que garante que não existe caminho sem credencial.
+       São 2 fetch: api() (JSON) e apiBlob() (o PDF das etiquetas de envio,
+       que uma aba nova não conseguiria buscar porque não manda header). */
+    expect((JS.match(/fetch\(/g) || []).length).toBe(2);
+    expect((JS.match(/'x-admin-pin'/g) || []).length).toBe(1);
+    expect(JS).toMatch(/function pinHeaders\(\)/);
+    // as duas chamadas usam a mesma função de credencial
+    expect((JS.match(/pinHeaders\(\)/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(JS).toMatch(/fetch\(pathname, \{ headers: pinHeaders\(\) \}\)/);
   });
 
   test('a escrita fica escondida sem manage_stock', () => {

@@ -41,6 +41,26 @@ const PRODUCT99 = readFix('m-product-99.json');
 const QUEUE = readFix('m-queue.json');
 const PRINTERS = readFix('m-printers.json');
 
+/* S2 · o que a Veeqo tem pra hoje. Fica inline (e nao num fixture .json) porque
+   e o contrato do agente S1 que este harness precisa provar, nao um dump. */
+const SHIP_DAY = '2026-08-19';
+const SHIP_READY = [
+  { order_number: '12-345', external_order_id: 'V-1', shipment_id: 'S-1', channel: 'TikTok', bottles: 2,
+    envelope: '9x12', printed_at: null, mixed: false,
+    products: [{ product_id: 42, nickname: 'BENF-300', sku: 'HF-BENF-200', bottles: 2, bin_code: 'A03B2', shelf_code: 'S4', area: 'P&P' }] },
+  { order_number: '12-401', external_order_id: 'V-2', shipment_id: 'S-2', channel: 'eBay', bottles: 1,
+    envelope: '7x10', printed_at: null, mixed: false,
+    products: [{ product_id: 42, nickname: 'BENF-300', sku: 'HF-BENF-200', bottles: 1, bin_code: 'A03B2', shelf_code: 'S4', area: 'P&P' }] },
+  { order_number: '12-999', external_order_id: 'V-3', shipment_id: 'S-3', channel: 'Walmart', bottles: 2,
+    envelope: 'BX', printed_at: null, mixed: true,
+    products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 2, bin_code: null, shelf_code: 'S6', area: 'P&P' }] },
+  { order_number: '12-100', external_order_id: 'V-4', shipment_id: 'S-4', channel: 'TikTok', bottles: 1,
+    envelope: '4x8', printed_at: '2026-08-19T13:00:00Z', mixed: false,
+    products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 1, bin_code: 'B01', shelf_code: 'S6', area: 'P&P' }] },
+];
+let SHIP_JOB_SEQ = 900;
+function shipCounts() { return { ready: 4, printed: 1, to_print: 3 }; }
+
 // tudo que a página postou, pra conferir CONTRATO (não só "não quebrou")
 const posted = [];
 // tudo que ela pediu, pra provar que não inventou rota nenhuma
@@ -88,6 +108,25 @@ function apiFixture(pathname, method, body, query, headers) {
     });
     return { body: { data: { labels } } };
   }
+  /* S2 · ETIQUETAS DE ENVIO DE HOJE. Do celular o Bruno faz duas coisas:
+     manda pra 4x6 da Central (POST sem take, cai na fila) ou abre o PDF aqui
+     pro AirPrint (POST com take + GET do arquivo com o PIN no header). */
+  if (pathname === '/api/v3/print-queue/shipping-labels/preview') {
+    return { body: { data: { day: SHIP_DAY, ready: SHIP_READY, counts: shipCounts() } } };
+  }
+  if (pathname === '/api/v3/print-queue/shipping-labels') {
+    const n = shipCounts().to_print;
+    if (!n) return { status: 409, body: { error: { code: 'nothing_to_print', message: 'nada novo pra imprimir' } } };
+    const id = ++SHIP_JOB_SEQ;
+    return { body: { data: {
+      job: { id, kind: 'shipping_labels', status: (body && body.take) ? 'taken' : 'queued',
+        requested_by: 'Bruno', age_min: 0,
+        payload: { day: SHIP_DAY, count: n, pages: n + 2,
+          groups: [{ nickname: 'BENF-300', count: 2, location: 'A03B2' }, { nickname: 'RUT-500', count: 1, location: 'S6' }] } },
+      file_url: '/api/v3/print-queue/' + id + '/file',
+      counts: { labels: n, pages: n + 2, groups: 2 },
+    } } };
+  }
   if (pathname === '/api/v3/print-queue') return { body: { data: QUEUE } };
   if (/^\/api\/v3\/print-queue\/\d+\/(take|done|error|cancel)$/.test(pathname)) {
     return { body: { data: { job: { id: 71, status: 'cancelled' } } } };
@@ -118,6 +157,20 @@ function startServer() {
       const u = new URL(req.url, 'http://localhost');
       const p = decodeURIComponent(u.pathname);
 
+      /* O PDF composto (contrato 4). Bytes, nao JSON: a pagina busca com o PIN
+         no header e abre um blob local, porque uma aba nova nao manda header. */
+      if (/^\/api\/v3\/print-queue\/\d+\/file$/.test(p)) {
+        called.push({ pathname: p, method: req.method, query: u.search, pin: req.headers['x-admin-pin'] || '' });
+        if ((req.headers['x-admin-pin'] || '') !== PIN) {
+          res.writeHead(401, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'unauthorized' } }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/pdf',
+          'content-disposition': 'inline; filename=etiquetas-envio-' + SHIP_DAY + '.pdf' });
+        res.end(Buffer.from('%PDF-1.4\n% etiquetas de envio (stub do harness)\n%%EOF\n'));
+        return;
+      }
       if (p.startsWith('/api/')) {
         let raw = '';
         req.on('data', (c) => { raw += c; });
@@ -524,6 +577,65 @@ async function main() {
   rec('imprimir', 'Cancelar posta print-queue/71/cancel',
     !!posted.find((x) => x.pathname === '/api/v3/print-queue/71/cancel'));
 
+  // ── ETIQUETAS DE ENVIO DE HOJE (S2) ─────────────────────────
+  const shipCard = await page.$('[data-card="shipping-labels"]');
+  rec('envio', 'cartao "Etiquetas de envio de hoje" existe na aba Imprimir', !!shipCard);
+  const shipTxt = shipCard ? await page.evaluate((e) => e.innerText.replace(/\s+/g, ' '), shipCard) : '';
+  rec('envio', 'conta prontas, ja impressas e pra imprimir',
+    /4 prontas/.test(shipTxt) && /1 impressas/.test(shipTxt) && /3 pra imprimir/.test(shipTxt), shipTxt.slice(0, 140));
+  rec('envio', 'lista por produto com apelido, quantas e local',
+    /BENF-300/.test(shipTxt) && /A03B2/.test(shipTxt) && /RUT-500/.test(shipTxt), shipTxt.slice(0, 200));
+  rec('envio', 'produto sem bin mostra a prateleira em vez de nada', /S6/.test(shipTxt), '');
+  rec('envio', 'os dois caminhos existem (mandar pra Central / abrir aqui)',
+    !!(await page.$('[data-act="shipSend"]')) && !!(await page.$('[data-act="shipOpen"]')));
+  // botao de dedo grande: a mao do Bruno esta no armazem, nao no mouse
+  const shipBtnH = await page.evaluate(() => {
+    const b = document.querySelector('[data-act="shipSend"]');
+    return b ? Math.round(b.getBoundingClientRect().height) : 0;
+  });
+  rec('envio', 'botao com alvo de toque de 44px+', shipBtnH >= 44, shipBtnH + 'px');
+  await shot('15-envio');
+
+  // MANDAR PRO COMPUTADOR: sem take, o job fica na fila e a Central imprime
+  posted.length = 0;
+  await tap('[data-act="shipSend"]');
+  await sleep(900);
+  const shipSend = posted.find((x) => x.pathname === '/api/v3/print-queue/shipping-labels');
+  rec('envio', 'Mandar pro computador posta shipping-labels SEM take (vai pra fila)',
+    !!shipSend && !!shipSend.body.day && !shipSend.body.take,
+    shipSend ? JSON.stringify(shipSend.body) : 'sem post');
+  rec('envio', 'confirmacao diz onde sai e em quanto tempo',
+    /Sai na 4x6 da Central em até 30 s\./.test(await txt()));
+
+  // ABRIR PDF AQUI: take + GET do arquivo COM o PIN (aba nova nao manda header)
+  await page.evaluate(() => {
+    window.__shipWin = null;
+    window.open = function () {
+      const w = { _loc: '', document: { open() {}, close() {}, write() {} }, close() {} };
+      Object.defineProperty(w, 'location', { set: (v) => { w._loc = String(v); window.__shipWin = String(v); }, get: () => w._loc });
+      return w;
+    };
+  });
+  /* called NAO e zerado aqui: a assercao de contrato mais abaixo conta quantas
+     rotas a pagina chamou no fluxo inteiro. Marcamos o ponto de corte. */
+  posted.length = 0;
+  const calledMark = called.length;
+  await tap('[data-act="shipOpen"]');
+  /* POST → GET do arquivo → blob → aba: uma corrente de 3 idas ao servidor.
+     Esperar um numero fixo de ms deixa o teste piscando; esperamos o RESULTADO. */
+  await page.waitForFunction(() => !!window.__shipWin, { timeout: 8000 }).catch(() => {});
+  await sleep(200);
+  const shipOpen = posted.find((x) => x.pathname === '/api/v3/print-queue/shipping-labels');
+  rec('envio', 'Abrir PDF aqui posta com take:true (quem abre e quem pegou)',
+    !!shipOpen && shipOpen.body.take === true, shipOpen ? JSON.stringify(shipOpen.body) : 'sem post');
+  const fileCall = called.slice(calledMark).find((c) => /\/print-queue\/\d+\/file$/.test(c.pathname));
+  rec('envio', 'o PDF e buscado COM o PIN no header (nao por link solto)',
+    !!fileCall && fileCall.pin === PIN, fileCall ? 'pin=' + (fileCall.pin ? 'ok' : 'vazio') : 'sem GET do arquivo');
+  const shipWin = await page.evaluate(() => window.__shipWin || '');
+  rec('envio', 'a aba recebe um blob local (o AirPrint abre o arquivo, nao a rota)',
+    /^blob:/.test(shipWin), shipWin || 'aba sem endereco');
+  await shot('16-envio-aberto');
+
   // ── LER CÓDIGO ──────────────────────────────────────────────
   await tap('.fab');
   await sleep(600);
@@ -601,6 +713,9 @@ async function main() {
     /^\/api\/v3\/warehouse\/locations\/(bin|box)$/,
     /^\/api\/v3\/print-queue$/,
     /^\/api\/v3\/print-queue\/\d+\/(take|done|error|cancel)$/,
+    // S2 · etiquetas de envio: preview, compor e baixar o PDF composto
+    /^\/api\/v3\/print-queue\/shipping-labels(\/preview)?$/,
+    /^\/api\/v3\/print-queue\/\d+\/file$/,
   ];
   const stray = called.map((c) => c.pathname).filter((p, i, a) => a.indexOf(p) === i)
     .filter((p) => !WHITELIST.some((re) => re.test(p)));

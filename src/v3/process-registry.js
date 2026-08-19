@@ -233,8 +233,8 @@ const PROCESSES = [
     key: 'printqueue_agent', name: 'Puxador da fila de impressão (.28)', where: 'win28',
     tickMs: 5000, heartbeat: false, critical: false, pending: true, since: '2026-08-19',
     signalVia: '/api/v3/print-queue',
-    short: 'Puxa da fila o que o admin mandou imprimir do celular e imprime no .28.',
-    detail: 'A construir no .28. Poll a cada poucos segundos em GET /api/v3/print-queue com x-print-token (o MESMO PRINT_EVENT_TOKEN do /api/print-event, nenhum segredo novo): toma o job (POST /:id/take), desenha Code128 + QR do payload já resolvido, imprime 4x6, e fecha com POST /:id/done (que carimba label_printed_at nas caixas) ou POST /:id/error com o motivo. Enquanto ele não existe, a estação logada (/print ou /op) consegue tomar e concluir pela mesma API com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token.',
+    short: 'Fila de impressão do celular: hoje quem puxa é a página /print logada no .28 (e a Central/hub), a cada 30 s no navegador. Agente nativo = futuro.',
+    detail: 'HOJE (08-19): a estação /print (src/print/print.js) e a Central/hub fazem poll de 30 s em GET /api/v3/print-queue com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token, tomam o job, imprimem pelo navegador (HF_LABELS) e fecham com done/error. Um agente NATIVO no .28 (sem navegador aberto) fica pra depois: poll a cada poucos segundos em GET /api/v3/print-queue com x-print-token (o MESMO PRINT_EVENT_TOKEN do /api/print-event, nenhum segredo novo): toma o job (POST /:id/take), desenha Code128 + QR do payload já resolvido, imprime 4x6, e fecha com POST /:id/done (que carimba label_printed_at nas caixas) ou POST /:id/error com o motivo. Enquanto ele não existe, a estação logada (/print ou /op) consegue tomar e concluir pela mesma API com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token.',
   },
 ];
 

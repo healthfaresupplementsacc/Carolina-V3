@@ -366,3 +366,169 @@ describe('Fila de impressão — listagem e teste', () => {
     expect(state.jobs).toHaveLength(0);
   });
 });
+
+// ── ETIQUETAS DE ENVIO (S15.37) ────────────────────────────────────────────
+// O serviço de etiquetas é injetado como dependência opcional; aqui ele é um
+// dublê. O que se testa é o ROUTER: rotas novas, auth do PDF numa aba nova, e o
+// gancho do /done que carimba printed_at. A composição do PDF de verdade está em
+// shipping-labels.test.js.
+describe('Fila de impressão — etiquetas de envio', () => {
+  let shipping, calls;
+
+  async function bootShipping() {
+    if (server) await new Promise((r) => server.close(r));
+    state = { jobs: [], audit: [], stamped: [], now: Date.now() };
+    calls = { compose: [], marked: [] };
+    const db = makeDb(state);
+    queue = new PrintQueueService({ db });
+    shipping = {
+      preview: async (day) => ({ day: day || '2026-08-19', ready: [], counts: { ready: 0, printed: 0, to_print: 0 } }),
+      compose: async (p) => {
+        calls.compose.push(p);
+        const job = await queue.enqueue({
+          kind: 'shipping_labels', requested_by: p.requested_by, is_test: p.is_test,
+          payload: { day: p.day || '2026-08-19', count: 2, pages: 3, file_id: 1,
+            shipment_ids: ['901', '902'], groups: [{ nickname: 'BENF-300', count: 2, location: 'A03B2' }] },
+        });
+        const final = p.take ? await queue.take(job.id, p.requested_by) : job;
+        return { job: final, file_id: 1, counts: { labels: 2, pages: 3, groups: 1, failed: 0 } };
+      },
+      markPrinted: async (job) => { calls.marked.push(job.id); return { labels: 2, lines: 2 }; },
+      fileForJob: async (jobId) => (state.jobs.find((j) => j.id === Number(jobId))
+        ? { id: 1, mime: 'application/pdf', bytes: Buffer.from('%PDF-1.7 fake'), pages: 3 } : null),
+    };
+    const app = express();
+    app.use('/', createPrintQueueRouter({ db, queue, shipping }));
+    server = await new Promise((res) => { const x = app.listen(0, '127.0.0.1', () => res(x)); });
+    base = `http://127.0.0.1:${server.address().port}`;
+  }
+
+  beforeEach(async () => { await bootShipping(); });
+
+  test('preview responde pra quem pode ler', async () => {
+    const r = await call('GET', '/api/v3/print-queue/shipping-labels/preview?day=2026-08-19',
+      undefined, asAdmin);
+    expect(r.status).toBe(200);
+    expect(r.body.data).toMatchObject({ day: '2026-08-19', counts: { ready: 0 } });
+  });
+
+  test('a rota de preview NÃO é engolida pelo /:id', async () => {
+    // '/shipping-labels/preview' casaria com '/:id' se registrada depois
+    const r = await call('GET', '/api/v3/print-queue/shipping-labels/preview', undefined, asAdmin);
+    expect(r.status).toBe(200);
+    expect(r.body.data.counts).toBeDefined();
+  });
+
+  test('sem credencial → 401, igual ao resto da fila', async () => {
+    expect((await call('GET', '/api/v3/print-queue/shipping-labels/preview')).status).toBe(401);
+    expect((await call('POST', '/api/v3/print-queue/shipping-labels', {})).status).toBe(401);
+  });
+
+  test('login sem manage_stock não compõe (só lê)', async () => {
+    const asViewer = { 'x-admin-pin': VIEWER_PIN };
+    expect((await call('GET', '/api/v3/print-queue/shipping-labels/preview', undefined, asViewer)).status).toBe(200);
+    expect((await call('POST', '/api/v3/print-queue/shipping-labels', {}, asViewer)).status).toBe(403);
+  });
+
+  test('kiosk compõe e o PACKER é a pessoa da sessão', async () => {
+    const r = await call('POST', '/api/v3/print-queue/shipping-labels',
+      { day: '2026-08-19', take: true }, asKiosk);
+    expect(r.status).toBe(200);
+    expect(calls.compose[0].packer_id).toBe('5');       // person_id da sessão do Vitor
+    expect(r.body.data.job.status).toBe('taken');
+    expect(r.body.data.file_url).toBe('/api/v3/print-queue/1/file');
+    expect(r.body.data.counts).toMatchObject({ labels: 2, pages: 3 });
+  });
+
+  test('admin pelo celular não é quem embala: packer nulo', async () => {
+    await call('POST', '/api/v3/print-queue/shipping-labels', { day: '2026-08-19' }, asAdmin);
+    expect(calls.compose[0].packer_id).toBeNull();
+    expect(calls.compose[0].requested_by).toBe('Henrique');
+  });
+
+  test('reprint e shipment_ids chegam no serviço', async () => {
+    await call('POST', '/api/v3/print-queue/shipping-labels',
+      { reprint: true, shipment_ids: ['901'] }, asAdmin);
+    expect(calls.compose[0]).toMatchObject({ reprint: true, shipment_ids: ['901'] });
+  });
+
+  test('o PDF abre com ?t= (aba nova não manda header)', async () => {
+    await call('POST', '/api/v3/print-queue/shipping-labels', {}, asKiosk);
+    const r = await fetch(base + '/api/v3/print-queue/1/file?t=' + SESSION);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toMatch(/application\/pdf/);
+    expect(r.headers.get('content-disposition')).toMatch(/inline; filename="etiquetas-envio-/);
+    expect(Buffer.from(await r.arrayBuffer()).subarray(0, 4).toString()).toBe('%PDF');
+  });
+
+  test('o PDF abre com ?pin= do admin', async () => {
+    await call('POST', '/api/v3/print-queue/shipping-labels', {}, asAdmin);
+    const r = await fetch(base + '/api/v3/print-queue/1/file?pin=' + ADMIN_PIN);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toMatch(/application\/pdf/);
+  });
+
+  test('PDF sem credencial nenhuma → 401 (a query não é porta aberta)', async () => {
+    await call('POST', '/api/v3/print-queue/shipping-labels', {}, asAdmin);
+    expect((await fetch(base + '/api/v3/print-queue/1/file')).status).toBe(401);
+    expect((await fetch(base + '/api/v3/print-queue/1/file?t=token-errado')).status).toBe(401);
+    expect((await fetch(base + '/api/v3/print-queue/1/file?pin=000000')).status).toBe(401);
+  });
+
+  test('PDF de job que não existe → 404', async () => {
+    const r = await fetch(base + '/api/v3/print-queue/999/file?pin=' + ADMIN_PIN);
+    expect(r.status).toBe(404);
+  });
+
+  test('done de etiqueta de envio carimba printed_at', async () => {
+    await call('POST', '/api/v3/print-queue/shipping-labels', { take: true }, asKiosk);
+    const r = await call('POST', '/api/v3/print-queue/1/done', {}, asKiosk);
+    expect(r.status).toBe(200);
+    expect(r.body.data.stamped).toEqual({ labels: 2, lines: 2 });
+    expect(calls.marked).toEqual([1]);
+  });
+
+  test('done de outro tipo não chama o carimbo de etiqueta', async () => {
+    await queue.enqueue({ kind: 'box_label', payload: boxLabels([5]), requested_by: 'Henrique' });
+    const r = await call('POST', '/api/v3/print-queue/1/done', {}, asStation);
+    expect(r.status).toBe(200);
+    expect(r.body.data.stamped).toBeUndefined();
+    expect(calls.marked).toEqual([]);
+  });
+
+  test('sem o serviço injetado as rotas dizem 503 e o resto da fila segue', async () => {
+    if (server) await new Promise((r) => server.close(r));
+    const db = makeDb(state);
+    const app = express();
+    app.use('/', createPrintQueueRouter({ db, queue: new PrintQueueService({ db }) }));
+    server = await new Promise((res) => { const x = app.listen(0, '127.0.0.1', () => res(x)); });
+    base = `http://127.0.0.1:${server.address().port}`;
+    expect((await call('GET', '/api/v3/print-queue/shipping-labels/preview', undefined, asAdmin)).status).toBe(503);
+    expect((await call('GET', '/api/v3/print-queue', undefined, asAdmin)).status).toBe(200);
+  });
+
+  test('nada novo pra imprimir chega como 409, não como 500', async () => {
+    // o compose lança ShippingLabelsError (outro módulo, outra classe): o
+    // sendError precisa traduzir pelo CONTRATO {code,status}, senão o operador
+    // vê "erro interno" quando na verdade não há nada pra imprimir.
+    shipping.compose = async () => {
+      const e = new Error('Nada novo pra imprimir: todas as etiquetas do dia já saíram.');
+      e.code = 'nothing_to_print'; e.status = 409; throw e;
+    };
+    const r = await call('POST', '/api/v3/print-queue/shipping-labels', {}, asAdmin);
+    expect(r.status).toBe(409);
+    expect(r.body.error.code).toBe('nothing_to_print');
+  });
+
+  test('erro de verdade continua 500 (não vira 4xx silencioso)', async () => {
+    shipping.compose = async () => { throw new Error('banco caiu'); };
+    const r = await call('POST', '/api/v3/print-queue/shipping-labels', {}, asAdmin);
+    expect(r.status).toBe(500);
+    expect(r.body.error.code).toBe('internal');
+  });
+
+  test('shipping_labels é kind válido na fila', async () => {
+    const job = await queue.enqueue({ kind: 'shipping_labels', payload: { file_id: 1 }, requested_by: 'V' });
+    expect(job.kind).toBe('shipping_labels');
+  });
+});

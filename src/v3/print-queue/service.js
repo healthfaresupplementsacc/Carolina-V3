@@ -21,7 +21,9 @@
  * Nada aqui escreve quantidade de estoque. A fila não é o livro-razão.
  */
 
-const KINDS = ['bin_labels', 'box_label', 'picklist'];
+// shipping_labels (S15.37): etiquetas de envio já compostas num PDF só, com
+// rodapé e folhas divisórias. O payload traz file_id em vez de labels[].
+const KINDS = ['bin_labels', 'box_label', 'picklist', 'shipping_labels'];
 const STATUSES = ['queued', 'taken', 'done', 'error', 'cancelled'];
 const LIST_CAP = 200;
 const DEFAULT_LIMIT = 50;
@@ -92,7 +94,7 @@ class PrintQueueService {
   async enqueue(p = {}) {
     const kind = String(p.kind || '').trim();
     if (!KINDS.includes(kind)) {
-      throw new QueueError('bad_request', 'kind inválido (bin_labels, box_label ou picklist)');
+      throw new QueueError('bad_request', 'kind inválido (' + KINDS.join(', ') + ')');
     }
     const payload = p.payload && typeof p.payload === 'object' ? p.payload : {};
     const r = await this.db.query(

@@ -76,7 +76,10 @@
   function moveLabel(k) { return MOVE_LABEL[k] || (k ? String(k) : 'movimento'); }
 
   // curto de propósito: na largura do iPhone o nome longo cortava no meio
-  var JOB_KIND_LABEL = { bin_labels: 'Prateleiras', box_label: 'Caixa', picklist: 'Picklist' };
+  var JOB_KIND_LABEL = {
+    bin_labels: 'Prateleiras', box_label: 'Caixa', picklist: 'Picklist',
+    shipping_labels: 'Etiquetas de envio',
+  };
   var JOB_STATUS = {
     queued: { label: 'na fila', tone: 'neutral' },
     taken: { label: 'imprimindo', tone: 'info' },
@@ -104,6 +107,7 @@
     cam: null,            // { hint, manual }
     queue: [],
     printers: [],
+    ship: null,           // preview das etiquetas de envio de hoje
     detail: null,         // ficha do produto aberta
     busy: false,
     offline: false,
@@ -197,9 +201,13 @@
    * envelope {data}/{error}, e traduzir falha em frase que o Bruno
    * consegue agir. Um 401 devolve pro PIN na hora.
    */
+  /* A credencial da tela em UM lugar só. api() e apiBlob() chamam esta função:
+     não existe caminho pro servidor sem o PIN do admin. */
+  function pinHeaders() { return { 'x-admin-pin': S.pin || '' }; }
+
   function api(pathname, opts) {
     var o = opts || {};
-    var headers = { 'x-admin-pin': S.pin || '' };
+    var headers = pinHeaders();
     var init = { method: o.method || 'GET', headers: headers };
     if (o.body !== undefined) {
       headers['Content-Type'] = 'application/json';
@@ -231,6 +239,23 @@
       var off = new Error('Sem internet aqui. Tente de novo quando o sinal voltar.');
       off.code = 'offline';
       throw off;
+    });
+  }
+
+  /**
+   * Um arquivo (PDF das etiquetas de envio) em vez de JSON. MESMA credencial
+   * do api() acima, montada pela MESMA função: nenhum caminho desta tela fala
+   * com o servidor sem o PIN. Devolve o blob pra virar URL local, porque uma
+   * aba nova não manda header nenhum.
+   */
+  function apiBlob(pathname) {
+    return fetch(pathname, { headers: pinHeaders() }).then(function (r) {
+      if (r.status === 401) {
+        clearPin(); S.pinError = 'PIN inválido'; render();
+        var e401 = new Error('PIN inválido'); e401.code = 'unauthorized'; throw e401;
+      }
+      if (!r.ok) { var e = new Error('Não deu pra baixar o arquivo. Tente de novo.'); e.status = r.status; throw e; }
+      return r.blob();
     });
   }
 
@@ -1149,6 +1174,9 @@
         + '</div>';
     }
 
+    // (a2) etiquetas de envio de hoje
+    h += shipCardHtml();
+
     // (d) picklist do dia
     if (canWrite()) {
       h += '<div class="card"><div style="font-weight:600; margin-bottom:5px;">Picklist de hoje</div>'
@@ -1206,6 +1234,143 @@
       S.printers = (d && d.printers) || [];
       render();
     }).catch(function () {});
+    loadShip();
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ETIQUETAS DE ENVIO DE HOJE
+  // A etiqueta da transportadora com o rodapé do nosso sistema (apelido,
+  // local, garrafas, envelope, quem separou e quem embalou). O papel certo
+  // sai na 4x6 da Central; daqui o Bruno manda pra lá, ou abre o PDF no
+  // iPhone quando quiser conferir antes.
+  // ══════════════════════════════════════════════════════════════════
+
+  /** Hoje em Nova York: o dia do P&P é o da fábrica, não o do celular. */
+  function todayNY() {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date());
+    } catch (e) { return new Date().toISOString().slice(0, 10); }
+  }
+
+  function loadShip() {
+    return api(PQ + '/shipping-labels/preview?day=' + encodeURIComponent(todayNY()))
+      .then(function (d) {
+        S.ship = { day: (d && d.day) || todayNY(), ready: (d && d.ready) || [], counts: (d && d.counts) || {} };
+        render();
+      })
+      .catch(function () {
+        /* Veeqo fora do ar não pode esconder a aba inteira: o cartão diz que
+           não deu e o resto (fila, impressoras, etiquetas) segue. */
+        S.ship = { down: true, ready: [], counts: {} };
+        render();
+      });
+  }
+
+  /** Uma linha por produto pro resumo: apelido · quantas · local. */
+  function shipGroups(p) {
+    var by = {}; var order = [];
+    ((p && p.ready) || []).forEach(function (o) {
+      var pr = (o.products || [])[0] || {};
+      var nick = pr.nickname || pr.sku || 'sem produto';
+      if (!by[nick]) { by[nick] = { nickname: nick, count: 0, location: pr.bin_code || pr.shelf_code || 'sem local' }; order.push(nick); }
+      by[nick].count += 1;
+    });
+    return order.map(function (k) { return by[k]; });
+  }
+
+  function shipCardHtml() {
+    var p = S.ship;
+    var h = '<div class="card" data-card="shipping-labels">'
+      + '<div style="font-weight:600; margin-bottom:5px;">Etiquetas de envio de hoje</div>';
+    if (!p) return h + '<div class="sub">Vendo o que a Veeqo tem pra hoje…</div></div>';
+    if (p.down) {
+      return h + '<div class="sub">Não deu pra falar com a Veeqo agora. Toque em Atualizar daqui a pouco.</div>'
+        + '<button class="btn sm block" data-act="reloadShip" style="margin-top:9px;">Atualizar</button></div>';
+    }
+    var c = p.counts || {};
+    var ready = Number(c.ready) || 0;
+    var printed = Number(c.printed) || 0;
+    var toPrint = Number(c.to_print) || 0;
+
+    h += '<div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:10px;" data-counts="shipping">'
+      + chip(ready + ' prontas', 'neutral')
+      + chip(printed + ' impressas', 'ok')
+      + chip(toPrint + ' pra imprimir', toPrint ? 'warn' : 'neutral')
+      + '</div>';
+
+    var gs = shipGroups(p);
+    if (gs.length) {
+      h += '<div class="list" style="margin-bottom:11px;" data-list="shipping-groups">';
+      gs.forEach(function (g) {
+        h += '<div class="item"><span class="grow">'
+          + '<span class="t">' + esc(g.nickname) + '</span>'
+          + '<span class="s">' + esc(g.location) + '</span></span>'
+          + chip(g.count + (g.count === 1 ? ' etiqueta' : ' etiquetas'), 'neutral') + '</div>';
+      });
+      h += '</div>';
+    }
+
+    if (!toPrint) {
+      h += '<div class="sub">' + (ready ? 'Tudo de hoje já saiu no papel.' : 'Nenhuma etiqueta comprada na Veeqo hoje ainda.') + '</div>';
+    }
+    if (canWrite() && toPrint) {
+      h += '<button class="btn primary big block" data-act="shipSend"' + (S.busy ? ' disabled' : '') + ' style="margin-bottom:9px;">Mandar pro computador</button>';
+    }
+    if (toPrint || ready) {
+      h += '<button class="btn big block" data-act="shipOpen"' + (S.busy ? ' disabled' : '') + '>Abrir PDF aqui</button>'
+        + '<div class="sub" style="margin-top:9px;">Mandar pro computador põe na fila da Central, que imprime na 4x6. Abrir PDF aqui usa o AirPrint do iPhone.</div>';
+    }
+    return h + '</div>';
+  }
+
+  /** MANDAR PRO COMPUTADOR: compõe sem take; a Central puxa da fila e imprime. */
+  function shipSend() {
+    if (!canWrite()) { toast('Este login não pode mandar imprimir.', 'bad'); return; }
+    S.busy = true; render();
+    api(PQ + '/shipping-labels', { method: 'POST', body: { day: todayNY() } })
+      .then(function () {
+        S.busy = false;
+        toast('Mandado. Sai na 4x6 da Central em até 30 s.', 'ok');
+        render();
+        loadPrintSide();
+      })
+      .catch(function (e) {
+        S.busy = false; render();
+        if (e && e.code === 'nothing_to_print') { toast('Nada novo pra imprimir. As de hoje já saíram.', 'ok'); loadShip(); return; }
+        fail(e);
+      });
+  }
+
+  /**
+   * ABRIR PDF AQUI: o arquivo mora atrás do PIN, e uma aba nova não manda
+   * header nenhum. Então buscamos os bytes com a credencial e abrimos um
+   * blob local. A aba nasce ANTES do await: no iOS, window.open que não vem
+   * direto do toque é bloqueado.
+   */
+  function shipOpen() {
+    var win = window.open('', '_blank');
+    S.busy = true; render();
+    api(PQ + '/shipping-labels', { method: 'POST', body: { day: todayNY(), take: true } })
+      .then(function (d) {
+        var url = (d && d.file_url) || (d && d.job ? PQ + '/' + d.job.id + '/file' : '');
+        if (!url) throw new Error('o servidor não devolveu o arquivo');
+        return apiBlob(url).then(function (blob) {
+          S.busy = false; render();
+          var obj = URL.createObjectURL(blob);
+          if (!win) { toast('O Safari bloqueou a janela. Libere os pop-ups deste site e toque de novo.', 'bad'); return; }
+          win.location = obj;
+          toast('PDF aberto. Use Imprimir pra mandar pro AirPrint.', 'ok');
+          loadPrintSide();
+        });
+      })
+      .catch(function (e) {
+        S.busy = false; render();
+        if (win) { try { win.close(); } catch (e2) {} }
+        if (e && e.code === 'nothing_to_print') { toast('Nada novo pra imprimir. As de hoje já saíram.', 'ok'); loadShip(); return; }
+        fail(e);
+      });
   }
 
   /** Puxa os labels prontos do servidor (mesma função do GET /labels). */
@@ -1588,6 +1753,9 @@
       case 'printSend': printSend(); break;
       case 'printPicklist': printPicklist(); break;
       case 'reloadQueue': loadPrintSide(); break;
+      case 'reloadShip': S.ship = null; render(); loadShip(); break;
+      case 'shipSend': shipSend(); break;
+      case 'shipOpen': shipOpen(); break;
       case 'cancelJob': cancelJob(arg); break;
       case 'sheetClose': S.sheet = null; render(); break;
       default: break;

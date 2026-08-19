@@ -360,6 +360,40 @@ describe('estoque — arquivos da casca (html + sw + vendor)', () => {
         expect(html.indexOf(s)).toBeLessThan(html.indexOf('/print/print.js'));
       });
   });
+  /* S2 · ETIQUETAS DE ENVIO. O kind novo abre um PDF numa aba e fica ESPERANDO
+     alguem confirmar que o papel saiu (o done e que carimba printed_at). As
+     duas telas que puxam a fila precisam do botao de fechar o job: sem ele o
+     PDF abriria e o pedido ficaria preso, e ninguem imprimiria de novo. */
+  test('o hub e a estacao fecham o job de etiqueta de envio (Ja imprimi / Deu erro)', () => {
+    [['op', 'estoque.js'], ['print', 'print.js']].forEach(([dir, file]) => {
+      const js = read(dir, file);
+      expect(js).toContain('queue.confirm()');
+      expect(js).toContain('queue.fail(');
+      expect(js).toContain('printJobDone');
+      expect(js).toContain('printJobFail');
+      // e a faixa de espera tem que ser DESENHADA, nao so existir no dispatcher
+      expect(js).toMatch(/data-card="print-await"/);
+      expect(js).toMatch(/queue\.awaiting/);
+    });
+  });
+  /* Uma funcao definida e nunca chamada desenha exatamente NADA. Este teste
+     conta as aparicoes: a declaracao + pelo menos uma chamada de verdade
+     dentro do HTML da tela. Sem ele, apagar a linha que monta a faixa passaria
+     batido e o job de etiqueta de envio ficaria preso sem botao de fechar. */
+  test('a faixa de espera e realmente montada no HTML das duas telas', () => {
+    const hub = read('op', 'estoque.js');
+    expect((hub.match(/queueAwaitHtml\(\)/g) || []).length).toBeGreaterThanOrEqual(2);
+    expect(hub).toContain('h += queueAwaitHtml();');
+    const st = read('print', 'print.js');
+    expect((st.match(/queueAwaitCard\(\)/g) || []).length).toBeGreaterThanOrEqual(2);
+    expect(st).toMatch(/\+ queueAwaitCard\(\)/);
+  });
+  test('as duas telas assinam o link do PDF com o token da sessao', () => {
+    // a aba nova nao manda header nenhum: sem ?t= o arquivo volta 401
+    [['op', 'estoque.js'], ['print', 'print.js']].forEach(([dir, file]) => {
+      expect(read(dir, file)).toMatch(/sessionToken: function \(\) \{ return S\.session/);
+    });
+  });
   test('sw cacheia a tela nova e subiu de versao', () => {
     const sw = read('op', 'sw.js');
     expect(sw).toContain("'hf-op-v43'");

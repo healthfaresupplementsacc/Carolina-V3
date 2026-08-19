@@ -39,13 +39,30 @@
     bin_labels: 'Etiquetas de prateleira',
     box_label: 'Etiqueta de caixa',
     picklist: 'Picklist de hoje',
+    shipping_labels: 'Etiquetas de envio',
   };
   function kindLabel(k) { return KIND_LABEL[String(k || '')] || 'Impressão'; }
+
+  /* Etiqueta de envio não é desenhada aqui: o servidor já compôs um PDF 4x6 com
+     rodapé, divisória por produto e ordem de local. A estação só ABRE o arquivo
+     e confirma depois que o papel saiu. Por isso este kind tem duas etapas
+     (abrir → "Já imprimi") em vez do take→imprime→done dos outros. */
+  function isFileKind(k) { return String(k || '') === 'shipping_labels'; }
+
+  /** URL do PDF já composto pelo servidor, com a credencial na query (aba nova
+      não manda header). Sem token vai sem: o servidor ainda aceita cookie/PIN. */
+  function fileUrl(job, token) {
+    var id = job && job.id;
+    if (!id) return '';
+    var u = BASE + '/' + encodeURIComponent(id) + '/file';
+    return token ? u + '?t=' + encodeURIComponent(token) : u;
+  }
 
   /** Quantas etiquetas esse job manda pro papel. Picklist = 1 folha. */
   function jobCount(job) {
     var p = (job && job.payload) || {};
     if (Array.isArray(p.labels)) return p.labels.length;
+    if (isFileKind(job && job.kind)) return Number(p.pages) || Number(p.count) || 0;
     if (String(job && job.kind) === 'picklist') return 1;
     return 0;
   }
@@ -71,6 +88,7 @@
   /** O que o botão diz. Job travado avisa que vai ser uma 2ª tentativa. */
   function actionLabel(job) {
     if (job && String(job.status) === 'taken') return 'Tentar de novo';
+    if (isFileKind(job && job.kind)) return 'Abrir PDF';
     return 'Imprimir';
   }
   /** Linha de estado embaixo do job (só aparece quando tem o que dizer). */
@@ -83,6 +101,14 @@
     }
     if (st === 'error') return job.error_note ? 'deu erro: ' + job.error_note : 'deu erro na última tentativa';
     return '';
+  }
+
+  /** Resumo dos grupos do payload pro cartão: "BENF-300 · 12 · A03B2". */
+  function groupLines(job) {
+    var p = (job && job.payload) || {};
+    return (p.groups || []).map(function (g) {
+      return [g.nickname || '?', (g.count != null ? g.count : '?'), g.location || 'sem local'].join(' · ');
+    });
   }
 
   /**
@@ -123,8 +149,15 @@
       return (typeof window !== 'undefined') ? window.open('', '_blank', 'width=520,height=760') : null;
     };
     var printPicklist = D.printPicklist || null;
+    /* Token da sessão do kiosk pra assinar o link do PDF: a aba nova não manda
+       header nenhum, então a credencial vai na query (contrato 4). */
+    var sessionToken = D.sessionToken || function () { return ''; };
 
-    var S = { jobs: [], busy: null, timer: null, on: false };
+    /* awaiting = job de arquivo já aberto, esperando a pessoa confirmar que o
+       papel saiu. Fica FORA de S.jobs pra sobreviver ao poll: a fila do servidor
+       devolve o job como "taken", e sem esta memória o cartão perderia o botão
+       "Já imprimi" no primeiro ciclo de 30 s. */
+    var S = { jobs: [], busy: null, timer: null, on: false, awaiting: null };
 
     function labelsRenderer() {
       var W = typeof window !== 'undefined' ? window : null;
@@ -180,10 +213,85 @@
      * motivo, pra quem pediu no celular ver o que houve em vez de ficar
      * esperando papel que não vem.
      */
+    /**
+     * Etiqueta de envio: o PDF já existe no servidor. A janela abre ANTES do
+     * take (popup só nasce do toque; um await no meio e o navegador bloqueia),
+     * e só depois a gente aponta ela pro arquivo. Nada de done automático: o
+     * done marca printed_at nas etiquetas e nas linhas do pedido, e isso só
+     * pode acontecer quando a pessoa viu o papel sair.
+     */
+    function takeFile(id, job) {
+      var who = by() || 'estação';
+      var win = openWindow();
+      if (!win) {
+        toast('O navegador bloqueou a janela. Libere os popups deste site e toque de novo.');
+        return Promise.resolve(null);
+      }
+      S.busy = job.id; onChange();
+      return api(BASE + '/' + encodeURIComponent(job.id) + '/take', { method: 'POST', body: { by: who } })
+        .then(function (r) {
+          var d = (r && r.data) || r || {};
+          var url = d.file_url || fileUrl(job, sessionToken());
+          try { win.location = url; } catch (e) { /* janela fechada na mão: segue */ }
+          S.busy = null;
+          S.awaiting = { id: job.id, kind: job.kind, url: url, payload: job.payload || {} };
+          toast('PDF aberto. Imprima na 4x6 e toque em Já imprimi.');
+          onChange();
+          return S.awaiting;
+        })
+        .catch(function (e) {
+          S.busy = null;
+          try { win.close(); } catch (e2) {}
+          if (e && e.status === 409) { toast('Outro computador pegou esse pedido primeiro.'); onChange(); load(); return null; }
+          toast('Não deu pra abrir as etiquetas agora: ' + errNote(e));
+          onChange(); load();
+          return null;
+        });
+    }
+
+    /** "Já imprimi": fecha o job. É AQUI que o printed_at é carimbado. */
+    function confirm() {
+      var a = S.awaiting;
+      if (!a || S.busy) return Promise.resolve(null);
+      var who = by() || 'estação';
+      S.busy = a.id; onChange();
+      return api(BASE + '/' + encodeURIComponent(a.id) + '/done', { method: 'POST', body: { by: who } })
+        .then(function () {
+          S.busy = null; S.awaiting = null;
+          S.jobs = S.jobs.filter(function (j) { return String(j.id) !== String(a.id); });
+          toast('Etiquetas registradas como impressas.');
+          onChange(); load();
+          return true;
+        })
+        .catch(function (e) {
+          S.busy = null;
+          toast('Não deu pra registrar agora: ' + errNote(e) + '. Tente de novo.');
+          onChange();
+          return false;
+        });
+    }
+
+    /** "Deu erro": devolve o job com o motivo, sem carimbar impressão nenhuma. */
+    function fail(note) {
+      var a = S.awaiting;
+      if (!a || S.busy) return Promise.resolve(null);
+      var who = by() || 'estação';
+      S.busy = a.id; onChange();
+      return api(BASE + '/' + encodeURIComponent(a.id) + '/error', { method: 'POST', body: { by: who, note: String(note || 'não saiu no papel') } })
+        .catch(function () {})
+        .then(function () {
+          S.busy = null; S.awaiting = null;
+          toast('Anotado. As etiquetas continuam pra imprimir.');
+          onChange(); load();
+          return true;
+        });
+    }
+
     function take(id) {
       if (S.busy) return Promise.resolve(null);
       var job = S.jobs.find(function (j) { return String(j.id) === String(id); });
       if (!job) return Promise.resolve(null);
+      if (isFileKind(job.kind)) return takeFile(id, job);
       var who = by() || 'estação';
       S.busy = job.id; onChange();
 
@@ -223,8 +331,10 @@
 
     return {
       start: start, stop: stop, load: load, take: take,
+      confirm: confirm, fail: fail,
       get jobs() { return S.jobs; },
       get busy() { return S.busy; },
+      get awaiting() { return S.awaiting; },
       state: S,
     };
   }
@@ -235,5 +345,6 @@
     kindLabel: kindLabel, jobCount: jobCount, ageText: ageText,
     isTakeable: isTakeable, actionLabel: actionLabel, stateNote: stateNote,
     visibleJobs: visibleJobs, errNote: errNote,
+    isFileKind: isFileKind, fileUrl: fileUrl, groupLines: groupLines,
   };
 }));

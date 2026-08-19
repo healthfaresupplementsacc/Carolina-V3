@@ -237,7 +237,16 @@ function mount(app) {
   const printQueueApi = require('./print-queue/router');
   const { PrintQueueService } = require('./print-queue/service');
   const printQueue = new PrintQueueService({ db: _pool });
-  app.use('/', printQueueApi.createPrintQueueRouter({ db: _pool, queue: printQueue }));
+  // ETIQUETAS DE ENVIO (S15.37, Bruno 08-19) — imprimir do NOSSO sistema em vez
+  // da tela da Veeqo: rodapé (produto·local·garrafas·envelope·pick/pack),
+  // agrupado por produto na ordem de caminhada, uma folha divisória por grupo.
+  // Usa o MESMO cliente Veeqo e a MESMA fila do resto; nenhuma escrita de estoque.
+  const { ShippingLabelsService } = require('./shipping-labels/service');
+  const shippingLabels = new ShippingLabelsService({
+    db: _pool, veeqo: whVeeqo, queue: printQueue,
+  });
+  app.use('/', printQueueApi.createPrintQueueRouter({
+    db: _pool, queue: printQueue, shipping: shippingLabels }));
   app.use('/', warehouseApi.createWarehouseRouter({
     db: _pool, stock: whStock, requests: whRequests, veeqo: whVeeqo,
     printQueue, adminChannelId }));

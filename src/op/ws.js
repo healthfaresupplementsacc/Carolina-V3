@@ -297,6 +297,7 @@
     D.api('/api/v3/op/picklist').then(function (r) { w.picklist = r; D.render(); }).catch(function () { w.picklist = { groups: [], total_orders: 0 }; D.render(); });
     loadRecent();
     loadContext();
+    loadShipping();
     // falta de estoque cruzada com o EMS (pode demorar: Veeqo + EMS)
     D.api('/api/v3/op/stock-gaps').then(function (r) { w.gaps = r; D.render(); }).catch(function () { w.gaps = { items: [] }; D.render(); });
   }
@@ -450,11 +451,17 @@
     var W = typeof window !== 'undefined' ? window : null;
     return (W && W.HF_PRINT_QUEUE) || (typeof global !== 'undefined' && global.HF_PRINT_QUEUE) || null;
   }
+  function sessionToken() {
+    var S = D.S || {};
+    return (S.session && S.session.token) || '';
+  }
   function startQueue() {
     var M = PQ();
     if (!M || queue) return;
     queue = M.create({
       api: function (path, opts) { return D.api(path, opts); },
+      // a aba do PDF não manda header: o token vai assinado na query (contrato 4)
+      sessionToken: sessionToken,
       /* QUEM imprimiu vai no take/done: o admin no celular precisa saber onde
          o papel saiu. No /op a pessoa logada mora em S.session.person
          (app.js:1524); S.person é o formato do hub de estoque. */
@@ -470,11 +477,192 @@
       printPicklist: function () { print(); return true; },
     });
     queue.start();
+    /* As etiquetas de envio andam no MESMO ciclo de 30 s da fila: dois timers
+       pra mesma tela seriam duas fontes de "quando atualiza". */
+    if (!shipTimer) {
+      var M2 = PQ();
+      shipTimer = setInterval(loadShipping, (M2 && M2.POLL_MS) || 30000);
+    }
   }
-  function stopQueue() { if (queue) { queue.stop(); queue = null; } }
+  var shipTimer = null;
+  function stopQueue() {
+    if (queue) { queue.stop(); queue = null; }
+    if (shipTimer) { clearInterval(shipTimer); shipTimer = null; }
+  }
 
   /* Cartão só aparece quando tem pedido esperando. Nunca empurra nada pra
      baixo quando a fila está vazia: a Central é do P&P, não da impressão. */
+  // ════════════════════════════════════════════════════════════
+  // ETIQUETAS DE ENVIO DE HOJE (S2)
+  // A etiqueta da transportadora sai DAQUI, com o rodapé do nosso sistema:
+  // apelido do produto, local na prateleira, garrafas, tamanho do envelope e
+  // quem separou / quem embalou. Agrupadas por produto e na ordem do local, com
+  // uma folha divisória entre produtos: quem separa anda a prateleira UMA vez.
+  // O PDF inteiro é composto no servidor; a Central abre e confirma.
+  // ════════════════════════════════════════════════════════════
+  var SHIP = '/api/v3/print-queue/shipping-labels';
+
+  /** Dia de hoje em Nova York (o P&P é do fuso da fábrica, não do navegador). */
+  function todayNY() {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date());
+    } catch (e) { return new Date().toISOString().slice(0, 10); }
+  }
+
+  function shipState() {
+    var w = st();
+    if (!w.ship) w.ship = { prev: null, busy: false, err: '' };
+    return w.ship;
+  }
+  function loadShipping() {
+    var s = shipState();
+    return D.api(SHIP + '/preview?day=' + encodeURIComponent(todayNY()))
+      .then(function (r) {
+        var d = (r && r.data) || r || {};
+        s.prev = { day: d.day || todayNY(), ready: d.ready || [], counts: d.counts || {} };
+        s.err = '';
+        D.render();
+      })
+      .catch(function (e) {
+        /* REGRA #0: Veeqo fora do ar não pode travar a Central. O cartão diz o
+           que houve e o resto da tela continua igual. */
+        s.prev = { day: todayNY(), ready: [], counts: {}, down: true };
+        s.err = (e && e.message) ? String(e.message) : 'sem resposta';
+        D.render();
+      });
+  }
+
+  /** Uma linha por produto: apelido · quantas · local. Ordem = a do servidor. */
+  function shipGroups(prev) {
+    var by = {}; var order = [];
+    ((prev && prev.ready) || []).forEach(function (o) {
+      var p = (o.products || [])[0] || {};
+      var nick = p.nickname || p.sku || 'sem produto';
+      if (!by[nick]) { by[nick] = { nickname: nick, count: 0, location: p.bin_code || p.shelf_code || 'sem local' }; order.push(nick); }
+      by[nick].count += 1;
+    });
+    return order.map(function (k) { return by[k]; });
+  }
+
+  function shipHtml() {
+    var s = shipState();
+    var p = s.prev;
+    var h = '<div style="grid-column:1 / -1; ' + CARD + ' padding:16px 20px;" data-card="shipping-labels">'
+      + '<div style="display:flex; align-items:center; gap:9px; margin-bottom:4px; flex-wrap:wrap;">'
+      + '<span style="font-size:18px;">&#128230;</span>' + microLbl('Etiquetas de envio de hoje')
+      + '<span style="flex:1;"></span>'
+      + '<button data-act="wsShipReload" style="border:1px solid ' + T.line + '; background:' + T.soft + '; cursor:pointer; border-radius:999px; min-height:44px; padding:0 16px; font-size:12.5px; font-weight:700; color:' + T.ink2 + ';">Atualizar</button>'
+      + '</div>';
+
+    if (!p) return h + '<div style="color:' + T.mute2 + '; font-size:13px; padding:10px 0;">Vendo o que a Veeqo tem pra hoje&hellip;</div></div>';
+    if (p.down) {
+      return h + '<div style="font-size:13px; color:' + T.badFg + '; padding:8px 0;">N&atilde;o deu pra falar com a Veeqo agora ('
+        + D.esc(s.err) + '). Toque em Atualizar daqui a pouco. O resto da Central continua funcionando.</div></div>';
+    }
+
+    var c = p.counts || {};
+    var ready = Number(c.ready) || 0;
+    var printed = Number(c.printed) || 0;
+    var toPrint = Number(c.to_print) || 0;
+
+    // a linha de contagem é a frase que o operador lê antes de apertar
+    h += '<div style="display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 10px;" data-counts="shipping">'
+      + chip(ready + ' prontas na Veeqo', T.neuBg, T.neuFg, T.neuLn)
+      + chip(printed + ' j&aacute; impressas', T.okBg, T.okFg, T.okLn)
+      + chip(toPrint + ' pra imprimir', toPrint ? T.warnBg : T.neuBg, toPrint ? T.warnFg : T.mute2, toPrint ? T.warnLn : T.neuLn)
+      + '</div>';
+
+    // o que vai sair: produto · quantas · local, na ordem em que se anda
+    var gs = shipGroups(p);
+    if (gs.length) {
+      h += '<div style="margin-bottom:12px;" data-list="shipping-groups">';
+      gs.forEach(function (g) {
+        h += '<div style="border-top:1px dotted ' + T.dot + '; padding:7px 2px; display:flex; align-items:baseline; gap:9px; font-size:13px; flex-wrap:wrap;">'
+          + '<span style="flex:1; min-width:120px; color:' + T.ink2 + '; font-weight:700;">' + D.esc(g.nickname) + '</span>'
+          + '<span style="font-family:' + MONO + '; font-size:12.5px; font-weight:700; color:' + T.ink + ';">' + g.count + (g.count === 1 ? ' etiqueta' : ' etiquetas') + '</span>'
+          + chip(D.esc(g.location), T.neuBg, T.neuFg, T.neuLn)
+          + '</div>';
+      });
+      h += '</div>';
+    }
+
+    // esperando confirmação: o PDF já abriu, falta a pessoa dizer que saiu
+    var aw = queue && queue.awaiting;
+    if (aw) {
+      h += '<div style="background:' + T.warnBg + '; border:1px solid ' + T.warnLn + '; border-radius:14px; padding:13px 15px;" data-state="aguardando">'
+        + '<div style="font-size:13.5px; font-weight:700; color:' + T.warnFg + '; margin-bottom:10px;">PDF aberto. Imprima na 4x6 e toque em J&aacute; imprimi.</div>'
+        + '<div style="display:flex; gap:9px; flex-wrap:wrap;">'
+        + '<button data-act="wsShipDone" ' + (s.busy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:999px; min-height:48px; padding:0 24px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:15px; font-family:' + SORA + ';">J&aacute; imprimi</button>'
+        + '<button data-act="wsShipError" style="border:1px solid ' + T.badLn + '; cursor:pointer; border-radius:999px; min-height:48px; padding:0 20px; background:#fff; color:' + T.badFg + '; font-weight:700; font-size:14px; font-family:' + SORA + ';">Deu erro</button>'
+        + '<a href="' + D.esc(aw.url) + '" target="_blank" rel="noopener" style="align-self:center; font-size:12.5px; color:' + T.neuFg + '; font-weight:700;">abrir o PDF de novo</a>'
+        + '</div></div>';
+      return h + '</div>';
+    }
+
+    if (!toPrint) {
+      h += '<div style="font-size:13px; color:' + T.okFg + '; font-weight:600; padding:4px 0 10px;">'
+        + (ready ? '&#10003; Tudo de hoje j&aacute; saiu no papel.' : 'Nenhuma etiqueta comprada na Veeqo hoje ainda.') + '</div>';
+    } else {
+      h += '<button data-act="wsShipPrint" ' + (s.busy ? 'disabled' : '')
+        + ' style="width:100%; border:0; cursor:pointer; border-radius:999px; min-height:56px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:16px; font-family:' + SORA + '; box-shadow:0 14px 30px -14px rgba(13,31,60,.6);">'
+        + (s.busy ? 'Montando o PDF&hellip;' : 'Imprimir etiquetas de envio (' + toPrint + ')') + '</button>';
+    }
+    // reimprimir é raro e perigoso (papel repetido): link discreto, nunca botão
+    if (ready) {
+      h += '<div style="margin-top:9px;"><button data-act="wsShipReprint" ' + (s.busy ? 'disabled' : '')
+        + ' style="border:0; background:none; cursor:pointer; padding:6px 2px; font-size:12.5px; color:' + T.mute2 + '; font-weight:700; text-decoration:underline;">reimprimir tudo de hoje</button></div>';
+    }
+    return h + '</div>';
+  }
+
+  /**
+   * Compõe e abre. A janela nasce ANTES do await: popup que não nasce do toque
+   * é popup bloqueado, e aí o operador aperta, nada acontece e ele aperta de
+   * novo (duas montagens do mesmo PDF). Só depois a gente aponta a janela pro
+   * arquivo que o servidor devolveu.
+   */
+  function shipSubmit(reprint) {
+    var s = shipState();
+    if (s.busy) return;
+    var win = D.openWindow();
+    if (!win) { D.toast('O navegador bloqueou a janela. Libere os popups deste site e toque de novo.'); return; }
+    s.busy = true; D.render();
+    var body = { day: todayNY(), take: true };
+    if (reprint) body.reprint = true;
+    D.api(SHIP, { method: 'POST', body: body })
+      .then(function (r) {
+        var d = (r && r.data) || r || {};
+        var url = d.file_url || (d.job ? '/api/v3/print-queue/' + d.job.id + '/file' : '');
+        var t = sessionToken();
+        if (url && t) url += (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + encodeURIComponent(t);
+        if (!url) throw new Error('o servidor não devolveu o arquivo');
+        try { win.location = url; } catch (e) { /* fechada na mão: segue */ }
+        s.busy = false;
+        /* O job já veio TAKEN (take:true). Alimentamos o estado de espera do
+           cartão compartilhado direto, sem um segundo take que daria 409. */
+        var q = queue;
+        if (q && q.state) {
+          q.state.awaiting = { id: (d.job && d.job.id) || null, kind: 'shipping_labels', url: url, payload: (d.job && d.job.payload) || {} };
+        }
+        D.toast('PDF aberto. Imprima na 4x6 e toque em Já imprimi.');
+        D.render();
+      })
+      .catch(function (e) {
+        s.busy = false;
+        try { win.close(); } catch (e2) {}
+        var code = (e && e.body && e.body.error && e.body.error.code) || (e && e.code) || '';
+        if (code === 'nothing_to_print' || (e && e.status === 409)) {
+          D.toast('Nada novo pra imprimir. As de hoje já saíram.');
+          loadShipping();
+          return;
+        }
+        D.toast('Não deu pra montar as etiquetas agora: ' + (e && e.message ? e.message : e));
+        D.render();
+      });
+  }
+
   function queueHtml() {
     var M = PQ();
     if (!M || !queue || !queue.jobs.length) return '';
@@ -523,7 +711,17 @@
       // chega no poll, e o operador só veria o papel pedido depois de clicar
       // em outra coisa.
       + '|q' + (queue ? queue.jobs.map(function (j) { return j.id + '.' + j.status; }).join(',') : '')
-      + (queue && queue.busy ? 'B' : '');
+      + (queue && queue.busy ? 'B' : '')
+      // etiquetas de envio: contagens + o estado "esperando Já imprimi". Sem
+      // isso na key o cartão não trocaria de cara depois do POST e o operador
+      // ficaria olhando "Imprimir" com o PDF já aberto na outra aba.
+      + '|s' + (function () {
+        var s = shipState(); var p = s.prev;
+        if (!p) return 'L';
+        var c = p.counts || {};
+        return (p.down ? 'X' : '') + (c.ready || 0) + '.' + (c.printed || 0) + '.' + (c.to_print || 0)
+          + ((queue && queue.awaiting) ? 'A' + queue.awaiting.id : '') + (s.busy ? 'B' : '');
+      }());
   }
 
   // ── coluna 2: segmento Registrar ────────────────────────────
@@ -663,7 +861,10 @@
     // body: 2 colunas
     h += '<div class="hf-scroll" style="flex:1; overflow-y:auto; padding:14px 34px 40px;"><div style="display:grid; grid-template-columns:1.2fr 1fr; gap:20px; max-width:1240px; margin:0 auto;">';
 
-    // ── FILA DO CELULAR (primeiro: alguém está esperando papel sair daqui)
+    // ── ETIQUETAS DE ENVIO (primeiro de tudo: é o que sai pro cliente hoje)
+    h += shipHtml();
+
+    // ── FILA DO CELULAR (alguém está esperando papel sair daqui)
     h += queueHtml();
 
     // ── "Você está fazendo P&P agora?" (só quando NÃO tem task de P&P aberta)
@@ -779,6 +980,24 @@
     closeWorkspace: function () { D.S.workspaceOpen = false; stopQueue(); D.render(); },
     // fila do celular: pega o job, imprime e marca como feito
     wsPrintJob: function (arg) { if (queue) queue.take(arg); },
+
+    // ── etiquetas de envio ────────────────────────────────────
+    wsShipReload: function () { shipState().prev = null; D.render(); loadShipping(); },
+    wsShipPrint: function () { shipSubmit(false); },
+    wsShipReprint: function () { shipSubmit(true); },
+    /* "Já imprimi" é o que carimba printed_at nas etiquetas e nas linhas do
+       pedido. Fica no cartão, não no automático: papel que não saiu marcado
+       como impresso some da lista e o cliente fica sem etiqueta. */
+    wsShipDone: function () {
+      if (!queue) return;
+      var s = shipState(); s.busy = true; D.render();
+      queue.confirm().then(function () { s.busy = false; loadShipping(); }, function () { s.busy = false; D.render(); });
+    },
+    wsShipError: function () {
+      if (!queue) return;
+      var s = shipState(); s.busy = false;
+      queue.fail('não saiu na 4x6').then(function () { loadShipping(); });
+    },
     // "Só olhar": some a pergunta pelo resto da sessão, nada mais muda
     wsJustLook: function () { st().justLooking = true; D.render(); },
     /* Inicia a task de P&P daqui mesmo. Mesmo corpo do postStart do app.js
@@ -895,6 +1114,7 @@
       restockBody: restockBody, submitToast: submitToast, validate: validate,
       placesFor: placesFor, restockList: restockList, KINDS: KINDS,
       boxOf: boxOf, labelPayload: labelPayload,
+      todayNY: todayNY, shipGroups: shipGroups, shipState: shipState, SHIP: SHIP,
     },
   };
   return WS;
