@@ -281,3 +281,15 @@ Probe of `/products?query=LCAR` (warehouse 108841): `HF-LCAR-1500` = `type:"Prod
 - **ADD/REMOVE to Veeqo (later)** writes the **base sellable only**; kits follow automatically ("kits not writable" in the Deep Study is exactly this).
 - **Family panel UI**: base SKU (ProductVariant) + members (Kit, units per pack) per channel; derived *available packs* per member = floor(available bottles ÷ units). "Merge SKUs" = attach a channel SKU to this product with its units per pack (Kit) or as base (ProductVariant); Veeqo type is shown as a chip so a wrong mapping is visible.
 - Contradiction #15 stands resolved: distinct listings for matching, one bottle inventory for stock — and Veeqo agrees.
+
+## 11. Bruno, round 3 (2026-08-18 late) — Veeqo as starting truth; organizing & counting the physical warehouse
+
+**Model refinement (DECIDED):** *now* the product total is the **Veeqo total** (base SKU physical, wh 108841); Veeqo is corrected by hand while counting/organizing. Once totals are trusted, our system **fully controls Veeqo**: Veeqo deducts on every print (we mirror, `STOCK_DEDUCT_MODE=live`), we **add** to Veeqo whatever comes from production (base SKU only; kits follow) and push adjustments. Sequence: Stage 0 import Veeqo → "A organizar" and place physically · Stage 1 live deduction + nightly reconciliation (alerts only) · Stage 2 push entradas/adjustments to Veeqo.
+
+**Organization (recommendation):** location codes say WHERE never WHAT: `A03B2` = area A (P&P shelves) · shelf 03 · level B · slot 2 (≤8 chars, A-Z 0-9); boxes `BX-0451` sequential never reused, labeled at production with product + qty and sealed; pallets `M1`… Labels printed from Locais on the 4×6 printer: big human code + **Code 128** (USB scanner, keyboard-wedge) + small **QR** (phone deep link to the bin). Bottles keep their UPC (Veeqo `upc_code`) so scan bin → scan bottle → qty needs no new product labels. Fixed home shelf per product; overflow in boxes.
+
+**Counting (recommendation):** sealed pre-counted boxes (count boxes as units, only the open box counted) · weigh-to-count on shelves (unit weight per product in Product Setup; counting scale or any parcel scale) · count-at-zero one-tap · guided cycle counts 1–2 bins/day, blind, variance → proposal · scan every movement · cameras only for empty-shelf/movement-without-record alarms (never for counting).
+
+**Map:** 2D floor map in Locais (shelves/pallets on a grid, bins colored by status, click → product/qty, picklist path), later camera overlay (schema already has `stock_bins.cam/overlay_box`). 3D not worth it.
+
+**Backlog (proposed order):** (1) Importar total da Veeqo → A organizar (bulk + per product) · (2) Locais label printing Code128+QR + scanner-friendly inputs on /op · (3) guided "Organizar" flow + count-at-zero on /op · (4) cycle count of the day + unit weight per product · (5) 2D map · (6) Stage 1/2 Veeqo control + reconciliation worker.
