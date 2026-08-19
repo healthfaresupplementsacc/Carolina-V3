@@ -1,0 +1,133 @@
+{
+  "at": "2026-08-19T22:32:46.861Z",
+  "total": 21,
+  "failed": 0,
+  "results": [
+    {
+      "group": "boot",
+      "name": "window.HF_PAUSE definido por /op/pause-ui.js",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "app carregou sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "o título é o que o Bruno pediu",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "opção 1: \"Desde o começo (11:18)\" com o horário REAL da pausa",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "opção 2: \"Comecei agora (11:57)\" com o horário da entrada",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "diz de quem era a pausa e a nota dela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "REGRA #0: a tela DIZ o que foi assumido enquanto ninguém respondeu",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "tranquiliza o operador (nada se perde)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "estilo",
+      "name": "sem em dash no texto da pergunta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pergunta",
+      "name": "os dois botões existem com o event_id e a escolha",
+      "pass": true,
+      "detail": "[{\"arg\":\"3583:inicio\",\"h\":76},{\"arg\":\"3583:agora\",\"h\":78}]"
+    },
+    {
+      "group": "pergunta",
+      "name": "botões com 44px+ de altura (toque com luva)",
+      "pass": true,
+      "detail": "76/78"
+    },
+    {
+      "group": "banner",
+      "name": "banner \"Você está em pausa\" aparece junto",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "banner",
+      "name": "mostra as tarefas congeladas e que o relógio parou",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "resposta",
+      "name": "toca \"Desde o começo\" → POST /pause/answer com since=inicio",
+      "pass": true,
+      "detail": "{\"event_id\":3583,\"since\":\"inicio\"}"
+    },
+    {
+      "group": "resposta",
+      "name": "o card some depois de respondida",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "resposta",
+      "name": "avisa o ajuste em minutos (5071s = 85 min)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "entrar",
+      "name": "entrar numa pausa alheia abre o overlay em vez de congelar às cegas",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "entrar",
+      "name": "o overlay faz a MESMA pergunta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "entrar",
+      "name": "o overlay traz os dois horários",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "entrar",
+      "name": "escolher no overlay → POST /pause/join com since=inicio",
+      "pass": true,
+      "detail": "{\"pause_event_id\":3578,\"since\":\"inicio\"}"
+    },
+    {
+      "group": "boot",
+      "name": "nenhum erro de console no fim do roteiro",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

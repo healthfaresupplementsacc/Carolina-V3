@@ -1,9 +1,15 @@
 {
-  "at": "2026-08-19T13:46:36.085Z",
+  "at": "2026-08-19T22:33:15.028Z",
   "results": [
     {
       "group": "boot",
       "name": "window.HF_WS definido por /op/ws.js",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "boot",
+      "name": "window.HF_PAUSE definido por /op/pause-ui.js (card + banner)",
       "pass": true,
       "detail": ""
     },

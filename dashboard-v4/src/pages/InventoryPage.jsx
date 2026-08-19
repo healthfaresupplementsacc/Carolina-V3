@@ -195,6 +195,14 @@ function InventoryPage() {
   return (
     <div className="pgi-page" data-page="inv-armazem">
       <LegacyBanner />
+      {/* Mesmo aviso da outra tela antiga: aqui um casepack ainda vale como
+          produto separado, e é assim que a mesma garrafa acaba contada duas
+          vezes. A página está aposentada, então o certo é apontar pro lugar
+          onde a garrafa tem uma linha só, não reagrupar coisa que vai sumir. */}
+      <div className="pgi-hint" data-casepack-hint>
+        Uma linha por listagem: os casepacks (C2, C3, C4) aparecem separados aqui, mesmo sendo a mesma garrafa.
+        No <b>hub Estoque</b> cada garrafa tem uma linha só, com os SKUs pendurados nela.
+      </div>
       <div className="pgi-head">
         <div className="pgi-head-main">
           <span className="kit-eyebrow">● HEALTHFARE · CENTRO DE ESTOQUE</span>

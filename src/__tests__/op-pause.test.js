@@ -38,7 +38,7 @@ describe('FASE PAUSA — congela / retoma', () => {
       // INSERT event (solo)
       if (/INSERT INTO v3\.events/.test(s)) {
         const id = 500 + mem.events.length;
-        mem.events.push({ id, person: params[0], activity: params[1], slug: slugOf(params[1]), ended_at: null, paused_at: null, total_paused_seconds: 0 });
+        mem.events.push({ id, person: params[0], activity: params[1], slug: slugOf(params[1]), started_at: new Date(), ended_at: null, paused_at: null, total_paused_seconds: 0 });
         return resp([{ id, person_id: params[0], activity_type_id: params[1], product_batch_id: params[2], started_at: new Date() }]);
       }
       // loadOwnedOpenEvent
@@ -52,17 +52,34 @@ describe('FASE PAUSA — congela / retoma', () => {
       if (/UPDATE v3\.events SET ended_at = NOW\(\), closed_reason = 'operator_page'/.test(s)) {
         const e = mem.events.find((x) => x.id === params[0]); if (e) e.ended_at = new Date(); return resp([]);
       }
-      // FASE PAUSA freeze
+      // ── src/v3/pause/service.js (Bruno 08-19: a pausa é do GRUPO) ──
+      // getPause: o evento de 'break' em si
+      if (/WHERE e\.id = \$1 AND e\.deleted_at IS NULL AND at\.slug = ANY/.test(s)) {
+        const e = mem.events.find((x) => x.id === params[0] && x.slug === 'break');
+        return resp(e ? [{ id: e.id, person_id: e.person, started_at: e.started_at || new Date(), ended_at: e.ended_at, cowork_group_id: e.cowork_group_id || null, cowork_with: e.cowork_with || [], description: null, is_test: false, slug: 'break' }] : []);
+      }
+      // participantsOf: breaks do mesmo grupo (aqui sempre solo → sem grupo)
+      if (/WHERE e\.cowork_group_id = \$1 AND e\.deleted_at IS NULL AND at\.slug = ANY/.test(s)) return resp([]);
+      // FASE PAUSA freeze (agora por pessoa, com crédito retroativo em $4)
       if (/UPDATE v3\.events SET paused_at = NOW\(\)/.test(s)) {
-        const [pid, exceptId] = params;
-        mem.events.forEach((e) => { if (e.person === pid && !e.ended_at && !e.paused_at && e.id !== exceptId && e.slug !== 'break') e.paused_at = new Date(Date.now() - 60000); });
-        return resp([]);
+        const [pid, except, , add] = params; const out = [];
+        mem.events.forEach((e) => {
+          if (e.person !== pid || e.ended_at || e.paused_at || e.slug === 'break') return;
+          if ((except || []).indexOf(e.id) >= 0) return;
+          e.paused_at = new Date(Date.now() - 60000); e.total_paused_seconds += (add || 0); out.push({ id: e.id });
+        });
+        return resp(out);
       }
       // FASE PAUSA resume
       if (/SET total_paused_seconds = total_paused_seconds \+/.test(s)) {
         const pid = params[0]; const out = [];
         mem.events.forEach((e) => { if (e.person === pid && !e.ended_at && e.paused_at) { e.total_paused_seconds += 60; e.paused_at = null; out.push({ id: e.id }); } });
         return resp(out);
+      }
+      // describeTasks (o "continuar ou finalizar?" de cada um)
+      if (/AS needs_count FROM v3\.events e JOIN v3\.activity_types at/.test(s)) {
+        return resp(mem.events.filter((e) => (params[0] || []).indexOf(e.id) >= 0)
+          .map((e) => ({ id: e.id, person_id: e.person, slug: e.slug, label: e.slug, batch_number: null, product: null, needs_count: false })));
       }
       return resp([]);
     } };

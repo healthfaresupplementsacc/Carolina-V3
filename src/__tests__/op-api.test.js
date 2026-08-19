@@ -262,10 +262,13 @@ function makeFakeDb(mem) {
         const b = mem.batches.find((x) => x.id === ev.product_batch_id) || {};
         return resp([{ operator: p.display_name, product: b.product || null, batch_number: b.batch_number || null, duration_min: 12 }]);
       }
-      // FASE 1 — JOIN: carrega event alvo / atribui grupo / idempotência / membros
-      if (/SELECT id, person_id, activity_type_id, product_batch_id, cowork_group_id, ended_at, deleted_at FROM v3\.events WHERE id = \$1 LIMIT 1/.test(s)) {
+      // FASE 1 — JOIN: carrega event alvo / atribui grupo / idempotência / membros.
+      // Bruno 08-19: o SELECT passou a trazer at.slug (entrar numa PAUSA em
+      // andamento vira a pergunta "desde o começo?" em vez de um join cego).
+      if (/FROM v3\.events e JOIN v3\.activity_types at ON at\.id = e\.activity_type_id WHERE e\.id = \$1 LIMIT 1/.test(s)) {
         const ev = mem.events.find((x) => x.id === params[0]);
-        return resp(ev ? [{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, cowork_group_id: ev.cowork_group_id || null, ended_at: ev.ended_at || null, deleted_at: ev.deleted_at || null }] : []);
+        const at = ev ? (mem.acts || []).find((a) => a.id === ev.activity_type_id) : null;
+        return resp(ev ? [{ id: ev.id, person_id: ev.person_id, activity_type_id: ev.activity_type_id, product_batch_id: ev.product_batch_id, cowork_group_id: ev.cowork_group_id || null, ended_at: ev.ended_at || null, deleted_at: ev.deleted_at || null, started_at: ev.started_at || new Date(), slug: (at && at.slug) || 'production_line' }] : []);
       }
       if (/UPDATE v3\.events SET cowork_group_id = \$1::uuid/.test(s)) {
         const ev = mem.events.find((x) => x.id === params[1]); if (ev) ev.cowork_group_id = params[0];

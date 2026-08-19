@@ -20,6 +20,7 @@ subgraph S09["S09 · Cross-cutting shared modules"]
   S09_12["S09.12 · utils/time.js formatTime (legacy)"]:::verified
   S09_13["S09.13 · shared/hf-design (= S03.09)"]:::verified
   S09_14["S09.14 · middleware/security.js (= S02.05)"]:::verified
+  S09_15["S09.15 · pause/service.js (relógio da PAUSA, do GRUPO; freeze/resume N pessoas; joinPause since inicio ou agora; repairPauseOverlap)"]:::verified
 end
 
 OP["S02.08 op.js"]:::verified
@@ -65,6 +66,11 @@ DATA --> S09_09
 WIRE --> S09_10
 LEG --> S09_12
 S09_05 -->|R133| S09_01
+OPUI["S09.16 · op/pause-ui.js HF_PAUSE (pergunta Você estava nisso desde o começo + banner de pausa)"]:::verified
+EVT[("v3.events")]:::verified
+OP -->|R210 freeze do GRUPO, R211 endPauseFor, R213 join com since| S09_15
+OPUI -->|R214 pause/pending + pause/answer| OP
+S09_15 -.->|R217 escreve SO o relogio, nunca ended_at nem estoque| EVT
 WIRE -.->|R151 required twice: attAlertGate + totalAlertGate| S09_02
 S12_14["S03.01.19 · public source map served on /dashboard-v4 (no auth) — finding"]:::verified
 S12_14 -.-> S12_12

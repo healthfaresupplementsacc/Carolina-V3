@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T18:09:56.136Z",
+  "at": "2026-08-19T22:39:23.353Z",
   "results": [
     {
       "group": "hoje",
@@ -407,7 +407,7 @@
       "group": "estoque",
       "name": "screenshot",
       "pass": true,
-      "detail": "202 KB → theme-estoque.png"
+      "detail": "199 KB → theme-estoque.png"
     },
     {
       "group": "estoque",
@@ -671,7 +671,7 @@
       "group": "estoque-geral",
       "name": "screenshot",
       "pass": true,
-      "detail": "140 KB → theme-estoque-geral.png"
+      "detail": "146 KB → theme-estoque-geral.png"
     },
     {
       "group": "estoque-geral",
@@ -737,7 +737,7 @@
       "group": "inventory",
       "name": "screenshot",
       "pass": true,
-      "detail": "132 KB → theme-inventory.png"
+      "detail": "138 KB → theme-inventory.png"
     },
     {
       "group": "inventory",
@@ -803,7 +803,7 @@
       "group": "produto-setup",
       "name": "screenshot",
       "pass": true,
-      "detail": "151 KB → theme-produto-setup.png"
+      "detail": "163 KB → theme-produto-setup.png"
     },
     {
       "group": "produto-setup",

@@ -148,6 +148,16 @@ export function StockOverviewPage() {
   return (
     <div className="pgi-page" data-page="inv-ver-estoque">
       <LegacyBanner />
+      {/* Esta tela lista uma linha por LISTAGEM da Veeqo, e casepack é a mesma
+          garrafa: BEET-2000 e BEET-2000-C3 aparecem como dois produtos e a
+          mesma garrafa acaba contada duas vezes. Não vale reagrupar aqui (a
+          página está aposentada); vale dizer, na cara, onde está o número
+          certo. Quem chegou por link salvo precisa saber disso antes de somar
+          qualquer coisa. */}
+      <div className="pgi-hint" data-casepack-hint>
+        Uma linha por listagem: os casepacks (C2, C3, C4) aparecem separados aqui, mesmo sendo a mesma garrafa.
+        No <b>hub Estoque</b> cada garrafa tem uma linha só, com os SKUs pendurados nela.
+      </div>
       <div className="pgi-head">
         <div className="pgi-head-main">
           <span className="kit-eyebrow">● HEALTHFARE · VER ESTOQUE</span>

@@ -377,12 +377,35 @@ async function main() {
   });
   await sleep(400);
   rec('produtos', 'busca por SKU também acha', /Magnésio/.test(await txt()));
+
+  /* ── CASEPACK É A MESMA GARRAFA (a regra do Bruno) ──────────────
+     No celular não se junta SKU (é tarefa de mesa), mas a MESMA regra vale:
+     uma linha por produto, e o "+N" prova que os casepacks estão ali dentro.
+     Sem o número, quem olha acha que um SKU sumiu do sistema. */
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-input="productSearch"]');
+    i.value = 'HF-RUT-500-C3';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(400);
+  const kidHits = await page.$$eval('[data-act="product"]', (e) => e.map((x) => x.dataset.arg));
+  rec('produtos', 'buscar o SKU de um casepack acha o PAI (o filho não tem linha)',
+    kidHits.join(',') === '99', kidHits.join(','));
+
   await page.evaluate(() => {
     const i = document.querySelector('[data-input="productSearch"]');
     i.value = '';
     i.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await sleep(300);
+  const listChips = await page.$$eval('[data-act="product"] [data-sku-chip]',
+    (e) => e.map((x) => ({ id: x.dataset.skuChip, n: x.dataset.skuCount, t: x.textContent.replace(/\s+/g, ' ').trim() })));
+  rec('produtos', 'cada linha da lista mostra o SKU base', listChips.length === 3, JSON.stringify(listChips));
+  const rut = listChips.find((c) => c.id === '99') || {};
+  rec('produtos', 'o chip da Rutin diz "HF-RUT-500 +2"',
+    rut.n === '2' && /HF-RUT-500 \+2/.test(rut.t), JSON.stringify(rut));
+  const benf = listChips.find((c) => c.id === '42') || {};
+  rec('produtos', 'produto de SKU único não ganha "+0"', benf.n === '0' && !/\+/.test(benf.t || ''), JSON.stringify(benf));
   await shot('05-produtos');
 
   await tap('[data-act="product"][data-arg="99"]');
@@ -401,6 +424,21 @@ async function main() {
     && !/storein/i.test(ph) && !/\bplace\b/i.test(ph));
   rec('produto', 'as 5 ações do estoque existem na ficha',
     (await page.$$('[data-act="paction"]')).length === 5);
+
+  /* A ficha MOSTRA os casepacks, mas não deixa mexer neles. Ver é o que evita
+     o "sumiu um SKU"; juntar precisa do catálogo inteiro na frente. */
+  const kidRows = await page.$$eval('[data-sku-kid]',
+    (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  rec('produto', 'a ficha lista os 2 casepacks da garrafa', kidRows.length === 2, kidRows.join(' | '));
+  rec('produto', 'cada casepack diz quantas garrafas tem no pacote e o número da Veeqo',
+    kidRows.some((k) => /HF-RUT-500-C3/.test(k) && /3 garrafas no pacote/.test(k) && /Veeqo 46/.test(k)),
+    kidRows.join(' | '));
+  const sheetSub = await page.$eval('[data-sku-list]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  rec('produto', 'o subtítulo da ficha conta os SKUs',
+    /SKU HF-RUT-500 e mais 2/.test(ph), sheetSub.slice(0, 90));
+  rec('produto', 'nada de juntar SKU no celular, a tela diz onde se faz isso',
+    /Juntar ou separar SKU se faz no computador\./.test(await txt())
+    && !(await page.$('[data-act="merge"]')));
   await shot('06-produto');
 
   posted.length = 0;

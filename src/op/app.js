@@ -367,7 +367,7 @@
     var det = (S.emsDetected ? S.emsDetected.ems_key : '') + '|' + (S.detectBusy ? 1 : 0); // FASE FORM
     var cq = (S.confirmQ ? S.confirmQ.unconfirmed_id : '') + '|' + (S.confirmBusy ? 1 : 0); // Bruno 07-18
     det += '|' + cq;
-    var pz = (S.myTasks || []).filter(function (x) { return x.is_paused; }).length + '|' + (S.resumeBusy ? 1 : 0); // FASE PAUSA
+    var pz = (S.myTasks || []).filter(function (x) { return x.is_paused; }).length + '|' + (S.resumeBusy ? 1 : 0) + '|' + pauseKey(); // FASE PAUSA (+ pergunta de entrada tardia)
     return 'home|' + S.completedToday + '|' + S.goal + '|' + t + '|' + tm + '|' + (S.settings.aging ? S.settings.warnMin + '-' + S.settings.overMin : 0) + '|' + det + '|' + pz;
   }
   // FASE FORM — card de detecção passiva (SUGESTÃO, nunca obrigação — REGRA #0).
@@ -434,19 +434,10 @@
   }
   // FASE PAUSA — operador em pausa: banner com nota + "Voltar ao trabalho".
   // Terminar a pausa descongela todos os processos (backend resumePausedFor).
+  // O banner "Você está em pausa" mudou de casa (Bruno 08-19): mora em
+  // /op/pause-ui.js junto com a pergunta "desde o começo?". Mesma aparência.
   function pauseTask() { return (S.myTasks || []).find(function (t) { return t.slug === 'break'; }) || null; }
-  function pauseBanner() {
-    var pt = pauseTask(); if (!pt) return '';
-    var note = (pt.description || '').replace(/\s*\|\s*fim:.*/i, '').trim();
-    var frozen = (S.myTasks || []).filter(function (t) { return t.is_paused; }).length;
-    var h = '<div style="background:linear-gradient(135deg,rgba(217,145,0,.16),rgba(217,145,0,.07)); border:1px solid rgba(217,145,0,.4); border-radius:20px; padding:16px 18px; display:flex; flex-direction:column; gap:12px;">';
-    h += '<div style="display:flex; align-items:center; gap:12px;"><span style="flex:none; width:46px; height:46px; border-radius:14px; background:rgba(217,145,0,.18); color:#8a5a00; display:flex; align-items:center; justify-content:center; font-size:24px;">⏸️</span><div style="flex:1; min-width:0;"><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:18px; color:#0c2545;">Você está em pausa</div>'
-      + (note ? '<div style="font-size:13.5px; color:#8a5a00; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + esc(note) + '</div>' : '')
-      + (frozen ? '<div style="font-size:12px; color:#8a5a00; margin-top:2px;">' + frozen + ' tarefa(s) congelada(s) · o relógio parou</div>' : '') + '</div></div>';
-    h += '<button data-act="resumeWork" data-arg="' + pt.id + '" ' + (S.resumeBusy ? 'disabled' : '') + ' style="border:0; cursor:pointer; border-radius:14px; padding:14px; background:linear-gradient(135deg,#1aa06a,#0e7a4e); color:#fff; font-weight:800; font-size:16px; font-family:\'Sora\',sans-serif; box-shadow:0 14px 30px -16px rgba(14,122,78,.7); display:flex; align-items:center; justify-content:center; gap:8px;">' + svgr('<polygon points="5 3 19 12 5 21 5 3"></polygon>', 17, 2) + (S.resumeBusy ? 'Retomando…' : 'Voltar ao trabalho') + '</button>';
-    h += '</div>';
-    return h;
-  }
+  function pauseBanner() { return PZ ? PZ.banner() : ''; }
 
   // ── P&P WORKSPACE (Bruno 08-06 · S15 Fase 2) ────────────────
   // Todo o workspace (picklist, PRINT, registrar, repor prateleira, recentes)
@@ -459,6 +450,9 @@
     openWindow: function () { return window.open('', '_blank'); },
   });
   var WS_SLUGS = (WS && WS.slugs) || {};
+  // PAUSA (Bruno 08-19) — "Você estava nisso desde o começo?" vive em /op/pause-ui.js.
+  var PZ = window.HF_PAUSE || null; if (PZ) PZ.init({ S: S, api: api, toast: toast, render: render, esc: esc, loadData: function () { return loadData(); } });
+  function pauseCard() { return PZ ? PZ.card() : ''; } function pauseOverlay() { return PZ ? PZ.overlay() : ''; } function pauseKey() { return PZ ? PZ.key() : 'pz-off'; }
   function wsAllowed() { return !!(WS && WS.allowed()); }
   function wsTask() { return WS ? WS.task() : null; }
   function wsBanner() { return WS ? WS.banner() : ''; }
@@ -474,6 +468,7 @@
       + '<div style="width:min(100%,1120px); margin:0 auto; display:flex; flex-direction:column; gap:clamp(16px,2vw,22px);">';
     // Item A — banner de SANDBOX (conta de teste do Bruno; tudo some em ~15s)
     if (isSandbox()) h += '<div style="display:flex; align-items:center; gap:10px; background:rgba(10,154,166,.12); border:1px solid rgba(10,154,166,.35); border-radius:16px; padding:12px 16px; color:#06707a; font-weight:700; font-size:14px;"><span style="font-size:18px;">🧪</span>Modo Sandbox · suas tarefas e contagens somem sozinhas em ~15s (nada vai pro Slack, métricas ou equipe).</div>';
+    h += pauseCard();   // Bruno 08-19 — "Você estava nisso desde o começo?" (entrada tardia na pausa)
     h += confirmCard(); // Bruno 07-18 — confirmar auto-task do EMS ("foi você ou X?")
     h += pauseBanner(); // FASE PAUSA — banner "em pausa" + voltar ao trabalho
     h += wsBanner();    // P&P Workspace (Bruno 08-06) — box grande enquanto task P&P aberta
@@ -917,6 +912,7 @@
   // ════════════════════════════════════════════════════════════
   function overlayKey() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'pauseJoin') return pauseKey(); // Bruno 08-19 — "desde o começo ou agora?"
     if (o.type === 'reclassify') return 'reclassify:' + (o.eventId || '');
     if (o.type === 'clock') return 'clock:' + (o.missing || []).length + ':' + JSON.stringify(o.unknown || {});
     if (o.type === 'finish') return 'finish:' + (o.eventId || '') + ':' + (o.exc ? 1 : 0) + ':' + (o.cowork ? 1 : 0) + ':' + (o.lastFinisher ? 1 : 0) + ':' + (o.needsOrders ? 1 : 0); // exc/cowork/último/orders re-montam
@@ -1103,6 +1099,7 @@
   }
   function overlayInner() {
     var o = S.overlay; if (!o) return '';
+    if (o.type === 'pauseJoin') return pauseOverlay(); // Bruno 08-19 — "desde o começo ou agora?"
     if (o.type === 'machineEmergency') return machineEmergencyInner(o);
     if (o.type === 'machineReturn') return machineReturnInner(o);
     if (o.type === 'appointMachine') return appointMachineInner(o);
@@ -1242,6 +1239,7 @@
       api('/api/v3/op/active-operators').catch(function () { return { operators: [] }; }),
       api('/api/v3/op/ems/my-activity').catch(function () { return { detected: null }; }), // FASE FORM: detecção passiva
       api('/api/v3/op/pending-confirmations').catch(function () { return { question: null }; }), // Bruno 07-18: confirmar auto-task
+      PZ ? PZ.load() : Promise.resolve(null), // Bruno 08-19: "estava nisso desde o começo?" pendente
     ]).then(function (r) {
       var mine = r[0] || { events: [] }; var ops = r[1] || { operators: [] };
       var evs = mine.events || [];
@@ -1312,8 +1310,8 @@
   function flowNoteHighlight() { var ta = LYR.flow.el.querySelector('[data-focus="note"]'); if (ta) { ta.focus(); ta.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; ta.style.animation = 'hfShake .4s'; setTimeout(function () { ta.style.boxShadow = ''; ta.style.animation = ''; }, 1200); } }
   function flowOrdersHighlight() { var inp = LYR.flow.el.querySelector('[data-focus="orders"]'); if (inp) { inp.focus(); inp.style.boxShadow = '0 0 0 3px rgba(179,38,30,.45)'; inp.style.animation = 'hfShake .4s'; setTimeout(function () { inp.style.boxShadow = ''; inp.style.animation = ''; }, 1200); } }
 
-  // ACT: os handlers do workspace (ws*) vêm de /op/ws.js; o resto mora aqui.
-  var ACT = Object.assign({}, (WS && WS.acts) || {}, {
+  // ACT: workspace (ws*) vem de /op/ws.js, pausa (pause*) de /op/pause-ui.js.
+  var ACT = Object.assign({}, (WS && WS.acts) || {}, (PZ && PZ.acts()) || {}, {
     pinkey: function (k) {
       if (k === '⌫') S.pin = S.pin.slice(0, -1);
       else if (k === '✓') { if (S.pin.length === 4) return submitPin(); }
@@ -1441,7 +1439,8 @@
     },
     doFinish: function () { doFinish(); },
     join: function (id, el) { S.overlay = { type: 'join', eventId: id, name: el.getAttribute('data-name') || 'colega', sub: el.getAttribute('data-sub') || '' }; render(); },
-    doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function () { S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
+    // PAUSA (Bruno 08-19): alvo = pausa em andamento → backend devolve pause_join_question e a pergunta "desde o começo?" abre ANTES de congelar.
+    doJoin: function () { var o = S.overlay; api('/api/v3/op/event/' + o.eventId + '/join', { method: 'POST', body: {} }).then(function (r) { if (PZ && PZ.askJoin(r)) return; S.overlay = null; S.pulse = 0.8; toast('Você entrou junto!'); loadData(); }).catch(function (e) { toast(e.message); }); },
     // MÁQUINAS (Bruno 07-02): apontar quem cuida da máquina antes de sair
     appointPick: function (arg) {
       var name = arg && S.overlay && (S.overlay.candidates || []).filter(function (c) { return String(c.id) === String(arg); }).map(function (c) { return c.display_name; })[0];

@@ -1,0 +1,59 @@
+{
+  "_nota": "Stub EXATO do contrato do agente P2: GET /api/v3/warehouse/sku-suggestions. Casepack e a MESMA garrafa fisica, entao o backend PROPOE grupos e a pessoa confirma. Dois grupos: um obvio (mesmo SKU base, so muda o casepack) e um duvidoso (nome escrito diferente), que e o caso onde a checkbox de excluir membro serve pra alguma coisa.",
+  "data": {
+    "groups": [
+      {
+        "suggested_parent": {
+          "product_id": 1,
+          "name": "Benfotiamine 300 mg",
+          "nickname": "Benfotiamine 300",
+          "sku": "HF-BENF-300"
+        },
+        "members": [
+          {
+            "product_id": 91,
+            "name": "Benfotiamine 300 mg - C3",
+            "sku": "HF-BENF-300-C3",
+            "units_per_pack": 3,
+            "veeqo_qty": 71,
+            "has_stock": false
+          },
+          {
+            "product_id": 92,
+            "name": "Benfotiamine 300mg - C4",
+            "sku": "HF-BENF-300-C4",
+            "units_per_pack": 4,
+            "veeqo_qty": 53,
+            "has_stock": true
+          }
+        ],
+        "reason": "mesmo SKU base, so muda o casepack",
+        "confidence": "high"
+      },
+      {
+        "suggested_parent": {
+          "product_id": 5,
+          "name": "NAC 600 mg",
+          "nickname": "NAC 600",
+          "sku": "HF-NAC-600"
+        },
+        "members": [
+          {
+            "product_id": 95,
+            "name": "N-Acetyl Cysteine 600mg 2-pack",
+            "sku": "HF-NAC-600-C2",
+            "units_per_pack": 2,
+            "veeqo_qty": 40,
+            "has_stock": false
+          }
+        ],
+        "reason": "nome escrito diferente, mesmo SKU base",
+        "confidence": "medium"
+      }
+    ],
+    "counts": {
+      "groups": 2,
+      "products": 3
+    }
+  }
+}

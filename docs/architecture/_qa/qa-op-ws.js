@@ -286,6 +286,9 @@ async function main() {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => !!window.HF_WS, { timeout: 8000 });
   rec('boot', 'window.HF_WS definido por /op/ws.js', true);
+  // Bruno 08-19: a pausa tem o modulo dela; a Central nao pode derrubar o carregamento
+  const hasPause = await page.evaluate(() => !!(window.HF_PAUSE && typeof window.HF_PAUSE.card === 'function' && typeof window.HF_PAUSE.banner === 'function'));
+  rec('boot', 'window.HF_PAUSE definido por /op/pause-ui.js (card + banner)', hasPause, '');
   rec('boot', 'app.js carregou sem erro', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
 
   // login: o app expoe pouca coisa; usamos o PIN falso do harness via API mockada

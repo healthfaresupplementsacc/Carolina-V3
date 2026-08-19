@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T13:48:06.888Z",
+  "at": "2026-08-19T22:35:55.628Z",
   "results": [
     {
       "group": "hub",
@@ -23,7 +23,7 @@
       "group": "screenshot",
       "name": "hub-import-btn",
       "pass": true,
-      "detail": "203 KB → p3-hub-import-btn.png"
+      "detail": "199 KB → p3-hub-import-btn.png"
     },
     {
       "group": "hub-import",
@@ -47,7 +47,7 @@
       "group": "screenshot",
       "name": "hub-import-modal",
       "pass": true,
-      "detail": "232 KB → p3-hub-import-modal.png"
+      "detail": "230 KB → p3-hub-import-modal.png"
     },
     {
       "group": "hub-import",
@@ -149,7 +149,7 @@
       "group": "screenshot",
       "name": "locais-tara",
       "pass": true,
-      "detail": "183 KB → p3-locais-tara.png"
+      "detail": "181 KB → p3-locais-tara.png"
     },
     {
       "group": "locais",
@@ -251,7 +251,7 @@
       "group": "screenshot",
       "name": "etiquetas",
       "pass": true,
-      "detail": "138 KB → p3-etiquetas.png"
+      "detail": "136 KB → p3-etiquetas.png"
     },
     {
       "group": "etiquetas",
@@ -293,7 +293,7 @@
       "group": "screenshot",
       "name": "etiquetas-mandar-estacao",
       "pass": true,
-      "detail": "158 KB → p3-etiquetas-mandar-estacao.png"
+      "detail": "157 KB → p3-etiquetas-mandar-estacao.png"
     },
     {
       "group": "fila-etiquetas",
@@ -311,7 +311,7 @@
       "group": "produto-setup",
       "name": "coluna \"Peso da unidade\" existe",
       "pass": true,
-      "detail": "Produto|Nickname|Cor da garrafa|Estoque Veeqo|Validade (rótulo)|Peso da unidade|SKUs (por canal)"
+      "detail": "Produto|Nickname|Cor da garrafa|Estoque Veeqo|Validade (rótulo)|Peso da unidade|SKUs (por canal)|Família"
     },
     {
       "group": "produto-setup",
@@ -335,7 +335,7 @@
       "group": "screenshot",
       "name": "produto-setup-calibrar",
       "pass": true,
-      "detail": "201 KB → p3-produto-setup-calibrar.png"
+      "detail": "206 KB → p3-produto-setup-calibrar.png"
     },
     {
       "group": "produto-setup",
@@ -395,7 +395,7 @@
       "group": "screenshot",
       "name": "aprovacoes-meta",
       "pass": true,
-      "detail": "160 KB → p3-aprovacoes-meta.png"
+      "detail": "158 KB → p3-aprovacoes-meta.png"
     },
     {
       "group": "config-estoque",
@@ -431,7 +431,7 @@
       "group": "screenshot",
       "name": "config-taras",
       "pass": true,
-      "detail": "159 KB → p3-config-taras.png"
+      "detail": "157 KB → p3-config-taras.png"
     },
     {
       "group": "fila-impressao",
@@ -479,7 +479,7 @@
       "group": "screenshot",
       "name": "impressao-fila-celular",
       "pass": true,
-      "detail": "139 KB → p3-impressao-fila-celular.png"
+      "detail": "138 KB → p3-impressao-fila-celular.png"
     },
     {
       "group": "fila-impressao",
@@ -533,7 +533,7 @@
       "group": "screenshot",
       "name": "impressao-etiquetas-envio",
       "pass": true,
-      "detail": "138 KB → p3-impressao-etiquetas-envio.png"
+      "detail": "136 KB → p3-impressao-etiquetas-envio.png"
     },
     {
       "group": "envio",
@@ -569,13 +569,13 @@
       "group": "envio",
       "name": "a aba recebe um blob local (o navegador abre o arquivo, não a rota)",
       "pass": true,
-      "detail": "blob:http://127.0.0.1:62318/00671981-e366-40fd-9efe-46cc854cd7d5"
+      "detail": "blob:http://127.0.0.1:54247/2667429c-bf21-4b16-9d9e-2f605b81ff97"
     },
     {
       "group": "screenshot",
       "name": "impressao-envio-aberto",
       "pass": true,
-      "detail": "143 KB → p3-impressao-envio-aberto.png"
+      "detail": "141 KB → p3-impressao-envio-aberto.png"
     },
     {
       "group": "envio",

@@ -1,5 +1,5 @@
 {
-  "when": "2026-08-19T17:22:52.169Z",
+  "when": "2026-08-19T22:38:21.197Z",
   "tabStats": [
     {
       "key": "MASTER",
@@ -11,19 +11,19 @@
     },
     {
       "key": "S02-http-surface",
-      "nodes": 62,
+      "nodes": 69,
       "pass": true,
-      "kb": 166,
+      "kb": 150,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-02-S02-http-surface.png",
-      "status": "rendered ✓  S02-http-surface  (119 lines, 62 nodes)"
+      "status": "rendered ✓  S02-http-surface  (137 lines, 69 nodes)"
     },
     {
       "key": "S03-frontends",
-      "nodes": 43,
+      "nodes": 45,
       "pass": true,
-      "kb": 171,
+      "kb": 172,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-03-S03-frontends.png",
-      "status": "rendered ✓  S03-frontends  (89 lines, 43 nodes)"
+      "status": "rendered ✓  S03-frontends  (94 lines, 45 nodes)"
     },
     {
       "key": "S04-workers",
@@ -51,11 +51,11 @@
     },
     {
       "key": "S08-data",
-      "nodes": 36,
+      "nodes": 37,
       "pass": true,
-      "kb": 159,
+      "kb": 160,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-07-S08-data.png",
-      "status": "rendered ✓  S08-data  (91 lines, 36 nodes)"
+      "status": "rendered ✓  S08-data  (92 lines, 37 nodes)"
     },
     {
       "key": "S09-S12-crosscutting-auth",
@@ -113,25 +113,25 @@
       "group": "tab-fit",
       "name": "S02-http-surface",
       "pass": true,
-      "detail": "fit scale=0.183 (whole diagram visible, 6112x2412)"
+      "detail": "fit scale=0.142 (whole diagram visible, 7904x2700)"
     },
     {
       "group": "tab",
       "name": "S02-http-surface",
       "pass": true,
-      "detail": "62 nodes, status=\"rendered ✓  S02-http-surface  (119\", shot 166KB, bodyClean=true"
+      "detail": "69 nodes, status=\"rendered ✓  S02-http-surface  (137\", shot 150KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
       "name": "S03-frontends",
       "pass": true,
-      "detail": "fit scale=0.271 (whole diagram visible, 4126x1758)"
+      "detail": "fit scale=0.247 (whole diagram visible, 4541x1758)"
     },
     {
       "group": "tab",
       "name": "S03-frontends",
       "pass": true,
-      "detail": "43 nodes, status=\"rendered ✓  S03-frontends  (89 lin\", shot 171KB, bodyClean=true"
+      "detail": "45 nodes, status=\"rendered ✓  S03-frontends  (94 lin\", shot 172KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
@@ -173,13 +173,13 @@
       "group": "tab-fit",
       "name": "S08-data",
       "pass": true,
-      "detail": "fit scale=0.206 (whole diagram visible, 5435x1593)"
+      "detail": "fit scale=0.205 (whole diagram visible, 5453x1593)"
     },
     {
       "group": "tab",
       "name": "S08-data",
       "pass": true,
-      "detail": "36 nodes, status=\"rendered ✓  S08-data  (91 lines, 3\", shot 159KB, bodyClean=true"
+      "detail": "37 nodes, status=\"rendered ✓  S08-data  (92 lines, 3\", shot 160KB, bodyClean=true"
     },
     {
       "group": "tab-fit",

@@ -11,8 +11,12 @@
    product/:id, POSTs que devolvem { ok:true, product:Row }).
 */
 import React from 'react';
-import { can, getLogin } from '../adapters/from-api.js';
+import { can, getLogin, apiPost } from '../adapters/from-api.js';
 import * as wh from '../adapters/warehouse-api.js';
+import { useAccountPref } from '../hooks/useAccountPref.js';
+import {
+  SkuChip, InlineNumber, InlineText, FilterBar, SortableTh, MergePanel, QUICK_FILTERS,
+} from './warehouse-table.jsx';
 
 // ── RBAC ──────────────────────────────────────────────────────────
 // Escrita = manage_stock (ou '*'). Login sem lista de funções: libera (os logins
@@ -47,6 +51,19 @@ const statusLabel = (s) => STATUS_LABEL[s] || String(s).replace(/_/g, ' ');
 const statusTone = (s) => STATUS_TONE[s] || 'neutral';
 
 const ATTN_LIMIT = 8;
+/* Página do servidor. 60 cobre a tela inteira num monitor de armazém e ainda
+   deixa o "carregar mais" sendo uma escolha, não uma obrigação a cada rolada. */
+const PAGE = 60;
+/* Onde "menor primeiro" é a pergunta certa: quem está acabando. No resto o
+   primeiro clique é decrescente ("quem tem mais?"). */
+const ASC_FIRST = ['available', 'days'];
+/* O nome de cada coluna no rodapé, nas palavras da tabela. */
+const SORT_LABEL = {
+  name: 'produto', total: 'total', shelf: 'prateleira', box: 'caixa',
+  unplaced: 'a organizar', reserved: 'reservado', pending: 'pendente',
+  available: 'disponível', days: 'dias de estoque', separated: 'separadas',
+  veeqo: 'Veeqo',
+};
 const ATTENTION_TONE = {
   out: 'bad', negative: 'bad', drift: 'bad',
   low: 'warn', pending: 'warn', organizar: 'warn', sem_local: 'neutral',
@@ -931,18 +948,33 @@ export function WarehousePage() {
   const [attnAll, setAttnAll] = React.useState(false);      // "ver todos" da caixa de atenção
   const [toast, setToast] = React.useState(null);
   const [rowsPatch, setRowsPatch] = React.useState({}); // product_id → Row atualizado
+  const [dropped, setDropped] = React.useState({});     // product_id → sumiu (virou filho)
   const [q, setQ] = React.useState('');
   const [status, setStatus] = React.useState('todos');
   const [area, setArea] = React.useState('todas');
-  const [onlyPend, setOnlyPend] = React.useState(false);
   const [onlyToday, setOnlyToday] = React.useState(false);
+  /* Chips rápidos: ligados/desligados por conta própria, e combinar dois é E
+     (quem pede "zerado" e "sem local" quer as duas coisas na mesma linha). */
+  const [chips, setChips] = React.useState({});
+  const [onlyQty, setOnlyQty] = React.useState(false);
+  const [expanded, setExpanded] = React.useState({});   // product_id → SKUs abertos
+  const [selected, setSelected] = React.useState({});   // product_id → marcado
+  const [mergeOpen, setMergeOpen] = React.useState(false);
+  const [pageSize, setPageSize] = React.useState(PAGE);
+
   /* Ordenação da tabela. O padrão continua "disponível ↑" (o que está pra
-     acabar primeiro). Clicar em Disponível ou Dias de estoque troca a coluna;
-     clicar de novo inverte. Sem null: em qualquer estado a tabela tem uma
-     ordem explícita, escrita no rodapé da toolbar. */
+     acabar primeiro). QUALQUER coluna numérica ordena agora, e a conta é do
+     SERVIDOR (sort/dir na query): com ~190 produtos e paginação, ordenar só
+     a página baixada mostraria "o maior desta tela", não o maior de todos.
+     Primeiro clique numa coluna nova vai DECRESCENTE, que é o "de maior pra
+     menor" que o Bruno pediu; só Disponível e Dias começam crescentes,
+     porque ali o interessante é quem está acabando. */
   const [sort, setSort] = React.useState({ col: 'available', dir: 'asc' });
   const toggleSort = React.useCallback((col) => {
-    setSort((s) => (s.col === col ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }));
+    setSort((s) => {
+      if (s.col === col) return { col, dir: s.dir === 'asc' ? 'desc' : 'asc' };
+      return { col, dir: ASC_FIRST.includes(col) ? 'asc' : 'desc' };
+    });
   }, []);
 
   const writable = canWrite();
@@ -954,11 +986,69 @@ export function WarehousePage() {
   }, []);
   const ackErr = React.useCallback((e) => { ack(friendlyError(e), true); }, [ack]);
 
+  /* ── VISTA SALVA NA CONTA ────────────────────────────────────────
+     Busca, chips, ordem e "só com quantidade" seguem a PESSOA, não o
+     navegador: quem arruma a tela do jeito dele reencontra igual no PC do
+     armazém (prefs 'estoque.view', a mesma porta da página Hoje).
+     A vista é aplicada UMA vez, quando a conta responde: reaplicar a cada
+     render tiraria a tela da mão de quem está mexendo nela agora. */
+  const [view, setView, viewMeta] = useAccountPref('estoque.view', null, { localKey: 'hf-estoque-view' });
+  const viewApplied = React.useRef(false);
+  React.useEffect(() => {
+    if (viewApplied.current || !viewMeta.loaded) return;
+    viewApplied.current = true;
+    if (!view || typeof view !== 'object') return;
+    if (typeof view.q === 'string') setQ(view.q);
+    if (view.chips && typeof view.chips === 'object') setChips(view.chips);
+    if (typeof view.onlyQty === 'boolean') setOnlyQty(view.onlyQty);
+    if (view.sort && view.sort.col) setSort({ col: view.sort.col, dir: view.sort.dir === 'desc' ? 'desc' : 'asc' });
+  }, [view, viewMeta.loaded]);
+
+  const currentView = React.useMemo(
+    () => ({ q, chips, onlyQty, sort }),
+    [q, chips, onlyQty, sort],
+  );
+  /* "Tem coisa pra salvar?" = o que está na tela difere do que está na conta.
+     Sem isso o botão Salvar ficaria aceso pra sempre, e um botão sempre aceso
+     não avisa nada. */
+  const viewDirty = React.useMemo(() => {
+    const a = JSON.stringify(currentView);
+    const b = JSON.stringify(view || { q: '', chips: {}, onlyQty: false, sort: { col: 'available', dir: 'asc' } });
+    return a !== b;
+  }, [currentView, view]);
+
+  /* ── A BUSCA, NO SERVIDOR ────────────────────────────────────────
+     q, ordem, chips e paginação viram query string. O servidor devolve
+     { products, total, kpis, attention, pending_summary }: `total` é quantos
+     produtos passam no filtro (o M do "N de M") e products é a página. */
+  const chipStatuses = React.useMemo(
+    () => QUICK_FILTERS.filter((f) => chips[f.k]).map((f) => f.value),
+    [chips],
+  );
+  const statusParam = React.useMemo(() => {
+    const all = [...chipStatuses];
+    if (status !== 'todos' && !all.includes(status)) all.push(status);
+    return all.join(',');
+  }, [chipStatuses, status]);
+
+  const path = React.useMemo(() => wh.overviewQuery({
+    q: q.trim(), sort: sort.col, dir: sort.dir,
+    status: statusParam, only_with_qty: onlyQty,
+    limit: pageSize, offset: 0,
+  }), [q, sort, statusParam, onlyQty, pageSize]);
+
   // poll 20s, PAUSADO enquanto um modal está aberto (inclusive o de import)
-  const ov = wh.useWarehouse('/overview', [], 20000, !!modal || !!importOpen);
+  const ov = wh.useWarehouse(path, [], 20000, !!modal || !!importOpen || !!mergeOpen);
   const data = ov.data || {};
   const kpis = data.kpis || {};
-  const rawRows = data.products || [];
+
+  /* Uma linha por PRODUTO: as que viraram filhas somem na hora, sem esperar o
+     poll. Foi a pessoa que mandou juntar, ver a linha antiga ainda ali por 20
+     segundos faz parecer que não funcionou. */
+  const rawRows = React.useMemo(
+    () => (data.products || []).filter((r) => !dropped[r.product_id]),
+    [data.products, dropped],
+  );
   const rows = React.useMemo(
     () => rawRows.map((r) => rowsPatch[r.product_id] || r),
     [rawRows, rowsPatch],
@@ -983,39 +1073,66 @@ export function WarehousePage() {
     return [...s].sort();
   }, [rows]);
 
+  /* ── A MESMA REGRA, DE NOVO, NO NAVEGADOR ────────────────────────
+     Isto é REDE DE SEGURANÇA, não a fonte. O servidor já filtrou e ordenou;
+     mas um backend que ainda não conhece `sort` devolve a lista crua, e aí
+     clicar no cabeçalho não faria nada na tela. Reaplicar aqui custa nada
+     sobre uma página de 60 linhas e garante que o que a pessoa clica sempre
+     acontece. Quando os dois concordam, este passo é idempotente. */
+  const VAL = {
+    total: (r) => n(r.total), shelf: (r) => n(r.shelf_qty), box: (r) => n(r.box_qty),
+    unplaced: (r) => n(r.unplaced_qty), reserved: (r) => n(r.reserved),
+    pending: (r) => n(r.pending_in) - n(r.pending_out),
+    available: (r) => n(r.available), separated: (r) => n(r.separated),
+    days: (r) => (r.days_of_stock == null ? null : Number(r.days_of_stock)),
+    veeqo: (r) => (r.veeqo && r.veeqo.physical != null ? n(r.veeqo.physical) : null),
+    name: (r) => String(r.nickname || r.name || '').toLowerCase(),
+  };
+
   const filtered = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
+    const wanted = chipStatuses;
     let out = rows.filter((r) => {
       if (needle) {
-        const hay = [r.nickname, r.name, r.base_sku, ...(r.skus || []).map((s) => s.sku)].filter(Boolean).join(' ').toLowerCase();
+        const hay = [r.nickname, r.name, r.base_sku, r.barcode,
+          ...(r.skus || []).map((s) => s.sku),
+          ...(r.children || []).map((s) => s.sku)].filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(needle)) return false;
       }
+      // chips somam: pedir "zerado" e "sem local" é pedir as duas coisas
+      if (wanted.length && !wanted.every((w) => (r.status || []).includes(w))) return false;
       if (status !== 'todos' && !(r.status || []).includes(status)) return false;
       if (area !== 'todas') {
         const has = (r.bins || []).some((b) => b.area === area) || (r.boxes || []).some((b) => b.area === area);
         if (!has) return false;
       }
-      if (onlyPend && !n(r.pending_out) && !n(r.pending_in)) return false;
+      if (onlyQty && !n(r.total)) return false;
       if (onlyToday && !n(r.reserved)) return false;
       return true;
     });
-    /* Dias de estoque sem venda (null) vai SEMPRE pro fim, nos dois sentidos:
-       "não vendeu nada" não é urgente nem folgado, é ausência de informação, e
-       misturar isso com o que está pra acabar esconde a linha que importa. */
+    /* Vazio vai SEMPRE pro fim, nos dois sentidos: "não vendeu nada" e "sem
+       SKU na Veeqo" não são urgentes nem folgados, são ausência de
+       informação, e misturar isso com o que está pra acabar esconde a linha
+       que importa. Empate cai no nome, pra ordem não dançar entre polls. */
+    const get = VAL[sort.col] || VAL.available;
     const mul = sort.dir === 'asc' ? 1 : -1;
     out = out.slice().sort((a, b) => {
-      if (sort.col === 'days') {
-        const da = a.days_of_stock == null ? null : Number(a.days_of_stock);
-        const db = b.days_of_stock == null ? null : Number(b.days_of_stock);
-        if (da == null && db == null) return n(a.available) - n(b.available);
-        if (da == null) return 1;
-        if (db == null) return -1;
-        return (da - db) * mul;
-      }
-      return (n(a.available) - n(b.available)) * mul;
+      const va = get(a); const vb = get(b);
+      if (va == null && vb == null) return VAL.name(a) < VAL.name(b) ? -1 : 1;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (va === vb) return VAL.name(a) < VAL.name(b) ? -1 : 1;
+      return (typeof va === 'string' ? (va < vb ? -1 : 1) : va - vb) * mul;
     });
     return out;
-  }, [rows, q, status, area, onlyPend, onlyToday, sort]);
+  // VAL é constante entre renders (literal sem dependência de estado)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, q, chipStatuses, status, area, onlyQty, onlyToday, sort]);
+
+  /* "N de M": M vem do servidor quando ele conta (contrato P2); sem isso,
+     o que a página tem na mão é o melhor número honesto que existe. */
+  const totalCount = Number.isFinite(Number(data.total)) ? Number(data.total) : rows.length;
+  const hasMore = filtered.length < totalCount && rows.length >= pageSize;
 
   /* Aviso de propostas paradas. pending_summary vem do overview (contrato 3);
      se o backend ainda não mandar, cai no KPI que a página já recebia, pra
@@ -1041,6 +1158,108 @@ export function WarehousePage() {
     try { const r = await wh.approveRequest(requestId); ack('Aprovado. O número do produto já mudou.'); if (r && r.data && r.data.product) onRowUpdate(r.data.product); ov.refresh(); }
     catch (e) { ackErr(e); }
   }
+
+  /* ── EDIÇÃO NA CÉLULA ────────────────────────────────────────────
+     "Um clique, digita, pronto." O que a célula faz por baixo:
+
+       Prateleira / Caixa / A organizar → POST /product/:id/adjust com o
+       DELTA e o local. Nunca um PUT de quantidade: adjust é a porta que já
+       existe, passa pelo StockService e deixa o movimento registrado com
+       quem fez e por quê. A tela nunca escreve número no banco.
+
+     OTIMISTA COM VOLTA ATRÁS: o número novo entra no rowsPatch na hora. Se
+     a API recusar, o patch é DESFEITO (a linha volta ao que o servidor
+     mandou) e o toast diz o porquê. Nunca fica um número na tela que o
+     banco não tem.
+
+     Prateleira e Caixa só são editáveis com UM local: com duas prateleiras
+     "prateleira = 40" não diz em qual, e adivinhar mexeria no lugar errado.
+     Nesses casos a célula fica só de leitura e a linha manda usar Mover. */
+  const inlineEdit = React.useCallback(async ({ row, field, delta, reason }) => {
+    const before = rowsPatch[row.product_id];
+    const optimistic = { ...row };
+    if (field === 'shelf') optimistic.shelf_qty = n(row.shelf_qty) + delta;
+    else if (field === 'box') optimistic.box_qty = n(row.box_qty) + delta;
+    else optimistic.unplaced_qty = n(row.unplaced_qty) + delta;
+    optimistic.total = n(row.total) + delta;
+    optimistic.available = n(row.available) + delta;
+    setRowsPatch((p) => ({ ...p, [row.product_id]: optimistic }));
+
+    const body = { qty: delta, reason: reason || 'ajuste na tabela do estoque' };
+    if (field === 'shelf' && (row.bins || []).length === 1) body.bin_id = row.bins[0].id;
+    if (field === 'box' && (row.boxes || []).length === 1) body.box_id = row.boxes[0].id;
+
+    try {
+      const res = await wh.postAdjust(row.product_id, body);
+      if (res && res.data && res.data.product) onRowUpdate(res.data.product);
+      ack('Salvo. ' + (delta > 0 ? '+' : '') + delta + ' em ' + (
+        field === 'shelf' ? 'Prateleira' : field === 'box' ? 'Caixa' : 'A organizar') + '.');
+    } catch (e) {
+      // volta pro que o servidor mandou: o patch otimista some
+      setRowsPatch((p) => {
+        const next = { ...p };
+        if (before) next[row.product_id] = before; else delete next[row.product_id];
+        return next;
+      });
+      ackErr(e);
+      throw e;   // a célula fecha sabendo que não salvou
+    }
+  }, [rowsPatch, onRowUpdate, ack, ackErr]);
+
+  /* Apelido: texto puro, não mexe em estoque nenhum. Vai pela MESMA porta do
+     Product Setup (POST /product-setup/:id), que é quem já é dona do campo:
+     duas telas gravando o apelido por caminhos diferentes é como se cria um
+     apelido que só existe numa delas. */
+  const inlineNickname = React.useCallback(async (row, value) => {
+    const before = rowsPatch[row.product_id];
+    setRowsPatch((p) => ({ ...p, [row.product_id]: { ...row, nickname: value } }));
+    try {
+      await apiPost('/product-setup/' + row.product_id, { nickname: value });
+      ack('Apelido salvo.');
+    } catch (e) {
+      setRowsPatch((p) => {
+        const next = { ...p };
+        if (before) next[row.product_id] = before; else delete next[row.product_id];
+        return next;
+      });
+      ackErr(e);
+      throw e;
+    }
+  }, [rowsPatch, ack, ackErr]);
+
+  /* ── JUNTAR / DESAGRUPAR ─────────────────────────────────────────
+     Juntar tira linhas da tabela; desagrupar devolve uma. Nos dois casos a
+     tela reage NA HORA (dropped / refresh) porque foi a pessoa que mandou:
+     esperar o poll de 20s faria parecer que o clique não pegou. */
+  const onMergeDone = React.useCallback((msg, _label, goneIds) => {
+    // as linhas que viraram filhas somem AGORA, sem esperar os 20s do poll
+    if (Array.isArray(goneIds) && goneIds.length) {
+      setDropped((d) => {
+        const next = { ...d };
+        goneIds.forEach((id) => { next[id] = true; });
+        return next;
+      });
+    }
+    setSelected({});
+    setMergeOpen(false);
+    ack(msg);
+    ov.refresh();
+  }, [ack, ov]);
+
+  const onUnmerge = React.useCallback(async (child) => {
+    try {
+      await wh.unmergeFamily(child.product_id);
+      // ela volta a existir: se estava escondida por um merge anterior, reaparece
+      setDropped((d) => { const nx = { ...d }; delete nx[child.product_id]; return nx; });
+      ack(child.sku + ' voltou a ter linha própria no estoque.');
+      ov.refresh();
+    } catch (e) { ackErr(e); }
+  }, [ack, ackErr, ov]);
+
+  const selectedIds = React.useMemo(
+    () => Object.keys(selected).filter((k) => selected[k]).map(Number),
+    [selected],
+  );
 
   if (!canRead()) {
     return (
@@ -1082,6 +1301,11 @@ export function WarehousePage() {
                     onClick={() => filtered[0] && openAction('entrada', filtered[0])}>Entrada</button>
           )}
           {writable && (
+            <button className="kit-btn sec" data-act="juntar-skus"
+                    title="Casepack é a mesma garrafa: junta as linhas repetidas numa só"
+                    onClick={() => setMergeOpen(true)}>Juntar SKUs</button>
+          )}
+          {writable && (
             <button className="kit-btn sec" data-act="importar-veeqo"
                     onClick={() => setImportOpen({ only: null })}>Importar da Veeqo</button>
           )}
@@ -1098,8 +1322,8 @@ export function WarehousePage() {
                   className={'kit-kpi-card ' + (status === kp.k ? 'on' : '')}
                   data-kpi={kp.k}
                   onClick={() => {
-                    if (kp.k === 'todos') { setStatus('todos'); setOnlyPend(false); return; }
-                    if (kp.k === 'pendente') { setOnlyPend(true); setStatus('todos'); return; }
+                    if (kp.k === 'todos') { setStatus('todos'); setChips({}); return; }
+                    if (kp.k === 'pendente') { setChips({ pend: true }); setStatus('todos'); return; }
                     // Δ Veeqo abre a LISTA da diferença: filtrar a tabela não
                     // responde "quanto e pra que lado", que é o que se quer aqui.
                     if (kp.k === 'drift') { setDriftOpen(true); return; }
@@ -1192,10 +1416,27 @@ export function WarehousePage() {
         </div>
       )}
 
-      {/* toolbar */}
-      <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        <input className="kit-input" style={{ minWidth: 240, flex: '0 1 300px' }} value={q}
-               placeholder="Buscar produto, nickname ou SKU" onChange={(e) => setQ(e.target.value)} />
+      {/* filtro: busca com debounce, chips rápidos e a vista salva na conta */}
+      <FilterBar
+        q={q} onQ={setQ}
+        chips={chips}
+        onChip={(k) => setChips((c) => ({ ...c, [k]: !c[k] }))}
+        onlyQty={onlyQty} onOnlyQty={setOnlyQty}
+        shown={filtered.length} total={totalCount}
+        sortLabel={(SORT_LABEL[sort.col] || sort.col) + ' ' + (sort.dir === 'asc' ? '↑' : '↓')}
+        onClear={() => { setQ(''); setChips({}); setOnlyQty(false); setStatus('todos'); setArea('todas'); }}
+        viewStatus={viewMeta.account ? 'vista salva na sua conta' : 'vista só neste navegador'}
+        dirty={viewDirty}
+        onSaveView={() => { setView(currentView); ack('Vista salva. Ela abre assim na próxima vez.'); }}
+        onResetView={() => {
+          setQ(''); setChips({}); setOnlyQty(false); setStatus('todos'); setArea('todas');
+          setSort({ col: 'available', dir: 'asc' });
+          setView(null);
+        }}
+      />
+
+      {/* filtros de segunda linha: pouco usados, mas ninguém os perdeu */}
+      <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <select className="kit-input" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="todos">Status: todos</option>
           {statuses.map((s) => <option key={s} value={s}>{statusLabel(s)}</option>)}
@@ -1205,42 +1446,52 @@ export function WarehousePage() {
           {areas.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink-dim)' }}>
-          <input type="checkbox" checked={onlyPend} onChange={(e) => setOnlyPend(e.target.checked)} /> só com pendências
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink-dim)' }}>
           <input type="checkbox" checked={onlyToday} onChange={(e) => setOnlyToday(e.target.checked)} /> só com pedido hoje
         </label>
-        <span style={{ flex: 1 }} />
-        <span className="kit-mlabel" data-sort-note>
-          ordenado por {sort.col === 'days' ? 'dias de estoque' : 'disponível'} {sort.dir === 'asc' ? '↑' : '↓'} · {filtered.length} produtos
-        </span>
       </div>
+
+      {/* linhas marcadas: a barra só existe quando há o que juntar */}
+      {selectedIds.length > 0 && (
+        <div className="wht-selbar" data-selbar>
+          <b>{selectedIds.length} {selectedIds.length === 1 ? 'linha marcada' : 'linhas marcadas'}</b>
+          <span>Se forem a mesma garrafa em SKUs diferentes, junte numa linha só.</span>
+          <span className="wht-spacer" style={{ flex: 1 }} />
+          {writable && selectedIds.length >= 2 && (
+            <button className="kit-btn sm primary" data-act="juntar-selecionados"
+                    onClick={() => setMergeOpen(true)}>Juntar selecionados</button>
+          )}
+          <button className="kit-btn sm sec" data-act="limpar-selecao"
+                  onClick={() => setSelected({})}>Limpar</button>
+        </div>
+      )}
 
       {/* tabela · cabeçalho GRUDADO: a lista tem ~190 produtos, e sem isso quem
           rola perde de vista qual coluna é qual e lê o número errado. */}
       <div className="kit-card" style={{ marginTop: 12, padding: '8px 12px 4px', overflowX: 'auto', overflowY: 'auto', maxHeight: '68vh' }}>
         <table className="kit-table" data-table="produtos">
           <thead data-sticky style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--card-bg, #fff)', boxShadow: '0 1px 0 var(--line, #d4e2f0)' }}>
+            {/* TODA coluna numérica ordena, e a ordem é pedida ao servidor:
+                "de maior pra menor" tem que valer pros 190 produtos, não só
+                pra página que já está na tela. */}
             <tr>
-              <th>Produto</th>
-              <th className="num">Total</th>
-              <th className="num">Prateleira</th>
-              <th className="num">Caixa</th>
-              <th className="num">A organizar</th>
-              <th className="num">Reservado</th>
-              <th className="num">Pendente</th>
-              <th className="num sortable" data-sort="available" onClick={() => toggleSort('available')}
-                  title="Ordenar por disponível">
-                Disponível{sort.col === 'available' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
+              {writable && <th className="wht-selcol" />}
+              <th className="sortable" data-sort="name" onClick={() => toggleSort('name')}
+                  title="Ordenar por nome do produto">
+                Produto{sort.col === 'name' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
               </th>
+              <SortableTh col="total"     label="Total"       sort={sort} onSort={toggleSort} />
+              <SortableTh col="shelf"     label="Prateleira"  sort={sort} onSort={toggleSort} />
+              <SortableTh col="box"       label="Caixa"       sort={sort} onSort={toggleSort} />
+              <SortableTh col="unplaced"  label="A organizar" sort={sort} onSort={toggleSort} />
+              <SortableTh col="reserved"  label="Reservado"   sort={sort} onSort={toggleSort} />
+              <SortableTh col="pending"   label="Pendente"    sort={sort} onSort={toggleSort} />
+              <SortableTh col="available" label="Disponível"  sort={sort} onSort={toggleSort} />
               {/* Quantos dias o disponível ainda dura no ritmo de venda das
                   últimas semanas. É a coluna que diz o que produzir primeiro. */}
-              <th className="num sortable" data-sort="days" onClick={() => toggleSort('days')}
-                  title="Disponível dividido pela média de venda por dia dos últimos 7 dias">
-                Dias de estoque{sort.col === 'days' ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
-              </th>
-              <th className="num">Separadas</th>
-              <th className="num sep">Veeqo</th>
+              <SortableTh col="days" label="Dias de estoque" sort={sort} onSort={toggleSort}
+                          title="Disponível dividido pela média de venda por dia dos últimos 7 dias" />
+              <SortableTh col="separated" label="Separadas"   sort={sort} onSort={toggleSort} />
+              <SortableTh col="veeqo"     label="Veeqo"       sort={sort} onSort={toggleSort} className="sep" />
               <th>Status</th>
               <th />
             </tr>
@@ -1248,24 +1499,41 @@ export function WarehousePage() {
           <tbody>
             {filtered.map((r) => {
               const pend = n(r.pending_in) - n(r.pending_out);
+              /* Prateleira e Caixa só viram input com UM local. Com duas
+                 prateleiras, "prateleira = 40" não diz em qual, e chutar
+                 mexeria no lugar errado: aí a célula fica de leitura e o
+                 caminho é Mover, que pergunta de onde e pra onde. */
+              const oneBin = (r.bins || []).length === 1;
+              const oneBox = (r.boxes || []).length === 1;
+              const manyLoc = (r.bins || []).length > 1 || (r.boxes || []).length > 1;
               return (
-                <tr key={r.product_id} className="clickable" data-row={r.product_id}
+                <tr key={r.product_id}
+                    className={'clickable' + (selected[r.product_id] ? ' wht-selected' : '')}
+                    data-row={r.product_id}
                     onClick={() => setPanel(r)}>
-                  <td style={{ minWidth: 280 }}>
+                  {writable && (
+                    <td className="wht-selcol" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" data-select={r.product_id}
+                             checked={!!selected[r.product_id]}
+                             title="Marcar pra juntar com outra linha da mesma garrafa"
+                             onChange={() => setSelected((s) => ({ ...s, [r.product_id]: !s[r.product_id] }))} />
+                    </td>
+                  )}
+                  <td style={{ minWidth: 300 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--primary-deep)' }}>
-                        {r.nickname || r.name}
+                        <InlineText value={r.nickname} placeholder={r.name} writable={writable}
+                                    tabIndexKey={r.product_id + ':nickname'}
+                                    hint="Clique pra editar o apelido"
+                                    onCommit={(v) => inlineNickname(r, v)} />
                       </span>
                       <span style={{ color: 'var(--ink-faint)', fontSize: 12 }}>{r.name}</span>
                     </div>
-                    <div style={{ display: 'flex', gap: 5, marginTop: 4, flexWrap: 'wrap' }}>
-                      {(r.skus || []).map((s) => (
-                        <span key={s.id || s.sku} className={'kit-chip ' + (s.role === 'base' ? 'solid' : 'neutral')}
-                              title={s.channel}>
-                          {s.sku}{s.role === 'member' && s.units_per_pack > 1 ? ' ×' + s.units_per_pack : ''}
-                          {s.veeqo_type === 'kit' ? ' kit' : ''}
-                        </span>
-                      ))}
+                    {/* UMA linha por produto: os SKUs ficam dobrados no chip */}
+                    <div style={{ display: 'flex', gap: 5, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <SkuChip row={r} writable={writable} onUnmerge={onUnmerge}
+                               expanded={!!expanded[r.product_id]}
+                               onToggle={() => setExpanded((x) => ({ ...x, [r.product_id]: !x[r.product_id] }))} />
                       {locChips(r).map((c) => (
                         <span key={c.k} className="kit-chip neutral" style={{ fontFamily: 'var(--font-mono)' }}>{c.t}</span>
                       ))}
@@ -1273,9 +1541,31 @@ export function WarehousePage() {
                     </div>
                   </td>
                   <td className="num"><b>{fmt(r.total)}</b></td>
-                  <td className="num">{fmt(r.shelf_qty)}</td>
-                  <td className="num">{fmt(r.box_qty)}</td>
-                  <td className="num" style={n(r.unplaced_qty) ? { color: 'var(--warn-deep)', fontWeight: 600 } : undefined}>{fmt(r.unplaced_qty)}</td>
+                  <td className="num">
+                    <InlineNumber value={r.shelf_qty} row={r} field="shelf" writable={writable}
+                                  disabled={manyLoc && !oneBin}
+                                  needsReason tabIndexKey={r.product_id + ':shelf'}
+                                  hint={oneBin ? 'Clique, digite a contagem da prateleira e dê Enter'
+                                               : 'Sem prateleira única: use Mover'}
+                                  reasonPlaceholder="motivo (ex: contagem da prateleira)"
+                                  onCommit={inlineEdit} />
+                  </td>
+                  <td className="num">
+                    <InlineNumber value={r.box_qty} row={r} field="box" writable={writable}
+                                  disabled={manyLoc && !oneBox}
+                                  needsReason tabIndexKey={r.product_id + ':box'}
+                                  hint={oneBox ? 'Clique, digite a contagem da caixa e dê Enter'
+                                               : 'Sem caixa única: use Mover'}
+                                  reasonPlaceholder="motivo (ex: contagem da caixa)"
+                                  onCommit={inlineEdit} />
+                  </td>
+                  <td className="num" style={n(r.unplaced_qty) ? { color: 'var(--warn-deep)', fontWeight: 600 } : undefined}>
+                    <InlineNumber value={r.unplaced_qty} row={r} field="unplaced" writable={writable}
+                                  needsReason tabIndexKey={r.product_id + ':unplaced'}
+                                  hint="Clique, digite quantas estão soltas e dê Enter"
+                                  reasonPlaceholder="motivo (ex: chegou lote novo)"
+                                  onCommit={inlineEdit} />
+                  </td>
                   <td className="num">{fmt(r.reserved)}</td>
                   <td className="num" style={pend ? { color: pend < 0 ? 'var(--bad-deep)' : 'var(--ok-deep)', fontWeight: 600 } : undefined}>
                     {pend ? (pend > 0 ? '+' + pend : String(pend)) : '0'}
@@ -1320,11 +1610,26 @@ export function WarehousePage() {
               );
             })}
             {!filtered.length && !ov.loading && (
-              <tr><td colSpan={13} style={{ color: 'var(--ink-faint)', padding: 20 }}>Nenhum produto com esses filtros.</td></tr>
+              <tr><td colSpan={writable ? 14 : 13} style={{ color: 'var(--ink-faint)', padding: 20 }}>
+                Nenhum produto com esses filtros. Tire um chip ou limpe a busca.
+              </td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Paginação por botão, não por rolagem infinita: quem está conferindo
+          estoque precisa saber onde parou, e uma lista que cresce sozinha
+          embaixo do dedo tira esse chão. */}
+      {hasMore && (
+        <div className="wht-more" data-more>
+          <span className="kit-mlabel">
+            mostrando {fmt(filtered.length)} de {fmt(totalCount)}
+          </span>
+          <button className="kit-btn sm sec" data-act="carregar-mais"
+                  onClick={() => setPageSize((s) => s + PAGE)}>Carregar mais</button>
+        </div>
+      )}
 
       {data.veeqo_checked_at && (
         <div className="kit-mlabel" style={{ marginTop: 10 }}>
@@ -1347,6 +1652,17 @@ export function WarehousePage() {
           onClose={() => setImportOpen(null)}
           onError={(m) => ackErr(m)}
           onDone={(msg) => { setImportOpen(null); ack(msg); ov.refresh(); }}
+        />
+      )}
+
+      {mergeOpen && (
+        <MergePanel
+          writable={writable}
+          adhoc={selectedIds}
+          allRows={rows}
+          onClose={() => setMergeOpen(false)}
+          onError={ackErr}
+          onDone={onMergeDone}
         />
       )}
 

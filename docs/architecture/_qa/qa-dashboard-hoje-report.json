@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T18:12:26.363Z",
+  "at": "2026-08-19T22:35:27.608Z",
   "results": [
     {
       "group": "grade",
@@ -317,7 +317,7 @@
       "group": "screenshot",
       "name": "08-sem-conta",
       "pass": true,
-      "detail": "193 KB → hoje-08-sem-conta.png"
+      "detail": "192 KB → hoje-08-sem-conta.png"
     },
     {
       "group": "conta",

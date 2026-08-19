@@ -36,19 +36,114 @@ const OVERVIEW = readFix('warehouse-overview.json');
 const PRODUCT = readFix('warehouse-product.json');
 const REQUESTS = readFix('warehouse-requests.json');
 const LOCATIONS = readFix('warehouse-locations.json');
+const SUGGESTIONS = readFix('warehouse-sku-suggestions.json');
+
+/* Query string que a pagina mandou no ultimo GET /overview. A ordenacao e os
+   filtros agora sao do SERVIDOR (contrato P2): sem guardar isto, o harness so
+   conseguiria provar que a TELA reordenou, nao que ela PEDIU a ordem. */
+const overviewCalls = [];
+
+/* ── overview FILTRADO/ORDENADO no servidor (stub do contrato P2) ──
+   Faz de verdade o que o backend fara: aplica q, status (E, nao OU),
+   only_with_qty, sort/dir e a janela limit/offset, e devolve `total` = quantos
+   passaram no filtro (o M do "N de M"). Os produtos aposentados nunca entram. */
+const SORT_GET = {
+  name: (r) => String(r.nickname || r.name || '').toLowerCase(),
+  total: (r) => Number(r.total || 0),
+  shelf: (r) => Number(r.shelf_qty || 0),
+  box: (r) => Number(r.box_qty || 0),
+  unplaced: (r) => Number(r.unplaced_qty || 0),
+  reserved: (r) => Number(r.reserved || 0),
+  pending: (r) => Number(r.pending_in || 0) - Number(r.pending_out || 0),
+  available: (r) => Number(r.available || 0),
+  separated: (r) => Number(r.separated || 0),
+  days: (r) => (r.days_of_stock == null ? null : Number(r.days_of_stock)),
+  veeqo: (r) => (r.veeqo && r.veeqo.physical != null ? Number(r.veeqo.physical) : null),
+};
+
+function overviewFiltered(search) {
+  const sp = new URLSearchParams(search || '');
+  overviewCalls.push({
+    q: sp.get('q') || '', sort: sp.get('sort') || '', dir: sp.get('dir') || '',
+    status: sp.get('status') || '', only_with_qty: sp.get('only_with_qty') || '',
+    limit: sp.get('limit') || '', offset: sp.get('offset') || '',
+  });
+
+  let list = OVERVIEW.data.products.slice();
+  const q = (sp.get('q') || '').trim().toLowerCase();
+  if (q) {
+    list = list.filter((r) => [r.nickname, r.name, r.base_sku, r.barcode]
+      .concat((r.children || []).map((c) => c.sku))
+      .filter(Boolean).join(' ').toLowerCase().includes(q));
+  }
+  const st = (sp.get('status') || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (st.length) list = list.filter((r) => st.every((s) => (r.status || []).includes(s)));
+  if (sp.get('only_with_qty') === '1') list = list.filter((r) => Number(r.total || 0) > 0);
+
+  const get = SORT_GET[sp.get('sort')] || SORT_GET.available;
+  const mul = sp.get('dir') === 'desc' ? -1 : 1;
+  list.sort((a, b) => {
+    const va = get(a); const vb = get(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;                      // vazio sempre no fim
+    if (vb == null) return -1;
+    if (va === vb) return 0;
+    return (typeof va === 'string' ? (va < vb ? -1 : 1) : va - vb) * mul;
+  });
+
+  const total = list.length;
+  const off = Number(sp.get('offset') || 0) || 0;
+  const lim = Number(sp.get('limit') || 0) || total;
+  return { data: { ...OVERVIEW.data, products: list.slice(off, off + lim), total } };
+}
 
 const LOGIN = { name: 'QA Admin', role: 'admin', functions: ['*'] };
 
 /** POSTs que a pagina fez. Guardado pra conferir que a UI chamou o endpoint certo. */
 const posted = [];
 
+/* ── PREFERENCIAS POR CONTA — /api/v3/prefs/* ─────────────────────
+   A VISTA SALVA do hub (busca + chips + ordem) mora aqui, chave 'estoque.view'.
+   Guardar de verdade importa: o teste precisa provar que salvar manda PUT com o
+   valor certo, e nao so que o botao existe. */
+const PREFS = { account: { id: 1, name: 'QA Admin', role: 'admin' }, values: {}, updated_at: {} };
+const prefPuts = [];
+
+function prefsFixture(pathname, method, body) {
+  const m = /^\/api\/v3\/prefs\/(.+)$/.exec(pathname);
+  const key = m ? decodeURIComponent(m[1]) : null;
+  if (method === 'GET' && !key) return { data: { prefs: PREFS.values, account: PREFS.account } };
+  if (method === 'GET') {
+    return { data: { key, value: PREFS.values[key] != null ? PREFS.values[key] : null,
+                     updated_at: PREFS.updated_at[key] || null, account: PREFS.account } };
+  }
+  if (method === 'PUT') {
+    prefPuts.push({ key, value: body && body.value });
+    PREFS.values[key] = body && body.value;
+    PREFS.updated_at[key] = new Date().toISOString();
+    return { data: { key, updated_at: PREFS.updated_at[key], account: PREFS.account } };
+  }
+  if (method === 'DELETE') { delete PREFS.values[key]; return { data: { key, deleted: true } }; }
+  return { data: {} };
+}
+
 /** Resposta pra qualquer /api/**. Devolve null se nao souber (vira {data:{}}). */
 function apiFixture(pathname, search, method, body) {
+  if (pathname.startsWith('/api/v3/prefs')) return prefsFixture(pathname, method, body);
   if (method === 'POST') posted.push({ pathname, body });
   // ── /api/v3/warehouse/* (o hub) ────────────────────────────────
   if (pathname.startsWith('/api/v3/warehouse/')) {
     const p = pathname.slice('/api/v3/warehouse/'.length);
-    if (p === 'overview') return OVERVIEW;
+    if (p === 'overview') return overviewFiltered(search);
+    if (p === 'sku-suggestions') return SUGGESTIONS;
+    /* merge-bulk / unmerge: o backend devolve quantos viraram filho. A linha
+       some da tabela na hora e o proximo /overview ja vem sem ela. */
+    if (p === 'family/merge-bulk') {
+      const gs = (body && Array.isArray(body.groups)) ? body.groups : [];
+      const gone = gs.reduce((a, g) => a.concat(g.from_product_ids || []), []);
+      return { data: { ok: true, merged: gone.length, product_ids: gone } };
+    }
+    if (p === 'family/unmerge') return { data: { ok: true, product_id: body && body.product_id } };
     if (p.startsWith('product/')) {
       // detalhe do produto CLICADO: reusa as listas ricas da fixture mas com a
       // Row real do overview, senao o painel mostraria outro produto.
@@ -121,6 +216,10 @@ function apiFixture(pathname, search, method, body) {
     return { data: OVERVIEW.data.products.map((p) => ({
       id: p.product_id, name: p.name, nickname: p.nickname, bottle_color: p.bottle_color,
       active: true, on_hold: false, veeqo_stock: p.veeqo ? p.veeqo.physical : null,
+      canonical_name: p.name,
+      /* familia: na fixture o produto 3 e casepack do 5, o mesmo par que o
+         teste ad-hoc do hub junta. Duas telas, a MESMA verdade. */
+      parent_product_id: p.product_id === 3 ? 5 : null,
       skus: (p.skus || []).map((s) => ({ id: s.id, sku: s.sku, channel: s.channel, units_per_pack: s.units_per_pack })),
     })) };
   }
@@ -241,6 +340,12 @@ async function main() {
       sessionStorage.setItem('v3pin', '0000');
       sessionStorage.setItem('v3login', JSON.stringify(login));
       sessionStorage.setItem('hf-tweaks', JSON.stringify({ theme: 'light' }));
+      /* A vista do hub tem cache em localStorage (useAccountPref). Sem limpar,
+         um teste deixaria filtro ligado pro proximo e a falha apareceria na
+         assercao errada. O teste da vista salva usa a CONTA (o stub de prefs),
+         que e o caminho de verdade. */
+      localStorage.removeItem('hf-estoque-view');
+      localStorage.removeItem('hf-estoque-view.dirty');
     } catch (e) { /* ignore */ }
   }, LOGIN);
 
@@ -322,6 +427,273 @@ async function main() {
       byId(5).txt + ' ' + byId(5).color);
   rec('estoque', 'acima de 14 dias fica sem cor de alerta',
       !!okRgb && !(okRgb[0] > okRgb[1] + 40), byId(1).color);
+
+  /* ══ UMA LINHA POR PRODUTO + CHIP DE SKU (a regra do Bruno) ══════
+     Casepack e a MESMA garrafa. L-Carnitine tem base + C2/C3/C4 na fixture:
+     se a tabela mostrar 4 linhas pra isso, o estoque conta a mesma garrafa 4
+     vezes. Entao: 1 linha, e o chip diz "+3". */
+  const chip6 = await page.$eval('[data-row="6"] [data-sku-chip]',
+    (e) => ({ txt: e.textContent.replace(/\s+/g, ' ').trim(), count: e.dataset.skuCount })).catch(() => null);
+  rec('sku-chip', 'chip mostra SKU base + quantos filhos ("HF-LCAR-1500 +3")',
+      !!chip6 && /HF-LCAR-1500/.test(chip6.txt) && /\+3/.test(chip6.txt) && chip6.count === '3',
+      JSON.stringify(chip6));
+  const rowsForLcar = await page.$$eval('[data-table="produtos"] tbody tr[data-row]',
+    (rows) => rows.filter((r) => /HF-LCAR-1500/.test(r.textContent)).length);
+  rec('sku-chip', 'UMA linha pra L-Carnitine, nao uma por casepack', rowsForLcar === 1, 'linhas=' + rowsForLcar);
+  const chip2 = await page.$eval('[data-row="2"] [data-sku-chip]',
+    (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  rec('sku-chip', 'produto de SKU unico nao ganha "+0"', /^HF-BERB-500$/.test(chip2), chip2);
+  const chip7 = await page.$eval('[data-row="7"] [data-sku-chip]', (e) => e.dataset.skuChip).catch(() => '');
+  rec('sku-chip', 'produto sem SKU diz "sem SKU" em vez de celula vazia', chip7 === 'none', chip7);
+
+  // abrir o chip lista os filhos com SKU, kit e o numero da Veeqo
+  await page.click('[data-row="6"] [data-sku-chip]');
+  await sleep(250);
+  const kids = await page.$$eval('[data-sku-kids="6"] [data-sku-kid]',
+    (e) => e.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  rec('sku-chip', 'abrir o chip lista os 3 filhos', kids.length === 3, kids.join(' | '));
+  rec('sku-chip', 'cada filho mostra SKU, x3 kit e a qtd da Veeqo',
+      kids.some((k) => /-C3/.test(k) && /×3 kit/.test(k) && /Veeqo/.test(k)), kids.join(' | '));
+  rec('sku-chip', 'cada filho tem "desagrupar"',
+      (await page.$$('[data-sku-kids="6"] [data-unmerge]')).length === 3);
+  // abrir o SKU NAO pode abrir o painel lateral junto
+  rec('sku-chip', 'abrir o SKU nao abre o painel do produto', !(await page.$('[data-panel="produto"]')));
+
+  // desagrupar chama o endpoint certo
+  posted.length = 0;
+  await page.click('[data-sku-kids="6"] [data-unmerge]');
+  await sleep(600);
+  rec('sku-chip', 'desagrupar chama POST /warehouse/family/unmerge',
+      posted.some((p) => p.pathname === '/api/v3/warehouse/family/unmerge'),
+      JSON.stringify(posted.map((p) => p.pathname)));
+  await page.click('[data-row="6"] [data-sku-chip]').catch(() => {});
+  await sleep(200);
+
+  /* ══ EDICAO NA CELULA: um clique, digita, pronto ═════════════════
+     A celula tem que POSTAR o DELTA no endpoint que ja existe (adjust, que
+     passa pelo StockService). Escrever quantidade direto no banco seria o
+     unico jeito de errar feio aqui, entao o teste olha o corpo. */
+  const editable = await page.$$eval('[data-row="1"] [data-inline-cell]',
+    (e) => e.map((x) => x.dataset.inlineField));
+  rec('inline', 'Prateleira, Caixa e A organizar sao editaveis na linha',
+      ['shelf', 'box', 'unplaced'].every((f) => editable.includes(f)), editable.join(','));
+
+  posted.length = 0;
+  await page.click('[data-row="1"] [data-inline-field="shelf"]');
+  await sleep(250);
+  const inputOpen = await page.$('[data-inline-input="1:shelf"]');
+  rec('inline', 'clicar na celula abre um input', !!inputOpen);
+  /* "valor atual JA selecionado" so se prova DIGITANDO: input[type=number] nao
+     expoe selectionStart no Chrome (fica null), entao ler a propriedade
+     testaria o navegador, nao a tela. Se a selecao estiver certa, digitar 5
+     SUBSTITUI o 46; se estiver errada, vira "465" ou "546". */
+  const before = await page.$eval('[data-inline-input="1:shelf"]', (e) => e.value);
+  await page.keyboard.type('5');
+  const afterType = await page.$eval('[data-inline-input="1:shelf"]', (e) => e.value);
+  rec('inline', 'o input abre com o valor atual JA selecionado (digitar substitui)',
+      before === '46' && afterType === '5', before + ' + tecla 5 = ' + afterType);
+  const reasonField = await page.$('[data-row="1"] [data-inline-reason]');
+  rec('inline', 'o motivo e um campo na propria celula, nao um modal', !!reasonField);
+
+  // digita 50 (era 46) + motivo, Enter salva
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-inline-input="1:shelf"]');
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    set.call(i, '50'); i.dispatchEvent(new Event('input', { bubbles: true }));
+    const r = document.querySelector('[data-row="1"] [data-inline-reason]');
+    set.call(r, 'contagem do dia'); r.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.focus('[data-inline-input="1:shelf"]');
+  await page.keyboard.press('Enter');
+  await sleep(700);
+  const adj = posted.find((p) => /\/warehouse\/product\/1\/adjust$/.test(p.pathname));
+  rec('inline', 'Enter chama POST /warehouse/product/1/adjust (nunca escreve qtd direto)',
+      !!adj, JSON.stringify(posted.map((p) => p.pathname)));
+  rec('inline', 'manda o DELTA (+4), o motivo e o bin, nao o total novo',
+      !!adj && adj.body.qty === 4 && adj.body.reason === 'contagem do dia' && adj.body.bin_id === 1,
+      JSON.stringify(adj && adj.body));
+  const tick = await page.$('[data-row="1"] [data-inline-saved]');
+  rec('inline', 'um tique discreto confirma que salvou', !!tick);
+
+  // Esc cancela sem postar nada
+  posted.length = 0;
+  await page.click('[data-row="2"] [data-inline-field="box"]');
+  await sleep(200);
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  rec('inline', 'Esc fecha sem salvar nada',
+      !posted.length && !(await page.$('[data-inline-input="2:box"]')),
+      JSON.stringify(posted.map((p) => p.pathname)));
+
+  await shot('estoque-inline');
+
+  /* ══ FILTRO E ORDEM PEDIDOS AO SERVIDOR ══════════════════════════
+     Com ~190 produtos, filtrar/ordenar so a pagina baixada mostraria "o maior
+     desta tela". O teste prova que a TELA PEDE, nao so que ela reordena. */
+  const chipsN = await page.$$eval('[data-filter-chips] [data-chip]', (e) => e.map((x) => x.dataset.chip));
+  rec('filtro', 'os 5 chips rapidos + "so com quantidade" existem',
+      ['pend', 'zerado', 'sem_local', 'drift', 'sem_sku', 'only_qty'].every((k) => chipsN.includes(k)),
+      chipsN.join(','));
+
+  overviewCalls.length = 0;
+  await page.click('[data-chip="drift"]');
+  await sleep(700);
+  const driftCall = overviewCalls[overviewCalls.length - 1] || {};
+  rec('filtro', 'chip "Veeqo diferente" vira status=drift na query',
+      driftCall.status === 'drift', JSON.stringify(driftCall));
+  const driftRows = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  rec('filtro', 'a tabela fica so com os 2 produtos com Veeqo diferente',
+      driftRows.sort().join(',') === '1,8', driftRows.join(','));
+  const countNote = await page.$eval('[data-count-note]', (e) => e.textContent.replace(/\s+/g, ' ').trim());
+  rec('filtro', 'o rodape diz "N de M produtos"', /^2 de 2 produtos$/.test(countNote), countNote);
+  await shot('estoque-filtro');
+
+  await page.click('[data-filter-clear]');
+  await sleep(700);
+  rec('filtro', 'limpar devolve os 8 produtos',
+      (await page.$$('[data-table="produtos"] tbody tr[data-row]')).length === 8);
+
+  // busca com debounce: uma chamada, nao uma por tecla
+  overviewCalls.length = 0;
+  await page.click('[data-filter-q]');
+  await page.type('[data-filter-q]', 'carn', { delay: 40 });
+  await sleep(900);
+  const qCalls = overviewCalls.filter((c) => c.q);
+  rec('filtro', 'a busca espera parar de digitar (1 chamada, nao 4)',
+      qCalls.length === 1 && qCalls[0].q === 'carn', JSON.stringify(qCalls));
+  rec('filtro', 'buscar "carn" deixa so L-Carnitine',
+      (await page.$$('[data-table="produtos"] tbody tr[data-row]')).length === 1);
+  // buscar pelo SKU FILHO tem que achar o pai: o C3 nao tem linha propria
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-filter-q]');
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    set.call(i, 'LCAR-1500-C3'); i.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(900);
+  const kidSearch = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  rec('filtro', 'buscar o SKU de um casepack acha o PAI (o filho nao tem linha)',
+      kidSearch.join(',') === '6', kidSearch.join(','));
+  await page.click('[data-filter-clear]');
+  await sleep(700);
+
+  // ordem: clicar em Total manda sort=total&dir=desc (maior primeiro)
+  overviewCalls.length = 0;
+  await page.click('[data-sort="total"]');
+  await sleep(700);
+  const totCall = overviewCalls[overviewCalls.length - 1] || {};
+  rec('ordem', 'clicar em Total pede sort=total&dir=desc ao servidor',
+      totCall.sort === 'total' && totCall.dir === 'desc', JSON.stringify(totCall));
+  const totOrder = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  rec('ordem', 'maior primeiro: L-Carnitine (300) na frente', totOrder[0] === '6', totOrder.join(','));
+  await page.click('[data-sort="total"]');
+  await sleep(700);
+  const totCall2 = overviewCalls[overviewCalls.length - 1] || {};
+  rec('ordem', '2o clique inverte pra asc no servidor tambem', totCall2.dir === 'asc', JSON.stringify(totCall2));
+  // toda coluna numerica ordena, nao so duas
+  const sortables = await page.$$eval('[data-table="produtos"] thead th[data-sort]', (e) => e.map((x) => x.dataset.sort));
+  rec('ordem', 'todas as colunas numericas ordenam',
+      ['total', 'shelf', 'box', 'unplaced', 'reserved', 'pending', 'available', 'days', 'separated', 'veeqo']
+        .every((c) => sortables.includes(c)), sortables.join(','));
+
+  /* ══ VISTA SALVA NA CONTA ════════════════════════════════════════ */
+  await page.click('[data-chip="zerado"]');
+  await sleep(600);
+  const saveBtn = await page.$('[data-act="salvar-vista"]');
+  rec('vista', 'mexer no filtro acende o botao de salvar a vista', !!saveBtn);
+  prefPuts.length = 0;
+  await page.click('[data-act="salvar-vista"]');
+  await sleep(900);
+  const put = prefPuts.find((p) => p.key === 'estoque.view');
+  rec('vista', 'salvar manda PUT /api/v3/prefs/estoque.view', !!put, JSON.stringify(prefPuts.map((p) => p.key)));
+  rec('vista', 'a vista salva leva chips e ordem juntos',
+      !!put && put.value && put.value.chips && put.value.chips.zerado === true
+      && put.value.sort && put.value.sort.col === 'total',
+      JSON.stringify(put && put.value));
+  const viewStatus = await page.$eval('[data-view-status]', (e) => e.textContent.trim());
+  rec('vista', 'a tela diz que a vista e da CONTA, nao do navegador',
+      /vista salva na sua conta/.test(viewStatus), viewStatus);
+
+  // reabrir a pagina: a conta manda, e a tela volta filtrada
+  await go('estoque');
+  await page.waitForSelector('[data-table="produtos"] tbody tr', { timeout: 10000 }).catch(() => {});
+  await sleep(600);
+  const backChip = await page.$eval('[data-chip="zerado"]', (e) => e.getAttribute('aria-pressed')).catch(() => '');
+  rec('vista', 'reabrir a pagina volta com a vista salva ligada', backChip === 'true', 'aria-pressed=' + backChip);
+  await page.click('[data-act="resetar-vista"]');
+  await sleep(800);
+  rec('vista', 'Vista padrao devolve os 8 produtos',
+      (await page.$$('[data-table="produtos"] tbody tr[data-row]')).length === 8);
+
+  /* ══ JUNTAR SKUs ═════════════════════════════════════════════════
+     O painel PROPOE, a pessoa confirma. Nada e aplicado sozinho, e o passo 2
+     diz com todas as letras quem vira filho de quem e o que some. */
+  await page.click('[data-act="juntar-skus"]');
+  await page.waitForSelector('[data-panel="juntar-skus"]', { timeout: 5000 }).catch(() => {});
+  rec('juntar', 'o painel "Juntar SKUs" abre', !!(await page.$('[data-panel="juntar-skus"]')));
+  const nGroups = await page.$$eval('[data-merge-group]', (e) => e.length);
+  rec('juntar', 'mostra os 2 grupos propostos pelo backend', nGroups === 2, 'grupos=' + nGroups);
+  const g0 = await page.$eval('[data-merge-group="0"]', (e) => e.textContent.replace(/\s+/g, ' ')).catch(() => '');
+  rec('juntar', 'o grupo traz o pai proposto e os membros com SKU e Veeqo',
+      /HF-BENF-300/.test(g0) && /-C3/.test(g0) && /-C4/.test(g0) && /confiança alta/.test(g0), g0.slice(0, 130));
+  rec('juntar', 'membro com estoque avisa que o estoque vai pro pai',
+      /tem estoque, vai pro pai/.test(g0));
+  await shot('estoque-juntar');
+
+  // passo 2: a frase inteira, com nome, SKU e o que some
+  await page.click('[data-act="merge-todos"]');
+  await sleep(400);
+  const confirmTxt = await page.$eval('[data-merge-confirm]', (e) => e.textContent.replace(/\s+/g, ' ')).catch(() => '');
+  rec('juntar', '"juntar todos os obvios" abre um passo 2 antes de aplicar',
+      /Passo 2 de 2/.test(confirmTxt), confirmTxt.slice(0, 80));
+  rec('juntar', 'o passo 2 diz quem vira pai de quem, pra onde vai o estoque e o que some',
+      /HF-BENF-300 vira o pai de HF-BENF-300-C3 e HF-BENF-300-C4/.test(confirmTxt)
+      && /o estoque de HF-BENF-300-C4 vai pro pai/.test(confirmTxt)
+      && /as linhas antigas somem do estoque/.test(confirmTxt), confirmTxt.slice(0, 260));
+  await shot('estoque-juntar-confirmar');
+
+  posted.length = 0;
+  await page.click('[data-act="merge-confirmar"]');
+  await sleep(900);
+  const mrg = posted.find((p) => p.pathname === '/api/v3/warehouse/family/merge-bulk');
+  rec('juntar', 'confirmar chama POST /warehouse/family/merge-bulk',
+      !!mrg, JSON.stringify(posted.map((p) => p.pathname)));
+  rec('juntar', 'manda o grupo com o pai e os filhos, no formato do contrato',
+      !!mrg && Array.isArray(mrg.body.groups) && mrg.body.groups[0].into_product_id === 1
+      && mrg.body.groups[0].from_product_ids.join(',') === '91,92',
+      JSON.stringify(mrg && mrg.body));
+
+  // ad-hoc: marcar 2 linhas na tabela e juntar
+  await page.evaluate(() => { const b = document.querySelector('.kit-drawer-back'); if (b) b.click(); });
+  await sleep(400);
+  await page.click('[data-select="3"]');
+  await page.click('[data-select="5"]');
+  await sleep(300);
+  const selbar = await page.$eval('[data-selbar]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  rec('juntar', 'marcar 2 linhas abre a barra "Juntar selecionados"',
+      /2 linhas marcadas/.test(selbar), selbar.slice(0, 70));
+  await page.click('[data-act="juntar-selecionados"]');
+  await page.waitForSelector('[data-merge-adhoc]', { timeout: 5000 }).catch(() => {});
+  const adhocOpts = await page.$$eval('[data-adhoc-parent] option', (e) => e.map((o) => o.textContent.trim()));
+  rec('juntar', 'da pra escolher qual das linhas marcadas e o pai',
+      adhocOpts.length === 2 && adhocOpts.some((t) => /Chlorophyll/.test(t)), adhocOpts.join(' | '));
+  posted.length = 0;
+  await page.click('[data-act="merge-adhoc"]');
+  await sleep(300);
+  await page.click('[data-act="merge-confirmar"]');
+  await sleep(900);
+  const mrg2 = posted.find((p) => p.pathname === '/api/v3/warehouse/family/merge-bulk');
+  rec('juntar', 'juntar ad-hoc tambem passa pelo merge-bulk', !!mrg2, JSON.stringify(mrg2 && mrg2.body));
+  await sleep(600);
+  /* O pai sugerido e o SKU MAIS CURTO das marcadas (HF-NAC-600 tem 10 letras,
+     HF-CHLO-100 tem 11), entao Chlorophyll (3) e quem vira filha. A linha some
+     NA HORA, sem esperar o poll de 20s: foi a pessoa que mandou juntar. */
+  const afterRows = await page.$$eval('[data-table="produtos"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  rec('juntar', 'depois de juntar, a linha que virou filha some da tabela',
+      afterRows.length === 7 && !afterRows.includes('3'), afterRows.join(','));
+
+  await go('estoque');
+  await page.waitForSelector('[data-table="produtos"] tbody tr', { timeout: 10000 }).catch(() => {});
+  await sleep(400);
 
   // ordenacao: clicar no cabecalho troca a coluna e inverte no 2o clique
   await page.click('[data-sort="days"]');
@@ -542,6 +914,43 @@ async function main() {
       nextStep === '#estoque-etiquetas', nextStep);
   await shot('estoque-locais-bulk');
 
+  /* ══ PRODUCT SETUP: parentar SKU vale EM TODO LUGAR ══════════════
+     A mesma decisao ("este produto e casepack daquele") tem que sair pela
+     MESMA porta das duas telas. Se o Product Setup tivesse rota propria, um
+     produto poderia ser casepack numa tela e garrafa na outra. */
+  await go('produto-setup');
+  await page.waitForSelector('[data-table="produto-setup"] tbody tr', { timeout: 8000 }).catch(() => {});
+  const famHead = await page.$$eval('[data-table="produto-setup"] thead th', (e) => e.map((x) => x.textContent.trim()));
+  rec('produto-setup', 'coluna Família existe', famHead.includes('Família'), famHead.join('|'));
+  const isKid = await page.$eval('[data-family="3"]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  rec('produto-setup', 'produto que ja e casepack mostra de QUEM ele e',
+      /casepack de/.test(isKid) && /NAC 600/.test(isKid), isKid.slice(0, 70));
+  const isParent = await page.$eval('[data-family="5"]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  rec('produto-setup', 'a garrafa mostra quantos casepacks pendurados',
+      /garrafa de 1 casepack/.test(isParent), isParent.slice(0, 70));
+
+  posted.length = 0;
+  await page.select('[data-family-pick="2"]', '1');
+  await sleep(250);
+  await page.click('[data-family="2"] [data-act="juntar"]');
+  await sleep(800);
+  const psMerge = posted.find((p) => p.pathname === '/api/v3/warehouse/family/merge-bulk');
+  rec('produto-setup', 'juntar aqui usa a MESMA rota do hub (merge-bulk)',
+      !!psMerge, JSON.stringify(posted.map((p) => p.pathname)));
+  rec('produto-setup', 'manda o pai e o filho no formato do contrato',
+      !!psMerge && psMerge.body.groups[0].into_product_id === 1
+      && psMerge.body.groups[0].from_product_ids.join(',') === '2',
+      JSON.stringify(psMerge && psMerge.body));
+
+  posted.length = 0;
+  await page.click('[data-family="3"] [data-act="desagrupar"]');
+  await sleep(800);
+  rec('produto-setup', 'desagrupar aqui usa a MESMA rota do hub (unmerge)',
+      posted.some((p) => p.pathname === '/api/v3/warehouse/family/unmerge'),
+      JSON.stringify(posted.map((p) => p.pathname)));
+  rec('produto-setup', 'sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
+  await shot('produto-setup-familia');
+
   /* ── rotas legadas: fora do menu, mas vivas por hash + faixa ──── */
   for (const r of ['estoque-geral', 'inventory']) {
     await go(r);
@@ -551,6 +960,12 @@ async function main() {
         /Página antiga\. O hub Estoque substitui esta tela\./.test(b), b.slice(0, 90));
     const href = await page.$eval('[data-legacy-banner] a', (e) => e.getAttribute('href')).catch(() => '');
     rec('legado', r + ' tem botão pro hub', href === '#estoque', href);
+    /* A faixa diz "pagina antiga"; isto diz POR QUE o numero daqui difere: uma
+       linha por listagem, entao a mesma garrafa aparece duas vezes. Sem essa
+       frase alguem soma os casepacks e conta a garrafa em dobro. */
+    const hint = await page.$eval('[data-casepack-hint]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+    rec('legado', r + ' avisa que aqui casepack conta como linha separada',
+        /Uma linha por listagem/.test(hint) && /hub Estoque/.test(hint), hint.slice(0, 100));
     rec('legado', r + ' sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
     await shot('legado-' + r);
   }

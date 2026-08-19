@@ -24,11 +24,13 @@ const { LocationsRepo } = require('./locations-repo');
 const { FamilyRepo } = require('./family-repo');
 const { WeightsRepo, computeQty } = require('./weights');
 const { createMobile } = require('./mobile');
+const { suggest } = require('./sku-suggest');
 
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
 const IMPORT_BULK_CAP = 500;
 const BULK_BINS_CAP = 300;   // cadastro em lote de prateleiras, por chamada
+const MERGE_BULK_CAP = 50;   // grupos de merge por chamada (cada um mexe em estoque)
 const BIN_CODE_MAX = 12;     // 'A03B2' folgado; acima disso não é código de prateleira
 
 /** Data de hoje em NY (o source_ref do import é por dia: reimportar não duplica). */
@@ -52,6 +54,87 @@ const intOf = (v) => {
   const n = Number(v);
   return Number.isInteger(n) ? n : null;
 };
+
+// ── LISTA DO HUB: busca, filtro, ordenação e página ─────────────────────────
+// 190+ linhas numa tabela: ordenar e filtrar no NAVEGADOR significa mandar tudo
+// e recalcular a cada tecla. Aqui em cima, uma vez, e o cliente só desenha.
+// Sem nenhum parâmetro o comportamento é EXATAMENTE o de antes (lista inteira,
+// ordem do service por apelido) — nada que já funciona muda de jeito.
+
+/** Colunas ordenáveis: nome da API → como ler o número/texto da Row. */
+const SORTABLE = {
+  nome: (r) => String(r.nickname || r.name || '').toLowerCase(),
+  total: (r) => r.total,
+  prateleira: (r) => r.shelf_qty,
+  caixa: (r) => r.box_qty,
+  organizar: (r) => r.unplaced_qty,
+  reservado: (r) => r.reserved,
+  pendente: (r) => (Number(r.pending_out) || 0) + (Number(r.pending_in) || 0),
+  disponivel: (r) => r.available,
+  dias: (r) => r.days_of_stock,
+  separadas: (r) => r.separated,
+  veeqo: (r) => r.veeqo_total,
+  skus: (r) => r.sku_count,
+};
+
+const PAGE_MAX = 500;   // teto duro: nenhum cliente precisa de mais numa tacada
+
+/**
+ * Aplica busca + filtro + ordenação + página sobre as Rows já montadas.
+ * ORDENAÇÃO ESTÁVEL e NULO POR ÚLTIMO: "Dias" e "Veeqo" são null em muita linha;
+ * jogar null pro fim nas duas direções é o que faz a tabela parecer certa (null
+ * no topo do "maior primeiro" seria lido como "o maior de todos").
+ * @returns {{rows, total, limit, offset}}
+ */
+function applyQuery(rows, q = {}) {
+  let out = rows;
+
+  const term = String(q.q || '').trim().toLowerCase();
+  if (term) {
+    out = out.filter((r) => {
+      if (String(r.name || '').toLowerCase().includes(term)) return true;
+      if (String(r.nickname || '').toLowerCase().includes(term)) return true;
+      // busca também nos SKUs FILHOS: quem cola um "-C3" da Veeqo tem que achar
+      // a linha do pai, que é onde a garrafa está.
+      return (r.skus || []).some((s) => String(s.sku || '').toLowerCase().includes(term));
+    });
+  }
+
+  const status = String(q.status || '').trim();
+  if (status) {
+    const want = status.split(',').map((s) => s.trim()).filter(Boolean);
+    if (want.length) out = out.filter((r) => want.some((w) => (r.status || []).includes(w)));
+  }
+
+  if (q.only_with_qty === '1' || q.only_with_qty === 1 || q.only_with_qty === true) {
+    out = out.filter((r) => Number(r.total) > 0);
+  }
+
+  const total = out.length;
+
+  const col = SORTABLE[String(q.sort || '').trim()];
+  if (col) {
+    const dir = String(q.dir || 'asc').toLowerCase() === 'desc' ? -1 : 1;
+    // decora com o índice original: empate mantém a ordem que o service deu
+    out = out.map((r, i) => ({ r, i })).sort((a, b) => {
+      const x = col(a.r); const y = col(b.r);
+      const xn = x == null || x === ''; const yn = y == null || y === '';
+      if (xn && yn) return a.i - b.i;
+      if (xn) return 1;              // nulo por último nas DUAS direções
+      if (yn) return -1;
+      if (x < y) return -1 * dir;
+      if (x > y) return 1 * dir;
+      return a.i - b.i;              // estável
+    }).map((d) => d.r);
+  }
+
+  const limitRaw = intOf(q.limit);
+  const limit = limitRaw && limitRaw > 0 ? Math.min(limitRaw, PAGE_MAX) : null;
+  const offset = Math.max(0, intOf(q.offset) || 0);
+  if (limit != null || offset) out = out.slice(offset, limit != null ? offset + limit : undefined);
+
+  return { rows: out, total, limit, offset };
+}
 
 // ── DRIFT e IMPORT: funções puras, reusáveis fora do HTTP ───────────────────
 // O worker de drift (src/workers/stock-drift-alert.js) chama computeDrift DIRETO,
@@ -140,7 +223,8 @@ function createWarehouseRouter(deps = {}) {
   const requests = deps.requests;
   const veeqoCache = deps.veeqoCache || createVeeqoCache({ veeqo: deps.veeqo });
   const locations = deps.locations || new LocationsRepo({ db });
-  const family = deps.family || new FamilyRepo({ db, veeqoCache });
+  // stock no FamilyRepo: o merge move ESTOQUE, e quantidade só o StockService escreve
+  const family = deps.family || new FamilyRepo({ db, veeqoCache, stock });
   const weights = deps.weights || new WeightsRepo({ db });
   const router = express.Router();
 
@@ -182,7 +266,14 @@ function createWarehouseRouter(deps = {}) {
     for (const s of (row.skus || [])) {
       const info = bySku[String(s.sku).trim().toUpperCase()];
       s.veeqo_type = info ? info.type : null;
+      s.veeqo_qty = info && info.wh && info.wh.physical != null ? Number(info.wh.physical) : null;
     }
+    // children é a MESMA lista de objetos que skus (o service filtra por
+    // referência), então já vem enriquecida — só reaponta pra garantir.
+    row.children = (row.skus || []).filter((s) => s.role !== 'base');
+    // veeqo_total = SÓ o base físico. NUNCA base + kits: o kit é a mesma garrafa
+    // do base contada de novo (memória 'merge-safety-rules', estudo §10.4).
+    row.veeqo_total = row.veeqo && row.veeqo.physical != null ? Number(row.veeqo.physical) : null;
     if (row.veeqo_match === 'drift' && !row.status.includes('drift')) {
       row.status = row.status.filter((x) => x !== 'ok');
       row.status.push('drift');
@@ -322,14 +413,21 @@ function createWarehouseRouter(deps = {}) {
   // ── LEITURA ────────────────────────────────────────────────
 
   route('get', '/overview', 'read', async (req, res) => {
-    const [rows, pending] = await Promise.all([rowsWithVeeqo(null), pendingSummary()]);
+    const [all, pending] = await Promise.all([rowsWithVeeqo(null), pendingSummary()]);
     // KPI "Aprovações" e o badge do menu mostram O MESMO número: propostas
     // esperando (não produtos com proposta). Uma fonte só: pendingSummary.
-    const kpis = Object.assign(kpisFrom(rows), { pending_requests: pending.count });
+    //
+    // KPIs e "Precisa de atenção hoje" são do ARMAZÉM INTEIRO, sempre sobre `all`:
+    // filtrar a tabela não pode fazer sumir o alerta de um produto zerado que
+    // está fora da página. A paginação é da LISTA, não dos fatos.
+    const kpis = Object.assign(kpisFrom(all), { pending_requests: pending.count });
+    const page = applyQuery(all, req.query || {});
     ok(res, {
-      products: rows,
+      products: page.rows,
+      total: page.total,             // linhas que passaram no filtro (antes da página)
+      limit: page.limit, offset: page.offset,
       kpis,
-      attention: attentionFrom(rows),
+      attention: attentionFrom(all),
       pending_summary: pending,
       veeqo_checked_at: veeqoCache.checkedAt(),
       generated_at: new Date().toISOString(),
@@ -591,13 +689,91 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, sku: removed, product: await freshRow(removed.product_id) });
   });
 
+  /**
+   * MERGE de duas linhas do hub que são a MESMA garrafa (Bruno 08-19).
+   * Move SKUs + estoque, RETIRA o fantasma e devolve o resultado completo. O
+   * audit guarda os sku_ids porque é deles que o unmerge sabe o que devolver.
+   */
   route('post', '/family/merge', 'write', async (req, res) => {
     const b = req.body || {};
     const from = intOf(b.from_product_id); const into = intOf(b.into_product_id);
     if (!from || !into) throw new Error('from_product_id e into_product_id obrigatórios');
-    const out = await family.merge({ from_product_id: from, into_product_id: into });
-    await audit(req, 'warehouse.family_merge', into, { from_product_id: from, moved: out.moved });
-    ok(res, { ok: true, moved: out.moved, product: await freshRow(into) });
+    const out = await family.merge({ from_product_id: from, into_product_id: into,
+      person_id: (req.login && req.login.person_id) || null });
+    await audit(req, 'warehouse.family_merge', out.parent.product_id, {
+      from_product_id: from, moved: out.moved_skus.length, moved_qty: out.moved_qty,
+      retired_product_id: out.retired_product_id,
+      sku_ids: out.moved_skus.map((s) => s.id) });
+    ok(res, { ok: true, ...out, product: await freshRow(out.parent.product_id) });
+  });
+
+  /**
+   * MERGE EM LOTE: a tela de sugestões manda vários grupos confirmados de uma vez
+   * (é assim que 190 linhas viram ~120 sem 70 cliques). Um grupo que falha NÃO
+   * derruba os outros — cada um volta com seu próprio ok/erro, senão o operador
+   * perde o lote inteiro por causa de um id errado.
+   */
+  route('post', '/family/merge-bulk', 'write', async (req, res) => {
+    const groups = Array.isArray(req.body && req.body.groups) ? req.body.groups : null;
+    if (!groups || !groups.length) throw new Error('groups obrigatório (lista com pelo menos um grupo)');
+    if (groups.length > MERGE_BULK_CAP) {
+      throw new Error(`lista inválida: máximo de ${MERGE_BULK_CAP} grupos por vez, vieram ${groups.length}`);
+    }
+    const results = [];
+    let mergedProducts = 0; let movedQty = 0;
+    for (const g of groups) {
+      const into = intOf(g && g.into_product_id);
+      const froms = Array.isArray(g && g.from_product_ids)
+        ? g.from_product_ids.map(intOf).filter((x) => x) : [];
+      if (!into || !froms.length) {
+        results.push({ into_product_id: into || null, ok: false,
+          error: 'into_product_id e from_product_ids obrigatórios' });
+        continue;
+      }
+      const merged = []; const failed = [];
+      for (const from of froms) {
+        if (from === into) continue;                 // juntar consigo mesmo é no-op
+        try {
+          const out = await family.merge({ from_product_id: from, into_product_id: into,
+            person_id: (req.login && req.login.person_id) || null });
+          await audit(req, 'warehouse.family_merge', out.parent.product_id, {
+            from_product_id: from, moved: out.moved_skus.length, moved_qty: out.moved_qty,
+            retired_product_id: out.retired_product_id, bulk: true,
+            sku_ids: out.moved_skus.map((s) => s.id) });
+          merged.push({ from_product_id: from, moved_skus: out.moved_skus.length,
+            moved_qty: out.moved_qty, retired_product_id: out.retired_product_id });
+          mergedProducts += 1; movedQty += out.moved_qty;
+        } catch (e) {
+          failed.push({ from_product_id: from, error: e.message });
+        }
+      }
+      results.push({ into_product_id: into, ok: !failed.length, merged, failed,
+        product: await freshRow(into) });
+    }
+    ok(res, { results, merged_products: mergedProducts, moved_qty: movedQty,
+      groups: results.length });
+  });
+
+  /** DESFAZER: o produto volta pro hub e os SKUs daquele merge voltam com ele. */
+  route('post', '/family/unmerge', 'write', async (req, res) => {
+    const id = intOf(req.body && req.body.product_id);
+    if (!id) throw new Error('product_id obrigatório');
+    const out = await family.unmerge({ product_id: id,
+      person_id: (req.login && req.login.person_id) || null });
+    await audit(req, 'warehouse.family_unmerge', id, {
+      was_merged_into: out.was_merged_into,
+      returned_skus: out.returned_skus.length });
+    ok(res, { ok: true, ...out, product: await freshRow(id) });
+  });
+
+  /**
+   * SUGESTÕES de parentesco: grupos de linhas que provavelmente são a MESMA
+   * garrafa, com o motivo em português. NUNCA junta nada — quem confirma é gente
+   * (merge errado manda a garrafa errada pro cliente).
+   */
+  route('get', '/sku-suggestions', 'read', async (req, res) => {
+    const [rows, bySku] = await Promise.all([rowsWithVeeqo(null), veeqoCache.bySku()]);
+    ok(res, { ...suggest(rows, bySku), generated_at: new Date().toISOString() });
   });
 
   // ── S15 FASE 3 — IMPORT DA VEEQO ───────────────────────────
@@ -782,5 +958,5 @@ function createWarehouseRouter(deps = {}) {
   return router;
 }
 
-module.exports = { createWarehouseRouter, BASE, computeDrift, importVeeqo,
-  IMPORT_BULK_CAP, BULK_BINS_CAP, BIN_CODE_MAX };
+module.exports = { createWarehouseRouter, BASE, computeDrift, importVeeqo, applyQuery,
+  IMPORT_BULK_CAP, BULK_BINS_CAP, BIN_CODE_MAX, MERGE_BULK_CAP, SORTABLE, PAGE_MAX };

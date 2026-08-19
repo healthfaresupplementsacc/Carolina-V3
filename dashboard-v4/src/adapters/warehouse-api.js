@@ -72,7 +72,49 @@ export function useWarehouse(path, deps = [], intervalMs = 20000, paused = false
 }
 
 // ── Endpoints do contrato (S15-BUILD-PLAN §API contract) ─────────
+/** Overview SEM filtro (compatibilidade: quem só quer a lista inteira). */
 export const getOverview   = () => whGet('/overview');
+
+/* ── Overview FILTRADO NO SERVIDOR (Bruno 08-17) ───────────────────
+   "filtrar de maior pra menor qtd" tem que valer pros ~190 produtos, não
+   só pra página que o navegador já baixou. Por isso busca, ordem, filtros
+   e paginação viram query string e a conta é do banco.
+
+   O overview responde { products, total, kpis, attention, pending_summary }.
+   `total` é quantos produtos passam no filtro (o M do "N de M"), enquanto
+   products.length é a página atual.
+
+   params = { q, sort, dir, status, only_with_qty, limit, offset } */
+export function overviewQuery(params) {
+  const qs = new URLSearchParams();
+  Object.keys(params || {}).forEach((k) => {
+    const v = params[k];
+    if (v === undefined || v === null || v === '' || v === false) return;
+    qs.set(k, v === true ? '1' : String(v));
+  });
+  const s = qs.toString();
+  return '/overview' + (s ? '?' + s : '');
+}
+export const getOverviewFiltered = (params) => whGet(overviewQuery(params));
+
+/* ── JUNTAR SKUs (a regra do Bruno) ────────────────────────────────
+   Casepack é a MESMA garrafa física: BEET-2000-C3 não é outro produto, é
+   três do mesmo. O hub mostra uma linha por produto, e o que junta as
+   linhas erradas mora aqui.
+
+   sku-suggestions devolve grupos PROPOSTOS (nunca aplicados sozinhos):
+     { groups:[{ suggested_parent:{product_id,name,nickname,sku},
+                 members:[{product_id,name,sku,units_per_pack,veeqo_qty,has_stock}],
+                 reason, confidence }], counts }
+   Quem decide é a pessoa: cada grupo tem [Juntar], e "alta confiança" tem o
+   atalho de mandar todos de uma vez, sempre com o resumo antes. */
+export const getSkuSuggestions = () => whGet('/sku-suggestions');
+
+/** Junta vários grupos numa chamada. groups=[{into_product_id, from_product_ids}] */
+export const mergeFamilyBulk = (groups) => whPost('/family/merge-bulk', { groups });
+
+/** Tira um produto de baixo do pai: ele volta a ter linha própria. */
+export const unmergeFamily = (productId) => whPost('/family/unmerge', { product_id: productId });
 export const getProduct    = (id) => whGet('/product/' + id);
 export const getRequests   = (status) => whGet('/requests' + (status ? '?status=' + encodeURIComponent(status) : ''));
 export const getLocations  = () => whGet('/locations');

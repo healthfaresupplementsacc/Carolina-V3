@@ -1220,45 +1220,30 @@ function createOpRouter(deps = {}) {
     } catch (err) { console.error('[op] cleanupCoworkGroup falhou (não bloqueia):', err.message); }
   }
 
-  // ── FASE PAUSA — pausa congela TODOS os processos ativos do operador ──
+  // ── FASE PAUSA — a pausa é do GRUPO, não do starter (Bruno 08-19, evento 3583) ──
+  // Congelar/descongelar N pessoas, a pergunta "você estava nisso desde o começo?"
+  // e o reparo do histórico moram em src/v3/pause/service.js — op.js não cresce.
   const PAUSE_SLUGS = new Set(['break']); // 'break' = pausa (nota obrigatória já no NOTE_REQUIRED_SLUGS)
-  // FASE OVERLAP+ALMOÇO (regra Bruno): almoço PARA o trabalho e não pode
-  // trabalhar durante o almoço; duas tasks de foreground ao mesmo tempo exigem
-  // confirmação. Background (máquina) NUNCA conflita.
-  const LUNCH_SLUGS = new Set(['lunch']);
-  // congela: marca paused_at=NOW nos events ativos do operador (menos pausas e o
-  // próprio break). Relógio para; o tempo não conta como trabalho.
-  async function freezeActiveFor(personId, exceptEventId) {
-    await db.query(
-      `UPDATE v3.events SET paused_at = NOW(), updated_at = NOW()
-       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL
-         AND paused_at IS NULL AND is_unfinished = FALSE AND id <> $2
-         AND activity_type_id NOT IN (SELECT id FROM v3.activity_types WHERE slug = ANY($3::text[]))`,
-      [personId, exceptEventId || -1, [...PAUSE_SLUGS]]);
+  const LUNCH_SLUGS = new Set(['lunch']); // almoço PARA o trabalho de foreground; background segue
+  const pauseSvc = deps.pauseService || require('../v3/pause/service').createPauseService({ db, audit });
+  // congela: paused_at=NOW nos events ativos de TODOS os participantes (menos os próprios breaks).
+  async function freezeActiveFor(personId, exceptEventId, alsoPersonIds, exceptEventIds) {
+    return pauseSvc.freezeFor([...new Set([personId, ...(alsoPersonIds || [])])],
+      [...new Set([exceptEventId, ...(exceptEventIds || [])].filter((x) => x != null))]);
   }
-  // retoma: soma o tempo pausado em total_paused_seconds e zera paused_at. O
-  // relógio volta a contar de onde parou (descontando a pausa).
-  async function resumePausedFor(personId) {
-    const r = await db.query(
-      `UPDATE v3.events
-       SET total_paused_seconds = total_paused_seconds + GREATEST(0, EXTRACT(EPOCH FROM (NOW() - paused_at))::int),
-           paused_at = NULL, updated_at = NOW()
-       WHERE person_id = $1 AND ended_at IS NULL AND deleted_at IS NULL AND paused_at IS NOT NULL
-       RETURNING id`, [personId]);
-    if (!r.rowCount) return { count: 0, tasks: [] };
-    // detalhes das tarefas DESCONGELADAS → o app pergunta "continuar ou finalizar?"
-    // (regra Bruno: ao voltar da pausa, escolhe; se finalizar e a task pede contagem,
-    // o fluxo de finalizar já cobra a quantidade). needs_count: linha/encaps/fnsku/ordens.
-    const det = await db.query(
-      `SELECT e.id, at.slug, at.display_name AS label, pb.batch_number,
-              pr.canonical_name AS product,
-              (at.slug IN ('production_line','encapsulation','fnsku_labeling') OR at.requires_order_count = true) AS needs_count
-         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
-         LEFT JOIN v3.product_batches pb ON pb.id = e.product_batch_id
-         LEFT JOIN v3.products pr ON pr.id = pb.product_id
-        WHERE e.id = ANY($1::int[])`, [r.rows.map((x) => x.id)]);
-    return { count: r.rowCount, tasks: det.rows };
+  // retoma: soma o pausado em total_paused_seconds e zera paused_at pra CADA
+  // participante. Devolve as tarefas de quem pediu + by_person pros colegas.
+  async function resumePausedFor(personId, pauseEventId) {
+    const r = pauseEventId ? await pauseSvc.endPauseFor(pauseEventId) : await pauseSvc.resumeFor([personId]);
+    const mine = (r.by_person && r.by_person[personId]) || { count: 0, tasks: [] };
+    return { count: mine.count, tasks: mine.tasks, group_count: r.count, by_person: r.by_person || {} };
   }
+  // "VOCÊ ESTAVA NISSO DESDE O COMEÇO?" — a pergunta fica PENDENTE no topo do /op
+  // quando alguém é anexado a uma pausa em andamento sem estar no kiosk (o caso
+  // exato do 3583). Até responder vale o conservador 'agora' e a tela diz isso.
+  opRoute('get', 'pause/pending', async (s) => ({ status: 200, body: { ok: true, question: await pauseSvc.pendingQuestionFor(s.person_id) } }));
+  opRoute('post', 'pause/answer', async (s, b) => { const r = await pauseSvc.answerPending({ event_id: b && b.event_id, person_id: s.person_id, since: b && b.since }); return { status: r.ok ? 200 : 400, body: r }; });
+  opRoute('post', 'pause/join', async (s, b) => { const r = await pauseSvc.joinPause({ pause_event_id: b && b.pause_event_id, person_id: s.person_id, since: b && b.since, actor_person_id: s.person_id }); return { status: r.ok ? 200 : 400, body: r }; });
 
   // ── OPERADORES DE MÁQUINA — handoff de background no almoço/pausa (regra Bruno 06-22) ──
   // Operador de máquina (Bruno/Vitor) vai pro almoço/pausa enquanto roda background
@@ -1714,7 +1699,7 @@ function createOpRouter(deps = {}) {
       const gid = crypto.randomUUID();
       const startedAt = new Date().toISOString();
       const participants = [...new Set([s.person_id, ...cw])]; // starter + colegas, sem dup
-      let starterEv = null;
+      let starterEv = null; const pauseIds = []; // ids dos breaks do grupo: nenhum congela outro (Bruno 08-19)
       for (const pid of participants) {
         const others = participants.filter((x) => x !== pid);
         const r = await db.query(
@@ -1724,13 +1709,13 @@ function createOpRouter(deps = {}) {
            VALUES ($1, $2, $3, $4::timestamptz, $5, $6::int[], 'high', 'operator_page', $7, $8::uuid, $9, $10)
            RETURNING id, person_id, activity_type_id, product_batch_id, started_at, cowork_with, orders_printed, cowork_group_id`,
           [pid, act.id, batch ? batch.id : null, startedAt, desc, others, ordersPrinted, gid, !!s.is_sandbox, !!act.is_background]);
-        if (pid === s.person_id) starterEv = r.rows[0];
+        pauseIds.push(r.rows[0].id); if (pid === s.person_id) starterEv = r.rows[0];
       }
       await audit('event.created_via_page', 'event', starterEv.id,
         { slug: act.slug, batch: batch ? batch.batch_number : null, cowork_with: cw, cowork_group_id: gid, cowork_size: participants.length }, s.person_id);
       await flagUnknownBatch({ res: starterEv, autoCreated, typedUnlinked, resolvedFromEms, batch, batchNumber: batch_number, body: req.body, slug: act.slug, s });
       await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_start', payload: { slug: act.slug, batch_number, cowork_with: cw, cowork_group_id: gid, note }, relatedEventId: starterEv.id, isTest: !!s.is_sandbox });
-      if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, starterEv.id); // FASE PAUSA: congela o resto
+      if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, starterEv.id, cw, pauseIds); // FASE PAUSA: congela o GRUPO (Bruno 08-19: era só o starter)
       if (ORDER_PRINTING_SLUGS.has(act.slug) && isFirstOrderOpen && ordersPrinted > 0) {
         await insertOrdersCount({ eventId: starterEv.id, productId: null, batchId: batch ? batch.id : null, orders: ordersPrinted, personId: s.person_id });
       } else if (act.slug === 'clinic_shipment' && ordersPrinted > 0) {
@@ -2141,7 +2126,8 @@ function createOpRouter(deps = {}) {
     // FASE PAUSA: terminar a PAUSA (break) = voltar ao trabalho → descongela tudo
     let resumedCount = 0;
     let resumedTasks = [];
-    if (PAUSE_SLUGS.has(ev.slug)) { const ri = await resumePausedFor(s.person_id); resumedCount = ri.count; resumedTasks = ri.tasks; }
+    let resumedGroup = null;
+    if (PAUSE_SLUGS.has(ev.slug)) { const ri = await resumePausedFor(s.person_id, ev.id); resumedCount = ri.count; resumedTasks = ri.tasks; resumedGroup = ri.by_person; } // Bruno 08-19: quem termina a pausa termina PRO GRUPO
     // CUSTÓDIA (Bruno 07-08): NÃO devolve mais automático. Se o dono VOLTA da
     // pausa, o app PERGUNTA se ele assume a máquina (SIM/NÃO + escolher jobs).
     // Se um SUBSTITUTO acabou de CONCLUIR um job que cobria, avisa que ele
@@ -2253,14 +2239,18 @@ function createOpRouter(deps = {}) {
     await actionLog({ personId: s.person_id, personName: s.display_name, actionType: 'task_finish', payload: { slug: ev.slug, bottles: Number.isFinite(b) ? b : null, orders_count: Number.isFinite(oc) ? oc : null, marketplace, exception, reason, note, is_cowork: isCowork, is_last: isLast }, relatedEventId: ev.id, isTest: !!s.is_sandbox });
 
     // ── resposta + audit por caminho ──
+    // PAUSA EM COWORK (Bruno 08-19): estes dois caminhos devolviam a resposta SEM
+    // resumed/resumed_tasks — quem terminava uma pausa a dois nunca recebia o
+    // "continuar ou finalizar?". Agora vão junto nos dois.
+    const rz = { resumed: resumedCount, resumed_tasks: resumedTasks, resumed_group: resumedGroup };
     if (isCowork && !isLast) {
       await audit('cowork.member.finished', 'event', ev.id, { cowork_group_id: ev.cowork_group_id, remaining: remainingBefore - 1, slug: ev.slug }, s.person_id);
-      return res.json({ ok: true, event_id: ev.id, is_last_finisher: false, remaining: remainingBefore - 1, count_created: false, exception: false });
+      return res.json({ ok: true, event_id: ev.id, is_last_finisher: false, remaining: remainingBefore - 1, count_created: false, exception: false, ...rz, ...(machineReturn || {}) });
     }
     if (isCowork && isLast) {
       await audit('cowork.group.completed', 'event', ev.id, { cowork_group_id: ev.cowork_group_id, slug: ev.slug, bottles: countCreated ? b : null, exception }, s.person_id);
       if (exception) await notifyProductionException(ev, reason, s);
-      return res.json({ ok: true, event_id: ev.id, is_last_finisher: true, count_created: countCreated, exception, bottle_warning: bottleWarning });
+      return res.json({ ok: true, event_id: ev.id, is_last_finisher: true, count_created: countCreated, exception, bottle_warning: bottleWarning, ...rz, ...(machineReturn || {}) });
     }
     // SOLO (sem grupo) — comportamento original
     if (exception) {
@@ -2269,7 +2259,7 @@ function createOpRouter(deps = {}) {
     } else {
       await audit('event.ended_via_page', 'event', ev.id, { bottles: countCreated ? b : null, slug: ev.slug }, s.person_id);
     }
-    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, resumed_tasks: resumedTasks, bottle_warning: bottleWarning, ...(machineReturn || {}) });
+    res.json({ ok: true, event_id: ev.id, count_created: countCreated, exception, resumed: resumedCount, resumed_tasks: resumedTasks, resumed_group: resumedGroup, bottle_warning: bottleWarning, ...(machineReturn || {}) });
   }));
 
   // ── CUSTÓDIA: dono confirma no retorno (Bruno 07-08) ────────────────────────
@@ -2328,12 +2318,22 @@ function createOpRouter(deps = {}) {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'bad_id' });
     const tr = await db.query(
-      `SELECT id, person_id, activity_type_id, product_batch_id, cowork_group_id, ended_at, deleted_at
-       FROM v3.events WHERE id = $1 LIMIT 1`, [id]);
+      `SELECT e.id, e.person_id, e.activity_type_id, e.product_batch_id, e.cowork_group_id, e.ended_at, e.deleted_at, e.started_at, at.slug
+       FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id WHERE e.id = $1 LIMIT 1`, [id]);
     const ev = tr.rows[0];
     if (!ev || ev.deleted_at) return res.status(404).json({ error: 'event_not_found' });
     if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
     if (ev.person_id === s.person_id) return res.json({ ok: true, already: true, event_id: ev.id }); // já é dono
+    // PAUSA (Bruno 08-19): entrar numa pausa em andamento NÃO é entrar numa task.
+    // O kiosk precisa perguntar "você estava nisso desde o começo?" ANTES de decidir
+    // de quando congelar. Sem resposta → devolve a pergunta (nunca 4xx, REGRA #0).
+    if (PAUSE_SLUGS.has(ev.slug)) {
+      const since = req.body && req.body.since;
+      if (since !== 'inicio' && since !== 'agora') {
+        return res.json({ ok: true, pause_join_question: true, pause_event_id: ev.id, pause_started_at: ev.started_at, starter_person_id: ev.person_id });
+      }
+      return res.json(await pauseSvc.joinPause({ pause_event_id: ev.id, person_id: s.person_id, since, actor_person_id: s.person_id }));
+    }
     // garante um grupo cowork (se A começou solo, cria o grupo agora e marca A)
     let gid = ev.cowork_group_id;
     if (!gid) {

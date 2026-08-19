@@ -13,30 +13,134 @@
     "separated": 6,
     "days_of_stock": 3,
     "min_units": 40,
-    "status": ["low"],
+    "status": [
+      "low"
+    ],
     "veeqo_match": "ok",
-    "veeqo": { "physical": 140 },
+    "veeqo": {
+      "physical": 140
+    },
     "bins": [
-      { "id": 1, "bin_code": "A03B2", "shelf_code": "S4", "area": "P&P", "qty": 40, "min_qty": 40, "needs_restock": true }
+      {
+        "id": 1,
+        "bin_code": "A03B2",
+        "shelf_code": "S4",
+        "area": "P&P",
+        "qty": 40,
+        "min_qty": 40,
+        "needs_restock": true
+      }
     ],
     "boxes": [
-      { "id": 8, "box_number": "BX-0451", "area": "MEZ", "qty": 100, "batch_number": "L-21" }
+      {
+        "id": 8,
+        "box_number": "BX-0451",
+        "area": "MEZ",
+        "qty": 100,
+        "batch_number": "L-21"
+      }
     ],
-    "skus": [{ "sku": "HF-RUT-500", "channel": "veeqo", "units_per_pack": 1 }]
+    "skus": [
+      {
+        "sku": "HF-RUT-500",
+        "channel": "veeqo",
+        "units_per_pack": 1
+      }
+    ],
+    "children": [
+      {
+        "sku": "HF-RUT-500-C2",
+        "channel": "veeqo",
+        "units_per_pack": 2,
+        "veeqo_qty": 70,
+        "product_id": 991
+      },
+      {
+        "sku": "HF-RUT-500-C3",
+        "channel": "veeqo",
+        "units_per_pack": 3,
+        "veeqo_qty": 46,
+        "product_id": 992
+      }
+    ],
+    "sku_count": 3
   },
   "open_orders": [
-    { "order_number": "TT-88120", "channel": "tiktok", "sku": "HF-RUT-500", "qty": 2, "bottles": 2, "status": "awaiting", "order_date": "2026-08-19", "age_min": 40 }
+    {
+      "order_number": "TT-88120",
+      "channel": "tiktok",
+      "sku": "HF-RUT-500",
+      "qty": 2,
+      "bottles": 2,
+      "status": "awaiting",
+      "order_date": "2026-08-19",
+      "age_min": 40
+    }
   ],
   "movements": [
-    { "id": 9001, "kind": "place", "qty": 40, "source": "warehouse_hub", "note": "[Bruno]", "created_at": "2026-08-19T12:10:00.000Z", "bin_code": "A03B2", "box_number": null, "person": "Bruno" },
-    { "id": 9000, "kind": "storein", "qty": 100, "source": "warehouse_hub", "note": "[Bruno] caixa nova", "created_at": "2026-08-18T18:20:00.000Z", "bin_code": null, "box_number": "BX-0451", "person": "Bruno" },
-    { "id": 8999, "kind": "take", "qty": -12, "source": "op_stock", "note": "pedido do dia", "created_at": "2026-08-18T15:02:00.000Z", "bin_code": "A03B2", "box_number": null, "person": "Simone" }
+    {
+      "id": 9001,
+      "kind": "place",
+      "qty": 40,
+      "source": "warehouse_hub",
+      "note": "[Bruno]",
+      "created_at": "2026-08-19T12:10:00.000Z",
+      "bin_code": "A03B2",
+      "box_number": null,
+      "person": "Bruno"
+    },
+    {
+      "id": 9000,
+      "kind": "storein",
+      "qty": 100,
+      "source": "warehouse_hub",
+      "note": "[Bruno] caixa nova",
+      "created_at": "2026-08-18T18:20:00.000Z",
+      "bin_code": null,
+      "box_number": "BX-0451",
+      "person": "Bruno"
+    },
+    {
+      "id": 8999,
+      "kind": "take",
+      "qty": -12,
+      "source": "op_stock",
+      "note": "pedido do dia",
+      "created_at": "2026-08-18T15:02:00.000Z",
+      "bin_code": "A03B2",
+      "box_number": null,
+      "person": "Simone"
+    }
   ],
   "issues": [
-    { "id": 31, "qty": 6, "reason": "label", "status": "separated", "order_number": null, "note": "rótulo torto", "created_at": "2026-08-17T14:00:00.000Z", "person": "Vitor" }
+    {
+      "id": 31,
+      "qty": 6,
+      "reason": "label",
+      "status": "separated",
+      "order_number": null,
+      "note": "rótulo torto",
+      "created_at": "2026-08-17T14:00:00.000Z",
+      "person": "Vitor"
+    }
   ],
   "requests": [
-    { "id": 501, "kind": "count", "direction": "in", "qty": 100, "status": "pending", "reason": null, "note": "contagem por peso", "created_at": "2026-08-18T12:40:00.000Z", "proposed_by": "Simone" }
+    {
+      "id": 501,
+      "kind": "count",
+      "direction": "in",
+      "qty": 100,
+      "status": "pending",
+      "reason": null,
+      "note": "contagem por peso",
+      "created_at": "2026-08-18T12:40:00.000Z",
+      "proposed_by": "Simone"
+    }
   ],
-  "family": { "base": { "sku": "HF-RUT-500" }, "skus": [] }
+  "family": {
+    "base": {
+      "sku": "HF-RUT-500"
+    },
+    "skus": []
+  }
 }

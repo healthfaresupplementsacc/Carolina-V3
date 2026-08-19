@@ -1245,6 +1245,7 @@ subgraph S09["S09 · Cross-cutting shared modules"]
   S09_12["S09.12 · utils/time.js formatTime (legacy)"]:::verified
   S09_13["S09.13 · shared/hf-design (= S03.09)"]:::verified
   S09_14["S09.14 · middleware/security.js (= S02.05)"]:::verified
+  S09_15["S09.15 · pause/service.js (relógio da PAUSA, do GRUPO; freeze/resume N pessoas; joinPause since inicio ou agora; repairPauseOverlap)"]:::verified
 end
 
 OP["S02.08 op.js"]:::verified
@@ -1290,6 +1291,11 @@ DATA --> S09_09
 WIRE --> S09_10
 LEG --> S09_12
 S09_05 -->|R133| S09_01
+OPUI["S09.16 · op/pause-ui.js HF_PAUSE (pergunta Você estava nisso desde o começo + banner de pausa)"]:::verified
+EVT[("v3.events")]:::verified
+OP -->|R210 freeze do GRUPO, R211 endPauseFor, R213 join com since| S09_15
+OPUI -->|R214 pause/pending + pause/answer| OP
+S09_15 -.->|R217 escreve SO o relogio, nunca ended_at nem estoque| EVT
 WIRE -.->|R151 required twice: attAlertGate + totalAlertGate| S09_02
 S12_14["S03.01.19 · public source map served on /dashboard-v4 (no auth) — finding"]:::verified
 S12_14 -.-> S12_12
@@ -1534,6 +1540,11 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_HUB --> A_API
   A_API --> SVC
   A_API --> A_APPROVE
+  A_PARENT["S15.38 BUILT 08-19: SKU PARENTING = UMA linha por produto FISICO (casepack -C2/-C3/-C4 e 'x3 kit' sao SKU na Veeqo mas NAO existem fisicamente: a garrafa fica solta no mesmo lugar da avulsa). Migration 077: products.merged_into_product_id (fantasma RETIRADO, nunca apagado, filtrado num lugar so) + product_skus.is_base. merge move SKUs + estoque (par de movimentos, soma zero) e retira; unmerge desfaz. GET sku-suggestions propoe grupos com motivo PT-BR, NUNCA junta sozinho. veeqo_total = so o base, nunca base + kits"]:::verified
+  A_API --> A_PARENT
+  A_PARENT -->|move estoque do fantasma pro pai: moveProduct| SVC
+  A_PARENT -->|reatribui SKUs ao pai + is_base| T_SKUS
+  A_PARENT -->|sugestoes usam type/upc do cache| EXT_VEEQO
   A_SEP["S15.15 SECONDARY inventory per product = v3.stock_issues 'Separadas' (EXISTS): damaged → separated → relabeled/restocked/discarded; PLANNED: + reason 'return'; back-to-sellable + discard need approval"]:::partial
   A_APPROVE --> A_SEP
   A_PLAN --> A_APPROVE

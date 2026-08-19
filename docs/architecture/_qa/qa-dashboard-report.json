@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T18:08:29.819Z",
+  "at": "2026-08-19T22:34:37.412Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "201 KB → dash-estoque.png"
+      "detail": "199 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -35,7 +35,7 @@
       "group": "estoque",
       "name": "coluna \"Dias de estoque\" logo depois de Disponível",
       "pass": true,
-      "detail": "Produto|Total|Prateleira|Caixa|A organizar|Reservado|Pendente|Disponível ↑|Dias de estoque|Separadas|Veeqo|Status|"
+      "detail": "|Produto|Total|Prateleira|Caixa|A organizar|Reservado|Pendente|Disponível ↑|Dias de estoque|Separadas|Veeqo|Status|"
     },
     {
       "group": "estoque",
@@ -68,6 +68,312 @@
       "detail": "rgb(28, 43, 58)"
     },
     {
+      "group": "sku-chip",
+      "name": "chip mostra SKU base + quantos filhos (\"HF-LCAR-1500 +3\")",
+      "pass": true,
+      "detail": "{\"txt\":\"HF-LCAR-1500+3\",\"count\":\"3\"}"
+    },
+    {
+      "group": "sku-chip",
+      "name": "UMA linha pra L-Carnitine, nao uma por casepack",
+      "pass": true,
+      "detail": "linhas=1"
+    },
+    {
+      "group": "sku-chip",
+      "name": "produto de SKU unico nao ganha \"+0\"",
+      "pass": true,
+      "detail": "HF-BERB-500"
+    },
+    {
+      "group": "sku-chip",
+      "name": "produto sem SKU diz \"sem SKU\" em vez de celula vazia",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "sku-chip",
+      "name": "abrir o chip lista os 3 filhos",
+      "pass": true,
+      "detail": "HF-LCAR-1500-C2×2 kitVeeqo 150desagrupar | HF-LCAR-1500-C3×3 kitVeeqo 100desagrupar | HF-LCAR-1500-C4×4 kitVeeqo 75desagrupar"
+    },
+    {
+      "group": "sku-chip",
+      "name": "cada filho mostra SKU, x3 kit e a qtd da Veeqo",
+      "pass": true,
+      "detail": "HF-LCAR-1500-C2×2 kitVeeqo 150desagrupar | HF-LCAR-1500-C3×3 kitVeeqo 100desagrupar | HF-LCAR-1500-C4×4 kitVeeqo 75desagrupar"
+    },
+    {
+      "group": "sku-chip",
+      "name": "cada filho tem \"desagrupar\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sku-chip",
+      "name": "abrir o SKU nao abre o painel do produto",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "sku-chip",
+      "name": "desagrupar chama POST /warehouse/family/unmerge",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/family/unmerge\"]"
+    },
+    {
+      "group": "inline",
+      "name": "Prateleira, Caixa e A organizar sao editaveis na linha",
+      "pass": true,
+      "detail": "nickname,shelf,box,unplaced"
+    },
+    {
+      "group": "inline",
+      "name": "clicar na celula abre um input",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inline",
+      "name": "o input abre com o valor atual JA selecionado (digitar substitui)",
+      "pass": true,
+      "detail": "46 + tecla 5 = 5"
+    },
+    {
+      "group": "inline",
+      "name": "o motivo e um campo na propria celula, nao um modal",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inline",
+      "name": "Enter chama POST /warehouse/product/1/adjust (nunca escreve qtd direto)",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/product/1/adjust\"]"
+    },
+    {
+      "group": "inline",
+      "name": "manda o DELTA (+4), o motivo e o bin, nao o total novo",
+      "pass": true,
+      "detail": "{\"qty\":4,\"reason\":\"contagem do dia\",\"bin_id\":1}"
+    },
+    {
+      "group": "inline",
+      "name": "um tique discreto confirma que salvou",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "inline",
+      "name": "Esc fecha sem salvar nada",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-inline",
+      "pass": true,
+      "detail": "184 KB → dash-estoque-inline.png"
+    },
+    {
+      "group": "filtro",
+      "name": "os 5 chips rapidos + \"so com quantidade\" existem",
+      "pass": true,
+      "detail": "pend,zerado,sem_local,drift,sem_sku,only_qty"
+    },
+    {
+      "group": "filtro",
+      "name": "chip \"Veeqo diferente\" vira status=drift na query",
+      "pass": true,
+      "detail": "{\"q\":\"\",\"sort\":\"available\",\"dir\":\"asc\",\"status\":\"drift\",\"only_with_qty\":\"\",\"limit\":\"60\",\"offset\":\"0\"}"
+    },
+    {
+      "group": "filtro",
+      "name": "a tabela fica so com os 2 produtos com Veeqo diferente",
+      "pass": true,
+      "detail": "1,8"
+    },
+    {
+      "group": "filtro",
+      "name": "o rodape diz \"N de M produtos\"",
+      "pass": true,
+      "detail": "2 de 2 produtos"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-filtro",
+      "pass": true,
+      "detail": "187 KB → dash-estoque-filtro.png"
+    },
+    {
+      "group": "filtro",
+      "name": "limpar devolve os 8 produtos",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "filtro",
+      "name": "a busca espera parar de digitar (1 chamada, nao 4)",
+      "pass": true,
+      "detail": "[{\"q\":\"carn\",\"sort\":\"available\",\"dir\":\"asc\",\"status\":\"\",\"only_with_qty\":\"\",\"limit\":\"60\",\"offset\":\"0\"}]"
+    },
+    {
+      "group": "filtro",
+      "name": "buscar \"carn\" deixa so L-Carnitine",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "filtro",
+      "name": "buscar o SKU de um casepack acha o PAI (o filho nao tem linha)",
+      "pass": true,
+      "detail": "6"
+    },
+    {
+      "group": "ordem",
+      "name": "clicar em Total pede sort=total&dir=desc ao servidor",
+      "pass": true,
+      "detail": "{\"q\":\"\",\"sort\":\"total\",\"dir\":\"desc\",\"status\":\"\",\"only_with_qty\":\"\",\"limit\":\"60\",\"offset\":\"0\"}"
+    },
+    {
+      "group": "ordem",
+      "name": "maior primeiro: L-Carnitine (300) na frente",
+      "pass": true,
+      "detail": "6,1,2,5,3,8,4,7"
+    },
+    {
+      "group": "ordem",
+      "name": "2o clique inverte pra asc no servidor tambem",
+      "pass": true,
+      "detail": "{\"q\":\"\",\"sort\":\"total\",\"dir\":\"asc\",\"status\":\"\",\"only_with_qty\":\"\",\"limit\":\"60\",\"offset\":\"0\"}"
+    },
+    {
+      "group": "ordem",
+      "name": "todas as colunas numericas ordenam",
+      "pass": true,
+      "detail": "name,total,shelf,box,unplaced,reserved,pending,available,days,separated,veeqo"
+    },
+    {
+      "group": "vista",
+      "name": "mexer no filtro acende o botao de salvar a vista",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "vista",
+      "name": "salvar manda PUT /api/v3/prefs/estoque.view",
+      "pass": true,
+      "detail": "[\"estoque.view\"]"
+    },
+    {
+      "group": "vista",
+      "name": "a vista salva leva chips e ordem juntos",
+      "pass": true,
+      "detail": "{\"q\":\"\",\"chips\":{\"zerado\":true},\"onlyQty\":false,\"sort\":{\"col\":\"total\",\"dir\":\"asc\"}}"
+    },
+    {
+      "group": "vista",
+      "name": "a tela diz que a vista e da CONTA, nao do navegador",
+      "pass": true,
+      "detail": "vista salva na sua conta"
+    },
+    {
+      "group": "vista",
+      "name": "reabrir a pagina volta com a vista salva ligada",
+      "pass": true,
+      "detail": "aria-pressed=true"
+    },
+    {
+      "group": "vista",
+      "name": "Vista padrao devolve os 8 produtos",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "juntar",
+      "name": "o painel \"Juntar SKUs\" abre",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "juntar",
+      "name": "mostra os 2 grupos propostos pelo backend",
+      "pass": true,
+      "detail": "grupos=2"
+    },
+    {
+      "group": "juntar",
+      "name": "o grupo traz o pai proposto e os membros com SKU e Veeqo",
+      "pass": true,
+      "detail": "Benfotiamine 300HF-BENF-300confiança altaJuntarmesmo SKU base, so muda o casepackProdutoSKU×Unid.VeeqoEstoqueBenfotiamine 300 mg -"
+    },
+    {
+      "group": "juntar",
+      "name": "membro com estoque avisa que o estoque vai pro pai",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-juntar",
+      "pass": true,
+      "detail": "210 KB → dash-estoque-juntar.png"
+    },
+    {
+      "group": "juntar",
+      "name": "\"juntar todos os obvios\" abre um passo 2 antes de aplicar",
+      "pass": true,
+      "detail": "Passo 2 de 2 · confirmarHF-BENF-300 vira o pai de HF-BENF-300-C3 e HF-BENF-300-C"
+    },
+    {
+      "group": "juntar",
+      "name": "o passo 2 diz quem vira pai de quem, pra onde vai o estoque e o que some",
+      "pass": true,
+      "detail": "Passo 2 de 2 · confirmarHF-BENF-300 vira o pai de HF-BENF-300-C3 e HF-BENF-300-C4; o estoque de HF-BENF-300-C4 vai pro pai; as linhas antigas somem do estoque.VoltarConfirmar: juntar 1 grupo"
+    },
+    {
+      "group": "screenshot",
+      "name": "estoque-juntar-confirmar",
+      "pass": true,
+      "detail": "226 KB → dash-estoque-juntar-confirmar.png"
+    },
+    {
+      "group": "juntar",
+      "name": "confirmar chama POST /warehouse/family/merge-bulk",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/family/merge-bulk\"]"
+    },
+    {
+      "group": "juntar",
+      "name": "manda o grupo com o pai e os filhos, no formato do contrato",
+      "pass": true,
+      "detail": "{\"groups\":[{\"into_product_id\":1,\"from_product_ids\":[91,92]}]}"
+    },
+    {
+      "group": "juntar",
+      "name": "marcar 2 linhas abre a barra \"Juntar selecionados\"",
+      "pass": true,
+      "detail": "2 linhas marcadasSe forem a mesma garrafa em SKUs diferentes, junte nu"
+    },
+    {
+      "group": "juntar",
+      "name": "da pra escolher qual das linhas marcadas e o pai",
+      "pass": true,
+      "detail": "Chlorophyll · HF-CHLO-100 | NAC 600 · HF-NAC-600"
+    },
+    {
+      "group": "juntar",
+      "name": "juntar ad-hoc tambem passa pelo merge-bulk",
+      "pass": true,
+      "detail": "{\"groups\":[{\"into_product_id\":5,\"from_product_ids\":[3]}]}"
+    },
+    {
+      "group": "juntar",
+      "name": "depois de juntar, a linha que virou filha some da tabela",
+      "pass": true,
+      "detail": "4,7,8,5,2,1,6"
+    },
+    {
       "group": "estoque",
       "name": "ordenar por dias poe o mais critico primeiro e o \"sem venda\" no fim",
       "pass": true,
@@ -77,7 +383,7 @@
       "group": "estoque",
       "name": "rodape diz por qual coluna esta ordenado",
       "pass": true,
-      "detail": "ordenado por dias de estoque ↑ · 8 produtos"
+      "detail": "ordenado por dias de estoque ↑"
     },
     {
       "group": "estoque",
@@ -131,7 +437,7 @@
       "group": "screenshot",
       "name": "estoque-painel",
       "pass": true,
-      "detail": "164 KB → dash-estoque-painel.png"
+      "detail": "170 KB → dash-estoque-painel.png"
     },
     {
       "group": "estoque",
@@ -143,7 +449,7 @@
       "group": "screenshot",
       "name": "estoque-familia",
       "pass": true,
-      "detail": "190 KB → dash-estoque-familia.png"
+      "detail": "196 KB → dash-estoque-familia.png"
     },
     {
       "group": "estoque",
@@ -161,7 +467,7 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "212 KB → dash-estoque-modal.png"
+      "detail": "213 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
@@ -293,7 +599,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "132 KB → dash-inventory.png"
+      "detail": "138 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -311,7 +617,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "151 KB → dash-produto-setup.png"
+      "detail": "184 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -353,13 +659,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"30h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"33h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"34h\"},{\"tone\":\"bad\",\"txt\":\"34h\"},{\"tone\":\"bad\",\"txt\":\"38h\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"30h\"},{\"tone\":\"bad\",\"txt\":\"29h\"},{\"tone\":\"bad\",\"txt\":\"33h\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"34h\"},{\"tone\":\"bad\",\"txt\":\"34h\"},{\"tone\":\"bad\",\"txt\":\"38h\"}]"
     },
     {
       "group": "estoque-locais",
@@ -428,6 +734,54 @@
       "detail": "185 KB → dash-estoque-locais-bulk.png"
     },
     {
+      "group": "produto-setup",
+      "name": "coluna Família existe",
+      "pass": true,
+      "detail": "Produto|Nickname|Cor da garrafa|Estoque Veeqo|Validade (rótulo)|Peso da unidade|SKUs (por canal)|Família"
+    },
+    {
+      "group": "produto-setup",
+      "name": "produto que ja e casepack mostra de QUEM ele e",
+      "pass": true,
+      "detail": "casepack deNAC 600desagrupar"
+    },
+    {
+      "group": "produto-setup",
+      "name": "a garrafa mostra quantos casepacks pendurados",
+      "pass": true,
+      "detail": "garrafa de 1 casepacké casepack de…Benfotiamine 300Berberine 500Collag"
+    },
+    {
+      "group": "produto-setup",
+      "name": "juntar aqui usa a MESMA rota do hub (merge-bulk)",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/family/merge-bulk\"]"
+    },
+    {
+      "group": "produto-setup",
+      "name": "manda o pai e o filho no formato do contrato",
+      "pass": true,
+      "detail": "{\"groups\":[{\"into_product_id\":1,\"from_product_ids\":[2]}]}"
+    },
+    {
+      "group": "produto-setup",
+      "name": "desagrupar aqui usa a MESMA rota do hub (unmerge)",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/family/unmerge\"]"
+    },
+    {
+      "group": "produto-setup",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "produto-setup-familia",
+      "pass": true,
+      "detail": "187 KB → dash-produto-setup-familia.png"
+    },
+    {
       "group": "legado",
       "name": "estoque-geral abre por hash com a faixa de página antiga",
       "pass": true,
@@ -441,6 +795,12 @@
     },
     {
       "group": "legado",
+      "name": "estoque-geral avisa que aqui casepack conta como linha separada",
+      "pass": true,
+      "detail": "Uma linha por listagem: os casepacks (C2, C3, C4) aparecem separados aqui, mesmo sendo a mesma garra"
+    },
+    {
+      "group": "legado",
       "name": "estoque-geral sem erro de console",
       "pass": true,
       "detail": ""
@@ -449,7 +809,7 @@
       "group": "screenshot",
       "name": "legado-estoque-geral",
       "pass": true,
-      "detail": "140 KB → dash-legado-estoque-geral.png"
+      "detail": "146 KB → dash-legado-estoque-geral.png"
     },
     {
       "group": "legado",
@@ -465,6 +825,12 @@
     },
     {
       "group": "legado",
+      "name": "inventory avisa que aqui casepack conta como linha separada",
+      "pass": true,
+      "detail": "Uma linha por listagem: os casepacks (C2, C3, C4) aparecem separados aqui, mesmo sendo a mesma garra"
+    },
+    {
+      "group": "legado",
       "name": "inventory sem erro de console",
       "pass": true,
       "detail": ""
@@ -473,7 +839,7 @@
       "group": "screenshot",
       "name": "legado-inventory",
       "pass": true,
-      "detail": "132 KB → dash-legado-inventory.png"
+      "detail": "138 KB → dash-legado-inventory.png"
     }
   ]
 }

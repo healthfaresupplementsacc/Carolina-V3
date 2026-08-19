@@ -659,10 +659,36 @@
   // ══════════════════════════════════════════════════════════════════
   // ABA: PRODUTOS
   // ══════════════════════════════════════════════════════════════════
+  /* Busca acha pelo SKU FILHO também. Casepack é a mesma garrafa: o C3 não
+     tem linha própria aqui, então procurar "RUT-500-C3" tem que cair no pai.
+     Sem isso o Bruno leria "não achei" pra um SKU que existe. */
   function matchProduct(p, q) {
     if (!q) return true;
-    var hay = [p.name, p.nickname, p.base_sku].filter(Boolean).join(' ').toLowerCase();
+    var hay = [p.name, p.nickname, p.base_sku]
+      .concat(skuKids(p).map(function (c) { return c.sku; }))
+      .filter(Boolean).join(' ').toLowerCase();
     return hay.indexOf(q) >= 0;
+  }
+
+  /* Os SKUs pendurados na garrafa. children[] é o formato novo (contrato do
+     hub); `skus` é o antigo, e continua servindo pra tela não ficar muda
+     enquanto o backend não trocar. */
+  function skuKids(p) {
+    if (Array.isArray(p.children)) return p.children;
+    return (p.skus || []).filter(function (s) {
+      return s.role !== 'base' && s.sku !== p.base_sku;
+    });
+  }
+
+  /* O chip "RUT-500 +2": a garrafa e quantas listagens estão nela. No celular
+     não se junta SKU (é tarefa de mesa), mas o número tem que aparecer, senão
+     quem olha acha que um SKU sumiu do sistema. */
+  function skuChip(p) {
+    if (!p.base_sku) return '';
+    var extra = p.sku_count != null ? Math.max(0, num(p.sku_count) - 1) : skuKids(p).length;
+    return '<span class="chip solid mono" data-sku-chip="' + esc(p.product_id) + '" '
+      + 'data-sku-count="' + extra + '">' + esc(p.base_sku)
+      + (extra ? ' <b>+' + extra + '</b>' : '') + '</span>';
   }
 
   function produtosHtml() {
@@ -689,11 +715,13 @@
     h += '<div class="list">';
     list.forEach(function (p) {
       var st = (p.status || [])[0];
+      // UMA linha por produto, com o SKU base e o "+N" dos casepacks
       h += '<button class="item" data-act="product" data-arg="' + esc(p.product_id) + '">'
         + '<span class="grow">'
         + '<span class="t">' + esc(p.nickname || p.name) + '</span>'
         + '<span class="s">Disponível ' + fmt(p.available) + ' · Total ' + fmt(p.total)
         + (p.days_of_stock != null ? ' · ' + fmt(p.days_of_stock) + ' dias' : '') + '</span>'
+        + (p.base_sku ? '<span class="skus">' + skuChip(p) + '</span>' : '')
         + '</span>'
         + (st && st !== 'ok' ? chip(STATUS_LABEL[st] || st, STATUS_TONE[st] || 'neutral') : '')
         + icon('chev', 'chev') + '</button>';
@@ -753,6 +781,31 @@
         + actBtn('separate', 'Separar') + '</div>';
     }
 
+    /* SKUs da garrafa. Juntar/desagrupar NÃO existe aqui: mexer na família é
+       tarefa de mesa, com o catálogo inteiro na frente. O que o celular
+       precisa é MOSTRAR, pra ninguém achar que um SKU sumiu do sistema. */
+    var kids = skuKids(p);
+    if (p.base_sku) {
+      body += '<div class="sect">' + mlabel('SKUs desta garrafa') + '<span class="rule"></span></div>';
+      body += '<div class="card flat" data-sku-list>'
+        + '<div class="skus">' + skuChip(p) + '</div>';
+      if (kids.length) {
+        body += '<div class="list tight">';
+        kids.forEach(function (c) {
+          body += '<div class="item" data-sku-kid="' + esc(c.sku) + '">'
+            + '<span class="grow"><span class="t mono">' + esc(c.sku) + '</span>'
+            + '<span class="s">' + esc([
+              num(c.units_per_pack) > 1 ? num(c.units_per_pack) + ' garrafas no pacote' : 'garrafa avulsa',
+              c.veeqo_qty != null ? 'Veeqo ' + fmt(c.veeqo_qty) : '',
+            ].filter(Boolean).join(' · ')) + '</span></span></div>';
+        });
+        body += '</div>';
+        body += '<div class="sub" style="margin-top:8px;">'
+          + 'É a mesma garrafa em pacotes diferentes. Juntar ou separar SKU se faz no computador.</div>';
+      }
+      body += '</div>';
+    }
+
     // locais: onde essa garrafa está de verdade
     body += '<div class="sect">' + mlabel('Locais') + '<span class="rule"></span></div>';
     var locs = (p.bins || []).map(function (b) {
@@ -794,7 +847,9 @@
       body += '</div>';
     }
 
-    return sheetShell(name, p.base_sku ? 'SKU ' + p.base_sku : '', body);
+    return sheetShell(name, p.base_sku
+      ? 'SKU ' + p.base_sku + (kids.length ? ' e mais ' + kids.length : '')
+      : '', body);
   }
 
   function numCell(label, v, tone) {

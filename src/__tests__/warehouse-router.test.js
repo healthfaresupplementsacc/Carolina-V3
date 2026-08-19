@@ -65,9 +65,22 @@ function makeDb(state) {
         if (!b) return { rows: [] };
         b.active = false; return { rows: [b] };
       }
+      // SKU parenting (077): produtos existem e nenhum está absorvido
+      if (/FROM v3\.products WHERE id = \$1/.test(q)) {
+        const id = params[0];
+        return { rows: [{ id, canonical_name: 'Produto ' + id, nickname: null,
+          merged_into_product_id: null }] };
+      }
+      if (/FROM v3\.products WHERE merged_into_product_id = \$1/.test(q)) return { rows: [] };
+      if (q.startsWith('UPDATE v3.products SET merged_into_product_id')) return { rows: [] };
+      if (q.startsWith('UPDATE v3.products') && /merged_into_product_id = \$2/.test(q)) {
+        return { rows: [{ id: params[0] }] };
+      }
+      if (q.startsWith('UPDATE v3.product_skus SET is_base = false')) return { rows: [] };
+      if (q.startsWith('UPDATE v3.stock_issues SET product_id')) return { rows: [] };
       if (q.startsWith('INSERT INTO v3.product_skus')) {
         const sku = { id: 55, product_id: params[0], sku: params[1], channel: params[2],
-          units_per_pack: params[3], confirmed_at: 'now' };
+          units_per_pack: params[3], is_base: params[4], confirmed_at: 'now' };
         state.skus.push(sku); return { rows: [sku] };
       }
       if (q.startsWith('DELETE FROM v3.product_skus')) {
@@ -298,7 +311,8 @@ describe('Warehouse hub — ficha do produto', () => {
     expect(d.open_orders[0].order_number).toBe('12-345');
     expect(d.movements.length).toBe(1);
     expect(d.issues[0].status).toBe('separated');
-    expect(d.family.base).toEqual({ sku: 'HF-BENF-300', channel: 'veeqo' });
+    // base agora carrega units_per_pack (077: família que só tem kit precisa dizer isso)
+    expect(d.family.base).toEqual({ sku: 'HF-BENF-300', channel: 'veeqo', units_per_pack: 1 });
     expect(d.family.members[0].derived_packs).toBe(214);   // floor(214 ÷ 1)
   });
 

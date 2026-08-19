@@ -6,9 +6,9 @@
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v43'; // v43: renderizador único da etiqueta + fila de impressão do celular
+const CACHE = 'hf-op-v44'; // v44: pausa do GRUPO + "Você estava nisso desde o começo?" (Bruno 08-19)
 const SHELL = [
-  '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/nav.js', '/op/style.css',
+  '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/pause-ui.js', '/op/nav.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',
   '/op/manifest.json',
   // S15 Fase 3: hub de estoque (tela propria, mesma casca offline)

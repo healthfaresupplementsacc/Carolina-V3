@@ -580,6 +580,108 @@ class StockService {
   }
 
   /**
+   * MOVE PRODUCT (Bruno 08-19, SKU parenting): todo o estoque físico do produto A
+   * passa a pertencer ao produto B. É o que falta pro merge de SKUs limpar de
+   * verdade: casepack não existe fisicamente, então quando duas linhas do hub são
+   * a MESMA garrafa, o que estava sob a linha fantasma tem que ir pro pai — bins,
+   * caixas e o "a organizar" — senão o merge some com o SKU e deixa o estoque
+   * órfão numa linha que ninguém mais vê.
+   *
+   * NÃO é uma quantidade nova: o total do armazém não muda, só troca de dono.
+   * Por isso cada peça vira um PAR de movimentos (−qty no produto de origem,
+   * +qty no destino, mesmo bin/caixa) e a soma dos dois é zero no livro-razão.
+   *
+   * Bins e caixas seguem junto (reapontam product_id): o local pertence ao PAI,
+   * que é a regra do Bruno. O "a organizar" soma nos dois buckets.
+   *
+   * IDEMPOTENTE por source_ref: o merge em lote pode ser reenviado (clique duplo,
+   * retry) sem mover nada duas vezes. Cada peça tem seu próprio sufixo de ref
+   * porque um merge parcial que voltasse a rodar precisa completar o que faltou.
+   *
+   * p: {from_product_id, to_product_id, person_id?, source, source_ref, note?,
+   *     actor_type?, is_test?}
+   * @returns {{moved_qty, bins, boxes, unplaced, movements, duplicate}}
+   */
+  async moveProduct(p = {}) {
+    const from = Number(p.from_product_id); const to = Number(p.to_product_id);
+    if (!from || !to) throw new Error('moveProduct: from_product_id e to_product_id obrigatórios');
+    if (from === to) throw new Error('moveProduct: produtos iguais');
+    if (!p.source) throw new Error('moveProduct: source obrigatório');
+    if (!p.source_ref) throw new Error('moveProduct: source_ref obrigatório (idempotência)');
+    const src = p.source; const ref = p.source_ref;
+
+    return this._withTx(async (c) => {
+      const movements = []; let movedQty = 0; let anyNew = false;
+
+      // um par de movimentos (−origem, +destino) pro mesmo lugar físico
+      const pair = async (suffix, qty, place) => {
+        if (!qty || qty <= 0) return;
+        const outIns = await this._insertMovement(c, {
+          kind: 'move', product_id: from, qty: -qty,
+          bin_id: place.bin_id || null, box_id: place.box_id || null,
+          person_id: p.person_id || null, source: src, source_ref: `${ref}:${suffix}:out`,
+          note: p.note || `merge de SKU: estoque passa pro produto ${to}`, is_test: p.is_test,
+        });
+        const inIns = await this._insertMovement(c, {
+          kind: 'move', product_id: to, qty,
+          bin_id: place.bin_id || null, box_id: place.box_id || null,
+          person_id: p.person_id || null, source: src, source_ref: `${ref}:${suffix}:in`,
+          note: p.note || `merge de SKU: estoque vem do produto ${from}`, is_test: p.is_test,
+        });
+        if (outIns.duplicate && inIns.duplicate) return;   // essa peça já foi movida
+        anyNew = true; movedQty += qty;
+        movements.push(outIns.movement, inIns.movement);
+      };
+
+      // bins: o local passa a ser do pai (a prateleira é do produto físico)
+      const bins = (await c.query(
+        `SELECT id, bin_code, qty FROM v3.stock_bins
+          WHERE product_id = $1 ORDER BY id FOR UPDATE`, [from])).rows;
+      for (const b of bins) {
+        await pair('bin' + b.id, Number(b.qty) || 0, { bin_id: b.id });
+        await c.query('UPDATE v3.stock_bins SET product_id = $2, updated_at = NOW() WHERE id = $1',
+          [b.id, to]);
+      }
+
+      // caixas: idem
+      const boxes = (await c.query(
+        `SELECT id, box_number, qty FROM v3.stock_boxes
+          WHERE product_id = $1 ORDER BY id FOR UPDATE`, [from])).rows;
+      for (const x of boxes) {
+        await pair('box' + x.id, Number(x.qty) || 0, { box_id: x.id });
+        await c.query('UPDATE v3.stock_boxes SET product_id = $2, updated_at = NOW() WHERE id = $1',
+          [x.id, to]);
+      }
+
+      // "a organizar": bucket por produto, então soma no destino e zera na origem
+      const unplaced = await this._getUnplaced(c, from);
+      if (unplaced > 0) {
+        const before = await this._getUnplaced(c, to);
+        await pair('unplaced', unplaced, {});
+        if (anyNew) {
+          await this._setUnplaced(c, to, before + unplaced);
+          await this._setUnplaced(c, from, 0);
+        }
+      }
+
+      // Separadas seguem a garrafa: a issue é do produto físico, não da listagem.
+      await c.query('UPDATE v3.stock_issues SET product_id = $2 WHERE product_id = $1', [from, to]);
+
+      if (anyNew) {
+        await this._audit(c, {
+          actorType: p.actor_type || 'admin', actorPersonId: p.person_id,
+          action: 'stock.move_product', targetId: to,
+          before: { product_id: from }, after: { product_id: to, moved_qty: movedQty,
+            bins: bins.length, boxes: boxes.length, unplaced },
+          metadata: { source: src, source_ref: ref },
+        });
+      }
+      return { moved_qty: movedQty, bins: bins.length, boxes: boxes.length,
+        unplaced, movements, duplicate: !anyNew };
+    });
+  }
+
+  /**
    * Ajuste manual do admin (correção). qty com sinal (+/-). Sempre auditado.
    * p: {product_id?, qty (signed int ≠ 0), bin_id?, box_id?, person_id, note, is_test?}
    */
@@ -705,14 +807,25 @@ class StockService {
    * Sem venda na semana o número não existe (null) — dividir por zero viraria
    * "infinito dias de estoque", que é pior que não dizer nada.
    *
+   * SKU PARENTING (Bruno 08-19): UMA LINHA POR PRODUTO FÍSICO. Produto absorvido
+   * por outro (merged_into_product_id) NÃO aparece — o fantasma do merge some da
+   * lista sem nunca ser apagado do banco. `include_retired: true` traz os
+   * absorvidos de volta (só o unmerge e a auditoria pedem isso).
+   *
    * @param {object} opts opts.product_id → filtra um produto só
+   *                      opts.include_retired → inclui absorvidos (default false)
    */
   async overview(opts = {}) {
     const only = opts.product_id ? Number(opts.product_id) : null;
     const args = only ? [only] : [];
-    const whereProd = only ? 'WHERE p.id = $1' : '';
+    // Filtro do fantasma num lugar SÓ. Quando pedem um produto específico, ele
+    // vem mesmo absorvido: quem abriu a ficha por id quer ver aquela linha.
+    const notRetired = (opts.include_retired || only) ? '' : 'p.merged_into_product_id IS NULL';
+    const conds = [only ? 'p.id = $1' : null, notRetired || null].filter(Boolean);
+    const whereProd = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const rows = (await this.db.query(`
       SELECT p.id AS product_id, p.canonical_name, p.nickname, p.bottle_color,
+             p.merged_into_product_id,
              COALESCE(b.qty, 0)  AS shelf_qty,
              COALESCE(x.qty, 0)  AS box_qty,
              COALESCE(u.qty, 0)  AS unplaced_qty,
@@ -771,7 +884,7 @@ class StockService {
         FROM v3.stock_boxes WHERE status = 'in_storage' AND product_id IS NOT NULL
        ORDER BY box_number`)).rows;
     const skuRows = (await this.db.query(`
-      SELECT id, product_id, sku, channel, units_per_pack, confirmed_at
+      SELECT id, product_id, sku, channel, units_per_pack, barcode, is_base, confirmed_at
         FROM v3.product_skus ORDER BY product_id, units_per_pack, sku`)).rows;
 
     const byProd = (list) => {
@@ -816,19 +929,37 @@ class StockService {
       id: x.id, box_number: x.box_number, area: x.area || null, qty: n(x.qty),
     }));
 
-    // base = o SKU FÍSICO da família: units_per_pack=1 no canal veeqo (V1 08-18:
-    // na Veeqo o base é ProductVariant e os casepacks são Kits derivados dele).
-    let baseId = null;
-    const veeqoBase = lists.skus.find((s) => s.channel === 'veeqo' && Number(s.units_per_pack) === 1);
-    if (veeqoBase) baseId = veeqoBase.id;
+    // base = o SKU FÍSICO da família (a garrafa avulsa). Três tentativas, nesta
+    // ordem (Bruno 08-19, SKU parenting):
+    //   1) is_base marcado por um humano — vence sempre;
+    //   2) units_per_pack=1 no canal veeqo (V1 08-18: na Veeqo o base é
+    //      ProductVariant e os casepacks são Kits derivados dele);
+    //   3) o MENOR units_per_pack que existir, mesmo sendo kit. É o caso do print
+    //      do Bruno: 'Apple Cider Vinegar' só tem o "x4 kit". Sem esse passo o
+    //      produto fica sem base_sku pra sempre e a comparação com a Veeqo nunca
+    //      sai de 'unknown' — melhor comparar contra o kit e marcar que é derivado.
+    const veeqoSkus = lists.skus.filter((s) => s.channel === 'veeqo');
+    const marked = lists.skus.find((s) => s.is_base);
+    const unit1 = veeqoSkus.find((s) => Number(s.units_per_pack) === 1);
+    const smallest = veeqoSkus.slice().sort(
+      (a, b) => (Number(a.units_per_pack) || 1) - (Number(b.units_per_pack) || 1))[0] || null;
+    const baseRow = marked || unit1 || smallest || null;
+    const baseId = baseRow ? baseRow.id : null;
+    const baseUnits = baseRow ? (Number(baseRow.units_per_pack) || 1) : 1;
     const skusOut = lists.skus.map((s) => ({
       id: s.id, sku: s.sku, channel: s.channel,
       units_per_pack: Number(s.units_per_pack) || 1,
+      barcode: s.barcode || null,
+      is_base: !!s.is_base,
       role: s.id === baseId ? 'base' : 'member',
       veeqo_type: null,           // preenchido pelo router (cache Veeqo)
+      veeqo_qty: null,            // idem
       confirmed: !!s.confirmed_at,
     }));
-    const baseSku = veeqoBase ? veeqoBase.sku : null;
+    const baseSku = baseRow ? baseRow.sku : null;
+    // children = a família SEM o base: os casepacks/listagens que fisicamente são
+    // a MESMA garrafa. O hub mostra UMA linha e abre estes embaixo.
+    const children = skusOut.filter((s) => s.id !== baseId);
     const hasConfirmedVeeqo = lists.skus.some((s) => s.channel === 'veeqo' && s.confirmed_at);
 
     const status = [];
@@ -848,7 +979,15 @@ class StockService {
       nickname: row.nickname || row.canonical_name,
       bottle_color: row.bottle_color || null,
       base_sku: baseSku,
+      base_units_per_pack: baseUnits,   // >1 = a família só tem kit (sem avulsa)
       skus: skusOut,
+      // FAMÍLIA (Bruno 08-19): uma linha por produto físico; os filhos são as
+      // outras listagens da MESMA garrafa. sku_count é o "3 SKUs" da tela.
+      children,
+      sku_count: skusOut.length,
+      veeqo_total: null,                // router (base físico, NUNCA base + kits)
+      merged_into_product_id: row.merged_into_product_id || null,
+      retired: row.merged_into_product_id != null,
       shelf_qty: shelf, box_qty: box, unplaced_qty: unplaced, total,
       reserved, pending_out: pendingOut, pending_in: pendingIn,
       available, separated: n(row.separated),

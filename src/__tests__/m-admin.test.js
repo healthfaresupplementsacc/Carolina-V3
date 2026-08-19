@@ -230,3 +230,60 @@ describe('/m/ — desenho pra dedo (STYLE-KIT + alvos de toque)', () => {
       .forEach((k) => expect(JS).toContain("k: '" + k + "'"));
   });
 });
+
+/* ═══════════════════════════════════════════════════════════════════
+   CASEPACK É A MESMA GARRAFA (Bruno 08-17)
+
+   BEET-2000-C3 não é outro produto, são três do mesmo. A aba Produtos e a
+   ficha do produto seguem a MESMA regra do hub do dashboard: uma linha por
+   produto, com os SKUs dobrados num chip "+N".
+
+   Estes testes são estáticos de propósito. O fluxo com DOM está no harness
+   qa-mobile.js; o que se protege AQUI é a regra, que é fácil de desfazer sem
+   ninguém notar: basta alguém voltar a renderizar `skus` direto na lista.
+   ═══════════════════════════════════════════════════════════════════ */
+describe('/m/ — uma linha por produto, SKUs dobrados', () => {
+  test('existe um chip de SKU com o contador de casepacks', () => {
+    expect(JS).toContain('function skuChip(');
+    expect(JS).toContain('data-sku-chip');
+    expect(JS).toContain('data-sku-count');
+  });
+
+  test('o "+N" conta os FILHOS, não os SKUs todos (senão o base contaria)', () => {
+    expect(JS).toMatch(/sku_count[^\n]*-\s*1/);
+  });
+
+  test('children[] é o formato novo e `skus` continua servindo de reserva', () => {
+    expect(JS).toContain('function skuKids(');
+    expect(JS).toMatch(/Array\.isArray\(p\.children\)/);
+    expect(JS).toMatch(/s\.role !== 'base'/);
+  });
+
+  test('a busca acha pelo SKU do casepack (o filho não tem linha própria)', () => {
+    const fn = /function matchProduct\([\s\S]*?\n  }/.exec(JS)[0];
+    expect(fn).toContain('skuKids(p)');
+  });
+
+  test('a lista de produtos mostra o chip, não os SKUs soltos', () => {
+    const fn = /function produtosHtml\([\s\S]*?\n  }/.exec(JS)[0];
+    expect(fn).toContain('skuChip(p)');
+  });
+
+  test('a ficha lista os casepacks pra ninguém achar que um SKU sumiu', () => {
+    expect(JS).toContain('data-sku-list');
+    expect(JS).toContain('data-sku-kid');
+    expect(JS).toContain('SKUs desta garrafa');
+  });
+
+  test('juntar/desagrupar NÃO existe no celular, e a tela diz onde se faz', () => {
+    expect(JS).toContain('Juntar ou separar SKU se faz no computador.');
+    expect(JS).not.toContain('family/merge');
+    expect(JS).not.toContain('family/unmerge');
+    expect(JS).not.toContain('sku-suggestions');
+  });
+
+  test('o chip tem pele própria no css', () => {
+    expect(CSS).toContain('.skus');
+    expect(CSS).toContain('.list.tight');
+  });
+});

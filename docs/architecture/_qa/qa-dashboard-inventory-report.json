@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T01:09:08.245Z",
+  "at": "2026-08-19T22:18:35.049Z",
   "results": [
     {
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "156 KB → theme-B-inventory.png"
+      "detail": "158 KB → theme-B-inventory.png"
     },
     {
       "group": "inventory",
@@ -131,19 +131,19 @@
       "group": "screenshot",
       "name": "inventory-suprimentos",
       "pass": true,
-      "detail": "181 KB → theme-B-inventory-suprimentos.png"
+      "detail": "182 KB → theme-B-inventory-suprimentos.png"
     },
     {
       "group": "screenshot",
       "name": "inventory-planner",
       "pass": true,
-      "detail": "152 KB → theme-B-inventory-planner.png"
+      "detail": "153 KB → theme-B-inventory-planner.png"
     },
     {
       "group": "screenshot",
       "name": "estoque-geral",
       "pass": true,
-      "detail": "159 KB → theme-B-estoque-geral.png"
+      "detail": "162 KB → theme-B-estoque-geral.png"
     },
     {
       "group": "estoque-geral",
@@ -203,13 +203,13 @@
       "group": "screenshot",
       "name": "estoque-geral-modal",
       "pass": true,
-      "detail": "179 KB → theme-B-estoque-geral-modal.png"
+      "detail": "185 KB → theme-B-estoque-geral-modal.png"
     },
     {
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "153 KB → theme-B-produto-setup.png"
+      "detail": "167 KB → theme-B-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -263,7 +263,7 @@
       "group": "screenshot",
       "name": "config-estoque",
       "pass": true,
-      "detail": "151 KB → theme-B-config-estoque.png"
+      "detail": "138 KB → theme-B-config-estoque.png"
     },
     {
       "group": "config-estoque",
@@ -287,13 +287,13 @@
       "group": "config-estoque",
       "name": "h1 escopado (is-h1) em DM Serif com <em>",
       "pass": true,
-      "detail": "\"DM Serif Display\", \"Iowan Old Style\", Georgia, serif"
+      "detail": "\"DM Serif Display\", Georgia, serif"
     },
     {
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "129 KB → theme-B-picklist.png"
+      "detail": "115 KB → theme-B-picklist.png"
     },
     {
       "group": "picklist",
@@ -311,19 +311,19 @@
       "group": "picklist",
       "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
       "pass": true,
-      "detail": "0 card(s)"
+      "detail": "3 card(s)"
     },
     {
       "group": "picklist",
       "name": "h1 escopado (pl-h1) em DM Serif com <em>",
-      "pass": true,
-      "detail": "\"DM Serif Display\", Georgia, serif"
+      "pass": false,
+      "detail": "sem h1.pl-h1"
     },
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "204 KB → theme-B-estoque.png"
+      "detail": "199 KB → theme-B-estoque.png"
     },
     {
       "group": "estoque",
@@ -353,7 +353,7 @@
       "group": "estoque",
       "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
       "pass": true,
-      "detail": "2 card(s)"
+      "detail": "3 card(s)"
     },
     {
       "group": "screenshot",
@@ -395,7 +395,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "159 KB → theme-B-estoque-locais.png"
+      "detail": "181 KB → theme-B-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -425,7 +425,7 @@
       "group": "estoque-locais",
       "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
       "pass": true,
-      "detail": "2 card(s)"
+      "detail": "4 card(s)"
     }
   ]
 }

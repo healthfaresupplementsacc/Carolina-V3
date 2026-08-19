@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T13:47:38.457Z",
+  "at": "2026-08-19T22:36:32.529Z",
   "results": [
     {
       "group": "boot",
@@ -206,6 +206,30 @@
       "detail": ""
     },
     {
+      "group": "produtos",
+      "name": "buscar o SKU de um casepack acha o PAI (o filho não tem linha)",
+      "pass": true,
+      "detail": "99"
+    },
+    {
+      "group": "produtos",
+      "name": "cada linha da lista mostra o SKU base",
+      "pass": true,
+      "detail": "[{\"id\":\"99\",\"n\":\"2\",\"t\":\"HF-RUT-500 +2\"},{\"id\":\"42\",\"n\":\"0\",\"t\":\"HF-BENF-300\"},{\"id\":\"7\",\"n\":\"1\",\"t\":\"HF-MAG-400 +1\"}]"
+    },
+    {
+      "group": "produtos",
+      "name": "o chip da Rutin diz \"HF-RUT-500 +2\"",
+      "pass": true,
+      "detail": "{\"id\":\"99\",\"n\":\"2\",\"t\":\"HF-RUT-500 +2\"}"
+    },
+    {
+      "group": "produtos",
+      "name": "produto de SKU único não ganha \"+0\"",
+      "pass": true,
+      "detail": "{\"id\":\"42\",\"n\":\"0\",\"t\":\"HF-BENF-300\"}"
+    },
+    {
       "group": "produto",
       "name": "ficha abre com os 8 números do vocabulário do hub",
       "pass": true,
@@ -238,6 +262,30 @@
     {
       "group": "produto",
       "name": "as 5 ações do estoque existem na ficha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "produto",
+      "name": "a ficha lista os 2 casepacks da garrafa",
+      "pass": true,
+      "detail": "HF-RUT-500-C22 garrafas no pacote · Veeqo 70 | HF-RUT-500-C33 garrafas no pacote · Veeqo 46"
+    },
+    {
+      "group": "produto",
+      "name": "cada casepack diz quantas garrafas tem no pacote e o número da Veeqo",
+      "pass": true,
+      "detail": "HF-RUT-500-C22 garrafas no pacote · Veeqo 70 | HF-RUT-500-C33 garrafas no pacote · Veeqo 46"
+    },
+    {
+      "group": "produto",
+      "name": "o subtítulo da ficha conta os SKUs",
+      "pass": true,
+      "detail": "HF-RUT-500 +2HF-RUT-500-C22 garrafas no pacote · Veeqo 70HF-RUT-500-C33 garrafas no pacote"
+    },
+    {
+      "group": "produto",
+      "name": "nada de juntar SKU no celular, a tela diz onde se faz isso",
       "pass": true,
       "detail": ""
     },
@@ -473,7 +521,7 @@
       "group": "envio",
       "name": "a aba recebe um blob local (o AirPrint abre o arquivo, nao a rota)",
       "pass": true,
-      "detail": "blob:http://127.0.0.1:51030/06471238-68af-4ef7-bd85-c5e2a539dd27"
+      "detail": "blob:http://127.0.0.1:63463/c8ec0fa5-2522-45bd-9d1d-ef3df05d4774"
     },
     {
       "group": "scan",

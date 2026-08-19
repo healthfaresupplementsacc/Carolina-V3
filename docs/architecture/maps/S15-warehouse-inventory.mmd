@@ -59,6 +59,11 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_HUB --> A_API
   A_API --> SVC
   A_API --> A_APPROVE
+  A_PARENT["S15.38 BUILT 08-19: SKU PARENTING = UMA linha por produto FISICO (casepack -C2/-C3/-C4 e 'x3 kit' sao SKU na Veeqo mas NAO existem fisicamente: a garrafa fica solta no mesmo lugar da avulsa). Migration 077: products.merged_into_product_id (fantasma RETIRADO, nunca apagado, filtrado num lugar so) + product_skus.is_base. merge move SKUs + estoque (par de movimentos, soma zero) e retira; unmerge desfaz. GET sku-suggestions propoe grupos com motivo PT-BR, NUNCA junta sozinho. veeqo_total = so o base, nunca base + kits"]:::verified
+  A_API --> A_PARENT
+  A_PARENT -->|move estoque do fantasma pro pai: moveProduct| SVC
+  A_PARENT -->|reatribui SKUs ao pai + is_base| T_SKUS
+  A_PARENT -->|sugestoes usam type/upc do cache| EXT_VEEQO
   A_SEP["S15.15 SECONDARY inventory per product = v3.stock_issues 'Separadas' (EXISTS): damaged → separated → relabeled/restocked/discarded; PLANNED: + reason 'return'; back-to-sellable + discard need approval"]:::partial
   A_APPROVE --> A_SEP
   A_PLAN --> A_APPROVE

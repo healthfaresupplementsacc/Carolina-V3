@@ -209,6 +209,18 @@ svg { flex:none; }
 .card-row > svg, .btn > svg, .selbar > svg { width:18px; height:18px; }
 .card-row > .chip { flex:none; }
 .item.sel { background:var(--primary-soft); }
+/* lista de SKUs dentro de um card: sem sombra nem margem próprias, ela já
+   está dentro de uma superfície e uma caixa dentro da outra fica pesada */
+.list.tight { box-shadow:none; margin:9px 0 0; background:transparent; }
+.list.tight .item { min-height:44px; padding:9px 12px; font-size:13.5px; }
+
+/* ── chip do SKU: "RUT-500 +2" ─────────────────────────────────── */
+/* O "+N" diz quantos casepacks estão pendurados nesta MESMA garrafa. Sem
+   ele o Bruno olharia uma linha só e acharia que os outros SKUs sumiram. */
+.skus { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.skus .chip { font-family:var(--font-mono); font-size:11px; height:20px; padding:0 9px; }
+.skus .chip b { margin-left:5px; padding:0 5px; border-radius:var(--r-pill);
+  background:rgba(255,255,255,.24); font-weight:700; }
 
 /* números do produto: grade de 4, dois olhares */
 .nums { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin:12px 0; }

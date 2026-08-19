@@ -283,7 +283,75 @@ function WeightCell({ p, ro, onCalibrate, onManual }) {
   );
 }
 
-function Row({ p, ro, onSave, onAddSku, onDetachSku, onCalibrate, onWeightManual }) {
+/* ═══ FAMÍLIA: quem é a garrafa, quem é casepack ═══════════════════
+   Bruno 08-17: casepack é a MESMA garrafa física, e "parentar" um SKU tem que
+   valer EM TODO LUGAR de uma vez. Por isso esta célula não tem lógica própria:
+   ela chama as MESMAS rotas do hub (/family/merge-bulk e /family/unmerge). Se
+   um dia a regra mudar, muda num lugar só.
+
+   Aqui a pergunta é "este produto é uma garrafa ou é o casepack de outra?", que
+   é diferente da do hub ("quais linhas repetidas eu junto?"). Por isso a célula
+   é um seletor de PAI, e não um painel de sugestões: quem está no Product Setup
+   já está olhando um produto de cada vez. */
+function FamilyCell({ p, ro, allRows, onParent, onUnparent }) {
+  const [pick, setPick] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const parent = p.parent_product_id
+    ? (allRows || []).find((r) => r.id === p.parent_product_id)
+    : null;
+
+  if (parent) {
+    return (
+      <span className="pgi-skuwrap" data-family={p.id}>
+        <span className="kit-chip neutral" title="Este produto é um casepack da garrafa abaixo">
+          casepack de
+        </span>
+        <span className="kit-chip solid" data-family-parent={parent.id}>
+          {parent.nickname || parent.canonical_name}
+        </span>
+        {!ro && (
+          <button className="pgi-addsku" data-act="desagrupar" disabled={busy}
+            title="Voltar a ser um produto com linha própria no estoque"
+            onClick={async () => { setBusy(true); await onUnparent(p); setBusy(false); }}>
+            desagrupar
+          </button>
+        )}
+      </span>
+    );
+  }
+
+  const kids = (allRows || []).filter((r) => r.parent_product_id === p.id);
+  return (
+    <span className="pgi-skuwrap" data-family={p.id}>
+      {kids.length > 0 && (
+        <span className="kit-chip ok" data-family-kids={kids.length}
+              title={kids.map((k) => k.canonical_name).join(', ')}>
+          garrafa de {kids.length} {kids.length === 1 ? 'casepack' : 'casepacks'}
+        </span>
+      )}
+      {!ro && (
+        <>
+          <select className="kit-input" data-family-pick={p.id} value={pick} disabled={busy}
+            onChange={(e) => setPick(e.target.value)}
+            style={{ width: 165, padding: '4px 8px', fontSize: 12 }}>
+            <option value="">é casepack de…</option>
+            {(allRows || [])
+              .filter((r) => r.id !== p.id && !r.parent_product_id)
+              .map((r) => <option key={r.id} value={r.id}>{r.nickname || r.canonical_name}</option>)}
+          </select>
+          {pick && (
+            <button className="kit-btn xs" data-act="juntar" disabled={busy}
+              onClick={async () => { setBusy(true); await onParent(p, Number(pick)); setPick(''); setBusy(false); }}>
+              Juntar
+            </button>
+          )}
+        </>
+      )}
+    </span>
+  );
+}
+
+function Row({ p, ro, allRows, onSave, onAddSku, onDetachSku, onCalibrate, onWeightManual, onParent, onUnparent }) {
   const [nick, setNick] = React.useState(p.nickname || '');
   const [saving, setSaving] = React.useState('');
   React.useEffect(() => { setNick(p.nickname || ''); }, [p.nickname]);
@@ -343,6 +411,9 @@ function Row({ p, ro, onSave, onAddSku, onDetachSku, onCalibrate, onWeightManual
           onAdd={(sku, ch) => onAddSku(p.id, sku, ch)}
           onDetach={(s) => onDetachSku(s)} />
       </td>
+      <td>
+        <FamilyCell p={p} ro={ro} allRows={allRows} onParent={onParent} onUnparent={onUnparent} />
+      </td>
     </tr>
   );
 }
@@ -401,6 +472,24 @@ export function ProductSetupPage() {
     else setFlash('erro ao salvar: ' + friendlyError(r && r.error));
   };
 
+  /* Parentar aqui usa a MESMA porta do hub (/family/merge-bulk, /family/unmerge).
+     Duas telas com dois caminhos pra mesma decisão é como se cria um produto
+     que é casepack numa tela e garrafa na outra. */
+  const onParent = async (p, parentId) => {
+    try {
+      await wh.mergeFamilyBulk([{ into_product_id: parentId, from_product_ids: [p.id] }]);
+      patchRow(p.id, { parent_product_id: parentId });
+      setFlash('juntado, no estoque agora é uma linha só'); setTimeout(() => setFlash(''), 2200);
+    } catch (e) { setFlash('erro ao salvar: ' + friendlyError(e)); }
+  };
+  const onUnparent = async (p) => {
+    try {
+      await wh.unmergeFamily(p.id);
+      patchRow(p.id, { parent_product_id: null });
+      setFlash('desagrupado, voltou a ter linha própria'); setTimeout(() => setFlash(''), 2200);
+    } catch (e) { setFlash('erro ao salvar: ' + friendlyError(e)); }
+  };
+
   if (setup.loading && !rows) {
     return <div className="pgi-page" data-page="inv-produto-setup"><div className="kit-card pad pgi-loading">Carregando produtos…</div></div>;
   }
@@ -424,6 +513,9 @@ export function ProductSetupPage() {
           <h1 className="kit-h1">Nickname, cor e <em>SKUs</em> por canal</h1>
           <p className="kit-sub">
             É a base do rodapé da shipping label. A cor da garrafa mais o número de garrafas decidem o tamanho do pacote.
+          </p>
+          <p className="kit-sub" style={{ marginTop: 4 }}>
+            Casepack é a mesma garrafa: marcar um produto como casepack de outro aqui deixa uma linha só no estoque também.
           </p>
         </div>
         <div className="pgi-head-actions">
@@ -457,14 +549,16 @@ export function ProductSetupPage() {
             <th>Produto</th><th>Nickname</th><th>Cor da garrafa</th>
             <th className="num">Estoque Veeqo</th><th>Validade (rótulo)</th>
             <th>Peso da unidade</th><th>SKUs (por canal)</th>
+            <th title="Casepack é a mesma garrafa física. Juntar aqui vale no estoque também.">Família</th>
           </tr></thead>
           <tbody>
             {list.map((p) => (
-              <Row key={p.id} p={p} ro={ro} onSave={onSave} onAddSku={onAddSku} onDetachSku={onDetachSku}
-                   onCalibrate={setCal} onWeightManual={saveWeightManual} />
+              <Row key={p.id} p={p} ro={ro} allRows={rows} onSave={onSave} onAddSku={onAddSku} onDetachSku={onDetachSku}
+                   onCalibrate={setCal} onWeightManual={saveWeightManual}
+                   onParent={onParent} onUnparent={onUnparent} />
             ))}
             {!list.length && (
-              <tr><td colSpan={7} className="pgi-empty">Nenhum produto com esse filtro.</td></tr>
+              <tr><td colSpan={8} className="pgi-empty">Nenhum produto com esse filtro.</td></tr>
             )}
           </tbody>
         </table>

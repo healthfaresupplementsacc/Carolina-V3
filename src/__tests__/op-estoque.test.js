@@ -396,7 +396,7 @@ describe('estoque — arquivos da casca (html + sw + vendor)', () => {
   });
   test('sw cacheia a tela nova e subiu de versao', () => {
     const sw = read('op', 'sw.js');
-    expect(sw).toContain("'hf-op-v43'");
+    expect(sw).toContain("'hf-op-v44'"); // Bruno 08-19: pausa do grupo + pergunta de entrada tardia
     ['/op/estoque.html', '/op/estoque.js', '/op/nav.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js',
       '/shared/label-sheet.js', '/shared/print-queue-card.js']
       .forEach((s) => expect(sw).toContain(s));

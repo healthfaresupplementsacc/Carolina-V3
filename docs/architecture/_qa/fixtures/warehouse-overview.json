@@ -138,7 +138,17 @@
         ],
         "sold_7d": 21,
         "sold_30d": 84,
-        "days_of_stock": 71.3
+        "days_of_stock": 71.3,
+        "sku_count": 2,
+        "children": [
+          {
+            "sku": "HF-BENF-300-C2",
+            "channel": "veeqo",
+            "units_per_pack": 2,
+            "veeqo_qty": 107,
+            "product_id": 910
+          }
+        ]
       },
       {
         "product_id": 2,
@@ -198,7 +208,9 @@
         ],
         "sold_7d": 14,
         "sold_30d": 60,
-        "days_of_stock": 48
+        "days_of_stock": 48,
+        "sku_count": 1,
+        "children": []
       },
       {
         "product_id": 3,
@@ -251,7 +263,9 @@
         "boxes": [],
         "sold_7d": 0,
         "sold_30d": 0,
-        "days_of_stock": null
+        "days_of_stock": null,
+        "sku_count": 1,
+        "children": []
       },
       {
         "product_id": 4,
@@ -305,7 +319,9 @@
         "boxes": [],
         "sold_7d": 35,
         "sold_30d": 150,
-        "days_of_stock": -0.8
+        "days_of_stock": -0.8,
+        "sku_count": 1,
+        "children": []
       },
       {
         "product_id": 5,
@@ -358,7 +374,9 @@
         "boxes": [],
         "sold_7d": 60,
         "sold_30d": 240,
-        "days_of_stock": 9.3
+        "days_of_stock": 9.3,
+        "sku_count": 1,
+        "children": []
       },
       {
         "product_id": 6,
@@ -445,7 +463,31 @@
         ],
         "sold_7d": 70,
         "sold_30d": 300,
-        "days_of_stock": 28
+        "days_of_stock": 28,
+        "sku_count": 4,
+        "children": [
+          {
+            "sku": "HF-LCAR-1500-C2",
+            "channel": "veeqo",
+            "units_per_pack": 2,
+            "veeqo_qty": 150,
+            "product_id": 960
+          },
+          {
+            "sku": "HF-LCAR-1500-C3",
+            "channel": "veeqo",
+            "units_per_pack": 3,
+            "veeqo_qty": 100,
+            "product_id": 961
+          },
+          {
+            "sku": "HF-LCAR-1500-C4",
+            "channel": "veeqo",
+            "units_per_pack": 4,
+            "veeqo_qty": 75,
+            "product_id": 962
+          }
+        ]
       },
       {
         "product_id": 7,
@@ -475,7 +517,9 @@
         "boxes": [],
         "sold_7d": 7,
         "sold_30d": 30,
-        "days_of_stock": 0
+        "days_of_stock": 0,
+        "sku_count": 0,
+        "children": []
       },
       {
         "product_id": 8,
@@ -530,12 +574,15 @@
         "boxes": [],
         "sold_7d": 0,
         "sold_30d": 4,
-        "days_of_stock": null
+        "days_of_stock": null,
+        "sku_count": 1,
+        "children": []
       }
     ],
     "pending_summary": {
       "count": 2,
       "oldest_age_min": 320
-    }
+    },
+    "total": 8
   }
 }
