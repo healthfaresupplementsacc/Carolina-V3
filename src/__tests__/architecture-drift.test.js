@@ -74,6 +74,7 @@ describe('drift: route surfaces mounted are documented', () => {
     './slack/events', './routes/cameras', './slack/client',
     './admin-v3/routes', './data/router', './images/router', '../routes/architect',
     '../routes/op', '../routes/admin',
+    './warehouse/router',   // Warehouse hub /api/v3/warehouse/* — wire.js:225 (documented §4 Stock)
   ]);
   const idx = read('src/index.js');
   const wire = read('src/v3/wire.js');

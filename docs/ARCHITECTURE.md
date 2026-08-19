@@ -6,6 +6,11 @@ Excludes `scripts/`, `public/`, `docs/investigacao/_raw/`. No deletions recommen
 Two generations run side by side: a legacy layer (`src/`) and a V3 layer
 (`src/v3/`), bridged by `src/v3/wire.js`. See `CLAUDE.md` for which to use per concern.
 
+> **Visual map (RULE #2):** the complete, editable system map with stable element IDs
+> lives in `docs/architecture/` — `MASTER_SYSTEM_MAP.html` (editor), `MASTER_SYSTEM_MAP.mmd`,
+> `maps/`, `STRUCTURE_INDEX.md`, `RELATIONSHIPS.md`, `UNCERTAINTIES.md`, `GENERATIONS.md`.
+> This file stays the prose summary; the map set is the element-level inventory.
+
 ---
 
 ## 0. What actually runs (from `src/index.js`)
@@ -30,7 +35,8 @@ Two generations run side by side: a legacy layer (`src/`) and a V3 layer
 - static: `/shared`, `/op`, `/print` — `wire.js:160-163`.
 - `src/routes/admin` (admin panel API) — `wire.js:166`; static `/admin` — `wire.js:172`.
 - `src/v3/data/router` (dashboard JSON API `/api/v3/data/*`) — `wire.js:200`.
-- static SPAs: `/dashboard` — `wire.js:206`; `/dashboard-v4` — `wire.js:216`.
+- `src/v3/warehouse/router` (Warehouse hub API `/api/v3/warehouse/*`) — `wire.js:225`. PIN auth via `data/auth`; reads need `view_stock`|`manage_stock`, writes need `manage_stock`.
+- static SPAs: `/dashboard` — `wire.js:206` (**mount is dead: `public/dashboard/` does not exist on disk or in git — see `docs/architecture/UNCERTAINTIES.md` U-01**); `/dashboard-v4` — `wire.js:216`.
 - `/foto` static + `src/v3/images/router` (`/api/images/upload`) — `wire.js:231-232`.
 
 **Boot-time jobs** (`src/index.js` `start()`):
@@ -192,7 +198,9 @@ Bottle counts, batches/phases, EMS activity sync, encapsulation monitoring, goal
 Physical warehouse ledger (bins + boxes), supplies, stock alerts/gaps.
 
 **Owning files**
-- `src/v3/services/StockService.js:25` — single write door for physical stock: `storeIn:134`, `pick:178`, `restock:227`, `damaged:286`, `adjust:324`, `count:359`; read `warehouseByProduct:413`.
+- `src/v3/services/StockService.js:25` — single write door for physical stock: `storeIn`, `pick`, `restock`, `damaged`, `adjust`, `count`, plus the Warehouse hub additions (migration 071) `place`, `move`, `separate`, `resolveIssue`; reads `warehouseByProduct`, `overview`, `productDetail`.
+- `src/v3/services/StockRequestService.js` — approval queue (operators propose, managers decide): `propose`, `list`, `pendingByProduct`, `approve` (applies through StockService, `source_ref` `request:<id>`), `reject`. Writes only `v3.stock_change_requests` + `v3.audit_log`; never touches quantities itself.
+- `src/v3/warehouse/router.js` — Warehouse hub API `/api/v3/warehouse/*` (overview, product record, entrada/place/move/adjust/separate, issue resolve, requests, locations, family). Helpers: `veeqo-cache.js` (SWR 10 min sku → type + warehouse 108841 physical/allocated/available), `locations-repo.js` (bin/box registry, never writes qty), `family-repo.js` (SKU family attach/detach/merge in `v3.product_skus`).
 - `src/v3/services/SupplyService.js:19` — supplies write door: `consumeForSize:65`, `change:103`.
 - `src/v3/data/stock-repo.js:9` — READ-only: `bins:13`, `boxes:26`, `summary:39`, `picksheet:97`, `restockList:134`.
 - `src/workers/stock-alerts.js:23` — days-of-stock planner + rupture alerts.
@@ -202,13 +210,16 @@ Physical warehouse ledger (bins + boxes), supplies, stock alerts/gaps.
 **Tables read / written**
 - `v3.stock_movements` — WRITE (append-only) `StockService.js:77`; **also raw WRITE from op.js kiosk `op.js:324`**. READ `StockService.js:70`, `stock-repo.js:81`.
 - `v3.stock_bins` / `v3.stock_boxes` — READ/WRITE `StockService.js:93,106,100,111`; READ `stock-repo.js`, `stock-alerts.js:158,159`, picklist `router.js:1018`.
-- `v3.stock_issues` — WRITE `StockService.js:307`. `v3.stock_thresholds` — READ `stock-alerts.js:117`.
+- `v3.stock_issues` — WRITE `StockService.js:307` (`damaged`) + `separate`/`resolveIssue` (migration 071 added `reason='return'` and the `order_number` column). `v3.stock_thresholds` — READ `stock-alerts.js:117`, `StockService.overview`.
+- `v3.stock_change_requests` (migration 071) — approval queue. WRITE `StockRequestService.js` only (propose/approve/reject). READ `StockService.overview` (pending in/out per product), warehouse router `GET /api/v3/warehouse/requests`.
+- `v3.stock_unplaced` (migration 071) — the "A organizar" bucket per product (bottles in the warehouse not yet on a shelf or in a box; `total = shelf + box + unplaced`). WRITE `StockService` only (`storeIn` without bin/box, `place`). READ `StockService.overview`.
 - `v3.products` / `v3.product_skus` / `v3.pnp_order_lines` — READ (joins, velocity).
 - Supplies: `v3.supply_movements` WRITE `SupplyService.js:85,115`; `v3.supply_items` READ/WRITE `:88,107,118`; `v3.package_size_supply` READ `:55`.
 - `v3.audit_log` — WRITE (audit + alert dedupe) `StockService.js:57`, `stock-alerts.js:145`, `stock-gap-alert.js:56`.
 
 **Receives from**
-- Orders: shipped lines drive deduction — `veeqo-order-sync.js:124` → `StockService.pick()`.
+- Orders: shipped lines drive deduction — `veeqo-order-sync.js:124` → `StockService.pick({ allow_box: true })` (shelf first, box second).
+- Warehouse hub (dashboard): every write from `/api/v3/warehouse/*` calls StockService with `source:'warehouse_hub'`, `actor_type:'admin'`.
 - Orders (picklist): `StockGapAlert` via injected `getGaps` `stock-gap-alert.js:26,112`; `StockGapService.analyze:111`.
 - Printing: `stock-gap-alert.js:64` reads `v3.events` slugs `order_printing`/`order_printing_2` to detect print-station start.
 

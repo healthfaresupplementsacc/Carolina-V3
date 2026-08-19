@@ -199,6 +199,31 @@ function mount(app) {
   // Bloco 0 — API de dados JSON (contrato pros clientes). Aditivo.
   app.use('/', dataApi.createDataRouter({ db: _pool, recordTotal,
     slack: { postAs: slackSender.postAs }, adminChannelId }));
+  // Warehouse hub (Bruno 08-18, S15 Fase 1) — /api/v3/warehouse/*. Módulo novo,
+  // não encosta no data router (arquivo grande demais). Mesma porta única de
+  // escrita: StockService + StockRequestService; divergência vira data_incident
+  // igual ao resto do estoque.
+  const warehouseApi = require('./warehouse/router');
+  const { StockService: WhStockService } = require('./services/StockService');
+  const { StockRequestService } = require('./services/StockRequestService');
+  const { veeqo: whVeeqo } = require('./services/veeqo-api');
+  const whStock = new WhStockService({
+    db: _pool,
+    onDiscrepancy: async (d) => {
+      try {
+        await _pool.query(
+          `INSERT INTO v3.data_incidents (kind, severity, title, explanation, product_id, amount, where_json)
+           VALUES ($1, 'warning', $2, $3, $4, $5, $6::jsonb)`,
+          ['stock_' + (d.kind || 'desync'), 'Estoque: ' + (d.kind || 'divergência'),
+            d.note || 'divergência de estoque detectada', d.product_id || null,
+            d.wanted != null ? d.wanted : null,
+            JSON.stringify({ bin_id: d.bin_id || null, box_id: d.box_id || null, applied: d.applied != null ? d.applied : null })]);
+      } catch (e) { console.error('[stock] incidente falhou:', e.message); }
+    },
+  });
+  const whRequests = new StockRequestService({ db: _pool, stock: whStock });
+  app.use('/', warehouseApi.createWarehouseRouter({
+    db: _pool, stock: whStock, requests: whRequests, veeqo: whVeeqo, adminChannelId }));
   // Bloco 3 — SPA do dashboard (cliente puro da API). Estática,
   // buildada em public/dashboard/. Aditivo — não toca nada.
   const express = require('express');
@@ -230,7 +255,7 @@ function mount(app) {
   // Lateral total — não toca v3.events/messages/Observer/dashboard.
   app.use('/foto', express.static(path.join(process.cwd(), 'public', 'foto')));
   app.use('/', imagesApi.createImagesRouter({}));
-  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
+  console.log('[V3] rotas montadas: /slack/events-v2 + /api/admin/v3/* + /api/v3/data/* + /api/v3/warehouse/* + /dashboard + /dashboard-v4 + /foto + /api/images/upload');
 }
 
 /** Assíncrono — resolve o bot user id e starta o Observer worker. */

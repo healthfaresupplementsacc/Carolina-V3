@@ -188,7 +188,10 @@ describe('StockService', () => {
     const db = makeDb();
     const s = svc(db);
     await expect(s.storeIn({ product_id: 1, qty: 0, bin_id: 1 })).rejects.toThrow('qty inválido');
-    await expect(s.storeIn({ product_id: 1, qty: 5 })).rejects.toThrow('bin_id ou box_id');
+    // storeIn SEM destino deixou de ser erro na 071: vai pro bucket "a organizar"
+    // (Bruno 08-18). Os dois destinos JUNTOS continuam sendo erro.
+    await expect(s.storeIn({ product_id: 1, qty: 5, bin_id: 1, box_id: 2 }))
+      .rejects.toThrow('bin_id OU box_id');
     await expect(s.adjust({ qty: 0, bin_id: 1, note: 'x' })).rejects.toThrow('qty inteiro');
     await expect(s.adjust({ qty: 2, bin_id: 1 })).rejects.toThrow('note');
     await expect(s.count({ bin_id: 1, found: -1 })).rejects.toThrow('found');

@@ -125,6 +125,9 @@ class VeeqoOrderSync {
               product_id: map.product_id, qty: bottles,
               source: 'veeqo_ship', source_ref: `${l.order_id}:${l.line_id}`,
               note: `${l.channel || 'veeqo'} pedido ${l.order_number || l.order_id}`,
+              // prateleira primeiro, caixa depois (Bruno 08-18): a garrafa saiu do
+              // armazém de verdade, então o total cai mesmo com a prateleira vazia.
+              allow_box: true,
             });
             await this.db.query(
               'UPDATE v3.pnp_order_lines SET deducted_at = NOW() WHERE id = $1', [row.id]);
