@@ -37,6 +37,9 @@ const LUNCH_WIN = { from: 10 * 60, to: 15 * 60 + 30 };  // 10:00–15:30 NY
 // achou que ele voltou do almoço → floodou "está sem função" com ele já em casa).
 const CHECKOUT_MIN = 17 * 60;  // 17:00 NY
 const LUNCH_SLUGS = ['lunch', 'break'];   // mesmos slugs do /op (almoço + pausa)
+// SÓ almoço de verdade. Pausa curta (descarregar caminhão, banheiro) NÃO gera batida
+// no relógio, então cobrar batida de pausa é acusar quem não fez nada errado.
+const ONLY_LUNCH = ['lunch'];
 
 class AttendanceSync {
   constructor(deps = {}) {
@@ -119,7 +122,7 @@ class AttendanceSync {
          FROM v3.events e JOIN v3.activity_types at ON at.id=e.activity_type_id
         WHERE e.person_id=$1 AND e.deleted_at IS NULL AND at.slug = ANY($2::text[])
           AND (e.started_at AT TIME ZONE '${TZ}')::date = $3::date AND e.ended_at IS NOT NULL`,
-      [person.id, LUNCH_SLUGS, today])).rows[0];
+      [person.id, kind === 'lunch_punch_missing' ? ONLY_LUNCH : LUNCH_SLUGS, today])).rows[0];
     const near = (ts, target, mins = 20) => ts && target && Math.abs(new Date(ts).getTime() - new Date(target).getTime()) <= mins * 60000;
     const hasPunchNear = (target, mins) => punches.some((p) => near(p, target, mins));
 
@@ -270,9 +273,16 @@ class AttendanceSync {
    *  Bruno 07-27 (caso Ana): NÃO usar janela fixa de relógio (10:00–15:30). O almoço
    *  da Ana foi 15:05→15:43 e ela BATEU a volta 15:43 — mas 15:43 é depois do 15:30,
    *  então a janela fixa não contava a batida e acusava "não bateu a volta". ERRADO.
-   *  Agora medimos contra o ALMOÇO REAL (evento lunch/break do dia): tem batida perto
-   *  da SAÍDA (±20min do started_at) E perto da VOLTA (±20min do ended_at)? Se as duas
-   *  existem, está tudo certo — não alerta. Só alerta se faltar de verdade uma delas. */
+   *  Agora medimos contra o ALMOÇO REAL do dia: tem batida perto da SAÍDA (±20min do
+   *  started_at) E perto da VOLTA (±20min do ended_at)? Se as duas existem, está tudo
+   *  certo — não alerta. Só alerta se faltar de verdade uma delas.
+   *
+   *  Bruno 08-20 (caso Vitor): aqui é SÓ 'lunch', NUNCA 'break'. O Vitor fez uma pausa
+   *  de 30min pra descarregar arroz (break 10:52→11:22) e o worker acusou "faltou bater
+   *  o ponto no almoço" às 11:52 — ele nem tinha saído pra almoçar ainda. Ninguém bate
+   *  ponto pra descarregar caminhão: pausa curta não é almoço e não gera batida. Os
+   *  outros usos de LUNCH_SLUGS continuam certos (estado de pausa, fechar na batida de
+   *  volta, verificação), este não. */
   async _checkLunchPunchPair(today) {
     const rows = (await this.db.query(
       `WITH lunch AS (
@@ -295,7 +305,7 @@ class AttendanceSync {
             AND EXISTS (SELECT 1 FROM v3.att_punch ap WHERE ap.person_id = s.person_id AND ap.att_date = $1::date
                      AND ap.punch_time BETWEEN l.lunch_in - INTERVAL '20 minutes' AND l.lunch_in + INTERVAL '20 minutes')
           )`,
-      [today, LUNCH_SLUGS])).rows;
+      [today, ONLY_LUNCH])).rows;
     for (const r of rows) {
       // GATE: reconfere a verdade viva AGORA (re-puxa NGTeco) antes de acusar.
       const v = await this._verifyClaim({ id: r.person_id, clock_code: r.clock_code, display_name: r.display_name }, today, 'lunch_punch_missing');
