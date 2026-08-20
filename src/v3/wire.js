@@ -517,6 +517,27 @@ async function startWorker() {
     } catch (e) { console.error('[V3] stock-drift-alert não iniciou:', e.message); }
   }
 
+  // Sincronização de SKU da Veeqo (S15.39, Bruno 08-19): "pq q ele nao ta
+  // mapeado se ta tudo la no Veeqo?". A cada 6h lê o catálogo da Veeqo, liga SKU
+  // novo no produto que já tem a raiz e corrige units_per_pack pelo código do
+  // próprio SKU. Cria produto só com SKU_SYNC_CREATE_PRODUCTS=true. NUNCA junta
+  // produtos, NUNCA escreve quantidade. OPT-IN: WORKER_VEEQO_SKU_SYNC_ENABLED=true.
+  if (process.env.WORKER_VEEQO_SKU_SYNC_ENABLED === 'true') {
+    try {
+      const { VeeqoSkuSync } = require('../workers/veeqo-sku-sync');
+      const { createSkuSync } = require('./warehouse/sku-sync');
+      const { createVeeqoCache: makeSyncCache } = require('./warehouse/veeqo-cache');
+      const { veeqo: syncVeeqo } = require('./services/veeqo-api');
+      new VeeqoSkuSync({
+        db: _pool, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        sync: createSkuSync({ db: _pool, veeqo: syncVeeqo,
+          veeqoCache: makeSyncCache({ veeqo: syncVeeqo }) }),
+        heartbeat: () => beat('veeqo_sku_sync'),
+      }).start(6 * 60 * 60 * 1000);
+    } catch (e) { console.error('[V3] veeqo-sku-sync não iniciou:', e.message); }
+  }
+
   // Mergeable orders (Bruno 08-02): de manhã, lista no admin-orin os pedidos da
   // Veeqo que precisam ser mergeados (mesmo comprador+endereço via mergeable_id
   // nativo). READ-ONLY. OPT-IN: WORKER_MERGEABLE_ALERT_ENABLED=true.

@@ -821,7 +821,13 @@ class StockService {
     // Filtro do fantasma num lugar SÓ. Quando pedem um produto específico, ele
     // vem mesmo absorvido: quem abriu a ficha por id quer ver aquela linha.
     const notRetired = (opts.include_retired || only) ? '' : 'p.merged_into_product_id IS NULL';
-    const conds = [only ? 'p.id = $1' : null, notRetired || null].filter(Boolean);
+    // O hub é o estoque de GARRAFAS. TODO SKU da Veeqo está registrado (Bruno
+    // 08-19: "se um dia vender 1 de um sku que nunca vendeu nós vamos saber o que
+    // houve"), inclusive plano da clínica, medicação manipulada e insumo. Esses
+    // resolvem o pedido e aparecem na picklist, mas não são garrafa e não podem
+    // encher a tela de quem organiza a prateleira. `kind` decide, num lugar só.
+    const onlyBottles = (opts.include_all_kinds || only) ? '' : "p.kind = 'bottle'";
+    const conds = [only ? 'p.id = $1' : null, notRetired || null, onlyBottles || null].filter(Boolean);
     const whereProd = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const rows = (await this.db.query(`
       SELECT p.id AS product_id, p.canonical_name, p.nickname, p.bottle_color,

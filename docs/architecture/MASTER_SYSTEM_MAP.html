@@ -74,7 +74,7 @@
 <body>
 <header>
   <h1>HealthFare Tracker · System Map</h1>
-  <span class="sub">generated 2026-08-19 · edit left, see right · your edits autosave in this browser · Download writes .mmd</span>
+  <span class="sub">generated 2026-08-20 · edit left, see right · your edits autosave in this browser · Download writes .mmd</span>
   <div class="tabs" id="tabs"></div>
 </header>
 <main>
@@ -1582,6 +1582,7 @@ subgraph S15_AUTO["S15.06 / S15.07 / S15.08 · AUTOMATIONS & SIGNALS"]
   W_VEEQO["S15.06 veeqo-order-sync (opt-in, 5 min): mirrors lines → pnp_order_lines; deducts via pick() when order = shipped; STOCK_DEDUCT_MODE dry|live (default DRY)"]:::partial
   W_ALERTS["S15.06 stock-alerts planner · stock-gap-alert · unusual-sku-watch · print-divergence-watchdog (opt-in)"]:::verified
   W_TIKTOK["S15.06 tiktok-source (CSV now, API later) → pnp_order_lines"]:::verified
+  W_SKUSYNC["S15.39 veeqo-sku-sync (opt-in, 6h + 1 run 3min after boot): plan() PURO do catálogo Veeqo → liga SKU novo no produto da raiz + corrige units_per_pack pelo CÓDIGO (-C4 = 4, -C2-C4 = 8). Cria produto só com SKU_SYNC_CREATE_PRODUCTS=true. Conflito (raiz em 2 produtos / base é casepack) = AVISO, nunca merge. NUNCA escreve quantidade"]:::verified
   SIG_VEEQO["S15.07 signal A: Veeqo status shipped (Amazon/eBay/Walmart/site)"]:::verified
   SIG_TIKTOK["signal B: TikTok label — LATER (Bruno 08-18: Veeqo only for now)"]:::planned
   SIG_PRINT["S15.08 physical print event from .28 (/api/print-event → print_jobs) — NOT a stock signal (decided 08-18)"]:::verified
@@ -1620,6 +1621,9 @@ W_VEEQO --> EXT_VEEQO
 W_VEEQO --> T_SKUS
 W_VEEQO -->|pick when shipped| SVC
 W_TIKTOK --> T_SKUS
+W_SKUSYNC --> EXT_VEEQO
+W_SKUSYNC -->|escreve SO mapeamento, nunca quantidade| T_SKUS
+W_SKUSYNC -.->|conflito vira aviso, o merge e humano no hub| A_NOW
 W_ALERTS --> EXT_VEEQO
 W_ALERTS --> EXT_EMS
 STATION --> SIG_PRINT

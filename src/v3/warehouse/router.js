@@ -25,6 +25,7 @@ const { FamilyRepo } = require('./family-repo');
 const { WeightsRepo, computeQty } = require('./weights');
 const { createMobile } = require('./mobile');
 const { suggest } = require('./sku-suggest');
+const { createSkuSync } = require('./sku-sync');
 
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
@@ -226,6 +227,9 @@ function createWarehouseRouter(deps = {}) {
   // stock no FamilyRepo: o merge move ESTOQUE, e quantidade só o StockService escreve
   const family = deps.family || new FamilyRepo({ db, veeqoCache, stock });
   const weights = deps.weights || new WeightsRepo({ db });
+  // sku-sync: mapeamento SKU↔produto a partir do catálogo da Veeqo. Escreve SÓ
+  // v3.product_skus / v3.products; nunca quantidade (isso é o StockService).
+  const skuSync = deps.skuSync || createSkuSync({ db, veeqo: deps.veeqo, veeqoCache, family });
   const router = express.Router();
 
   router.use(BASE, express.json({ limit: '256kb' }));
@@ -774,6 +778,43 @@ function createWarehouseRouter(deps = {}) {
   route('get', '/sku-suggestions', 'read', async (req, res) => {
     const [rows, bySku] = await Promise.all([rowsWithVeeqo(null), veeqoCache.bySku()]);
     ok(res, { ...suggest(rows, bySku), generated_at: new Date().toISOString() });
+  });
+
+  /**
+   * PRÉVIA DA SINCRONIZAÇÃO COM A VEEQO (S15.39, Bruno 08-19). O plano do que o
+   * sync FARIA, sem escrever nada: ligações novas, produtos que faltam,
+   * conflitos que precisam de gente e os SKUs ignorados (serviço/plano/insumo).
+   *
+   * É read, não write, de propósito: quem só olha o estoque pode ver o tamanho
+   * do buraco de mapeamento sem poder mexer nele.
+   */
+  route('get', '/sku-sync/preview', 'read', async (req, res) => {
+    const out = await skuSync.preview();
+    ok(res, { ...out, veeqo_checked_at: veeqoCache.checkedAt(),
+      generated_at: new Date().toISOString() });
+  });
+
+  /**
+   * APLICAR: liga os SKUs novos no pai e corrige units_per_pack errado. Cria
+   * produto novo SÓ com {create_missing:true} explícito no corpo — o default é
+   * NÃO criar, porque um typo de SKU na Veeqo não pode virar linha no hub.
+   * NUNCA junta dois produtos (isso é o "Juntar SKUs", com gente na frente) e
+   * NUNCA escreve quantidade.
+   */
+  route('post', '/sku-sync/apply', 'write', async (req, res) => {
+    const b = req.body || {};
+    const createMissing = b.create_missing === true;
+    const planOut = await skuSync.preview();
+    const applied = await skuSync.apply(planOut, {
+      create_missing: createMissing,
+      person_id: (req.login && req.login.person_id) || null,
+    });
+    await audit(req, 'warehouse.sku_sync_apply', null, {
+      create_missing: createMissing, linked: applied.linked,
+      units_fixed: applied.units_fixed, created: applied.created,
+      conflicts: (planOut.conflicts || []).length });
+    ok(res, { ...applied, plan: { stats: planOut.stats, conflicts: planOut.conflicts,
+      create: planOut.create }, generated_at: new Date().toISOString() });
   });
 
   // ── S15 FASE 3 — IMPORT DA VEEQO ───────────────────────────

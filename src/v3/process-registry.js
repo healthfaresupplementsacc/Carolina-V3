@@ -95,6 +95,13 @@ const PROCESSES = [
     detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador).',
   },
   {
+    key: 'veeqo_sku_sync', name: 'Sincronização de SKU da Veeqo', where: 'railway', tickMs: 21600000,
+    heartbeat: true, staleMin: 400, critical: false, since: '2026-08-19',
+    enabledEnv: { var: 'WORKER_VEEQO_SKU_SYNC_ENABLED', onValue: 'true' },
+    short: 'A cada 6h lê o catálogo da Veeqo e liga SKU novo no produto pai; conflito vira aviso no admin-orin.',
+    detail: 'S15.39 (Bruno 08-19: "pq q ele nao ta mapeado se ta tudo la no Veeqo?"). v3.product_skus sempre foi preenchido À MÃO casando por nome, e por isso 315 dos 483 sellables estavam órfãos: pedido de HF-NAC-1300-C4 não reservava nem deduzia. A cada 6h (+1 rodada 3min após o boot) roda o planner PURO de src/v3/warehouse/sku-sync.js e aplica a PARTE SEGURA: liga SKU novo no produto que já tem a raiz e corrige units_per_pack (o sufixo -C<n> do próprio código manda; -C2-C4 = 8). Cria produto novo SÓ com SKU_SYNC_CREATE_PRODUCTS=true (default OFF: typo de SKU na Veeqo não vira produto sozinho). NUNCA junta dois produtos (raiz disputada = aviso, merge é humano no hub) e NUNCA escreve quantidade. Serviço/plano/insumo (HF-PLN-, HC-, HF-MED-, HF-SYR-, SHOPIFY-, SILIN-, RUBBER-, SKU "70") fica de fora. Avisa no admin-orin só quando mudou algo ou existe conflito, dedupe por dia NY + assinatura via audit_log action sku_sync.',
+  },
+  {
     key: 'mergeable_alert', name: 'Mergeable orders (Veeqo)', where: 'railway', tickMs: 1800000,
     heartbeat: true, staleMin: 120, critical: false, since: '2026-08-02',
     enabledEnv: { var: 'WORKER_MERGEABLE_ALERT_ENABLED', onValue: 'true', requires: ['VEEQO_API_KEY'] },
