@@ -1570,6 +1570,7 @@ subgraph S15_CORE["S15.01 / S15.02 / S15.05 · CORE (exists)"]
   A_APPROVE --> T_REQ
   T_ISSUES["S15.15 v3.stock_issues = SEPARATED bucket per product (damaged/label/seal/other; + return PLANNED) — outside sellable total"]:::partial
   T_SKUS["S15.01 v3.product_skus (SKU↔product) · pnp_order_lines (Veeqo mirror)"]:::verified
+  T_ABSORB["S15.41 v3.veeqo_snapshots (leitura CRUA, ultimos 8) · v3.product_images (bytes da foto, 1 por produto)"]:::verified
   T_SUPPLY["S15.01 supplies: supply_items · package_size_supply · supply_movements · envelope_mix · packing_questions"]:::verified
   SVC["S15.02 StockService (ONLY write door): storeIn · pick · restock · damaged · adjust · count · warehouseByProduct"]:::verified
   API["S15.05 /api/v3/data stock/* (28) · product-setup/* · inventory-settings/* · supplies/* · picklist · stock-overview · stock-gaps · veeqo-today"]:::verified
@@ -1583,6 +1584,7 @@ subgraph S15_AUTO["S15.06 / S15.07 / S15.08 · AUTOMATIONS & SIGNALS"]
   W_ALERTS["S15.06 stock-alerts planner · stock-gap-alert · unusual-sku-watch · print-divergence-watchdog (opt-in)"]:::verified
   W_TIKTOK["S15.06 tiktok-source (CSV now, API later) → pnp_order_lines"]:::verified
   W_SKUSYNC["S15.39 veeqo-sku-sync (opt-in, 6h + 1 run 3min after boot): plan() PURO do catálogo Veeqo → liga SKU novo no produto da raiz + corrige units_per_pack pelo CÓDIGO (-C4 = 4, -C2-C4 = 8). Cria produto só com SKU_SYNC_CREATE_PRODUCTS=true. Conflito (raiz em 2 produtos / base é casepack) = AVISO, nunca merge. NUNCA escreve quantidade"]:::verified
+  W_ABSORB["S15.41 veeqo-absorb: MESMA tick do sku-sync, logo depois. absorbPlan PURO sobre listSellables + listProducts → titulo, marca, descricao, UPC, tipo e FOTO viram dado NOSSO + snapshot CRU da Veeqo inteira. Barcode confirmado por gente NUNCA e sobrescrito. Idempotente. NUNCA escreve quantidade"]:::verified
   SIG_VEEQO["S15.07 signal A: Veeqo status shipped (Amazon/eBay/Walmart/site)"]:::verified
   SIG_TIKTOK["signal B: TikTok label — LATER (Bruno 08-18: Veeqo only for now)"]:::planned
   SIG_PRINT["S15.08 physical print event from .28 (/api/print-event → print_jobs) — NOT a stock signal (decided 08-18)"]:::verified
@@ -1624,6 +1626,10 @@ W_TIKTOK --> T_SKUS
 W_SKUSYNC --> EXT_VEEQO
 W_SKUSYNC -->|escreve SO mapeamento, nunca quantidade| T_SKUS
 W_SKUSYNC -.->|conflito vira aviso, o merge e humano no hub| A_NOW
+W_SKUSYNC ==>|na mesma tick, depois do mapeamento| W_ABSORB
+W_ABSORB --> EXT_VEEQO
+W_ABSORB -->|titulo, marca, UPC e foto: so descricao, nunca quantidade| T_SKUS
+W_ABSORB -->|snapshot cru + bytes da foto: o seguro se a conta fechar| T_ABSORB
 W_ALERTS --> EXT_VEEQO
 W_ALERTS --> EXT_EMS
 STATION --> SIG_PRINT

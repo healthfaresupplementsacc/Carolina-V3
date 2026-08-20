@@ -16,7 +16,14 @@
  *      corrige units_per_pack errado (o código do SKU manda, não a coluna);
  *   3. cria produto novo SÓ com SKU_SYNC_CREATE_PRODUCTS='true' (default OFF:
  *      um typo de SKU na Veeqo não pode virar linha no hub sozinho);
- *   4. avisa no admin-orin SÓ quando aconteceu algo ou existe conflito.
+ *   4. ABSORVE o descritivo (S15.41): título, marca, descrição, UPC, tipo e FOTO
+ *      de cada SKU passam a morar aqui, mais um snapshot cru da Veeqo inteira.
+ *      Pergunta do Bruno: "se a gente fechar nossa conta do veeqo hj vc vai ter
+ *      tdas as info que precisamos correto?" — o passo 4 é o que faz a resposta
+ *      virar sim. Mesma tick, mesmo opt-in: mapear e descrever são a mesma
+ *      leitura do mesmo catálogo, e dois workers lendo a Veeqo em horários
+ *      diferentes dariam duas verdades diferentes sobre o mesmo SKU.
+ *   5. avisa no admin-orin SÓ quando aconteceu algo ou existe conflito.
  *
  * NUNCA escreve quantidade. Este worker mexe só em mapeamento (v3.product_skus /
  * v3.products); StockService continua sendo a porta única de estoque.
@@ -35,12 +42,15 @@ class VeeqoSkuSync {
    * @param {object} deps
    *   deps.db         pool pg
    *   deps.sync       createSkuSync({db, veeqo|veeqoCache}) — preview/apply
+   *   deps.absorb     createVeeqoAbsorb({db, veeqo}) — run() (opcional; sem ele
+   *                   a tick faz só o mapeamento, exatamente como antes)
    *   deps.slack      { postAs }
    *   deps.channelId  admin-orin
    */
   constructor(deps = {}) {
     this.db = deps.db;
     this.sync = deps.sync || null;
+    this.absorb = deps.absorb || null;
     this.slack = deps.slack || null;
     this.channelId = deps.channelId || 'C0B36DR5MP1';
     this.enabled = deps.enabled !== undefined ? deps.enabled
@@ -137,6 +147,23 @@ class VeeqoSkuSync {
     return ':link: *SKUs novos da Veeqo*\n' + lines.join('\n');
   }
 
+  /**
+   * A MENSAGEM DA ABSORÇÃO (S15.41). Bloco SEPARADO do mapeamento porque são
+   * duas notícias diferentes: "apareceu SKU novo" pede ação, "absorvi 12 títulos"
+   * é só tranquilizar que o catálogo está guardado aqui.
+   *
+   * Só sai quando ALGO mudou. Sistema em dia = silêncio (regra (c) do absorb).
+   */
+  _absorbMessage(a) {
+    if (!a) return null;
+    const lines = [];
+    if (a.updated) lines.push(`• ${a.updated} SKU${a.updated > 1 ? 's' : ''} com titulo e dados atualizados`);
+    if (a.barcode_filled) lines.push(`• ${a.barcode_filled} codigo${a.barcode_filled > 1 ? 's' : ''} de barra copiado${a.barcode_filled > 1 ? 's' : ''} da Veeqo`);
+    if (a.images_downloaded) lines.push(`• ${a.images_downloaded} foto${a.images_downloaded > 1 ? 's' : ''} baixada${a.images_downloaded > 1 ? 's' : ''}`);
+    if (!lines.length) return null;
+    return ':package: *Veeqo absorvido*\n' + lines.join('\n');
+  }
+
   async tick() {
     if (this._ticking || !this.enabled || !this.sync) return { skipped: true };
     this._ticking = true;
@@ -145,31 +172,59 @@ class VeeqoSkuSync {
       const planOut = await this.sync.preview();
       const applied = await this.sync.apply(planOut, { create_missing: this.createProducts });
 
+      // ABSORÇÃO (S15.41) — DEPOIS do mapeamento, de propósito: absorver o
+      // descritivo de um SKU que ainda não tem linha em product_skus não teria
+      // onde gravar. Isolada em try: falha de rede na foto não pode desfazer nem
+      // esconder o mapeamento que já deu certo.
+      let absorbed = null;
+      if (this.absorb && typeof this.absorb.run === 'function') {
+        try {
+          const r = await this.absorb.run();
+          absorbed = r && r.applied ? r.applied : null;
+        } catch (e) {
+          console.error('[sku-sync] absorção falhou:', e.message);
+        }
+      }
+
       const conflicts = (planOut.conflicts || []).length;
       const changed = (applied.linked || 0) + (applied.units_fixed || 0) + (applied.created || 0);
       const orphans = (planOut.create || []).length;
+      const absorbedN = absorbed
+        ? (absorbed.updated || 0) + (absorbed.barcode_filled || 0) + (absorbed.images_downloaded || 0)
+        : 0;
       const out = {
         scanned: (planOut.stats && planOut.stats.sellables) || 0,
         linked: applied.linked || 0, units_fixed: applied.units_fixed || 0,
         created: applied.created || 0, conflicts, orphans, posted: false,
+        absorbed: absorbed || null,
       };
 
       // silêncio é resposta válida: nada mudou e nada pendente → não fala nada.
-      if (!changed && !conflicts && !orphans) return out;
+      if (!changed && !conflicts && !orphans && !absorbedN) return out;
 
-      const text = this._message(applied, planOut);
-      if (!text) return out;
+      // duas notícias diferentes, dois blocos. A absorção pode ter mexido em algo
+      // sem que o mapeamento tenha mudado nada (é o caso comum depois do primeiro
+      // dia): aí sai só o bloco de baixo.
+      const parts = [this._message(applied, planOut), this._absorbMessage(absorbed)]
+        .filter(Boolean);
+      if (!parts.length) return out;
+      const text = parts.join('\n\n');
 
       // dedupe por dia NY + assinatura: o worker roda 4x por dia e a mesma
       // pendência (ex.: 2 raízes disputadas que ninguém resolveu ainda) não pode
       // virar 4 mensagens iguais. Mudou alguma coisa → assinatura nova → fala.
       const nyDate = this._nyDate();
-      const sig = [out.linked, out.units_fixed, out.created, conflicts, orphans].join(':');
+      const sig = [out.linked, out.units_fixed, out.created, conflicts, orphans,
+        absorbed ? (absorbed.updated || 0) : 0,
+        absorbed ? (absorbed.barcode_filled || 0) : 0,
+        absorbed ? (absorbed.images_downloaded || 0) : 0].join(':');
       if (await this._posted(nyDate, sig)) return out;
 
       await this._post(text);
       await this._mark(nyDate, sig, { linked: out.linked, units_fixed: out.units_fixed,
-        created: out.created, conflicts, orphans });
+        created: out.created, conflicts, orphans,
+        absorbed_updated: absorbed ? (absorbed.updated || 0) : 0,
+        images: absorbed ? (absorbed.images_downloaded || 0) : 0 });
       out.posted = true;
       return out;
     } finally { this._ticking = false; }

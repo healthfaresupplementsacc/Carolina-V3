@@ -526,6 +526,7 @@ async function startWorker() {
     try {
       const { VeeqoSkuSync } = require('../workers/veeqo-sku-sync');
       const { createSkuSync } = require('./warehouse/sku-sync');
+      const { createVeeqoAbsorb } = require('./warehouse/veeqo-absorb');
       const { createVeeqoCache: makeSyncCache } = require('./warehouse/veeqo-cache');
       const { veeqo: syncVeeqo } = require('./services/veeqo-api');
       new VeeqoSkuSync({
@@ -533,6 +534,9 @@ async function startWorker() {
         channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
         sync: createSkuSync({ db: _pool, veeqo: syncVeeqo,
           veeqoCache: makeSyncCache({ veeqo: syncVeeqo }) }),
+        // Absorção (S15.41): na MESMA tick, o descritivo da Veeqo (título, marca,
+        // UPC, foto) vira dado nosso + snapshot cru. "Se fechar a conta hoje."
+        absorb: createVeeqoAbsorb({ db: _pool, veeqo: syncVeeqo }),
         heartbeat: () => beat('veeqo_sku_sync'),
       }).start(6 * 60 * 60 * 1000);
     } catch (e) { console.error('[V3] veeqo-sku-sync não iniciou:', e.message); }

@@ -26,6 +26,7 @@ const { WeightsRepo, computeQty } = require('./weights');
 const { createMobile } = require('./mobile');
 const { suggest } = require('./sku-suggest');
 const { createSkuSync } = require('./sku-sync');
+const { createVeeqoAbsorb } = require('./veeqo-absorb');
 
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
@@ -230,6 +231,9 @@ function createWarehouseRouter(deps = {}) {
   // sku-sync: mapeamento SKU↔produto a partir do catálogo da Veeqo. Escreve SÓ
   // v3.product_skus / v3.products; nunca quantidade (isso é o StockService).
   const skuSync = deps.skuSync || createSkuSync({ db, veeqo: deps.veeqo, veeqoCache, family });
+  // absorção: o DESCRITIVO da Veeqo (título, marca, UPC, foto) guardado aqui.
+  // Mesma regra do sku-sync — escreve só descrição, nunca quantidade.
+  const veeqoAbsorb = deps.veeqoAbsorb || createVeeqoAbsorb({ db, veeqo: deps.veeqo });
   const router = express.Router();
 
   router.use(BASE, express.json({ limit: '256kb' }));
@@ -790,8 +794,38 @@ function createWarehouseRouter(deps = {}) {
    */
   route('get', '/sku-sync/preview', 'read', async (req, res) => {
     const out = await skuSync.preview();
-    ok(res, { ...out, veeqo_checked_at: veeqoCache.checkedAt(),
+    // ABSORÇÃO (S15.41): junto do plano de mapeamento vai o retrato do que a
+    // gente TEM guardado do catálogo. É a resposta à pergunta do Bruno ("se
+    // fechar a conta hoje...") em número: quantos SKUs ainda estão sem título,
+    // sem foto e sem UPC. Falha da absorção não derruba o preview do mapeamento
+    // (são duas perguntas independentes); vira absorb:null.
+    let absorb = null;
+    try {
+      const a = await veeqoAbsorb.preview();
+      absorb = { stats: a.stats, updates: a.updates.length, downloads: a.downloads.length };
+    } catch (e) {
+      console.error('[warehouse] preview absorção:', e.message);
+    }
+    ok(res, { ...out, absorb, veeqo_checked_at: veeqoCache.checkedAt(),
       generated_at: new Date().toISOString() });
+  });
+
+  /**
+   * A FOTO DO PRODUTO, dos NOSSOS bytes (S15.41). Não redireciona pro link da
+   * Veeqo de propósito: o ponto da absorção é justamente não depender dele. 404
+   * quando o produto ainda não teve foto baixada — o cliente cai no placeholder.
+   *
+   * Cache longo: a foto de um produto praticamente não muda, e quando muda o
+   * product_id continua o mesmo, então o navegador só reconfere depois de 1 dia.
+   */
+  route('get', '/image/:product_id', 'read', async (req, res) => {
+    const pid = intOf(req.params.product_id);
+    if (!pid) return err(res, 'bad_request', 'product_id inválido', 400);
+    const row = await veeqoAbsorb.imageOf(pid);
+    if (!row || !row.bytes) return err(res, 'not_found', 'Este produto ainda não tem foto guardada.', 404);
+    res.setHeader('Content-Type', row.mime || 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    return res.end(row.bytes);
   });
 
   /**

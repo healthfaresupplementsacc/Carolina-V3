@@ -17,6 +17,63 @@
  */
 const config = require('../../config');
 
+/**
+ * A URL da imagem, de onde quer que a Veeqo tenha posto (S15.41).
+ *
+ * O mesmo produto vem com a foto em campos diferentes conforme como foi
+ * cadastrado (importado de marketplace, criado à mão, herdado do sellable):
+ * `main_image_src` é string; `main_image` e `image` às vezes são string, às
+ * vezes objeto {src|url|thumbnail_url}. Tentar um campo só perde foto de graça.
+ * Ordem: a maior primeiro, a thumb por último.
+ * @returns {string|null}
+ */
+function pickImage(o, thumb) {
+  if (!o) return null;
+  const cands = thumb
+    ? [o.thumbnail_url, o.thumb_url, o.main_image_thumb_src, o.main_image, o.image]
+    : [o.main_image_src, o.image_src, o.main_image, o.image, o.thumbnail_url];
+  for (const c of cands) {
+    if (!c) continue;
+    if (typeof c === 'string') { const s = c.trim(); if (s) return s; }
+    else if (typeof c === 'object') {
+      const s = c.src || c.url || (thumb ? c.thumbnail_url : null) || c.thumbnail_url;
+      if (s && String(s).trim()) return String(s).trim();
+    }
+  }
+  return null;
+}
+
+/** 'Kit'|'ProductVariant' da Veeqo → 'kit'|'variant'|null (nosso vocabulário). */
+function typeOf(s) {
+  if (!s) return null;
+  return s.type === 'Kit' ? 'kit' : (s.type === 'ProductVariant' ? 'variant' : null);
+}
+
+/**
+ * Um produto CRU da Veeqo → a forma que a absorção consome. Função pura, exportada:
+ * o teste roda ela contra uma fixture de resposta real, sem rede nenhuma.
+ */
+function normalizeProduct(pd) {
+  const img = pickImage(pd, false);
+  const thumb = pickImage(pd, true);
+  return {
+    id: pd.id != null ? Number(pd.id) : null,
+    title: pd.title || pd.name || '',
+    brand: pd.brand || null,
+    description: pd.description || null,
+    image_url: img,
+    thumb_url: thumb,
+    sellables: (pd.sellables || []).map((s) => ({
+      sku: (s.sku_code || s.sku || '').trim(),
+      title: s.product_title || s.full_title || pd.title || '',
+      upc_code: s.upc_code || s.upc || null,
+      type: typeOf(s),
+      // sellable com foto PRÓPRIA (variação de sabor/cor); sem ela herda a do pai
+      image_url: pickImage(s, false) || null,
+    })).filter((s) => s.sku),
+  };
+}
+
 function createVeeqoClient(opts = {}) {
   const apiKey = opts.apiKey !== undefined ? opts.apiKey : config.veeqo.apiKey;
   const baseUrl = String(opts.baseUrl || config.veeqo.baseUrl).replace(/\/+$/, '');
@@ -242,6 +299,36 @@ function createVeeqoClient(opts = {}) {
     return [...out.values()];
   }
 
+  /**
+   * O CATÁLOGO DE PRODUTOS INTEIRO, cru, pra ABSORÇÃO (Bruno 08-19).
+   *
+   * listSellables() acima devolve o que o hub precisa pra CONTAR (sku, estoque,
+   * tipo). Ela joga fora tudo o que identifica o produto: foto, marca, descrição,
+   * o id do produto pai. É exatamente isso que se perde se a conta da Veeqo
+   * fechar, e é isso que este método traz.
+   *
+   * Devolve por produto: {id, title, brand, description, image_url, thumb_url,
+   * sellables:[{sku, title, upc_code, type, image_url}]}. O `image_url` sai do
+   * primeiro campo que existir (main_image_src / main_image / image / thumbnail),
+   * porque a Veeqo varia a forma conforme o produto foi cadastrado — alguns têm
+   * string direta, outros um objeto {src}.
+   *
+   * Read-only, mesma paginação e mesmo teto de 60 páginas do listSellables.
+   */
+  async function listProducts() {
+    const out = [];
+    for (let page = 1; page <= 60; page++) {
+      const rows = await getProductsPage({ page, pageSize: 100 });
+      if (!rows.length) break;
+      for (const pd of rows) {
+        if (!pd) continue;
+        out.push(normalizeProduct(pd));
+      }
+      if (rows.length < 100) break;
+    }
+    return out;
+  }
+
   // ── ESCRITA DE ESTOQUE (Bruno 08-04) ──────────────────────────────────────
   // ÚNICO ponto que ESCREVE na Veeqo. Trava dura: só o "HealthFare Warehouse".
   // O outro armazém (Rosa Neciosup Castro) NUNCA é tocado. Erro NÃO expõe a chave.
@@ -317,9 +404,9 @@ function createVeeqoClient(opts = {}) {
   }
 
   return { configured, baseUrl, getOrdersPage, shippedByDay, ordersShippedOn, getLabelPdf,
-    getProductsPage, listSellables,
+    getProductsPage, listSellables, listProducts,
     findSellableBySku, setStock, warehouseId: HEALTHFARE_WAREHOUSE_ID };
 }
 
 const veeqo = createVeeqoClient();
-module.exports = { veeqo, createVeeqoClient };
+module.exports = { veeqo, createVeeqoClient, normalizeProduct, pickImage };
