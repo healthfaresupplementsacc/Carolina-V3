@@ -31,6 +31,17 @@ function shapeEvent(e) {
     ended_at: toNyIso(e.ended_at),
     confidence: e.confidence || null,
     cowork_with: e.cowork_with || [],
+    // PAUSA (Bruno 08-20): a timeline do dashboard precisa saber QUAL tarefa a
+    // pausa congelou pra desenhar [tarefa]||PAUSA||[tarefa] numa lane só. Estes
+    // 5 campos já existiam no banco (migrações 033, 043, 076) e só não eram
+    // expostos. total_paused_seconds é a VERDADE do congelamento; joined_since/
+    // joined_at dizem se a pessoa entrou na pausa depois (o corte é no joined_at
+    // dela, não no início da pausa do colega).
+    cowork_group_id: e.cowork_group_id || null,
+    total_paused_seconds: e.total_paused_seconds != null ? Number(e.total_paused_seconds) : 0,
+    paused_at: toNyIso(e.paused_at),
+    joined_since: e.joined_since || null,
+    joined_at: toNyIso(e.joined_at),
     product_batch_id: e.product_batch_id || null,
     phase_label: e.phase_label || null,
     description: e.description || null,
@@ -53,6 +64,8 @@ const EVENT_COLUMNS = `e.id, e.person_id, e.activity_type_id, e.product_batch_id
             e.started_at, e.ended_at, e.confidence, e.cowork_with,
             e.phase_label, e.description, e.source_message_ts, e.flow_override,
             e.quantity, e.quantity_unit,
+            e.cowork_group_id, e.total_paused_seconds, e.paused_at,
+            e.joined_since, e.joined_at,
             pb.target_bottles AS estimated_bottles,
             (SELECT json_agg(json_build_object(
                        'qty', pc.bottles,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from './Icons.jsx';
 import { OperatorAvatar } from './Primitives.jsx';
+import timelinePause from './timeline-pause.cjs';
 
 /* Timeline component — the centerpiece.
    Features:
@@ -12,6 +13,15 @@ import { OperatorAvatar } from './Primitives.jsx';
    - Drag: left/right edge resize
    - Click → opens side panel
    - Filter dimming (operator id set + flow set)
+
+   PAUSA NA MESMA LANE (Bruno 08-20) — a pausa ('break') não é almoço nem
+   saída: a pessoa continua no trabalho, ela só parou a tarefa pra fazer outra
+   coisa. Então o desenho tem que ser
+       -----linha de produção-----|| PAUSA (Descarregando arroz) ||-----linha-
+   TUDO NUMA LINHA SÓ, e o mesmo em cada coworker que entrou na pausa. Antes a
+   pausa caía numa SUB-LANE por cima da tarefa (assignLanes tratava ela como
+   mais um evento sobreposto). O pareamento tarefa×pausa mora em
+   ./timeline-pause.cjs (puro, testado em src/__tests__/timeline-pause.test.js).
 */
 
 const HOUR_PX_DEFAULT = 140; // px per hour on desktop
@@ -357,7 +367,24 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
             const BG_H = 20, BG_GAP = 3, FG_H = 54, FG_GAP = 6, TOP_PAD = 6;
             const bgLanes = assignLanes(bgEvents);
             const bgCount = bgEvents.length ? bgLanes.count : 0;
-            const fgLanes = assignLanes(fgEvents);
+
+            /* PAUSA NA MESMA LANE (Bruno 08-20) ───────────────────────────
+               Pareia cada pausa com a(s) tarefa(s) que ela congelou e devolve
+               os SEGMENTOS de desenho. Uma pausa INLINE (congelou alguém) sai
+               da conta de lanes: ela é desenhada DENTRO da lane da tarefa, no
+               buraco entre dois segmentos. Uma pausa que não congelou nada
+               (a pessoa não tinha tarefa aberta) segue como bloco solto e
+               continua ocupando lane, exatamente como antes. */
+            const split = timelinePause.splitByPauses(fgEvents, { now, dayEnd: DAY_END });
+            const segsByEvent = timelinePause.segmentsByEvent(split);
+            const inlinePauseIds = new Set(split.pauses.filter((p) => p.inline).map((p) => p.event_id));
+
+            // Lanes: a tarefa congelada continua sendo UM evento com UM span
+            // (start → fim real), então ela ocupa UMA lane e os dois segmentos
+            // saem no mesmo blockTop — que é o pedido do Bruno. As pausas
+            // inline não entram na lista.
+            const laneInput = fgEvents.filter((e) => !inlinePauseIds.has(e.id));
+            const fgLanes = assignLanes(laneInput);
             // SIMULTÂNEO (Bruno 06-24): tarefas de FOREGROUND do mesmo operador que se
             // SOBREPÕEM no tempo = "trabalhando em N ao mesmo tempo" → ficam ROSA + label.
             const fgSimul = {};
@@ -365,6 +392,10 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
               // EXCLUI pausa/almoço/fim-de-dia (Bruno 06-24): pausa NÃO é "trabalho
               // simultâneo" — antes a Pausa e a tarefa congelada por baixo dela
               // apareciam rosas. Só conta tarefa de trabalho real sobreposta.
+              // 08-20: rachar a tarefa em segmentos NÃO mexe nisto. A conta
+              // continua sendo por EVENTO (um evento rachado é UM evento, com o
+              // span inteiro), nunca por segmento — contar segmento faria a
+              // tarefa parecer sobreposta consigo mesma e o rosa voltaria.
               const NOT_WORK = new Set(['break', 'lunch', 'pausa', 'end_of_day']);
               const fl = fgEvents.filter((e) => e.started_min != null && !NOT_WORK.has(e.activity));
               for (const e of fl) {
@@ -493,10 +524,18 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
                     );
                   })}
 
-                  {/* Foreground event blocks */}
+                  {/* Foreground event blocks.
+                      PAUSA (Bruno 08-20): um evento congelado por uma pausa vira
+                      DOIS (ou mais) segmentos NA MESMA LANE, com o chip da pausa
+                      no buraco entre eles. O primeiro segmento leva o rótulo
+                      inteiro; a continuação leva só um tique sutil à esquerda,
+                      pra ninguém ler como se fosse uma segunda tarefa. */}
                   {fgEvents.map(ev => {
                     const act = activities[ev.activity];
                     if (!act) return null;
+                    // pausas INLINE não são desenhadas aqui — elas viram o chip
+                    // dentro da lane da tarefa (bloco logo abaixo).
+                    if (inlinePauseIds.has(ev.id)) return null;
                     const flow = act.flow;
                     const flowColor = `var(--flow-${flow})`;
                     const flowColor2 = `var(--flow-${flow}-2)`;
@@ -510,8 +549,6 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
                     const dragRowMismatch = isDragging && drag.mode === "body" && drag.newOpIdx !== opIdx;
                     if (dragRowMismatch) return null;
 
-                    const left = ((start - DAY_START) / 60) * hourPx;
-                    const width = Math.max(28, ((end - start) / 60) * hourPx);
                     const fgLane = fgLanes.laneOf[ev.id] || 0; // FASE 4 — sub-lane (sobreposição)
                     const blockTop = fgTop0 + fgLane * (FG_H + FG_GAP);
                     const isSelected = selectedId === ev.id;
@@ -520,25 +557,51 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
                     const productName = ev.product ? window.HFData.products[ev.product]?.name : null;
                     const flowDimmed = filterFlows && filterFlows.size > 0 && !filterFlows.has(flow);
 
-                    return (
-                      <div key={ev.id}
+                    /* Segmentos deste evento. Enquanto ARRASTA, o bloco volta a
+                       ser inteiriço (o drag mexe no evento, não nos pedaços) —
+                       ao soltar, o split é recalculado com os horários novos. */
+                    const pieces = (isDragging || !segsByEvent[ev.id])
+                      ? [{ start, end, index: 0, total: 1, is_first: true, is_last: true,
+                           is_continuation: false, zero_width: false, pause_id_before: null }]
+                      : segsByEvent[ev.id].filter((s) => !s.zero_width);
+                    if (!pieces.length) return null;
+                    const wasSplit = pieces.length > 1 || split.frozenIds.has(ev.id);
+
+                    return pieces.map((seg) => {
+                      const left = ((seg.start - DAY_START) / 60) * hourPx;
+                      // Continuação pode ser bem estreita; 28px é o mesmo mínimo
+                      // de sempre, pra continuar clicável.
+                      const width = Math.max(28, ((seg.end - seg.start) / 60) * hourPx);
+                      const head = seg.is_first;
+                      return (
+                      <div key={`${ev.id}-s${seg.index}`}
                            data-block-id={ev.id}
-                           className={`tl-block ${isLiveEv ? "live" : ""} ${ev.overrun ? "overrun" : ""} ${isDragging ? "dragging" : ""} ${isSelected ? "selected" : ""} ${isMergeTarget ? "merge-target" : ""} ${flowDimmed ? "dim" : ""} ${isInvalid ? "tl-block-invalid" : ""}`}
+                           data-seg-index={seg.index}
+                           data-seg-total={seg.total}
+                           data-split-by-pause={wasSplit ? '1' : undefined}
+                           className={`tl-block ${isLiveEv && seg.is_last ? "live" : ""} ${ev.overrun && head ? "overrun" : ""} ${isDragging ? "dragging" : ""} ${isSelected ? "selected" : ""} ${isMergeTarget ? "merge-target" : ""} ${flowDimmed ? "dim" : ""} ${isInvalid ? "tl-block-invalid" : ""} ${seg.is_continuation ? "tl-block-cont" : ""}`}
                            style={{
                              left, width, top: blockTop, height: FG_H, bottom: 'auto',
                              "--bk-color": fgSimul[ev.id] ? "#db2777" : flowColor,
                              "--bk-color2": fgSimul[ev.id] ? "#f472b6" : flowColor2,
                            }}
                            onPointerDown={e => startDrag(e, ev, opIdx, "body")}
-                           title={fgSimul[ev.id] ? `TRABALHANDO SIMULTANEAMENTE EM ${fgSimul[ev.id]} TASKS — ${act.name}${productName ? ` · ${productName}` : ""}` : `${act.name}${productName ? ` · ${productName}` : ""}`}>
-                        {!isLiveEv && (
-                          <>
-                            <div className="tl-handle left" onPointerDown={e => startDrag(e, ev, opIdx, "left")}/>
-                            <div className="tl-handle right" onPointerDown={e => startDrag(e, ev, opIdx, "right")}/>
-                          </>
+                           title={
+                             (seg.is_continuation ? `continuação · ` : '') +
+                             (fgSimul[ev.id] ? `TRABALHANDO SIMULTANEAMENTE EM ${fgSimul[ev.id]} TASKS — ` : '') +
+                             `${act.name}${productName ? ` · ${productName}` : ""}` +
+                             (wasSplit ? ` · retomada depois da pausa` : '')
+                           }>
+                        {!isLiveEv && !seg.is_continuation && (
+                          <div className="tl-handle left" onPointerDown={e => startDrag(e, ev, opIdx, "left")}/>
                         )}
-                        {ev.overrun && <span className="bk-overrun">⏰</span>}
-                        {ev.cowork && ev.cowork.length > 0 && (
+                        {!isLiveEv && seg.is_last && (
+                          <div className="tl-handle right" onPointerDown={e => startDrag(e, ev, opIdx, "right")}/>
+                        )}
+                        {/* tique sutil: marca "isto continua o bloco anterior" */}
+                        {seg.is_continuation && <span className="tl-block-cont-tick" aria-hidden="true"/>}
+                        {ev.overrun && head && <span className="bk-overrun">⏰</span>}
+                        {ev.cowork && ev.cowork.length > 0 && head && (
                           <div className="bk-cow">
                             {ev.cowork.slice(0, 3).map(cw => {
                               const o = operators.find(x => x.id === cw);
@@ -546,39 +609,107 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
                             })}
                           </div>
                         )}
-                        <div className="bk-fn" style={{ paddingLeft: ev.overrun ? 22 : 0, paddingRight: ev.cowork && ev.cowork.length ? 38 : 0 }}>
-                          {act.name}
-                        </div>
-                        {fgSimul[ev.id] && (
+                        {head ? (
+                          <div className="bk-fn" style={{ paddingLeft: ev.overrun ? 22 : 0, paddingRight: ev.cowork && ev.cowork.length ? 38 : 0 }}>
+                            {act.name}
+                          </div>
+                        ) : (
+                          <div className="bk-fn bk-fn-cont" title={act.name}>{act.name}</div>
+                        )}
+                        {fgSimul[ev.id] && head && (
                           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.2, color: "#fff", background: "rgba(0,0,0,0.22)", borderRadius: 5, padding: "1px 5px", marginTop: 2, display: "inline-block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}
                                title={`TRABALHANDO SIMULTANEAMENTE EM ${fgSimul[ev.id]} TASKS`}>
                             ⚡ SIMULTÂNEO ×{fgSimul[ev.id]}
                           </div>
                         )}
-                        {productName && <div className="bk-pr">{productName}</div>}
-                        <div className="bk-time">
-                          {isLiveEv
-                            ? `⏱ ${fmtCron(now - ev.started_min)}`
-                            : fmtDur(end - start)}
-                        </div>
+                        {productName && head && <div className="bk-pr">{productName}</div>}
+                        {/* A DURAÇÃO fica só no ÚLTIMO segmento e é a do EVENTO
+                            INTEIRO (já sem a pausa, que o backend descontou).
+                            Somar segmento por segmento seria contar a tarefa
+                            duas vezes — nunca. */}
+                        {seg.is_last && (
+                          <div className="bk-time">
+                            {isLiveEv
+                              ? `⏱ ${fmtCron(now - ev.started_min)}`
+                              : fmtDur(end - start)}
+                          </div>
+                        )}
                       </div>
-                    );
+                      );
+                    });
+                  })}
+
+                  {/* CHIP DA PAUSA dentro da lane (Bruno 08-20).
+                      Fica no buraco entre os segmentos da tarefa congelada, na
+                      MESMA altura dela. Tom âmbar do break (MARKER_STYLE.break_out).
+                      Uma pausa que congelou VÁRIAS tarefas ao mesmo tempo (Bruno
+                      Sarmento: revisão + special_task) é desenhada em CADA lane
+                      congelada — senão a lane de baixo ficaria com um buraco mudo
+                      e o leitor pensaria "gap". Só a primeira leva o texto cheio;
+                      as de baixo ficam só com o ⏸, pra não virar repetição. */}
+                  {split.pauses.filter((p) => p.inline).flatMap((p) => {
+                    const pauseEv = fgEvents.find((e) => e.id === p.event_id);
+                    const lanes = [...new Set(p.freezes
+                      .map((id) => fgLanes.laneOf[id])
+                      .filter((l) => l != null))].sort((a, b) => a - b);
+                    if (!lanes.length) lanes.push(0);
+                    const left = ((p.start - DAY_START) / 60) * hourPx;
+                    const width = Math.max(16, ((p.end - p.start) / 60) * hourPx);
+                    const mins = Math.max(0, Math.round(p.end - p.start));
+                    const noteShort = p.note.length > 26 ? p.note.slice(0, 26) + '…' : p.note;
+                    const tip = `PAUSA · ${fmtClock(p.start)} → ${p.live ? 'agora' : fmtClock(p.end)} (${fmtDur(mins)})`
+                      + (p.note ? `\n${p.note}` : '')
+                      + `\nCongelou: ${p.freezes.map((id) => {
+                          const e = fgEvents.find((x) => x.id === id);
+                          return e && activities[e.activity] ? activities[e.activity].name : ('evento ' + id);
+                        }).join(', ')}`
+                      + `\nA tarefa continua depois — clique pra abrir a pausa.`;
+                    return lanes.map((lane, li) => (
+                      <div key={`pause-${p.event_id}-l${lane}`}
+                           data-pause-id={p.event_id}
+                           data-pause-lane={lane}
+                           data-block-id={p.event_id}
+                           className={`tl-pause-inline ${li > 0 ? 'echo' : ''} ${p.live ? 'live' : ''} ${selectedId === p.event_id ? 'selected' : ''}`}
+                           style={{ left, width, top: fgTop0 + lane * (FG_H + FG_GAP), height: FG_H }}
+                           onPointerDown={(e) => { if (pauseEv) startDrag(e, pauseEv, opIdx, "body"); }}
+                           title={tip}>
+                        <span className="tl-pause-ico" aria-hidden="true">⏸</span>
+                        {li === 0 && (
+                          <>
+                            <span className="tl-pause-txt">
+                              <b>PAUSA</b>
+                              {noteShort && <span className="tl-pause-note"> {noteShort}</span>}
+                            </span>
+                            <span className="tl-pause-dur mono">{p.live ? '…' : fmtDur(mins)}</span>
+                          </>
+                        )}
+                      </div>
+                    ));
                   })}
 
                   {/* Gap zones — entre fg events consecutivos com gap >= 15min.
                       Click abre o detalhe (mesmo onGapClick que o expand usa).
                       Bot 27/mai #2: gap visível também na timeline principal,
-                      não só no expand. */}
+                      não só no expand.
+                      PAUSA (Bruno 08-20): o buraco entre os dois segmentos NÃO é
+                      gap — é a pausa, e já está desenhada ali. `fgEvents` segue
+                      incluindo o evento de pausa, então o cálculo por eventos
+                      consecutivos já atravessa o intervalo; o descarte explícito
+                      abaixo é o cinto de segurança pra pausa que cai exatamente
+                      no meio de um par. */}
                   {(() => {
                     if (!onGapClick) return null;
                     const sorted = fgEvents.slice()
                       .filter((e) => e.started_min != null)
                       .sort((a, b) => a.started_min - b.started_min);
+                    const coveredByPause = (s, e) =>
+                      split.pauses.some((p) => p.start <= s + 1 && p.end >= e - 1);
                     const zones = [];
                     for (let i = 0; i < sorted.length - 1; i++) {
                       const evEnd = sorted[i].ended_min == null ? now : sorted[i].ended_min;
                       const gap = sorted[i + 1].started_min - evEnd;
                       if (gap < 15) continue;   // ignora micro-gaps
+                      if (coveredByPause(evEnd, sorted[i + 1].started_min)) continue;
                       zones.push({ start: evEnd, end: sorted[i + 1].started_min, dur: gap, key: 'gz-' + i });
                     }
                     return zones.map((z) => {

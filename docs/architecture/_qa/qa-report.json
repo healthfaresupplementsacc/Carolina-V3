@@ -1,5 +1,5 @@
 {
-  "when": "2026-08-19T22:38:21.197Z",
+  "when": "2026-08-20T16:52:38.027Z",
   "tabStats": [
     {
       "key": "MASTER",
@@ -59,11 +59,11 @@
     },
     {
       "key": "S09-S12-crosscutting-auth",
-      "nodes": 48,
+      "nodes": 51,
       "pass": true,
-      "kb": 165,
+      "kb": 159,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-08-S09-S12-crosscutting-auth.png",
-      "status": "rendered ✓  S09-S12-crosscutting-auth  (119 lines, 48 nodes)"
+      "status": "rendered ✓  S09-S12-crosscutting-auth  (125 lines, 51 nodes)"
     },
     {
       "key": "S10-S11-external-satellites",
@@ -83,11 +83,11 @@
     },
     {
       "key": "S15-warehouse-inventory",
-      "nodes": 56,
+      "nodes": 60,
       "pass": true,
-      "kb": 177,
+      "kb": 175,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-11-S15-warehouse-inventory.png",
-      "status": "rendered ✓  S15-warehouse-inventory  (165 lines, 56 nodes)"
+      "status": "rendered ✓  S15-warehouse-inventory  (180 lines, 60 nodes)"
     }
   ],
   "results": [
@@ -185,13 +185,13 @@
       "group": "tab-fit",
       "name": "S09-S12-crosscutting-auth",
       "pass": true,
-      "detail": "fit scale=0.243 (whole diagram visible, 4605x2101)"
+      "detail": "fit scale=0.207 (whole diagram visible, 5403x2251)"
     },
     {
       "group": "tab",
       "name": "S09-S12-crosscutting-auth",
       "pass": true,
-      "detail": "48 nodes, status=\"rendered ✓  S09-S12-crosscutting-a\", shot 165KB, bodyClean=true"
+      "detail": "51 nodes, status=\"rendered ✓  S09-S12-crosscutting-a\", shot 159KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
@@ -221,13 +221,13 @@
       "group": "tab-fit",
       "name": "S15-warehouse-inventory",
       "pass": true,
-      "detail": "fit scale=0.129 (whole diagram visible, 8690x3836)"
+      "detail": "fit scale=0.103 (whole diagram visible, 10857x4121)"
     },
     {
       "group": "tab",
       "name": "S15-warehouse-inventory",
       "pass": true,
-      "detail": "56 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 177KB, bodyClean=true"
+      "detail": "60 nodes, status=\"rendered ✓  S15-warehouse-inventor\", shot 175KB, bodyClean=true"
     },
     {
       "group": "behaviour",

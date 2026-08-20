@@ -194,6 +194,16 @@ function adaptToHFData(input) {
         _started_at: ev.started_at,
         _ended_at: ev.ended_at,
         _source_message_ts: ev.source_message_ts || null,
+        // PAUSA (Bruno 08-20) — o que a Timeline usa pra desenhar a pausa NO MEIO
+        // da tarefa (components/timeline-pause.cjs), em vez de numa sub-lane em
+        // cima dela. total_paused_seconds = verdade do backend sobre QUAL evento
+        // foi congelado; joined_since/joined_at = onde cortar a tarefa de quem
+        // entrou na pausa depois (migração 076).
+        _total_paused_seconds: ev.total_paused_seconds != null ? Number(ev.total_paused_seconds) : 0,
+        _paused_at: ev.paused_at || null,
+        _cowork_group_id: ev.cowork_group_id || null,
+        _joined_since: ev.joined_since || null,
+        _joined_at_min: ev.joined_at ? isoToNyMin(ev.joined_at) : null,
         _expected_seconds: a && a.expected_seconds != null ? a.expected_seconds : null,
         _estimated_bottles: ev.estimated_bottles != null ? ev.estimated_bottles : null, // EMS target do lote
         _bottle_counts: Array.isArray(ev.bottle_counts) ? ev.bottle_counts : [],        // quem/quando/quanto

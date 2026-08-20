@@ -189,6 +189,90 @@ function prefsFixture(pathname, method, body) {
   return { data: {} };
 }
 
+/* ── TIMELINE: a PAUSA no meio da tarefa (Bruno 08-20) ─────────────
+   Textual do Bruno: "eu tinha combinado com vc que a pausa ficava na mesma
+   linha do tempo e pausava o q a pessoa estivesse fazendo, no meio iria ter uma
+   pausa, e quando a pessoa terminasse a pausa reativava o q ele tava fazendo,
+   no caso do vitor era pra ta assim na timeline dele:
+     -----linha de producao Apple cider vinegar-----|| PAUSA (Descarregando
+     caminhao)|| ------- linha de producao Apple cider vinegar-
+   tudo numa linha so, e a mesma coisa deveria acontecer pra todos os coworkers
+   que joined essa pausa."
+
+   A fixture reproduz o dia 20/08 REAL, no shape que o adapter consome
+   (timeline.people[].events[], igual /api/v3/data/timeline devolve de verdade —
+   a fixture antiga usava um `events` chapado no topo, que o adapter ignora, e
+   por isso a Timeline nunca era exercida por harness nenhum):
+
+     Vitor (4)  — production_line 09:01 → AO VIVO, congelada por um break
+                  10:52 → 11:22 "Descarregando arroz". Tem que virar
+                  [linha] || PAUSA || [linha continuando], NA MESMA LANE.
+     Bruno S(7) — MESMO cowork_group_id do break do Vitor: review 09:30 → aberta
+                  + special_task 10:00 → aberta, as DUAS congeladas pela pausa
+                  dele (11:00 → 11:22, joined_since 'agora' às 11:00). O corte
+                  dele é no joined_at DELE (11:00), não no 10:52 do Vitor.
+     Simone (5) — break 13:00 → 13:10 SEM tarefa aberta: pausa solta, mantém o
+                  desenho antigo (bloco próprio, não vira chip inline). */
+const PAUSE_GROUP = '11111111-2222-3333-4444-555555555555';
+/* atNy: ISO com o OFFSET DE NY preservado, que é o que /api/v3/data/timeline
+   devolve de verdade (timeline-repo.toNyIso) e o que o adapter sabe ler —
+   isoToNyMin() FATIA a string, não converte fuso. O `at()` lá de cima usa
+   .toISOString() e vira Z (UTC): serve pros markers de ponto, que passam por
+   Intl, mas jogaria os eventos 4h pra frente na régua. */
+const atNy = (h, m) => `${YMD}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-04:00`;
+const ACT = {
+  production_line: { id: 3, slug: 'production_line', display_name: 'Linha de Produção', flow: 'production', is_background: false, expected_seconds: 7200 },
+  review:          { id: 7, slug: 'review',          display_name: 'Revisão',           flow: 'production', is_background: false, expected_seconds: 3600 },
+  special_task:    { id: 9, slug: 'special_task',    display_name: 'Tarefa Especial',   flow: 'support',    is_background: false, expected_seconds: null },
+  break:           { id: 12, slug: 'break',          display_name: 'Pausa',             flow: 'support',    is_background: false, expected_seconds: null },
+  pnp:             { id: 11, slug: 'pnp',            display_name: 'Pick & Pack',       flow: 'pnp',        is_background: false, expected_seconds: null },
+};
+function tlEv(id, slug, s, e, extra) {
+  return Object.assign({
+    event_id: id, activity: ACT[slug], flow: ACT[slug].flow,
+    started_at: s, ended_at: e,
+    product_batch_id: null, cowork_with: [], quantity: null, quantity_unit: null,
+    description: '', confidence: 'high',
+    cowork_group_id: null, total_paused_seconds: 0, paused_at: null,
+    joined_since: null, joined_at: null,
+  }, extra || {});
+}
+function TIMELINE() {
+  return { data: { date: YMD, people: [
+    { person_id: 4, display_name: 'Vitor Silva', role: 'Operador',
+      idle_seconds: 0, unreported_seconds: 0, unreported_since: null,
+      events: [
+        /* A tarefa do ASCII do Bruno: congelada 30min pela pausa. FECHADA às
+           13:40 de propósito — o harness roda a qualquer hora do dia, e uma
+           tarefa AO VIVO teria a cauda dependendo do relógio (antes das 11:22
+           não existiria cauda nenhuma e o teste ficaria intermitente). O caso
+           ao vivo está coberto em src/__tests__/timeline-pause.test.js (b/b2). */
+        tlEv(3616, 'production_line', atNy(9, 1), atNy(13, 40),
+          { description: 'Apple Cider Vinegar', total_paused_seconds: 1800 }),
+        tlEv(3620, 'break', atNy(10, 52), atNy(11, 22),
+          { description: 'Descarregando arroz', cowork_with: [7], cowork_group_id: PAUSE_GROUP,
+            joined_since: 'inicio', joined_at: atNy(10, 52) }),
+      ] },
+    { person_id: 5, display_name: 'Simone Amabile', role: 'Operadora',
+      idle_seconds: 0, unreported_seconds: 0, unreported_since: null,
+      events: [
+        tlEv(3630, 'pnp', atNy(9, 0), atNy(12, 0), { description: 'P&P do dia' }),
+        // pausa SEM tarefa aberta → continua bloco solto, não vira chip inline
+        tlEv(3631, 'break', atNy(13, 0), atNy(13, 10), { description: 'Banheiro' }),
+      ] },
+    { person_id: 7, display_name: 'Bruno Santos', role: 'Revisor',
+      idle_seconds: 0, unreported_seconds: 0, unreported_since: null,
+      events: [
+        tlEv(3575, 'review', atNy(9, 30), atNy(13, 5), { total_paused_seconds: 1320 }),
+        tlEv(3576, 'special_task', atNy(10, 0), atNy(13, 5), { total_paused_seconds: 1320 }),
+        // entrou na pausa do Vitor às 11:00 ('agora'): o corte DELE é 11:00
+        tlEv(3621, 'break', atNy(11, 0), atNy(11, 22),
+          { description: 'Descarregando arroz', cowork_with: [4], cowork_group_id: PAUSE_GROUP,
+            joined_since: 'agora', joined_at: atNy(11, 0) }),
+      ] },
+  ], operators: [], gaps: [] } };
+}
+
 function apiFixture(pathname, search, method, body) {
   if (pathname.startsWith('/api/v3/prefs')) return prefsFixture(pathname, method, body);
   if (pathname.startsWith('/api/v3/review/')) return reviewFixture(pathname, search);
@@ -206,19 +290,7 @@ function apiFixture(pathname, search, method, body) {
     return { data: { tasks_closed: [] } };
   }
 
-  if (pathname === '/api/v3/data/timeline') {
-    return { data: {
-      events: [
-        { id: 1, person_id: 4, person_name: 'Vitor Silva', activity_slug: 'production_line',
-          started_at: at(8, 30), ended_at: at(11, 0), description: '', qty: 200 },
-        { id: 2, person_id: 5, person_name: 'Simone Amabile', activity_slug: 'pnp',
-          started_at: at(9, 0), ended_at: at(12, 0), description: '', qty: null },
-        { id: 3, person_id: 4, person_name: 'Vitor Silva', activity_slug: 'cleaning_day',
-          started_at: at(12, 30), ended_at: at(13, 15), description: 'limpeza da linha', qty: null },
-      ],
-      operators: [], gaps: [],
-    } };
-  }
+  if (pathname === '/api/v3/data/timeline') return TIMELINE();
   if (pathname === '/api/v3/data/production') {
     return { data: {
       total_bottles: 420,
@@ -275,10 +347,16 @@ function apiFixture(pathname, search, method, body) {
       ] } };
     }
     if (k === 'activity-types') {
+      /* display_name, NÃO name: é o campo que catalog-repo.activityTypes()
+         devolve de verdade e o único que o adapter lê. Com `name` o catálogo
+         entrava com o SLUG de rótulo e a timeline mostrava "production_line". */
       return { data: { activity_types: [
-        { id: 1, slug: 'production_line', name: 'Linha de produção', flow: 'production' },
-        { id: 2, slug: 'pnp', name: 'Pick & Pack', flow: 'pnp' },
-        { id: 3, slug: 'cleaning_day', name: 'Limpeza do dia', flow: 'support' },
+        { id: 1, slug: 'production_line', display_name: 'Linha de Produção', flow: 'production' },
+        { id: 2, slug: 'pnp', display_name: 'Pick & Pack', flow: 'pnp' },
+        { id: 3, slug: 'cleaning_day', display_name: 'Limpeza do dia', flow: 'support' },
+        { id: 7, slug: 'review', display_name: 'Revisão', flow: 'production' },
+        { id: 9, slug: 'special_task', display_name: 'Tarefa Especial', flow: 'support' },
+        { id: 12, slug: 'break', display_name: 'Pausa', flow: 'support' },
       ] } };
     }
     return { data: { products: [{ id: 1, canonical_name: 'HealthFare NAC' }] } };
@@ -409,6 +487,141 @@ async function main() {
       'grade termina em ' + fit.gridRight + ' | ' + fit.items.map((i) => i.id + ':' + i.right).join(' '));
   await shot('01-inicial');
   rec('hoje', 'sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+
+  /* ══ 0b. PAUSA NA MESMA LINHA DO TEMPO (Bruno 08-20) ══════════════
+     "-----linha de producao-----|| PAUSA (Descarregando arroz) ||-----linha-
+      tudo numa linha so, e a mesma coisa deveria acontecer pra todos os
+      coworkers que joined essa pausa."
+     Provar na PÁGINA RENDERIZADA (não no unit test): os dois pedaços da tarefa
+     congelada estão no MESMO offset vertical (mesma lane) e o bloco da pausa
+     está ENTRE eles horizontalmente. */
+  await page.waitForSelector('.tl-block', { timeout: 9000 }).catch(() => {});
+  // deixa a timeline larga: com zoom baixo os blocos batem no mínimo de 28px e
+  // as coordenadas deixam de ser comparáveis.
+  await page.evaluate(() => {
+    const plus = [...document.querySelectorAll('.tl-wrap .btn.sm.ghost')]
+      .find((b) => (b.getAttribute('title') || '') === 'Mais zoom');
+    if (plus) { plus.click(); plus.click(); }
+  });
+  await sleep(500);
+
+  const pausa = await page.evaluate(() => {
+    const box = (el) => { const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), left: Math.round(r.left), right: Math.round(r.right), w: Math.round(r.width) }; };
+    const segs = (id) => [...document.querySelectorAll(`.tl-block[data-block-id="${id}"]`)]
+      .map((el) => Object.assign(box(el), {
+        idx: Number(el.dataset.segIndex), cont: el.classList.contains('tl-block-cont'),
+        split: el.dataset.splitByPause === '1', txt: el.textContent.replace(/\s+/g, ' ').trim(),
+      })).sort((a, b) => a.left - b.left);
+    const chip = (id) => { const el = document.querySelector(`.tl-pause-inline[data-pause-id="${id}"]`);
+      return el ? Object.assign(box(el), { txt: el.textContent.replace(/\s+/g, ' ').trim(),
+        title: el.getAttribute('title') || '' }) : null; };
+    return {
+      vitor: segs(3616), vitorPause: chip(3620),
+      review: segs(3575), special: segs(3576), brunoPause: chip(3621),
+      // pausa da Simone: NÃO congelou nada, tem que continuar bloco normal
+      simoneChip: chip(3631),
+      // a pausa do coworker congelou DUAS tarefas → tem que aparecer nas DUAS
+      // lanes (a de baixo só com o ⏸), senão a de baixo vira buraco mudo.
+      brunoLanes: [...document.querySelectorAll('.tl-pause-inline[data-pause-id="3621"]')]
+        .map((el) => ({ lane: Number(el.dataset.pauseLane), top: Math.round(el.getBoundingClientRect().top),
+                        echo: el.classList.contains('echo') })).sort((a, b) => a.lane - b.lane),
+      simonePlain: document.querySelectorAll('.tl-block[data-block-id="3631"]').length,
+      // nenhuma pausa inline pode ter sobrado como bloco de tarefa
+      inlineAsBlock: document.querySelectorAll('.tl-block[data-block-id="3620"], .tl-block[data-block-id="3621"]').length,
+      chips: document.querySelectorAll('.tl-pause-inline').length,
+    };
+  });
+
+  rec('pausa', 'tarefa do Vitor rachada em 2 pedacos pela pausa',
+      pausa.vitor.length === 2 && pausa.vitor.every((s) => s.split),
+      'pedacos=' + pausa.vitor.length + ' ' + JSON.stringify(pausa.vitor.map((s) => s.left + '..' + s.right)));
+  rec('pausa', 'os 2 pedacos ficam na MESMA lane (mesmo offset vertical)',
+      pausa.vitor.length === 2 && pausa.vitor[0].top === pausa.vitor[1].top,
+      'tops=' + pausa.vitor.map((s) => s.top).join(' / '));
+  rec('pausa', 'o bloco da PAUSA fica ENTRE os dois pedacos, horizontalmente',
+      !!pausa.vitorPause && pausa.vitor.length === 2
+        && pausa.vitorPause.left >= pausa.vitor[0].right - 2
+        && pausa.vitorPause.right <= pausa.vitor[1].left + 2,
+      (pausa.vitorPause && pausa.vitor.length === 2)
+        ? `seg1 termina ${pausa.vitor[0].right} · pausa ${pausa.vitorPause.left}..${pausa.vitorPause.right} · seg2 comeca ${pausa.vitor[1].left}`
+        : 'sem chip de pausa (pedacos=' + pausa.vitor.length + ')');
+  rec('pausa', 'a PAUSA fica na mesma lane da tarefa que ela congelou',
+      !!pausa.vitorPause && pausa.vitor.length === 2 && pausa.vitorPause.top === pausa.vitor[0].top,
+      'pausa.top=' + (pausa.vitorPause && pausa.vitorPause.top) + ' tarefa.top=' + (pausa.vitor[0] && pausa.vitor[0].top));
+  rec('pausa', 'o chip mostra ⏸ + PAUSA + a nota do operador',
+      !!pausa.vitorPause && /⏸/.test(pausa.vitorPause.txt) && /PAUSA/.test(pausa.vitorPause.txt)
+        && /Descarregando arroz/.test(pausa.vitorPause.txt),
+      pausa.vitorPause && pausa.vitorPause.txt);
+  rec('pausa', 'o tooltip diz o que a pausa congelou e que a tarefa continua',
+      !!pausa.vitorPause && /Congelou:/.test(pausa.vitorPause.title)
+        && /Linha de Produção/.test(pausa.vitorPause.title)
+        && /continua/.test(pausa.vitorPause.title),
+      pausa.vitorPause && pausa.vitorPause.title.replace(/\n/g, ' | '));
+  rec('pausa', 'os dois pedacos sao a MESMA tarefa (mesmo rotulo, mesmo alvo de clique)',
+      pausa.vitor.length === 2 && pausa.vitor.every((s) => /Linha de Produção/.test(s.txt)),
+      pausa.vitor.map((s) => s.txt).join(' || '));
+  rec('pausa', 'so o 1º pedaco leva a duracao/rotulo cheio; a continuacao nao repete',
+      pausa.vitor.length === 2 && /Apple Cider Vinegar|4h/.test(pausa.vitor[0].txt + pausa.vitor[1].txt),
+      pausa.vitor.map((s) => s.txt).join(' || '));
+  rec('pausa', 'o 2º pedaco eh continuacao (tique sutil), nao uma 2ª tarefa',
+      pausa.vitor.length === 2 && !pausa.vitor[0].cont && pausa.vitor[1].cont,
+      'cont=' + pausa.vitor.map((s) => s.cont).join('/'));
+  rec('pausa', 'a pausa NAO virou bloco de tarefa em lane separada',
+      pausa.inlineAsBlock === 0, 'blocos=' + pausa.inlineAsBlock);
+
+  // COWORK: o Bruno entrou na MESMA pausa e as DUAS tarefas dele racham,
+  // cada uma na SUA lane, com o corte no joined_at DELE (11:00).
+  rec('pausa/cowork', 'coworker: revisao rachada em 2 na mesma lane',
+      pausa.review.length === 2 && pausa.review[0].top === pausa.review[1].top,
+      'n=' + pausa.review.length + ' tops=' + pausa.review.map((s) => s.top).join('/'));
+  rec('pausa/cowork', 'coworker: a MESMA pausa racha as DUAS tarefas abertas dele',
+      pausa.review.length === 2 && pausa.special.length === 2,
+      'review=' + pausa.review.length + ' special=' + pausa.special.length);
+  rec('pausa/cowork', 'coworker: as duas tarefas dele ficam em lanes DIFERENTES (sobrepostas)',
+      pausa.review.length === 2 && pausa.special.length === 2
+        && pausa.review[0].top !== pausa.special[0].top,
+      'review.top=' + (pausa.review[0] && pausa.review[0].top) + ' special.top=' + (pausa.special[0] && pausa.special[0].top));
+  rec('pausa/cowork', "coworker que entrou 'agora' corta no joined_at DELE, nao no inicio da pausa do colega",
+      !!pausa.brunoPause && !!pausa.vitorPause && pausa.brunoPause.left > pausa.vitorPause.left,
+      'bruno.left=' + (pausa.brunoPause && pausa.brunoPause.left) + ' vitor.left=' + (pausa.vitorPause && pausa.vitorPause.left));
+
+  // pausa que NÃO congelou nada: comportamento antigo, intacto
+  rec('pausa', 'pausa sem tarefa aberta continua bloco solto (nao vira chip)',
+      pausa.simoneChip === null && pausa.simonePlain === 1,
+      'chip=' + (pausa.simoneChip ? 'sim' : 'nao') + ' blocos=' + pausa.simonePlain);
+  rec('pausa/cowork', 'a pausa que congelou 2 tarefas aparece nas 2 lanes (a de baixo so com o ⏸)',
+      pausa.brunoLanes.length === 2 && !pausa.brunoLanes[0].echo && pausa.brunoLanes[1].echo
+        && pausa.brunoLanes[0].top !== pausa.brunoLanes[1].top,
+      JSON.stringify(pausa.brunoLanes));
+  rec('pausa/cowork', 'cada chip de pausa cai na altura da tarefa que ele congelou',
+      pausa.brunoLanes.length === 2 && pausa.review.length === 2 && pausa.special.length === 2
+        && pausa.brunoLanes[0].top === pausa.review[0].top
+        && pausa.brunoLanes[1].top === pausa.special[0].top,
+      'chips=' + pausa.brunoLanes.map((c) => c.top).join('/')
+        + ' tarefas=' + [pausa.review[0] && pausa.review[0].top, pausa.special[0] && pausa.special[0].top].join('/'));
+  rec('pausa', '3 chips inline no total (Vitor 1 lane + coworker 2 lanes)',
+      pausa.chips === 3, 'chips=' + pausa.chips);
+
+  // "trabalho SIMULTÂNEO" nunca pode voltar por causa do racha (bug ja corrigido
+  // uma vez): a tarefa rachada continua sendo UM evento, nao dois sobrepostos.
+  const simul = await page.evaluate(() => ({
+    vitor: [...document.querySelectorAll('.tl-block[data-block-id="3616"]')]
+      .some((el) => /SIMULT/i.test(el.textContent)),
+    todos: [...document.querySelectorAll('.tl-block')]
+      .filter((el) => /SIMULT/i.test(el.textContent)).map((el) => el.dataset.blockId),
+  }));
+  rec('pausa', 'racha NAO faz a tarefa parecer trabalho SIMULTANEO consigo mesma',
+      simul.vitor === false, 'com SIMULTANEO: ' + (simul.todos.join(',') || 'nenhum'));
+
+  // o print tem que MOSTRAR o que o Bruno pediu: rola até a timeline e enquadra
+  // a lane do Vitor com a pausa no meio dela.
+  await page.evaluate(() => {
+    const b = document.querySelector('.tl-block[data-block-id="3616"]');
+    if (b) b.scrollIntoView({ block: 'center', inline: 'center' });
+  });
+  await sleep(400);
+  await shot('12-pausa-mesma-linha');
 
   // ══ 1. TOPBAR: pills fora, ponto dentro ═══════════════════════
   const topbarTxt = await page.$eval('.topbar', (e) => e.textContent.replace(/\s+/g, ' '));

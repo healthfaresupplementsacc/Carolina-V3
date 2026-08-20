@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T01:29:36.072Z",
+  "at": "2026-08-20T16:49:42.187Z",
   "results": [
     {
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "233 KB → theme-A-hoje.png"
+      "detail": "219 KB → theme-A-hoje.png"
     },
     {
       "group": "hoje",
@@ -53,7 +53,7 @@
       "group": "screenshot",
       "name": "producao",
       "pass": true,
-      "detail": "136 KB → theme-A-producao.png"
+      "detail": "134 KB → theme-A-producao.png"
     },
     {
       "group": "producao",
@@ -101,7 +101,7 @@
       "group": "screenshot",
       "name": "metas",
       "pass": true,
-      "detail": "114 KB → theme-A-metas.png"
+      "detail": "113 KB → theme-A-metas.png"
     },
     {
       "group": "metas",
@@ -149,7 +149,7 @@
       "group": "screenshot",
       "name": "pessoas",
       "pass": true,
-      "detail": "131 KB → theme-A-pessoas.png"
+      "detail": "130 KB → theme-A-pessoas.png"
     },
     {
       "group": "pessoas",
@@ -197,7 +197,7 @@
       "group": "screenshot",
       "name": "pp",
       "pass": true,
-      "detail": "139 KB → theme-A-pp.png"
+      "detail": "129 KB → theme-A-pp.png"
     },
     {
       "group": "pp",
@@ -245,7 +245,7 @@
       "group": "screenshot",
       "name": "suporte",
       "pass": true,
-      "detail": "101 KB → theme-A-suporte.png"
+      "detail": "99 KB → theme-A-suporte.png"
     },
     {
       "group": "suporte",
@@ -293,7 +293,7 @@
       "group": "screenshot",
       "name": "produto",
       "pass": true,
-      "detail": "130 KB → theme-A-produto.png"
+      "detail": "128 KB → theme-A-produto.png"
     },
     {
       "group": "produto",
@@ -341,7 +341,7 @@
       "group": "screenshot",
       "name": "falar",
       "pass": true,
-      "detail": "111 KB → theme-A-falar.png"
+      "detail": "110 KB → theme-A-falar.png"
     },
     {
       "group": "falar",
@@ -389,7 +389,7 @@
       "group": "screenshot",
       "name": "planejamento",
       "pass": true,
-      "detail": "83 KB → theme-A-planejamento.png"
+      "detail": "81 KB → theme-A-planejamento.png"
     },
     {
       "group": "planejamento",
@@ -437,7 +437,7 @@
       "group": "screenshot",
       "name": "carolina",
       "pass": true,
-      "detail": "75 KB → theme-A-carolina.png"
+      "detail": "73 KB → theme-A-carolina.png"
     },
     {
       "group": "carolina",
@@ -485,7 +485,7 @@
       "group": "screenshot",
       "name": "config",
       "pass": true,
-      "detail": "100 KB → theme-A-config.png"
+      "detail": "98 KB → theme-A-config.png"
     },
     {
       "group": "config",
@@ -533,7 +533,7 @@
       "group": "screenshot",
       "name": "floor",
       "pass": true,
-      "detail": "140 KB → theme-A-floor.png"
+      "detail": "138 KB → theme-A-floor.png"
     },
     {
       "group": "floor",
@@ -551,7 +551,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "93 KB → theme-A-roadmap.png"
+      "detail": "91 KB → theme-A-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -604,8 +604,8 @@
     {
       "group": "hoje",
       "name": "faixa de Ponto com 3 pessoas",
-      "pass": true,
-      "detail": "cards=3"
+      "pass": false,
+      "detail": "cards=0"
     },
     {
       "group": "hoje",
@@ -623,7 +623,7 @@
       "group": "hoje",
       "name": "usa kit-chip e kit-mlabel",
       "pass": true,
-      "detail": "chips=14 mlabels=51"
+      "detail": "chips=14 mlabels=56"
     },
     {
       "group": "hoje",

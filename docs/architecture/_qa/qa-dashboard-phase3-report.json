@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T22:35:55.628Z",
+  "at": "2026-08-20T16:47:03.267Z",
   "results": [
     {
       "group": "hub",
@@ -539,13 +539,13 @@
       "group": "envio",
       "name": "Mandar pro computador posta shipping-labels SEM take (vai pra fila)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-19\"}"
+      "detail": "{\"day\":\"2026-08-20\"}"
     },
     {
       "group": "envio",
       "name": "o dia é o de Nova York (fuso da fábrica, não o do navegador)",
       "pass": true,
-      "detail": "2026-08-19"
+      "detail": "2026-08-20"
     },
     {
       "group": "envio",
@@ -557,7 +557,7 @@
       "group": "envio",
       "name": "Abrir PDF aqui posta com take:true (quem abre é quem pegou)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-19\",\"take\":true}"
+      "detail": "{\"day\":\"2026-08-20\",\"take\":true}"
     },
     {
       "group": "envio",
@@ -569,7 +569,7 @@
       "group": "envio",
       "name": "a aba recebe um blob local (o navegador abre o arquivo, não a rota)",
       "pass": true,
-      "detail": "blob:http://127.0.0.1:54247/2667429c-bf21-4b16-9d9e-2f605b81ff97"
+      "detail": "blob:http://127.0.0.1:61651/f24bd2f0-2c73-4c52-ab43-eb2cfb207ab8"
     },
     {
       "group": "screenshot",

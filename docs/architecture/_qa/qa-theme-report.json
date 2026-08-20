@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T22:39:23.353Z",
+  "at": "2026-08-20T16:48:08.449Z",
   "results": [
     {
       "group": "hoje",
@@ -143,7 +143,7 @@
       "group": "metas",
       "name": "screenshot",
       "pass": true,
-      "detail": "76 KB → theme-metas.png"
+      "detail": "75 KB → theme-metas.png"
     },
     {
       "group": "metas",
@@ -737,7 +737,7 @@
       "group": "inventory",
       "name": "screenshot",
       "pass": true,
-      "detail": "138 KB → theme-inventory.png"
+      "detail": "136 KB → theme-inventory.png"
     },
     {
       "group": "inventory",
@@ -1001,7 +1001,7 @@
       "group": "floor",
       "name": "screenshot",
       "pass": true,
-      "detail": "78 KB → theme-floor.png"
+      "detail": "77 KB → theme-floor.png"
     },
     {
       "group": "floor",

@@ -216,6 +216,75 @@
   background: rgba(255,255,255,0.55);
 }
 
+/* ===== PAUSA NA MESMA LANE (Bruno 08-20) =====================
+   "-----linha de producao-----|| PAUSA (Descarregando arroz) ||-----linha-"
+   A pausa não é almoço nem saída: a pessoa continua trabalhando, só parou a
+   tarefa. Então ela INTERROMPE a tarefa na mesma linha, em vez de subir pra uma
+   sub-lane em cima dela. Tom âmbar, o mesmo do break em MARKER_STYLE. */
+.tl-pause-inline {
+  position: absolute;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(217,119,6,0.92) 0 7px,
+    rgba(180,83,9,0.92) 7px 14px);
+  color: #fff;
+  border: 1px solid rgba(120,53,15,0.45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 2px 6px -2px rgba(0,0,0,0.28);
+  font-size: 11px; font-weight: 700;
+  overflow: hidden; white-space: nowrap;
+  cursor: grab; user-select: none; touch-action: none;
+  z-index: 3;               /* acima dos segmentos, é ela que interrompe */
+}
+.tl-pause-inline:hover { box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 8px 20px -8px rgba(0,0,0,0.4); }
+.tl-pause-inline.selected { outline: 2px solid var(--hf-navy-500); outline-offset: 2px; }
+.tl-pause-inline.live { animation: tl-pause-live 2.2s ease-in-out infinite; }
+@keyframes tl-pause-live {
+  0%, 100% { box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 5px rgba(217,119,6,0.55); }
+  50%      { box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 0 15px rgba(217,119,6,0.85); }
+}
+.tl-pause-inline .tl-pause-ico { font-size: 13px; line-height: 1; flex: 0 0 auto; }
+.tl-pause-inline .tl-pause-txt {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+.tl-pause-inline .tl-pause-note { font-weight: 500; opacity: 0.95; }
+.tl-pause-inline .tl-pause-dur {
+  flex: 0 0 auto; font-size: 10px; opacity: 0.9;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums;
+}
+/* Pausa curtinha: só o ícone cabe. Some com texto e duração em vez de espremer. */
+.tl-pause-inline { container-type: inline-size; }
+@container (max-width: 110px) {
+  .tl-pause-inline .tl-pause-txt, .tl-pause-inline .tl-pause-dur { display: none; }
+  .tl-pause-inline { justify-content: center; padding: 0 2px; }
+}
+/* eco: a MESMA pausa repetida na lane de baixo (congelou 2 tarefas de uma vez).
+   Só o ⏸, centrado — o texto fica na primeira, pra não repetir. */
+.tl-pause-inline.echo { justify-content: center; padding: 0 2px; opacity: 0.9; }
+
+/* CONTINUAÇÃO da tarefa depois da pausa. Mesma cor, mesma lane, mesmo alvo de
+   clique — só um tique claro na borda esquerda dizendo "isto continua o bloco
+   de antes", pra ninguém ler como uma segunda tarefa. */
+.tl-block.tl-block-cont { border-left: 2px solid rgba(255,255,255,0.55); }
+.tl-block .tl-block-cont-tick {
+  position: absolute; left: 3px; top: 50%;
+  transform: translateY(-50%);
+  width: 2px; height: 60%;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.42);
+  pointer-events: none;
+}
+/* rótulo da continuação: presente (pro leitor confirmar que é a MESMA tarefa),
+   mas discreto — não compete com o rótulo cheio do primeiro segmento. */
+.tl-block .bk-fn.bk-fn-cont {
+  font-weight: 600; opacity: 0.78; font-size: 11.5px; padding-left: 8px;
+}
+
 /* Drag preview tooltip during interaction */
 .drag-tooltip {
   position: fixed; pointer-events: none; z-index: 200;

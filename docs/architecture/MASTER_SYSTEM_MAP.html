@@ -760,6 +760,7 @@ subgraph V4["S03.01 · dashboard-v4 (React/Vite, hash routes, CANONICAL) — bui
   S03_01_18["S03.01.18 · DESIGN-BRIEF.md · CURRENT-PAGE-SNAPSHOT.html"]:::partial
   S03_01_19["S03.01.19 · committed build assets incl. PUBLIC source map"]:::verified
   S03_01_20["S03.01.20 · prefs-api.js + hook useAccountPref — preferencia por conta; localStorage vira cache"]:::verified
+  S03_01_21["S03.01.21 · timeline-pause.cjs — splitByPauses: a PAUSA racha a tarefa NA MESMA LANE (task || PAUSA || task), tambem em cada coworker"]:::verified
 end
 
 subgraph OP["S03.02 · Operator kiosk /op (PWA)"]
@@ -794,6 +795,10 @@ S03_01_08 -->|R018| S02_09
 %% 08-19 — o layout dos widgets da Hoje segue a PESSOA, nao o navegador.
 S03_01_20 -->|R195 conta vence o localStorage na carga| S02_17
 S03_01_01 -->|R197 chave hoje.layout| S03_01_20
+%% 08-20 — a pausa nao eh almoco nem saida: ela INTERROMPE a tarefa na mesma
+%% linha. O pareamento saiu do JSX pra um modulo puro e testavel.
+S03_01_15 -->|R238 splitByPauses| S03_01_21
+S03_01_17 -->|R240 _total_paused_seconds · _joined_since · _joined_at_min| S03_01_21
 S03_01_02 -->|R019| S02_12
 S03_01_03 -->|R020 SSE| S02_10
 S03_02_01 -->|R021| S02_08

@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T22:36:32.529Z",
+  "at": "2026-08-20T16:48:45.143Z",
   "results": [
     {
       "group": "boot",
@@ -497,7 +497,7 @@
       "group": "envio",
       "name": "Mandar pro computador posta shipping-labels SEM take (vai pra fila)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-19\"}"
+      "detail": "{\"day\":\"2026-08-20\"}"
     },
     {
       "group": "envio",
@@ -509,7 +509,7 @@
       "group": "envio",
       "name": "Abrir PDF aqui posta com take:true (quem abre e quem pegou)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-19\",\"take\":true}"
+      "detail": "{\"day\":\"2026-08-20\",\"take\":true}"
     },
     {
       "group": "envio",
@@ -521,7 +521,7 @@
       "group": "envio",
       "name": "a aba recebe um blob local (o AirPrint abre o arquivo, nao a rota)",
       "pass": true,
-      "detail": "blob:http://127.0.0.1:63463/c8ec0fa5-2522-45bd-9d1d-ef3df05d4774"
+      "detail": "blob:http://127.0.0.1:56397/97378b5d-276c-4b41-bec6-f43656aa53ec"
     },
     {
       "group": "scan",

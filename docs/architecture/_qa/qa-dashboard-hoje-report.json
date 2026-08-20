@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T22:35:27.608Z",
+  "at": "2026-08-20T16:58:27.098Z",
   "results": [
     {
       "group": "grade",
@@ -20,16 +20,136 @@
       "detail": ""
     },
     {
+      "group": "pausa",
+      "name": "tarefa do Vitor rachada em 2 pedacos pela pausa",
+      "pass": true,
+      "detail": "pedacos=2 [\"766..1272\",\"1409..2040\"]"
+    },
+    {
+      "group": "pausa",
+      "name": "os 2 pedacos ficam na MESMA lane (mesmo offset vertical)",
+      "pass": true,
+      "detail": "tops=1732 / 1732"
+    },
+    {
+      "group": "pausa",
+      "name": "o bloco da PAUSA fica ENTRE os dois pedacos, horizontalmente",
+      "pass": true,
+      "detail": "seg1 termina 1272 · pausa 1272..1409 · seg2 comeca 1409"
+    },
+    {
+      "group": "pausa",
+      "name": "a PAUSA fica na mesma lane da tarefa que ela congelou",
+      "pass": true,
+      "detail": "pausa.top=1732 tarefa.top=1732"
+    },
+    {
+      "group": "pausa",
+      "name": "o chip mostra ⏸ + PAUSA + a nota do operador",
+      "pass": true,
+      "detail": "⏸PAUSA Descarregando arroz30m"
+    },
+    {
+      "group": "pausa",
+      "name": "o tooltip diz o que a pausa congelou e que a tarefa continua",
+      "pass": true,
+      "detail": "PAUSA · 10:52 AM → 11:22 AM (30m) | Descarregando arroz | Congelou: Linha de Produção | A tarefa continua depois — clique pra abrir a pausa."
+    },
+    {
+      "group": "pausa",
+      "name": "os dois pedacos sao a MESMA tarefa (mesmo rotulo, mesmo alvo de clique)",
+      "pass": true,
+      "detail": "Linha de Produção || Linha de Produção4h 39m"
+    },
+    {
+      "group": "pausa",
+      "name": "so o 1º pedaco leva a duracao/rotulo cheio; a continuacao nao repete",
+      "pass": true,
+      "detail": "Linha de Produção || Linha de Produção4h 39m"
+    },
+    {
+      "group": "pausa",
+      "name": "o 2º pedaco eh continuacao (tique sutil), nao uma 2ª tarefa",
+      "pass": true,
+      "detail": "cont=false/true"
+    },
+    {
+      "group": "pausa",
+      "name": "a pausa NAO virou bloco de tarefa em lane separada",
+      "pass": true,
+      "detail": "blocos=0"
+    },
+    {
+      "group": "pausa/cowork",
+      "name": "coworker: revisao rachada em 2 na mesma lane",
+      "pass": true,
+      "detail": "n=2 tops=1504/1504"
+    },
+    {
+      "group": "pausa/cowork",
+      "name": "coworker: a MESMA pausa racha as DUAS tarefas abertas dele",
+      "pass": true,
+      "detail": "review=2 special=2"
+    },
+    {
+      "group": "pausa/cowork",
+      "name": "coworker: as duas tarefas dele ficam em lanes DIFERENTES (sobrepostas)",
+      "pass": true,
+      "detail": "review.top=1504 special.top=1564"
+    },
+    {
+      "group": "pausa/cowork",
+      "name": "coworker que entrou 'agora' corta no joined_at DELE, nao no inicio da pausa do colega",
+      "pass": true,
+      "detail": "bruno.left=1309 vitor.left=1272"
+    },
+    {
+      "group": "pausa",
+      "name": "pausa sem tarefa aberta continua bloco solto (nao vira chip)",
+      "pass": true,
+      "detail": "chip=nao blocos=1"
+    },
+    {
+      "group": "pausa/cowork",
+      "name": "a pausa que congelou 2 tarefas aparece nas 2 lanes (a de baixo so com o ⏸)",
+      "pass": true,
+      "detail": "[{\"lane\":0,\"top\":1504,\"echo\":false},{\"lane\":1,\"top\":1564,\"echo\":true}]"
+    },
+    {
+      "group": "pausa/cowork",
+      "name": "cada chip de pausa cai na altura da tarefa que ele congelou",
+      "pass": true,
+      "detail": "chips=1504/1564 tarefas=1504/1564"
+    },
+    {
+      "group": "pausa",
+      "name": "3 chips inline no total (Vitor 1 lane + coworker 2 lanes)",
+      "pass": true,
+      "detail": "chips=3"
+    },
+    {
+      "group": "pausa",
+      "name": "racha NAO faz a tarefa parecer trabalho SIMULTANEO consigo mesma",
+      "pass": true,
+      "detail": "com SIMULTANEO: 3575,3576"
+    },
+    {
+      "group": "screenshot",
+      "name": "12-pausa-mesma-linha",
+      "pass": true,
+      "detail": "204 KB → hoje-12-pausa-mesma-linha.png"
+    },
+    {
       "group": "topbar",
       "name": "pill \"ao vivo · live\" removida",
       "pass": true,
-      "detail": "Hoje· Today PontoVitorentrou 08:02SimoneEM PAUSA · 15minAnasaiu 16:30Brunosem ponto hoje Ponto (4)worker ativoCarolina1H"
+      "detail": "Hoje· Today PontoVitorentrou 08:02SimoneEM PAUSA · 15minAnasaiu 16:30Brunosem ponto hoje Ponto (4)worker ativoCarolina2H"
     },
     {
       "group": "topbar",
       "name": "pill \"edição ativa · write\" removida",
       "pass": true,
-      "detail": "Hoje· Today PontoVitorentrou 08:02SimoneEM PAUSA · 15minAnasaiu 16:30Brunosem ponto hoje Ponto (4)worker ativoCarolina1H"
+      "detail": "Hoje· Today PontoVitorentrou 08:02SimoneEM PAUSA · 15minAnasaiu 16:30Brunosem ponto hoje Ponto (4)worker ativoCarolina2H"
     },
     {
       "group": "topbar",
@@ -197,7 +317,7 @@
       "group": "screenshot",
       "name": "05-popover",
       "pass": true,
-      "detail": "190 KB → hoje-05-popover.png"
+      "detail": "189 KB → hoje-05-popover.png"
     },
     {
       "group": "widgets",
@@ -317,7 +437,7 @@
       "group": "screenshot",
       "name": "08-sem-conta",
       "pass": true,
-      "detail": "192 KB → hoje-08-sem-conta.png"
+      "detail": "193 KB → hoje-08-sem-conta.png"
     },
     {
       "group": "conta",
@@ -353,7 +473,7 @@
       "group": "revisao",
       "name": "o painel já pediu o dia de hoje",
       "pass": true,
-      "detail": "[\"/api/v3/review/day?date=2026-08-19\",\"/api/v3/review/calendar?month=2026-08\",\"/api/v3/review/waiting\"]"
+      "detail": "[\"/api/v3/review/day?date=2026-08-20\",\"/api/v3/review/calendar?month=2026-08\",\"/api/v3/review/waiting\"]"
     },
     {
       "group": "revisao",
@@ -419,7 +539,7 @@
       "group": "revisao",
       "name": "seta do teclado anda um dia pra trás e recarrega",
       "pass": true,
-      "detail": "[\"?date=2026-08-18\"]"
+      "detail": "[\"?date=2026-08-19\"]"
     },
     {
       "group": "revisao",
