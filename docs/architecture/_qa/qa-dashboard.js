@@ -800,9 +800,10 @@ async function main() {
 
   /* Ordem FINAL da seção (Bruno 08-19 "organizar tudo"): as duas telas
      "(antigo)" sairam do menu e o subgrupo P&P fecha a lista. */
-  const WANT_EST = ['#estoque', '#estoque-aprovacoes', '#estoque-locais', '#estoque-etiquetas',
+  /* S15.43 (08-22): "Montar estoque" entra logo depois do hub. */
+  const WANT_EST = ['#estoque', '#estoque-montar', '#estoque-aprovacoes', '#estoque-locais', '#estoque-etiquetas',
                     '#produto-setup', '#config-estoque', '#pp', '#picklist'];
-  rec('nav', 'ordem exata de Estoque (hub, aprovações, locais, etiquetas, setup, config, P&P)',
+  rec('nav', 'ordem exata de Estoque (hub, montar, aprovações, locais, etiquetas, setup, config, P&P)',
       !!est && est.items.join(',') === WANT_EST.join(','), est ? est.items.join(',') : '');
   rec('nav', 'nenhuma entrada "(antigo)" no menu inteiro',
       !nav.some((s) => s.items.includes('#estoque-geral') || s.items.includes('#inventory')),

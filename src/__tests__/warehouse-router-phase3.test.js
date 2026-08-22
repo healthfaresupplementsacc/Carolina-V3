@@ -62,6 +62,12 @@ function makeDb(state) {
         const b = state.boxes.find((x) => x.id === params[0]);
         return { rows: b ? [{ tare_g: b.tare_g }] : [] };
       }
+      // tara da caixa com o TIPO junto (S15.43: resolveTareInfo faz LEFT JOIN box_types)
+      if (/SELECT x\.tare_g, t\.tare_g AS type_tare_g/.test(q)) {
+        const b = state.boxes.find((x) => x.id === params[0]);
+        return { rows: b ? [{ tare_g: b.tare_g, type_tare_g: b.type_tare_g || null,
+          tare_min_g: b.tare_min_g || null, tare_max_g: b.tare_max_g || null }] : [] };
+      }
       if (q.startsWith('UPDATE v3.stock_bins SET tare_g')) {
         const b = state.bins.find((x) => x.id === params[0]);
         if (!b) return { rows: [] };
@@ -91,6 +97,10 @@ function makeDb(state) {
         if (!b) return { rows: [] };
         b.label_printed_at = 'now';
         return { rows: [{ id: b.id, box_number: b.box_number, label_printed_at: 'now' }] };
+      }
+      if (/FROM v3\.box_types WHERE id/.test(q)) {
+        const t = (state.boxTypes || []).find((x) => x.id === params[0]);
+        return { rows: t ? [t] : [] };
       }
       // UPC
       if (/SELECT id, sku, barcode FROM v3\.product_skus/.test(q)) return { rows: state.skus };
@@ -142,7 +152,11 @@ async function boot(rows, veeqoList) {
     products: [{ id: 10, name: 'Benfotiamine 300 mg', nickname: 'BENF-300', unit_weight_g: 440, unit_weight_samples: 10 }],
     tares: [],
     bins: [{ id: 1, bin_code: 'A03B2', tare_g: 120, capacity: 48 }],
-    boxes: [{ id: 5, box_number: 'BX-0451', tare_g: 780, batch_number: 'L-77', sealed: false, qty: 180 }],
+    boxes: [{ id: 5, box_number: 'BX-0451', tare_g: 780, batch_number: 'L-77', sealed: false, qty: 180 },
+      { id: 6, box_number: 'BX-0452', tare_g: null, batch_number: null, sealed: false, qty: 0,
+        type_tare_g: 800, tare_min_g: 700, tare_max_g: 1000 }],
+    boxTypes: [{ id: 3, name: '20x20x20', tare_g: 800, tare_min_g: 700, tare_max_g: 1000,
+      tare_samples: 10, last_calibrated_at: new Date().toISOString(), active: true }],
     skus: [{ id: 1, sku: 'HF-BENF-300', barcode: null }],
   };
   stock = makeStock(rows);
@@ -324,13 +338,14 @@ describe('Fase 3 — pesos e taras', () => {
   });
 });
 
-describe('Fase 3 — peso vira contagem', () => {
-  test('bruto + tara da caixa → qty com resíduo e confiança alta', async () => {
+describe('Fase 3 — peso vira contagem (regra do ceil, confiança em PT)', () => {
+  test('bruto + tara da caixa → qty com resíduo, faixa e confiança alta', async () => {
     const r = await call('POST', '/api/v3/warehouse/count/compute',
       { product_id: 10, gross_g: 48 * 440 + 780, box_id: 5 }, ADMIN_PIN);
     expect(r.status).toBe(200);
     expect(r.body.data).toMatchObject({ qty: 48, tare_g: 780, unit_weight_g: 440,
-      residual_g: 0, confidence: 'high' });
+      residual_g: 0, residual_fraction: 0, confidence: 'alta',
+      qty_min: 48, qty_max: 48, tare_spread_g: 0, recount_suggested: false });
   });
 
   test('tara informada ganha da cadastrada', async () => {
@@ -340,10 +355,26 @@ describe('Fase 3 — peso vira contagem', () => {
     expect(r.body.data.qty).toBe(48);
   });
 
-  test('resíduo grande derruba a confiança', async () => {
+  test('meia garrafa sobe pra garrafa inteira, mas com recontagem sugerida', async () => {
     const r = await call('POST', '/api/v3/warehouse/count/compute',
       { product_id: 10, gross_g: 48 * 440 + 200, tare_g: 0 }, ADMIN_PIN);
-    expect(r.body.data.confidence).toBe('low');
+    expect(r.body.data.qty).toBe(49);                    // 0,45 de garrafa → nunca subconta
+    expect(r.body.data.confidence).toBe('baixa');        // PT pro Montar
+    expect(r.body.data.recount_suggested).toBe(true);    // 0,45 > 0,35: conta na mão
+  });
+
+  test('caixa sem tara herda a do TIPO e a faixa vem do espalhamento', async () => {
+    const r = await call('POST', '/api/v3/warehouse/count/compute',
+      { product_id: 10, gross_g: 48 * 440 + 800, box_id: 6 }, ADMIN_PIN);
+    expect(r.body.data).toMatchObject({ qty: 48, tare_g: 800, tare_spread_g: 300,
+      qty_min: 48, qty_max: 49, recount_suggested: true });
+  });
+
+  test('box_type_id direto também resolve a tara (caixa ainda nem cadastrada)', async () => {
+    const r = await call('POST', '/api/v3/warehouse/count/compute',
+      { product_id: 10, gross_g: 48 * 440 + 800, box_type_id: 3 }, ADMIN_PIN);
+    expect(r.body.data.tare_g).toBe(800);
+    expect(r.body.data.qty).toBe(48);
   });
 
   test('product_id inválido → 400', async () => {

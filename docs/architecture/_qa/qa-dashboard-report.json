@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-20T16:59:23.345Z",
+  "at": "2026-08-22T21:46:04.833Z",
   "results": [
     {
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "198 KB → dash-estoque.png"
+      "detail": "201 KB → dash-estoque.png"
     },
     {
       "group": "estoque",
@@ -173,7 +173,7 @@
       "group": "screenshot",
       "name": "estoque-inline",
       "pass": true,
-      "detail": "184 KB → dash-estoque-inline.png"
+      "detail": "187 KB → dash-estoque-inline.png"
     },
     {
       "group": "filtro",
@@ -203,7 +203,7 @@
       "group": "screenshot",
       "name": "estoque-filtro",
       "pass": true,
-      "detail": "187 KB → dash-estoque-filtro.png"
+      "detail": "190 KB → dash-estoque-filtro.png"
     },
     {
       "group": "filtro",
@@ -317,7 +317,7 @@
       "group": "screenshot",
       "name": "estoque-juntar",
       "pass": true,
-      "detail": "210 KB → dash-estoque-juntar.png"
+      "detail": "212 KB → dash-estoque-juntar.png"
     },
     {
       "group": "juntar",
@@ -335,7 +335,7 @@
       "group": "screenshot",
       "name": "estoque-juntar-confirmar",
       "pass": true,
-      "detail": "226 KB → dash-estoque-juntar-confirmar.png"
+      "detail": "228 KB → dash-estoque-juntar-confirmar.png"
     },
     {
       "group": "juntar",
@@ -437,7 +437,7 @@
       "group": "screenshot",
       "name": "estoque-painel",
       "pass": true,
-      "detail": "170 KB → dash-estoque-painel.png"
+      "detail": "173 KB → dash-estoque-painel.png"
     },
     {
       "group": "estoque",
@@ -449,7 +449,7 @@
       "group": "screenshot",
       "name": "estoque-familia",
       "pass": true,
-      "detail": "196 KB → dash-estoque-familia.png"
+      "detail": "198 KB → dash-estoque-familia.png"
     },
     {
       "group": "estoque",
@@ -467,13 +467,13 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "213 KB → dash-estoque-modal.png"
+      "detail": "215 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
       "name": "seção Estoque existe",
       "pass": true,
-      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
+      "detail": "#estoque,#estoque-montar,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
     },
     {
       "group": "nav",
@@ -489,15 +489,15 @@
     },
     {
       "group": "nav",
-      "name": "ordem exata de Estoque (hub, aprovações, locais, etiquetas, setup, config, P&P)",
+      "name": "ordem exata de Estoque (hub, montar, aprovações, locais, etiquetas, setup, config, P&P)",
       "pass": true,
-      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
+      "detail": "#estoque,#estoque-montar,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
     },
     {
       "group": "nav",
       "name": "nenhuma entrada \"(antigo)\" no menu inteiro",
       "pass": true,
-      "detail": "[\"#hoje\",\"#roadmap\",\"#producao\",\"#metas\",\"#planejamento\",\"#produto\",\"#pessoas\",\"#estoque\",\"#estoque-aprovacoes\",\"#estoque-locais\",\"#estoque-etiquetas\",\"#produto-setup\",\"#config-estoque\",\"#pp\",\"#picklist\",\"#impressao\",\"#floor\",\"#cameras\",\"#carolina\",\"#falar\",\"#suporte\",\"#admin\",\"#operadores\",\"#usuarios\",\"#config\",\"#sistema\"]"
+      "detail": "[\"#hoje\",\"#producao\",\"#metas\",\"#planejamento\",\"#produto\",\"#pessoas\",\"#estoque\",\"#estoque-montar\",\"#estoque-aprovacoes\",\"#estoque-locais\",\"#estoque-etiquetas\",\"#produto-setup\",\"#config-estoque\",\"#pp\",\"#picklist\",\"#impressao\",\"#floor\",\"#cameras\",\"#carolina\",\"#falar\",\"#suporte\",\"#admin\",\"#roadmap\",\"#operadores\",\"#usuarios\",\"#config\",\"#sistema\"]"
     },
     {
       "group": "nav",
@@ -515,7 +515,7 @@
       "group": "nav",
       "name": "Planejamento e Produto logo depois de Metas",
       "pass": true,
-      "detail": "#hoje,#roadmap,#producao,#metas,#planejamento,#produto,#pessoas"
+      "detail": "#hoje,#producao,#metas,#planejamento,#produto,#pessoas"
     },
     {
       "group": "nav",
@@ -527,7 +527,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "130 KB → dash-estoque-aprovacoes.png"
+      "detail": "132 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -545,7 +545,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "181 KB → dash-estoque-locais.png"
+      "detail": "184 KB → dash-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -563,7 +563,7 @@
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "104 KB → dash-picklist.png"
+      "detail": "107 KB → dash-picklist.png"
     },
     {
       "group": "picklist",
@@ -581,7 +581,7 @@
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "122 KB → dash-hoje.png"
+      "detail": "120 KB → dash-hoje.png"
     },
     {
       "group": "hoje",
@@ -599,7 +599,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "138 KB → dash-inventory.png"
+      "detail": "141 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -617,7 +617,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "184 KB → dash-produto-setup.png"
+      "detail": "187 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -635,7 +635,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "91 KB → dash-roadmap.png"
+      "detail": "93 KB → dash-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -659,13 +659,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"2d\"},{\"tone\":\"bad\",\"txt\":\"2d\"},{\"tone\":\"bad\",\"txt\":\"2d\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"2d\"},{\"tone\":\"bad\",\"txt\":\"2d\"},{\"tone\":\"bad\",\"txt\":\"2d\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"}]"
     },
     {
       "group": "estoque-locais",
@@ -731,7 +731,7 @@
       "group": "screenshot",
       "name": "estoque-locais-bulk",
       "pass": true,
-      "detail": "185 KB → dash-estoque-locais-bulk.png"
+      "detail": "188 KB → dash-estoque-locais-bulk.png"
     },
     {
       "group": "produto-setup",
@@ -779,7 +779,7 @@
       "group": "screenshot",
       "name": "produto-setup-familia",
       "pass": true,
-      "detail": "187 KB → dash-produto-setup-familia.png"
+      "detail": "189 KB → dash-produto-setup-familia.png"
     },
     {
       "group": "legado",
@@ -809,7 +809,7 @@
       "group": "screenshot",
       "name": "legado-estoque-geral",
       "pass": true,
-      "detail": "146 KB → dash-legado-estoque-geral.png"
+      "detail": "148 KB → dash-legado-estoque-geral.png"
     },
     {
       "group": "legado",
@@ -839,7 +839,7 @@
       "group": "screenshot",
       "name": "legado-inventory",
       "pass": true,
-      "detail": "138 KB → dash-legado-inventory.png"
+      "detail": "141 KB → dash-legado-inventory.png"
     }
   ]
 }

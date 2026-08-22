@@ -1,0 +1,359 @@
+{
+  "at": "2026-08-22T21:45:04.525Z",
+  "results": [
+    {
+      "group": "header",
+      "name": "placar com os números da fixture",
+      "pass": true,
+      "detail": "{\"produtos\":\"8\",\"pesos\":\"5\",\"bins\":\"8\",\"tipos\":\"3\",\"garrafas\":\"763\",\"batendo\":\"4\"}"
+    },
+    {
+      "group": "header",
+      "name": "placar fala a língua do hub (produtos · com peso · prateleiras · garrafas)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "header",
+      "name": "aviso \"Precisamos re-pesar as caixas 20x20x20\" (chip, nunca bloqueio)",
+      "pass": true,
+      "detail": "Precisamos re-pesar as caixas 20x20x20ver no passo 2×"
+    },
+    {
+      "group": "passo1",
+      "name": "tabela com os 8 produtos",
+      "pass": true,
+      "detail": "linhas=8"
+    },
+    {
+      "group": "passo1",
+      "name": "3 produtos marcados \"sem peso\"",
+      "pass": true,
+      "detail": "chips=3"
+    },
+    {
+      "group": "passo1",
+      "name": "filtro \"sem peso\" corta pra 3",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "screenshot",
+      "name": "01",
+      "pass": true,
+      "detail": "128 KB → montar-01.png"
+    },
+    {
+      "group": "pesar",
+      "name": "campo do peso AUTOFOCADO (balança USB digita direto nele)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesar",
+      "name": "micro-dica da balança híbrida",
+      "pass": true,
+      "detail": "aceita balança USB que digita sozinha: deixe o cursor aqui e ela preenche"
+    },
+    {
+      "group": "pesar",
+      "name": "conta ao vivo: 1150 g por 10 garrafas = 115.00 g",
+      "pass": true,
+      "detail": "115.00 g"
+    },
+    {
+      "group": "screenshot",
+      "name": "02",
+      "pass": true,
+      "detail": "185 KB → montar-02.png"
+    },
+    {
+      "group": "pesar",
+      "name": "salvar chama o endpoint de calibração que já existe",
+      "pass": true,
+      "detail": "{\"sample_gross_g\":1150,\"sample_count\":10}"
+    },
+    {
+      "group": "passo1",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "passo2",
+      "name": "chip de re-pesagem leva pro passo 2",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "passo2",
+      "name": "criador de várias prateleiras REUSADO está lá",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "passo2",
+      "name": "catálogo com os 3 tipos de caixa",
+      "pass": true,
+      "detail": "cards=3"
+    },
+    {
+      "group": "passo2",
+      "name": "tipo vencido tem o chip \"precisa re-pesar\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "passo2",
+      "name": "tara com a variação real (1.040 g ± 115 g)",
+      "pass": true,
+      "detail": "tara 1.040 g ± 115 g(5 na amostra)"
+    },
+    {
+      "group": "screenshot",
+      "name": "03",
+      "pass": true,
+      "detail": "179 KB → montar-03.png"
+    },
+    {
+      "group": "calibrar",
+      "name": "preview ao vivo: 10 caixas, média e variação",
+      "pass": true,
+      "detail": "10 caixas · média 782.2 g · variação 12 g"
+    },
+    {
+      "group": "calibrar",
+      "name": "POST calibrate com a lista de pesos (contrato C)",
+      "pass": true,
+      "detail": "{\"weights_g\":[780,785,779,790,778,781,786,779,784,780]}"
+    },
+    {
+      "group": "calibrar",
+      "name": "resultado fala a frase inteira: tara 782 g, variação ±6 g entre 10 caixas",
+      "pass": true,
+      "detail": "tara 782 g, variação ±6 g entre 10 caixasdá pra confiar no peso desse tipo"
+    },
+    {
+      "group": "calibrar",
+      "name": "veredito: variação pequena = dá pra confiar",
+      "pass": true,
+      "detail": "dá pra confiar no peso desse tipo"
+    },
+    {
+      "group": "screenshot",
+      "name": "04",
+      "pass": true,
+      "detail": "184 KB → montar-04.png"
+    },
+    {
+      "group": "calibrar",
+      "name": "modo juntas: total + quantas (10 já sugerido) e média ao vivo",
+      "pass": true,
+      "detail": "quantas=10 · média 450.0 g por caixa"
+    },
+    {
+      "group": "calibrar",
+      "name": "POST calibrate com {total_g, count} (contrato C, forma 2)",
+      "pass": true,
+      "detail": "{\"total_g\":4500,\"count\":10}"
+    },
+    {
+      "group": "calibrar",
+      "name": "todas juntas: min=max=média, variação ±0",
+      "pass": true,
+      "detail": "tara 450 g, variação ±0 g entre 10 caixasdá pra confiar no peso desse tipo"
+    },
+    {
+      "group": "passo2",
+      "name": "Novo tipo chama POST box-types com o nome",
+      "pass": true,
+      "detail": "{\"name\":\"40x30x20\"}"
+    },
+    {
+      "group": "passo2",
+      "name": "caixa nova nasce com o tipo (box_type_id)",
+      "pass": true,
+      "detail": "{\"box_number\":\"BX-0100\",\"box_type_id\":1}"
+    },
+    {
+      "group": "passo2",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "passo3",
+      "name": "sem produto escolhido a tela ensina o próximo passo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "passo3",
+      "name": "\"Faltam acertar\" lista os 2 fora da Veeqo, maior alvo primeiro",
+      "pass": true,
+      "detail": "1,8"
+    },
+    {
+      "group": "passo3",
+      "name": "card do produto: alvo 9, aqui 6, chip \"faltam 3 · conferir/ajustar\"",
+      "pass": true,
+      "detail": "veeqo=9 total=6 chip=faltam 3 · conferir/ajustar"
+    },
+    {
+      "group": "passo3",
+      "name": "contei na mão → POST load {source:count_manual, dest bin 6, qty 3}",
+      "pass": true,
+      "detail": "{\"product_id\":8,\"qty\":3,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"count_manual\",\"client_ref\":\"eccce07f-7e42-43b0-9e8d-3ad9d13bef76\"}"
+    },
+    {
+      "group": "passo3",
+      "name": "client_ref é um uuid (idempotência da porta única)",
+      "pass": true,
+      "detail": "eccce07f-7e42-43b0-9e8d-3ad9d13bef76"
+    },
+    {
+      "group": "passo3",
+      "name": "toast diz o que aconteceu, com destino e situação da Veeqo",
+      "pass": true,
+      "detail": "3 garrafas na prateleira B01. Total agora 9, batendo com a Veeqo."
+    },
+    {
+      "group": "passo3",
+      "name": "o chip vira \"bate com a Veeqo ✓\" NA RESPOSTA do load",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "05",
+      "pass": true,
+      "detail": "173 KB → montar-05.png"
+    },
+    {
+      "group": "passo3",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesei",
+      "name": "campo de gramas AUTOFOCADO (o mesmo campo serve visor e USB)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesei",
+      "name": "bin A03 (tara 420, sem variação): dá 10 garrafas, confiança alta",
+      "pass": true,
+      "detail": "dá 10 garrafas · confiança alta"
+    },
+    {
+      "group": "pesei",
+      "name": "sem sobra estranha, NENHUM card de recontagem",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesei",
+      "name": "pesar carrega com source count_weigh e o peso no meta",
+      "pass": true,
+      "detail": "{\"product_id\":1,\"qty\":10,\"dest\":{\"kind\":\"bin\",\"id\":1},\"source\":\"count_weigh\",\"client_ref\":\"29473aa5-54c3-4b9f-bd84-809bcfde29dd\",\"meta\":{\"gross_g\":1704,\"tare_g\":420,\"net_g\":1284,\"u"
+    },
+    {
+      "group": "recontagem",
+      "name": "caixa que varia 230 g abre a faixa: dá 19 a 21 garrafas",
+      "pass": true,
+      "detail": "dá 19 a 21 garrafas"
+    },
+    {
+      "group": "recontagem",
+      "name": "card âmbar sugere contar na mão (nunca bloqueia)",
+      "pass": true,
+      "detail": "Deu muita sobra pra fechar a conta. Melhor contar na mão do que gravar um número duvidoso.usar 20 as"
+    },
+    {
+      "group": "recontagem",
+      "name": "as DUAS saídas na mão do operador: \"usar 20 assim mesmo\" e \"vou contar na mão\"",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "06",
+      "pass": true,
+      "detail": "180 KB → montar-06.png"
+    },
+    {
+      "group": "recontagem",
+      "name": "\"vou contar na mão\" troca pro formulário manual",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "recontagem",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "atalhos",
+      "name": "chegou da produção → source production_direct",
+      "pass": true,
+      "detail": "{\"product_id\":8,\"qty\":5,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"production_direct\",\"client_ref\":\"7f74bd9f-3813-4e83-be2d-475e64be92b7\"}"
+    },
+    {
+      "group": "atalhos",
+      "name": "avulsas SEM nota não carrega: a nota é obrigatória",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "group": "atalhos",
+      "name": "o erro explica: falta dizer de onde vieram",
+      "pass": true,
+      "detail": "diga de onde vieram as avulsas (o campo de nota)"
+    },
+    {
+      "group": "atalhos",
+      "name": "avulsas com nota → source loose_fixed + meta.note",
+      "pass": true,
+      "detail": "{\"product_id\":8,\"qty\":2,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"loose_fixed\",\"client_ref\":\"2531165d-9d48-4998-8e9f-0d0e0a053850\",\"meta\":{\"note\":\"achadas no fundo do palete 2, etique"
+    },
+    {
+      "group": "recentes",
+      "name": "os carregamentos da sessão ficam listados (4)",
+      "pass": true,
+      "detail": "itens=4"
+    },
+    {
+      "group": "recentes",
+      "name": "cada um com o chip da origem certa",
+      "pass": true,
+      "detail": "loose_fixed,production_direct,count_weigh,count_manual"
+    },
+    {
+      "group": "recentes",
+      "name": "cada carga com um client_ref próprio (nada repetido)",
+      "pass": true,
+      "detail": "4 refs"
+    },
+    {
+      "group": "screenshot",
+      "name": "07",
+      "pass": true,
+      "detail": "189 KB → montar-07.png"
+    },
+    {
+      "group": "estilo",
+      "name": "zero travessão na tela inteira",
+      "pass": true,
+      "detail": "ocorrências=0"
+    },
+    {
+      "group": "final",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

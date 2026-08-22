@@ -48,6 +48,7 @@ import { WarehousePage, canRead as canReadStock } from './pages/WarehousePage.js
 import { ApprovalsPage } from './pages/ApprovalsPage.jsx';
 import { LocationsPage } from './pages/LocationsPage.jsx';
 import { LabelsPrintPage } from './pages/LabelsPrintPage.jsx';
+import { StockLoadPage } from './pages/StockLoadPage.jsx';
 import { RoadmapPage } from './pages/RoadmapPage.jsx';
 import { SystemHealthPage } from './pages/SystemHealthPage.jsx';
 import {
@@ -442,6 +443,7 @@ function AuthedApp({ onLogout }) {
     case "roadmap":       pageNode = <RoadmapPage/>; break;
     // S15 — hub de estoque
     case "estoque":            pageNode = <WarehousePage/>; break;
+    case "estoque-montar":     pageNode = <StockLoadPage/>; break;
     case "estoque-aprovacoes": pageNode = <ApprovalsPage/>; break;
     case "estoque-locais":     pageNode = <LocationsPage/>; break;
     case "estoque-etiquetas":  pageNode = <LabelsPrintPage/>; break;
@@ -467,7 +469,7 @@ function AuthedApp({ onLogout }) {
   const ROUTE_FN = { admin: 'admin_page', operadores: 'admin_page', config: 'config_page', sistema: 'manage_system', usuarios: 'manage_users' };
   // S15: as 3 páginas do hub exigem view_stock OU manage_stock; login SEM lista
   // de funções passa (fallback tolerante — ver canRead em WarehousePage).
-  const STOCK_ROUTES = { estoque: 1, 'estoque-aprovacoes': 1, 'estoque-locais': 1, 'estoque-etiquetas': 1 };
+  const STOCK_ROUTES = { estoque: 1, 'estoque-montar': 1, 'estoque-aprovacoes': 1, 'estoque-locais': 1, 'estoque-etiquetas': 1 };
   if (STOCK_ROUTES[route] && !canReadStock()) {
     pageNode = (
       <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)' }}>

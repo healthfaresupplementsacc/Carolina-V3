@@ -22,7 +22,8 @@ const { makeAuthMiddleware, hasFunction } = require('../data/auth');
 const { createVeeqoCache } = require('./veeqo-cache');
 const { LocationsRepo } = require('./locations-repo');
 const { FamilyRepo } = require('./family-repo');
-const { WeightsRepo, computeQty } = require('./weights');
+const { WeightsRepo, BoxTypesRepo, CONF_PT } = require('./weights');
+const { createLoad } = require('./load');
 const { createMobile } = require('./mobile');
 const { suggest } = require('./sku-suggest');
 const { createSkuSync } = require('./sku-sync');
@@ -228,6 +229,8 @@ function createWarehouseRouter(deps = {}) {
   // stock no FamilyRepo: o merge move ESTOQUE, e quantidade só o StockService escreve
   const family = deps.family || new FamilyRepo({ db, veeqoCache, stock });
   const weights = deps.weights || new WeightsRepo({ db });
+  // tipos de caixa (S15.43): tara média + espalhamento por TAMANHO ("20x20x20")
+  const boxTypes = deps.boxTypes || new BoxTypesRepo({ db });
   // sku-sync: mapeamento SKU↔produto a partir do catálogo da Veeqo. Escreve SÓ
   // v3.product_skus / v3.products; nunca quantidade (isso é o StockService).
   const skuSync = deps.skuSync || createSkuSync({ db, veeqo: deps.veeqo, veeqoCache, family });
@@ -422,6 +425,17 @@ function createWarehouseRouter(deps = {}) {
 
   route('get', '/overview', 'read', async (req, res) => {
     const [all, pending] = await Promise.all([rowsWithVeeqo(null), pendingSummary()]);
+    // "Precisamos re-pesar as caixas 20x20x20" (S15.43): calibração de tipo de
+    // caixa com 60+ dias entra na lista de atenção. AVISO, nunca bloqueio — e
+    // falha aqui nunca derruba o hub.
+    let recalItems = [];
+    try {
+      recalItems = (await boxTypes.recalibrationWarnings()).map((w) => ({
+        kind: 'repesar_caixas', box_type_id: w.box_type_id, product: null,
+        text: `Precisamos re-pesar as caixas ${w.name}`,
+        action: { type: 'repesar', box_type_id: w.box_type_id },
+      }));
+    } catch (_) { /* aviso nunca derruba o hub */ }
     // KPI "Aprovações" e o badge do menu mostram O MESMO número: propostas
     // esperando (não produtos com proposta). Uma fonte só: pendingSummary.
     //
@@ -435,7 +449,7 @@ function createWarehouseRouter(deps = {}) {
       total: page.total,             // linhas que passaram no filtro (antes da página)
       limit: page.limit, offset: page.offset,
       kpis,
-      attention: attentionFrom(all),
+      attention: attentionFrom(all).concat(recalItems),
       pending_summary: pending,
       veeqo_checked_at: veeqoCache.checkedAt(),
       generated_at: new Date().toISOString(),
@@ -462,7 +476,8 @@ function createWarehouseRouter(deps = {}) {
     if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
     let boxId = intOf(b.box_id);
     if (!boxId && b.box_number) {
-      const box = await locations.upsertBox({ box_number: b.box_number, area: b.area, product_id: id });
+      const box = await locations.upsertBox({ box_number: b.box_number, area: b.area,
+        product_id: id, box_type_id: intOf(b.box_type_id) || null });
       boxId = box.id;
     }
     await stock.storeIn({
@@ -645,6 +660,7 @@ function createWarehouseRouter(deps = {}) {
     const b = req.body || {};
     const box = await locations.upsertBox({
       box_number: b.box_number, area: b.area, product_id: intOf(b.product_id) || null,
+      box_type_id: intOf(b.box_type_id) || null,
     });
     // qty inicial informada = ENTRADA de verdade (pelo StockService, com movimento).
     const qty = intOf(b.qty);
@@ -913,14 +929,70 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // ── S15 FASE 3 — PESO VIRA CONTAGEM (só calcula, não escreve) ──
+  // Estendido (S15.44, Bruno 08-22): box_type_id na tara, regra do ceil (meia
+  // garrafa conta como garrafa), faixa qty_min..qty_max pelo espalhamento do
+  // tipo, e recount_suggested quando o número é duvidoso. Confiança em PT pro
+  // Montar ('alta'|'média'|'baixa'); campos antigos continuam todos.
   route('post', '/count/compute', 'read', async (req, res) => {
     const b = req.body || {};
     const productId = intOf(b.product_id);
     if (!productId) throw new Error('product_id inválido');
-    ok(res, await weights.compute({
+    const calc = await weights.compute({
       product_id: productId, gross_g: b.gross_g, tare_g: b.tare_g,
       bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null,
-    }));
+      box_type_id: intOf(b.box_type_id) || null,
+    });
+    ok(res, { ...calc, confidence: CONF_PT[calc.confidence] || calc.confidence });
+  });
+
+  // ── S15.43 — TIPOS DE CAIXA (tara média por TAMANHO, "20x20x20") ──
+  route('get', '/box-types', 'read', async (req, res) => {
+    ok(res, { types: await boxTypes.list() });
+  });
+
+  route('post', '/box-types', 'write', async (req, res) => {
+    const type = await boxTypes.create(req.body || {});
+    await audit(req, 'warehouse.box_type_create', type.id, { name: type.name });
+    ok(res, { type });
+  });
+
+  // pesar ~10 caixas vazias (uma a uma OU todas juntas ÷ contagem) substitui a
+  // estatística e carimba last_calibrated_at — o aviso de re-pesagem zera aqui
+  route('post', '/box-types/:id/calibrate', 'write', async (req, res) => {
+    const id = intOf(req.params.id);
+    if (!id) throw new Error('box_type_id inválido');
+    const type = await boxTypes.calibrate(id, req.body || {});
+    await audit(req, 'warehouse.box_type_calibrate', id,
+      { tare_g: type.tare_g, samples: type.tare_samples, spread_g: type.spread_g });
+    ok(res, { type, spread_g: type.spread_g });
+  });
+
+  route('post', '/box-types/:id', 'write', async (req, res) => {
+    const id = intOf(req.params.id);
+    if (!id) throw new Error('box_type_id inválido');
+    const type = await boxTypes.update(id, req.body || {});
+    await audit(req, 'warehouse.box_type_update', id, { name: type.name, active: type.active });
+    ok(res, { type });
+  });
+
+  // ── S15.44 — A PORTA DA CARGA (página Montar; começa HOJE) ──
+  const loadDoor = deps.load || createLoad({ db, stock, boxTypes, rowsWithVeeqo });
+
+  route('post', '/load', 'write', async (req, res) => {
+    const b = req.body || {};
+    const out = await loadDoor.load(b, {
+      person_id: (req.login && req.login.person_id) || null,
+      login: (req.login && req.login.name) || null,
+    });
+    await audit(req, 'warehouse.load', intOf(b.product_id) || null, {
+      qty: b.qty, dest: b.dest || null, source: b.source || null,
+      client_ref: b.client_ref || null, applied: out.applied,
+      duplicate: out.duplicate, meta: b.meta || null });
+    ok(res, out);
+  });
+
+  route('get', '/load/progress', 'read', async (req, res) => {
+    ok(res, await loadDoor.progress());
   });
 
   // ── S15 FASE 3 — ETIQUETAS (o dashboard desenha Code128 + QR no cliente) ──

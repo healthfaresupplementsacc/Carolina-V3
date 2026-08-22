@@ -1,0 +1,144 @@
+/* ═══════════════════════════════════════════════════════════════════
+   STOCK-LOAD — a pele da página "Montar estoque" (#estoque-montar).
+
+   MESMA regra do warehouse-table.css: nada aqui redefine token do kit
+   nem renomeia classe existente. Tudo é `.stl-*`; as classes .kit-* de
+   kit.css são a base. Isto só cobre o que o kit não tem: o cabeçalho de
+   progresso grudado, os passos, os dois botões grandes da contagem e o
+   card âmbar da recontagem.
+
+   Alvos de toque: 44px no que a mão do armazém aperta.
+   Light é a prioridade; o bloco dark no fim só remapeia superfície.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── cabeçalho de progresso: gruda no topo e acompanha o mutirão ── */
+.stl-progress {
+  position: sticky; top: 0; z-index: 30;
+  margin: 0 -4px; padding: 10px 14px;
+  display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+  background: var(--kit-surface);
+  border: 1px solid var(--line); border-radius: var(--r-md, 12px);
+  box-shadow: 0 6px 18px rgba(15, 40, 80, .07);
+}
+.stl-progress .n { font: 600 13px var(--font-mono); color: var(--primary-deep); }
+.stl-progress .sep { color: var(--ink-faint); }
+
+/* aviso de re-pesagem: chip que se dispensa, nunca bloqueia nada */
+.stl-recalib {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 10px; border-radius: var(--r-pill);
+  background: var(--warn-soft, #fdf3dc); color: var(--warn-deep, #8a5b00);
+  box-shadow: inset 0 0 0 1px var(--warn-line, #ecd9a8);
+  font-size: 12px;
+}
+.stl-recalib button {
+  border: none; background: none; cursor: pointer; padding: 2px 4px;
+  color: inherit; font-size: 12px;
+}
+.stl-recalib .go { text-decoration: underline; font-weight: 600; }
+
+/* ── passos ─────────────────────────────────────────────────────── */
+.stl-steps { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.stl-step {
+  min-height: 44px; padding: 8px 16px; cursor: pointer;
+  border-radius: var(--r-pill); border: 1px solid var(--line);
+  background: var(--kit-surface); color: var(--ink-dim);
+  font: 600 13px var(--font); display: inline-flex; align-items: center; gap: 8px;
+}
+.stl-step .num {
+  width: 22px; height: 22px; border-radius: 50%; text-align: center;
+  font: 700 12px/22px var(--font-mono);
+  background: var(--kit-surface-2); color: var(--ink-dim);
+}
+.stl-step.on { background: var(--primary-deep); color: #fff; border-color: var(--primary-deep); }
+.stl-step.on .num { background: rgba(255, 255, 255, .25); color: #fff; }
+
+/* uma linha que responde "o que eu faço aqui" em cada passo */
+.stl-what { margin: 14px 0 4px; font-size: 13.5px; color: var(--ink-dim); }
+
+/* ── passo 3: escolher à esquerda, carregar à direita ───────────── */
+.stl-grid3 { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .stl-grid3 { grid-template-columns: 1fr; } }
+
+.stl-missing { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.stl-missing button {
+  display: flex; align-items: center; gap: 10px; min-height: 44px;
+  padding: 8px 12px; cursor: pointer; text-align: left;
+  border: 1px solid var(--line); border-radius: var(--r-sm, 8px);
+  background: var(--kit-surface); font: 500 13px var(--font); color: var(--ink);
+}
+.stl-missing button:hover { background: var(--primary-row); }
+.stl-missing button.on { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.stl-missing .d { margin-left: auto; font: 600 11.5px var(--font-mono); }
+
+/* ── destino ────────────────────────────────────────────────────── */
+.stl-dest { display: flex; gap: 8px; flex-wrap: wrap; }
+.stl-dest button {
+  min-height: 44px; padding: 8px 14px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r-sm, 8px);
+  background: var(--kit-surface); font: 600 13px var(--font); color: var(--ink-dim);
+}
+.stl-dest button.on { background: var(--primary-deep); color: #fff; border-color: var(--primary-deep); }
+
+/* ── a escolha lado a lado: contar na mão OU pesar, sempre as duas ─ */
+.stl-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.stl-method {
+  min-height: 64px; padding: 12px; cursor: pointer; text-align: center;
+  border: 1.5px solid var(--line); border-radius: var(--r-md, 12px);
+  background: var(--kit-surface); color: var(--ink);
+}
+.stl-method b { display: block; font-size: 15px; }
+.stl-method span { display: block; margin-top: 3px; font-size: 11.5px; color: var(--ink-faint); }
+.stl-method.on { border-color: var(--primary-deep); background: var(--primary-row); }
+.stl-method.on b { color: var(--primary-deep); }
+
+/* stepper da contagem na mão */
+.stl-qty { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.stl-qty button {
+  width: 44px; height: 44px; cursor: pointer; font: 700 18px var(--font-mono);
+  border: 1px solid var(--line); border-radius: var(--r-sm, 8px);
+  background: var(--kit-surface); color: var(--primary-deep);
+}
+.stl-qty input { width: 110px; height: 44px; text-align: center; font-size: 18px; }
+
+/* o campo de gramas: serve visor (a pessoa digita) e balança USB
+   (o aparelho digita sozinho no campo focado) */
+.stl-grams input { height: 44px; font-size: 18px; width: 170px; }
+
+/* card âmbar da recontagem: sugere, NUNCA bloqueia */
+.stl-recount {
+  margin-top: 12px; padding: 12px 14px; border-radius: var(--r-md, 12px);
+  background: var(--warn-soft, #fdf3dc);
+  box-shadow: inset 0 0 0 1px var(--warn-line, #ecd9a8);
+  color: var(--warn-deep, #8a5b00); font-size: 13px;
+}
+.stl-recount .acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* atalhos de origem: menores que o formulário, maiores que um link */
+.stl-shortcuts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+@media (max-width: 700px) { .stl-shortcuts { grid-template-columns: 1fr; } }
+.stl-shortcut {
+  min-height: 44px; padding: 10px 12px; cursor: pointer; text-align: left;
+  border: 1px dashed var(--line); border-radius: var(--r-md, 12px);
+  background: var(--kit-surface-2); color: var(--ink);
+}
+.stl-shortcut b { font-size: 13px; }
+.stl-shortcut span { display: block; margin-top: 2px; font-size: 11.5px; color: var(--ink-faint); }
+.stl-shortcut.on { border-style: solid; border-color: var(--primary-deep); background: var(--primary-row); }
+
+/* cards dos tipos de caixa */
+.stl-types { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
+
+/* lista dos últimos carregamentos da sessão */
+.stl-recent { margin-top: 16px; }
+.stl-recent li {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  padding: 6px 0; border-bottom: 1px dotted var(--dotline);
+  font-size: 12.5px; list-style: none;
+}
+.stl-recent .t { font-family: var(--font-mono); color: var(--ink-faint); font-size: 11px; }
+
+/* dark: só remapeia superfície, tokens do kit fazem o resto */
+[data-theme="dark"] .stl-progress { box-shadow: 0 6px 18px rgba(0, 0, 0, .35); }
+[data-theme="dark"] .stl-recalib { background: rgba(190, 140, 20, .16); color: #e8c069; box-shadow: inset 0 0 0 1px rgba(190, 140, 20, .35); }
+[data-theme="dark"] .stl-recount { background: rgba(190, 140, 20, .14); color: #e8c069; box-shadow: inset 0 0 0 1px rgba(190, 140, 20, .35); }

@@ -1,10 +1,12 @@
 'use strict';
 /**
- * Peso vira contagem (S15 Fase 3, Bruno 08-18).
+ * Peso vira contagem (S15 Fase 3, Bruno 08-18; regra do ceil S15.44, Bruno 08-22).
  *  1. calibração: (bruto − tara) / nº de garrafas, com a tara descontada certa
- *  2. compute: qty arredondada + RESÍDUO + confiança (high/medium/low)
+ *  2. compute: qty = max(0, ceil(net/unit − 0.15)): meia garrafa CONTA como
+ *     garrafa, nunca subconta; + RESÍDUO + faixa (qty_min..qty_max) + confiança
  *  3. sem peso unitário → qty null e confiança 'low' (nunca chuta um total)
- *  4. o repo grava peso/tara e NUNCA toca qty de bin/caixa
+ *  4. tara resolve: informada > caixa > TIPO da caixa (com espalhamento) > bin > 0
+ *  5. o repo grava peso/tara e NUNCA toca qty de bin/caixa
  * DB mockado; nenhum banco, nenhuma rede.
  */
 const { WeightsRepo, computeQty, calibrateUnitWeight } = require('../v3/warehouse/weights');
@@ -30,39 +32,80 @@ describe('calibrateUnitWeight', () => {
   });
 });
 
-describe('computeQty', () => {
+describe('computeQty (regra do ceil, Bruno 08-22)', () => {
   test('exato: 48 garrafas de 440g + tara 780g → 48, resíduo 0, confiança alta', () => {
     const r = computeQty({ gross_g: 48 * 440 + 780, tare_g: 780, unit_weight_g: 440 });
     expect(r.qty).toBe(48);
     expect(r.net_g).toBe(21120);
     expect(r.residual_g).toBe(0);
     expect(r.confidence).toBe('high');
+    expect(r.qty_min).toBe(48);
+    expect(r.qty_max).toBe(48);
+    expect(r.recount_suggested).toBe(false);
   });
 
-  test('resíduo pequeno (< 25% de uma garrafa) continua confiança alta', () => {
+  test('resíduo pequeno (< 15% de garrafa) fica DENTRO da folga: não sobe', () => {
     const r = computeQty({ gross_g: 48 * 440 + 780 + 40, tare_g: 780, unit_weight_g: 440 });
     expect(r.qty).toBe(48);
     expect(r.residual_g).toBe(40);
     expect(r.confidence).toBe('high');
+    expect(r.recount_suggested).toBe(false);
   });
 
-  test('resíduo médio (25% a 60%) → medium: confere antes de aprovar', () => {
-    const r = computeQty({ gross_g: 48 * 440 + 150, tare_g: 0, unit_weight_g: 440 });
-    expect(r.qty).toBe(48);
-    expect(r.residual_g).toBe(150);
-    expect(r.confidence).toBe('medium');
-  });
-
-  test('meia garrafa sobrando → low (tara errada ou tem coisa a mais na caixa)', () => {
+  test('MEIA garrafa conta como garrafa: nunca subconta (ceil)', () => {
     const r = computeQty({ gross_g: 48 * 440 + 220, tare_g: 0, unit_weight_g: 440 });
-    expect(r.confidence).toBe('low');
+    expect(r.qty).toBe(49);                       // 48,5 → 49, nunca 48
+    expect(r.confidence).toBe('low');             // mas a leitura é ambígua
+    expect(r.recount_suggested).toBe(true);       // 0,5 > 0,35: sugere contar na mão
   });
 
-  test('sem peso unitário: qty null, confiança low, nunca inventa número', () => {
+  test('acima da folga de 15% o número sobe (34% de garrafa → 49)', () => {
+    const r = computeQty({ gross_g: 48 * 440 + 150, tare_g: 0, unit_weight_g: 440 });
+    expect(r.qty).toBe(49);
+    expect(r.residual_g).toBe(150);               // resíduo = distância pro inteiro mais perto
+    expect(r.confidence).toBe('medium');
+    expect(r.recount_suggested).toBe(false);      // 0,34 ainda abaixo de 0,35
+  });
+
+  test('resíduo acima de 0.35 de garrafa → recontagem sugerida', () => {
+    const r = computeQty({ gross_g: 48 * 440 + 180, tare_g: 0, unit_weight_g: 440 });
+    expect(r.qty).toBe(49);                       // 0,409 > 0,15 → sobe
+    expect(r.residual_fraction).toBeCloseTo(0.4091, 3);
+    expect(r.recount_suggested).toBe(true);
+  });
+
+  test('exatamente 15% de garrafa NÃO sobe (borda da folga, sem lixo de float)', () => {
+    const r = computeQty({ gross_g: 48 * 440 + 66, tare_g: 0, unit_weight_g: 440 });
+    expect(r.qty).toBe(48);                       // 48,15 − 0,15 = 48,00 exato
+  });
+
+  test('espalhamento da tara do tipo abre a faixa e pede recontagem com 1+ garrafa', () => {
+    // tara média 780 com ±125 de cada lado: com unit 440 a faixa fica 48..49
+    const r = computeQty({ gross_g: 48 * 440 + 780, tare_g: 780, unit_weight_g: 440,
+      tare_spread_g: 250 });
+    expect(r.qty).toBe(48);
+    expect(r.qty_min).toBe(48);                   // tara +125 → 47,71 → ceil(47,56) = 48
+    expect(r.qty_max).toBe(49);                   // tara −125 → 48,28 → ceil(48,13) = 49
+    expect(r.recount_suggested).toBe(true);       // a tela mostra "dá 48 a 49"
+    expect(r.tare_spread_g).toBe(250);
+  });
+
+  test('espalhamento pequeno não abre a faixa: nada de alarme falso', () => {
+    const r = computeQty({ gross_g: 48 * 440 + 780, tare_g: 780, unit_weight_g: 440,
+      tare_spread_g: 30 });
+    expect(r.qty_min).toBe(48);
+    expect(r.qty_max).toBe(48);
+    expect(r.recount_suggested).toBe(false);
+  });
+
+  test('sem peso unitário: qty null, confiança low, recontagem, nunca inventa número', () => {
     const r = computeQty({ gross_g: 5000, tare_g: 780, unit_weight_g: null });
     expect(r.qty).toBeNull();
+    expect(r.qty_min).toBeNull();
+    expect(r.qty_max).toBeNull();
     expect(r.residual_g).toBeNull();
     expect(r.confidence).toBe('low');
+    expect(r.recount_suggested).toBe(true);
     expect(r.net_g).toBe(4220);
   });
 
@@ -70,12 +113,14 @@ describe('computeQty', () => {
     const r = computeQty({ gross_g: 780, tare_g: 780, unit_weight_g: 440 });
     expect(r.qty).toBe(0);
     expect(r.confidence).toBe('high');
+    expect(r.recount_suggested).toBe(false);
   });
 
-  test('tara maior que o bruto → 0 e confiança low (recipiente errado, avisa)', () => {
+  test('tara maior que o bruto → 0, confiança low e recontagem (recipiente errado)', () => {
     const r = computeQty({ gross_g: 500, tare_g: 780, unit_weight_g: 440 });
     expect(r.qty).toBe(0);
     expect(r.confidence).toBe('low');
+    expect(r.recount_suggested).toBe(true);
   });
 
   test('gross negativo é rejeitado', () => {
@@ -129,6 +174,16 @@ function makeDb(state) {
         const b = state.boxes.find((x) => x.id === params[0]);
         return { rows: b ? [{ tare_g: b.tare_g }] : [] };
       }
+      // tara da caixa com o TIPO junto (S15.43: resolveTareInfo faz LEFT JOIN box_types)
+      if (/SELECT x\.tare_g, t\.tare_g AS type_tare_g/.test(q)) {
+        const b = state.boxes.find((x) => x.id === params[0]);
+        return { rows: b ? [{ tare_g: b.tare_g, type_tare_g: b.type_tare_g || null,
+          tare_min_g: b.tare_min_g || null, tare_max_g: b.tare_max_g || null }] : [] };
+      }
+      if (/FROM v3\.box_types WHERE id/.test(q)) {
+        const t = (state.boxTypes || []).find((x) => x.id === params[0]);
+        return { rows: t ? [t] : [] };
+      }
       if (/FROM v3\.products p WHERE p\.active/.test(q)) {
         return { rows: state.products.map((p) => ({ product_id: p.id, name: p.name, nickname: p.nickname,
           unit_weight_g: p.unit_weight_g, samples: p.unit_weight_samples, updated_at: null })) };
@@ -147,7 +202,10 @@ function boot() {
     products: [{ id: 10, name: 'Benfotiamine 300 mg', nickname: 'BENF-300', unit_weight_g: 440, unit_weight_samples: 10 },
       { id: 11, name: 'Sem peso', nickname: 'SEMPESO', unit_weight_g: null, unit_weight_samples: 0 }],
     tares: [], bins: [{ id: 1, bin_code: 'A03B2', tare_g: 120, capacity: 48 }],
-    boxes: [{ id: 5, box_number: 'BX-0451', tare_g: 780, batch_number: null, sealed: false }],
+    boxes: [{ id: 5, box_number: 'BX-0451', tare_g: 780, batch_number: null, sealed: false },
+      { id: 6, box_number: 'BX-0452', tare_g: null, batch_number: null, sealed: false,
+        type_tare_g: 800, tare_min_g: 760, tare_max_g: 840 }],
+    boxTypes: [{ id: 3, tare_g: 800, tare_min_g: 760, tare_max_g: 840 }],
   };
   return { state, repo: new WeightsRepo({ db: makeDb(state) }) };
 }
@@ -208,6 +266,28 @@ describe('WeightsRepo', () => {
     expect(await repo.resolveTare({ bin_id: 1 })).toBe(120);
     expect(await repo.resolveTare({ box_id: 5 })).toBe(780);
     expect(await repo.resolveTare({})).toBe(0);
+  });
+
+  test('caixa sem tara própria herda a do TIPO, com o espalhamento junto', async () => {
+    const { repo } = boot();
+    const info = await repo.resolveTareInfo({ box_id: 6 });
+    expect(info).toEqual({ tare_g: 800, spread_g: 80, source: 'tipo' });
+    // caixa com tara própria: espalhamento zero (foi pesada de verdade)
+    expect(await repo.resolveTareInfo({ box_id: 5 }))
+      .toEqual({ tare_g: 780, spread_g: 0, source: 'caixa' });
+    // box_type_id direto (caixa ainda nem existe): tara + espalhamento do tipo
+    expect(await repo.resolveTareInfo({ box_type_id: 3 }))
+      .toEqual({ tare_g: 800, spread_g: 80, source: 'tipo' });
+  });
+
+  test('compute com caixa do tipo leva o espalhamento pra faixa qty_min..qty_max', async () => {
+    const { repo } = boot();
+    const r = await repo.compute({ product_id: 10, gross_g: 48 * 440 + 800, box_id: 6 });
+    expect(r.qty).toBe(48);
+    expect(r.tare_g).toBe(800);
+    expect(r.tare_spread_g).toBe(80);
+    expect(r.qty_min).toBe(48);
+    expect(r.qty_max).toBe(48);   // 80g de espalhamento não chega a 1 garrafa de 440g
   });
 
   test('compute usa a tara da caixa e o peso do produto de ponta a ponta', async () => {

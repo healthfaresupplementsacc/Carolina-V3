@@ -1,0 +1,34 @@
+{
+  "_comment": "S15.43 Montar estoque — GET /api/v3/warehouse/box-types (contrato B, agente P). spread_g = tare_max_g - tare_min_g; needs_recalibration = sem data OU mais de 60 dias. O tipo 1 (20x20x20) esta vencido de proposito: e ele que acende o chip 'Precisamos re-pesar' no cabecalho. O tipo 2 (30x30x30) tem variacao ENORME (230 g) de proposito: e ele que produz a faixa 'da 19 a 21' e o card de recontagem no passo 3. O tipo 3 nunca foi calibrado.",
+  "data": {
+    "types": [
+      {
+        "id": 1, "name": "20x20x20",
+        "length_cm": 20, "width_cm": 20, "height_cm": 20,
+        "tare_g": 782, "tare_samples": 10, "tare_min_g": 773, "tare_max_g": 791,
+        "spread_g": 18,
+        "last_calibrated_at": "2026-06-10T10:00:00Z",
+        "needs_recalibration": true,
+        "active": true, "boxes_count": 2
+      },
+      {
+        "id": 2, "name": "30x30x30",
+        "length_cm": 30, "width_cm": 30, "height_cm": 30,
+        "tare_g": 1040, "tare_samples": 5, "tare_min_g": 925, "tare_max_g": 1155,
+        "spread_g": 230,
+        "last_calibrated_at": "2026-08-20T09:00:00Z",
+        "needs_recalibration": false,
+        "active": true, "boxes_count": 2
+      },
+      {
+        "id": 3, "name": "12x12x12",
+        "length_cm": 12, "width_cm": 12, "height_cm": 12,
+        "tare_g": null, "tare_samples": 0, "tare_min_g": null, "tare_max_g": null,
+        "spread_g": null,
+        "last_calibrated_at": null,
+        "needs_recalibration": true,
+        "active": true, "boxes_count": 0
+      }
+    ]
+  }
+}

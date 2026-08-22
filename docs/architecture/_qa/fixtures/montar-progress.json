@@ -1,0 +1,16 @@
+{
+  "_comment": "S15.43 Montar estoque — GET /api/v3/warehouse/load/progress (contrato F, agente P). Uma consulta barata pro cabecalho grudado da pagina: e o placar do mutirao. Numeros coerentes com warehouse-overview.json (8 produtos, 763 garrafas) e p3-weights.json (5 com peso). recalibration_warnings lista so os tipos COM tara vencida (o tipo 3 nunca calibrado nao tem o que re-pesar).",
+  "data": {
+    "products_total": 8,
+    "products_with_weight": 5,
+    "bins_count": 8,
+    "box_types_count": 3,
+    "boxes_count": 4,
+    "bottles_loaded": 763,
+    "products_matching_veeqo": 4,
+    "products_with_any_stock": 6,
+    "recalibration_warnings": [
+      { "box_type_id": 1, "name": "20x20x20", "last_calibrated_at": "2026-06-10T10:00:00Z" }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-20T16:47:03.267Z",
+  "at": "2026-08-22T21:46:38.788Z",
   "results": [
     {
       "group": "hub",
@@ -23,7 +23,7 @@
       "group": "screenshot",
       "name": "hub-import-btn",
       "pass": true,
-      "detail": "199 KB → p3-hub-import-btn.png"
+      "detail": "201 KB → p3-hub-import-btn.png"
     },
     {
       "group": "hub-import",
@@ -47,7 +47,7 @@
       "group": "screenshot",
       "name": "hub-import-modal",
       "pass": true,
-      "detail": "230 KB → p3-hub-import-modal.png"
+      "detail": "232 KB → p3-hub-import-modal.png"
     },
     {
       "group": "hub-import",
@@ -95,7 +95,7 @@
       "group": "screenshot",
       "name": "hub-drift",
       "pass": true,
-      "detail": "179 KB → p3-hub-drift.png"
+      "detail": "181 KB → p3-hub-drift.png"
     },
     {
       "group": "hub-drift",
@@ -149,7 +149,7 @@
       "group": "screenshot",
       "name": "locais-tara",
       "pass": true,
-      "detail": "181 KB → p3-locais-tara.png"
+      "detail": "184 KB → p3-locais-tara.png"
     },
     {
       "group": "locais",
@@ -251,7 +251,7 @@
       "group": "screenshot",
       "name": "etiquetas",
       "pass": true,
-      "detail": "136 KB → p3-etiquetas.png"
+      "detail": "138 KB → p3-etiquetas.png"
     },
     {
       "group": "etiquetas",
@@ -293,7 +293,7 @@
       "group": "screenshot",
       "name": "etiquetas-mandar-estacao",
       "pass": true,
-      "detail": "157 KB → p3-etiquetas-mandar-estacao.png"
+      "detail": "160 KB → p3-etiquetas-mandar-estacao.png"
     },
     {
       "group": "fila-etiquetas",
@@ -335,7 +335,7 @@
       "group": "screenshot",
       "name": "produto-setup-calibrar",
       "pass": true,
-      "detail": "206 KB → p3-produto-setup-calibrar.png"
+      "detail": "208 KB → p3-produto-setup-calibrar.png"
     },
     {
       "group": "produto-setup",
@@ -395,7 +395,7 @@
       "group": "screenshot",
       "name": "aprovacoes-meta",
       "pass": true,
-      "detail": "158 KB → p3-aprovacoes-meta.png"
+      "detail": "161 KB → p3-aprovacoes-meta.png"
     },
     {
       "group": "config-estoque",
@@ -431,7 +431,7 @@
       "group": "screenshot",
       "name": "config-taras",
       "pass": true,
-      "detail": "157 KB → p3-config-taras.png"
+      "detail": "160 KB → p3-config-taras.png"
     },
     {
       "group": "fila-impressao",
@@ -539,13 +539,13 @@
       "group": "envio",
       "name": "Mandar pro computador posta shipping-labels SEM take (vai pra fila)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-20\"}"
+      "detail": "{\"day\":\"2026-08-22\"}"
     },
     {
       "group": "envio",
       "name": "o dia é o de Nova York (fuso da fábrica, não o do navegador)",
       "pass": true,
-      "detail": "2026-08-20"
+      "detail": "2026-08-22"
     },
     {
       "group": "envio",
@@ -557,7 +557,7 @@
       "group": "envio",
       "name": "Abrir PDF aqui posta com take:true (quem abre é quem pegou)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-20\",\"take\":true}"
+      "detail": "{\"day\":\"2026-08-22\",\"take\":true}"
     },
     {
       "group": "envio",
@@ -569,7 +569,7 @@
       "group": "envio",
       "name": "a aba recebe um blob local (o navegador abre o arquivo, não a rota)",
       "pass": true,
-      "detail": "blob:http://127.0.0.1:61651/f24bd2f0-2c73-4c52-ab43-eb2cfb207ab8"
+      "detail": "blob:http://127.0.0.1:54530/8520ce3c-adac-40b4-ac09-f3bde4a39638"
     },
     {
       "group": "screenshot",
@@ -587,7 +587,7 @@
       "group": "nav",
       "name": "Etiquetas entra logo depois de Locais",
       "pass": true,
-      "detail": "#estoque,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
+      "detail": "#estoque,#estoque-montar,#estoque-aprovacoes,#estoque-locais,#estoque-etiquetas,#produto-setup,#config-estoque,#pp,#picklist"
     }
   ]
 }

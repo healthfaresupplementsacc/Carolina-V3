@@ -272,6 +272,12 @@ function createOpWarehouse(deps = {}) {
     const meta = {
       gross_g: gross, tare_g: calc.tare_g, unit_weight_g: calc.unit_weight_g,
       computed_qty: calc.qty, residual_g: calc.residual_g, confidence: calc.confidence,
+      // regra do ceil (S15.44): a faixa e a sugestão de recontagem viajam na
+      // proposta — o admin aprova vendo "dá 109 a 111", não um número seco
+      qty_min: calc.qty_min, qty_max: calc.qty_max,
+      residual_fraction: calc.residual_fraction,
+      recount_suggested: calc.recount_suggested,
+      tare_spread_g: calc.tare_spread_g,
       method: 'weigh',
     };
     const req = await requests.propose({
@@ -284,6 +290,8 @@ function createOpWarehouse(deps = {}) {
     });
     return { body: { ok: true, request_id: req.id, status: 'pending',
       qty: calc.qty, confidence: calc.confidence, residual_g: calc.residual_g,
+      qty_min: calc.qty_min, qty_max: calc.qty_max,
+      residual_fraction: calc.residual_fraction, recount_suggested: calc.recount_suggested,
       unit_weight_g: calc.unit_weight_g, tare_g: calc.tare_g, net_g: calc.net_g } };
   }
 

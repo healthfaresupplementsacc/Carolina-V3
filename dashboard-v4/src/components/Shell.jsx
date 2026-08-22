@@ -36,6 +36,8 @@ const NAV = [
   // de funções; login sem lista nenhuma continua vendo tudo (ver `visible()`).
   { section: "Estoque", en: "Warehouse Inventory", icon: "product", fn: "view_stock", items: [
     { id: "estoque",            pt: "Estoque",                   en: "Warehouse",          icon: "product" },
+    // S15.43 (Bruno 08-22): a porta de CARGA do armazém, logo depois do hub.
+    { id: "estoque-montar",     pt: "Montar estoque",            en: "Load stock",         icon: "plan" },
     { id: "estoque-aprovacoes", pt: "Aprovações",                en: "Approvals",          icon: "target" },
     { id: "estoque-locais",     pt: "Locais",                    en: "Locations",          icon: "plan" },
     { id: "estoque-etiquetas",  pt: "Etiquetas",                 en: "Labels",             icon: "product" },

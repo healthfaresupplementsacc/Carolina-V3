@@ -6,7 +6,7 @@
      (raramente mudam; carregam rápido + offline).
    - skipWaiting + clients.claim + postMessage 'sw-updated' pra UI avisar reload.
    - Quando trocar index.v4 → index ativo, este vira sw.js. */
-const CACHE = 'hf-op-v44'; // v44: pausa do GRUPO + "Você estava nisso desde o começo?" (Bruno 08-19)
+const CACHE = 'hf-op-v45'; // v45: Contar com faixa da pesagem + balança USB no campo de gramas (Bruno 08-22)
 const SHELL = [
   '/op/', '/op/index.html', '/op/app.js', '/op/ws.js', '/op/pause-ui.js', '/op/nav.js', '/op/style.css',
   '/op/state-machine.js', '/op/offline-queue.js', '/op/fuse-data.js', '/op/config.js',

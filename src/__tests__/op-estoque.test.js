@@ -32,23 +32,71 @@ describe('estoque — pesagem vira quantidade (weighPreview)', () => {
     expect(r.qty).toBe(100);
     expect(r.confidence).toBe('high');
   });
-  test('sobra media (10g, ~21% da garrafa) → confianca media', () => {
+  test('sobra media (10g, ~21% da garrafa) → confianca media E a conta SOBE', () => {
+    // Bruno 08-22: meia garrafa conta como garrafa. 100.2 garrafas = 101,
+    // nunca 100: melhor meia sobrando no papel do que uma inteira sumindo.
     const r = H.weighPreview({ gross_g: 5310, tare_g: 500, unit_weight_g: 48 });
-    expect(r.qty).toBe(100);
+    expect(r.qty).toBe(101);
     expect(r.residual_g).toBe(10);
     expect(r.confidence).toBe('medium');
   });
-  test('sobra grande (perto de meia garrafa) → confianca baixa', () => {
+  test('sobra grande (perto de meia garrafa) → confianca baixa + recontagem', () => {
     // 5322 = 100 garrafas + 22g de sobra: quase meia garrafa, pode ser 100 ou 101.
+    // A conta sobe (nunca subconta) e o hub SUGERE contar na mao (nunca trava).
     const r = H.weighPreview({ gross_g: 5322, tare_g: 500, unit_weight_g: 48 });
+    expect(r.qty).toBe(101);
     expect(r.residual_g).toBe(22);
     expect(r.confidence).toBe('low');
+    expect(r.recount_suggested).toBe(true);
   });
-  test('a sobra nunca passa de meia garrafa (qty e arredondado)', () => {
+  test('a sobra nunca passa de meia garrafa (distancia ate a conta inteira)', () => {
     for (let g = 5000; g < 5400; g += 1) {
       const r = H.weighPreview({ gross_g: g, tare_g: 500, unit_weight_g: 48 });
       expect(r.residual_g / 48).toBeLessThanOrEqual(0.5 + 1e-9);
+      // e a conta NUNCA desce abaixo das garrafas inteiras que estao la
+      expect(r.qty).toBeGreaterThanOrEqual(Math.floor((g - 500) / 48));
     }
+  });
+
+  // ── regra do Bruno 08-22: contrato D do /warehouse/count/compute ──
+  test('MEIA garrafa conta como garrafa: qty = max(0, ceil(net/unit - 0.15))', () => {
+    // 15% de garrafa ainda arredonda pra baixo; 16% ja sobe.
+    expect(H.weighPreview({ gross_g: 4807, tare_g: 0, unit_weight_g: 48 }).qty).toBe(100);   // 100.145
+    expect(H.weighPreview({ gross_g: 4808, tare_g: 0, unit_weight_g: 48 }).qty).toBe(101);   // 100.166
+    expect(H.weighPreview({ gross_g: 4824, tare_g: 0, unit_weight_g: 48 }).qty).toBe(101);   // 100.5
+    expect(H.weighPreview({ gross_g: 24, tare_g: 0, unit_weight_g: 48 }).qty).toBe(1);       // meia garrafa E garrafa
+    expect(H.weighPreview({ gross_g: 6, tare_g: 0, unit_weight_g: 48 }).qty).toBe(0);        // 12.5%: poeira, nao garrafa
+  });
+  test('tare_spread_g abre a FAIXA qty_min..qty_max (tara ± spread/2)', () => {
+    // caixa 20x20x20: tara media 782 g, espalhamento real 96 g entre as vazias.
+    // 6062 bruto - 782 = 5280 = 110 garrafas; com ±48 g da "109 a 111".
+    const r = H.weighPreview({ gross_g: 6062, tare_g: 782, unit_weight_g: 48, tare_spread_g: 96 });
+    expect(r.qty).toBe(110);
+    expect(r.qty_min).toBe(109);
+    expect(r.qty_max).toBe(111);
+    expect(r.confidence).toBe('high');           // a sobra em si e zero
+    expect(r.recount_suggested).toBe(true);      // mais de um numero possivel
+  });
+  test('sem espalhamento a faixa fecha num numero so', () => {
+    const r = H.weighPreview({ gross_g: 5300, tare_g: 500, unit_weight_g: 48 });
+    expect(r.qty_min).toBe(100);
+    expect(r.qty_max).toBe(100);
+    expect(r.recount_suggested).toBe(false);
+  });
+  test('sobra no meio do caminho (0.5 garrafa) sugere recontagem', () => {
+    const r = H.weighPreview({ gross_g: 5324, tare_g: 500, unit_weight_g: 48 });
+    expect(r.confidence).toBe('low');
+    expect(r.recount_suggested).toBe(true);
+  });
+  test('sobra de 34% ainda NAO sugere recontagem (limite e 35%)', () => {
+    // 4816.5 / 48 = 100.34...
+    const r = H.weighPreview({ gross_g: 4816.5, tare_g: 0, unit_weight_g: 48 });
+    expect(r.recount_suggested).toBe(false);
+  });
+  test('sem peso unitario recount_suggested = true (contrato D)', () => {
+    const r = H.weighPreview({ gross_g: 5300, tare_g: 500, unit_weight_g: null });
+    expect(r.qty).toBeNull();
+    expect(r.recount_suggested).toBe(true);
   });
   test('sem peso unitario nao inventa quantidade', () => {
     const r = H.weighPreview({ gross_g: 5300, tare_g: 500, unit_weight_g: null });
@@ -114,6 +162,31 @@ describe('estoque — tara: local > preset > digitada', () => {
     expect(H.tareFor({ tare_g: 0 }, { tare_g: 100 })).toBe(100);
     expect(H.tareFor({ tare_g: -5 }, null, '80')).toBe(80);
   });
+
+  // ── TIPO de caixa (Bruno 08-22): 20x20x20 pesada vazia em ~10 ──
+  const BT = { box_type: { name: '20x20x20', tare_g: 782, spread_g: 96 } };
+  test('a tara do TIPO entra depois da tara do proprio local e antes do preset', () => {
+    expect(H.tareFor(Object.assign({ tare_g: 500 }, BT), { tare_g: 100 })).toBe(500);
+    expect(H.tareFor(BT, { tare_g: 100 })).toBe(782);
+    expect(H.tareFor(null, { tare_g: 100 })).toBe(100);
+  });
+  test('tareText do tipo e a frase do Bruno: "tara: caixa 20x20x20, 782 g"', () => {
+    expect(H.tareText(BT)).toBe('tara: caixa 20x20x20, 782 g');
+    // tipo sem nome no payload: fala da caixa mesmo assim (gap anotado pro backend)
+    expect(H.tareText({ box_type: { tare_g: 782 } })).toBe('tara da caixa: 782 g');
+  });
+  test('boxTypeOf aceita objeto, campos soltos e min/max', () => {
+    expect(H.boxTypeOf(BT).spread_g).toBe(96);
+    expect(H.boxTypeOf({ box_type_name: '15x15x15', box_type_tare_g: 410, box_type_spread_g: 8 }))
+      .toEqual({ name: '15x15x15', tare_g: 410, spread_g: 8 });
+    expect(H.boxTypeOf({ box_type: { name: 'BX', tare_g: 500, tare_min_g: 496, tare_max_g: 506 } }).spread_g).toBe(10);
+    expect(H.boxTypeOf({})).toBeNull();
+  });
+  test('tareSpreadFor: so o tipo espalha; preset e digitada sao 0', () => {
+    expect(H.tareSpreadFor(BT)).toBe(96);
+    expect(H.tareSpreadFor(null, { tare_g: 780 })).toBe(0);
+    expect(H.tareSpreadFor(null, null, '640')).toBe(0);
+  });
 });
 
 describe('estoque — o preset de tara entra no corpo do POST', () => {
@@ -135,6 +208,33 @@ describe('estoque — o preset de tara entra no corpo do POST', () => {
   test('sem tara nenhuma o corpo nao manda tare_g (o servidor decide)', () => {
     const w = { product: { id: 99 }, gross: '5300', preset: null, target: { kind: 'bin', bin: { id: 1 } } };
     expect(H.weighBody(w).tare_g).toBeUndefined();
+  });
+  test('tara do TIPO de caixa tambem NAO vai no corpo (o servidor conhece o tipo e o espalhamento)', () => {
+    const w = { product: { id: 99 }, gross: '6062', preset: null,
+      target: { kind: 'box', box: { id: 10, box_type: { name: '20x20x20', tare_g: 782, spread_g: 96 } } } };
+    expect(H.weighBody(w)).toEqual({ product_id: 99, gross_g: 6062, box_id: 10 });
+  });
+});
+
+describe('estoque — balança hibrida: Enter no campo de gramas (grossEnterKind)', () => {
+  /* Bruno 08-22: hoje o operador digita o visor; amanha a balança USB "digita"
+     sozinha no MESMO campo, sempre focado. O leitor de codigo tambem digita no
+     que estiver focado: o Enter separa peso (fica) de codigo (vira scan). */
+  test('peso digitado ou da balança fica no campo', () => {
+    expect(H.grossEnterKind('4820')).toBe('weight');
+    expect(H.grossEnterKind('4820,5')).toBe('weight');
+    expect(H.grossEnterKind('4820.5')).toBe('weight');
+    expect(H.grossEnterKind(' 320 ')).toBe('weight');
+  });
+  test('codigo de barras vira scan (letras, tracos ou UPC de 8+ digitos)', () => {
+    expect(H.grossEnterKind('A03B2')).toBe('scan');
+    expect(H.grossEnterKind('BX-0451')).toBe('scan');
+    expect(H.grossEnterKind('012345678905')).toBe('scan');
+    expect(H.grossEnterKind('12345670')).toBe('scan');
+  });
+  test('vazio nao faz nada', () => {
+    expect(H.grossEnterKind('')).toBe('empty');
+    expect(H.grossEnterKind('  ')).toBe('empty');
   });
 });
 
@@ -396,7 +496,7 @@ describe('estoque — arquivos da casca (html + sw + vendor)', () => {
   });
   test('sw cacheia a tela nova e subiu de versao', () => {
     const sw = read('op', 'sw.js');
-    expect(sw).toContain("'hf-op-v44'"); // Bruno 08-19: pausa do grupo + pergunta de entrada tardia
+    expect(sw).toContain("'hf-op-v45'"); // Bruno 08-22: faixa da pesagem + balança USB no Contar
     ['/op/estoque.html', '/op/estoque.js', '/op/nav.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js',
       '/shared/label-sheet.js', '/shared/print-queue-card.js']
       .forEach((s) => expect(sw).toContain(s));
@@ -471,6 +571,20 @@ describe('estoque — texto de tela (regras do Bruno)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'op', 'estoque.js'), 'utf8');
   test('sem em dash em lugar nenhum', () => {
     expect(src.includes('—')).toBe(false);
+  });
+  test('o cartao de recontagem existe, sugere e nunca trava (REGRA #0)', () => {
+    expect(src).toContain('Deu muita sobra pra fechar a conta. Melhor contar na mão.');
+    expect(src).toContain('enviar assim mesmo');
+    expect(src).toContain('cntRecountManual');
+  });
+  test('a faixa da pesagem e desenhada a partir de qty_min/qty_max', () => {
+    expect(src).toContain("'dá ' + pv.qty_min + ' a ' + pv.qty_max");
+  });
+  test('o hint da balança USB esta no campo de gramas', () => {
+    expect(src).toContain('aceita balança USB que digita sozinha');
+  });
+  test('o toast da contagem repete a faixa que o servidor devolveu', () => {
+    expect(src).toContain("'Deu de ' + a + ' a ' + b");
   });
   test('as 6 acoes + parear existem no menu', () => {
     const keys = H.MENU.map((m) => m.k);

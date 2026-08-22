@@ -28,7 +28,7 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_APPROVE["S15.14/S15.18 BUILT 08-18: approval queue (StockRequestService + Aprovações page); operator side Phase 2"]:::verified
   A_HUB["S15.21/27 BUILT: hub #estoque + Importar da Veeqo + drift panel · Locais (tara/lote/lacre) · Etiquetas Code128+QR · Aprovações (meta pesagem) · Product Setup peso · Configurações taras"]:::verified
   A_SCAN["S15.25 BUILT: celular pareado /scan/ → SSE → hub do operador; USB scanner também"]:::verified
-  A_OPHUB["S15.26 BUILT: /op/estoque.html Organizar · Contar (pesar/manual, cego) · Repor · Caixa nova · Devolução · Danificada"]:::verified
+  A_OPHUB["S15.26 BUILT: /op/estoque.html Organizar · Contar (pesar/manual, cego) · Repor · Caixa nova · Devolução · Danificada · S15.46 Contar v2 08-22: ceil(net/unit - 0.15), faixa da tara do tipo, recontagem sugerida sem travar, balança USB no campo de gramas focado"]:::verified
   A_DRIFT["S15.28 BUILT: stock-drift-alert (10 min, contínuo, só alerta) · LIGADO 08-19"]:::verified
   A_NAV["S15.32 BUILT: menu fixo do operador Linha · Central de P&P · Estoque (nav.js) · Central sempre disponível · deep link ?ws=1"]:::verified
   A_DASH2["S15.33 BUILT: seção Estoque final (antigo escondido) · Dias de estoque · badge/aviso de propostas · Criar várias prateleiras (bulk) · auditoria STYLE-KIT 28 rotas"]:::verified
@@ -56,6 +56,13 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_OPHUB --> SVC
   A_OPHUB --> A_APPROVE
   A_API["S15.17 BUILT 08-18: /api/v3/warehouse/* router + veeqo-cache + locations-repo + family-repo"]:::verified
+  A_LOAD["S15.44 BUILT 08-22: PORTA DA CARGA load.js · POST /load = a UNICA porta da pagina Montar · origens: contou na mao, pesou, direto da producao, soltas consertadas · idempotente por client_ref, retry completa · resposta com check bate com a Veeqo · GET /load/progress = cabecalho"]:::verified
+  A_API --> A_LOAD
+  A_MONTAR["S15.45 BUILT 08-22: pagina MONTAR ESTOQUE #estoque-montar · 3 passos na ordem do trabalho: pesos por produto com balanca hibrida autofocada, prateleiras em lote + tipos de caixa calibrados nos 2 modos, e o mutirao contar-e-carregar com a escolha SEMPRE lado a lado: contei na mao OU pesei · card ambar de recontagem com 2 saidas, nunca bloqueia · chip bate com a Veeqo atualiza da resposta do load"]:::verified
+  A_MONTAR -->|unica escrita: POST load com client_ref uuid| A_LOAD
+  A_MONTAR -->|box-types + calibrate + count/compute + weights| A_API
+  A_DASH2 --> A_MONTAR
+  A_LOAD -->|so verbos storeIn e place, nunca SQL cru| SVC
   A_HUB --> A_API
   A_API --> SVC
   A_API --> A_APPROVE
@@ -82,6 +89,8 @@ subgraph S15_CORE["S15.01 / S15.02 / S15.05 · CORE (exists)"]
   direction TB
   T_BINS["S15.01 v3.stock_bins = SHELVES (1 product/bin, shelf_code, min_qty)"]:::verified
   T_BOXES["S15.01 v3.stock_boxes = BOXES (numbered, pallet area, in_storage/empty)"]:::verified
+  T_BOXTYPES["S15.43 v3.box_types = TIPO por TAMANHO 20x20x20 · tara MEDIA de ~10 vazias + espalhamento real min..max + last_calibrated_at · migration 081 · stock_boxes.box_type_id · zero colunas de quantidade"]:::verified
+  T_BOXTYPES --> T_BOXES
   T_LEDGER["S15.01 v3.stock_movements (append-only; idem source+source_ref; kinds + place/move via 071) · stock_thresholds"]:::verified
   T_UNPLACED["S15.20 v3.stock_unplaced = A ORGANIZAR bucket (071, NOT APPLIED IN PROD YET)"]:::partial
   T_REQ["S15.20 v3.stock_change_requests = approval queue (071)"]:::partial
@@ -158,6 +167,11 @@ SIG_PRINT -.->|deliberately NOT a stock signal| SVC
 VEEQO2WAY -.-> EXT_VEEQO
 Q32 -.- VEEQO2WAY
 SUPPLY_LOOP -.-> T_SUPPLY
+
+A_API -->|box-types: cadastrar, calibrar, re-pesar| T_BOXTYPES
+T_BOXTYPES -.->|tara do tipo + espalhamento viram qty_min a qty_max e recount_suggested no count/compute| A_API
+T_BOXTYPES -.->|calibracao 60+ dias: aviso repesar_caixas na atencao do hub, nunca bloqueia| A_HUB
+A_LOAD -.->|alvo da carga = total da Veeqo: diferenca e aviso, nunca bloqueio| EXT_VEEQO
 
 %% flow ↔ pieces
 PROD -.->|F2 admin/manager enters number| SVC

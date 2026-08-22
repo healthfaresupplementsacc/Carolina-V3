@@ -170,8 +170,8 @@ describe('op v4 — html + sw', () => {
     expect(HTML.indexOf('/shared/label-sheet.js')).toBeLessThan(HTML.indexOf('/op/ws.js'));
     expect(HTML.indexOf('/shared/print-queue-card.js')).toBeLessThan(HTML.indexOf('/op/ws.js'));
   });
-  test('sw é hf-op-v44 network-first e cacheia nav.js + ws.js + pause-ui.js + o hub de estoque', () => {
-    expect(SW).toContain("'hf-op-v44'");   // bump obriga o cliente a pegar a pausa do grupo (Bruno 08-19)
+  test('sw é hf-op-v45 network-first e cacheia nav.js + ws.js + pause-ui.js + o hub de estoque', () => {
+    expect(SW).toContain("'hf-op-v45'");   // bump obriga o cliente a pegar o Contar v2 (faixa + balança USB, Bruno 08-22)
     expect(SW).toContain("'/op/pause-ui.js'"); // "Você estava nisso desde o começo?" precisa vir no shell
     expect(SW).toContain("'/op/ws.js'");
     expect(SW).toContain("'/op/nav.js'");

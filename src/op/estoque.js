@@ -94,31 +94,48 @@
   /**
    * PESAGEM → quantidade. A conta que o operador ve ANTES de confirmar
    * (o servidor refaz e e ele quem manda, mas o operador nao assina no escuro).
-   *   liquido = bruto - tara ; qty = round(liquido / peso_unitario)
-   *   sobra = |liquido - qty * peso_unitario|
-   *
-   * Confianca pela sobra. Como qty e ARREDONDADO, a sobra nunca passa de meia
-   * garrafa: a razao sobra/unidade vive em 0..0.5, e as faixas seguem essa
-   * escala (0.5 = em cima do muro entre duas contagens, o pior caso).
-   *   ate 15% de uma garrafa = alta · ate 32% = media · acima = baixa.
+   *   liquido = bruto - tara ; qty = max(0, ceil(liquido/unidade - 0.15))
+   * Regra do Bruno (08-22): MEIA garrafa CONTA como garrafa. De 15% de uma
+   * garrafa pra cima a conta sobe, nunca desce: melhor meia sobrando no papel
+   * do que uma garrafa inteira sumindo do estoque.
+   *   sobra = distancia ate a contagem inteira mais proxima (0..0.5 garrafa)
+   * Confianca pela sobra: ate 15% de uma garrafa = alta · ate 32% = media ·
+   * acima = baixa.
+   * tare_spread_g = diferenca real entre caixas do mesmo tipo (a pesagem das
+   * ~10 vazias guarda media e espalhamento): a conta refaz com tara±spread/2
+   * e sai a FAIXA qty_min..qty_max ("da 109 a 111").
+   * recount_suggested: sobra acima de 35% de uma garrafa OU faixa com mais de
+   * um numero possivel. SUGERE contar na mao; nunca trava (REGRA #0).
    * Sem peso unitario nao da pra contar: qty null, confianca baixa.
    */
   function weighPreview(o) {
     var gross = numOf(o && o.gross_g);
     var tare = numOf(o && o.tare_g) || 0;
     var unit = numOf(o && o.unit_weight_g);
-    var out = { gross_g: gross, tare_g: tare, unit_weight_g: unit, net_g: null, qty: null, residual_g: null, confidence: 'low' };
+    var spread = numOf(o && o.tare_spread_g) || 0;
+    var out = { gross_g: gross, tare_g: tare, unit_weight_g: unit, tare_spread_g: spread,
+      net_g: null, qty: null, qty_min: null, qty_max: null, residual_g: null,
+      confidence: 'low', recount_suggested: false };
     if (gross == null) return out;
     var net = gross - tare;
     out.net_g = Math.round(net * 100) / 100;
-    if (!unit || unit <= 0) return out;                     // sem peso unitario: so pesa, nao conta
-    if (net <= 0) { out.qty = 0; out.residual_g = Math.round(Math.abs(net) * 100) / 100; out.confidence = net === 0 ? 'high' : 'low'; return out; }
-    var qty = Math.round(net / unit);
-    var residual = Math.abs(net - qty * unit);
-    var ratio = residual / unit;
+    if (!unit || unit <= 0) { out.recount_suggested = true; return out; }   // sem peso unitario: so pesa, nao conta
+    var qtyOf = function (x) { return x <= 0 ? 0 : Math.max(0, Math.ceil(x / unit - 0.15)); };
+    out.qty_min = qtyOf(net - spread / 2);
+    out.qty_max = qtyOf(net + spread / 2);
+    if (net <= 0) {
+      out.qty = 0; out.residual_g = Math.round(Math.abs(net) * 100) / 100;
+      out.confidence = net === 0 ? 'high' : 'low';
+      out.recount_suggested = net < 0 || (out.qty_max - out.qty_min) >= 1;
+      return out;
+    }
+    var qty = qtyOf(net);
+    var frac = net / unit - Math.floor(net / unit);
+    var ratio = Math.min(frac, 1 - frac);       // distancia ate a contagem inteira
     out.qty = qty;
-    out.residual_g = Math.round(residual * 100) / 100;
+    out.residual_g = Math.round(ratio * unit * 100) / 100;
     out.confidence = ratio <= 0.15 ? 'high' : ratio <= 0.32 ? 'medium' : 'low';
+    out.recount_suggested = ratio > 0.35 || (out.qty_max - out.qty_min) >= 1;
     return out;
   }
   var CONF_LABEL = { high: 'confiança alta', medium: 'confiança média', low: 'confiança baixa' };
@@ -129,15 +146,41 @@
   }
 
   /**
+   * TIPO de caixa (Bruno 08-22): caixas registradas por tamanho (20x20x20),
+   * pesadas vazias em ~10 unidades; o tipo guarda a MEDIA (tare_g) e o
+   * espalhamento real entre elas (spread_g). Vem pendurado na linha da caixa
+   * do stock/context quando o backend mandar; aqui aceitamos objeto
+   * {name, tare_g, spread_g|tare_min_g..tare_max_g} ou campos soltos
+   * box_type_* (defensivo: o payload ainda esta chegando).
+   */
+  function boxTypeOf(target) {
+    if (!target) return null;
+    var bt = target.box_type || null;
+    var name = (bt && bt.name) || target.box_type_name || null;
+    var tg = numOf(bt && bt.tare_g);
+    if (tg == null) tg = numOf(target.box_type_tare_g);
+    var sp = numOf(bt && bt.spread_g);
+    if (sp == null && bt && bt.tare_max_g != null && bt.tare_min_g != null) {
+      sp = (numOf(bt.tare_max_g) || 0) - (numOf(bt.tare_min_g) || 0);
+    }
+    if (sp == null) sp = numOf(target.box_type_spread_g);
+    if (tg == null && name == null) return null;
+    return { name: name, tare_g: tg, spread_g: sp == null ? 0 : Math.max(0, sp) };
+  }
+
+  /**
    * Tara de um local, na ORDEM que o Bruno pediu:
    *   1. a tara cadastrada no proprio bin/caixa (a mais confiavel: e AQUELA caixa);
-   *   2. o preset que o operador escolheu (chips de stock/tasks.tares);
-   *   3. o valor digitado na mao (ultimo recurso, mas nunca bloqueia: REGRA #0).
+   *   2. a tara do TIPO da caixa (media das vazias pesadas);
+   *   3. o preset que o operador escolheu (chips de stock/tasks.tares);
+   *   4. o valor digitado na mao (ultimo recurso, mas nunca bloqueia: REGRA #0).
    * Devolve so o numero. Quem precisa saber DE ONDE veio usa tareSource().
    */
   function tareFor(target, preset, typed) {
     var t = target && numOf(target.tare_g);
     if (t != null && t > 0) return t;
+    var bt = boxTypeOf(target);
+    if (bt && bt.tare_g != null && bt.tare_g > 0) return bt.tare_g;
     var p = preset && numOf(preset.tare_g);
     if (p != null && p > 0) return p;
     var d = numOf(typed);
@@ -146,17 +189,31 @@
   /** De onde veio a tara que esta valendo, pra tela poder DIZER. */
   function tareSource(target, preset, typed) {
     var t = target && numOf(target.tare_g);
-    if (t != null && t > 0) return { from: 'target', g: t, label: 'cadastrada neste local' };
+    if (t != null && t > 0) return { from: 'target', g: t, spread_g: numOf(target.tare_spread_g) || 0, label: 'cadastrada neste local' };
+    var bt = boxTypeOf(target);
+    if (bt && bt.tare_g != null && bt.tare_g > 0) {
+      return { from: 'boxtype', g: bt.tare_g, spread_g: bt.spread_g || 0,
+        label: bt.name ? 'caixa ' + String(bt.name) : 'da caixa' };
+    }
     var p = preset && numOf(preset.tare_g);
-    if (p != null && p > 0) return { from: 'preset', g: p, label: String(preset.name || 'preset') };
+    if (p != null && p > 0) return { from: 'preset', g: p, spread_g: 0, label: String(preset.name || 'preset') };
     var d = numOf(typed);
-    if (d != null && d > 0) return { from: 'typed', g: d, label: 'digitada por você' };
-    return { from: 'none', g: 0, label: 'sem tara' };
+    if (d != null && d > 0) return { from: 'typed', g: d, spread_g: 0, label: 'digitada por você' };
+    return { from: 'none', g: 0, spread_g: 0, label: 'sem tara' };
+  }
+  /** Espalhamento da tara em uso (o tipo de caixa tem; o resto e 0). */
+  function tareSpreadFor(target, preset, typed) {
+    return tareSource(target, preset, typed).spread_g || 0;
   }
   /** Frase curta pro chip: "tara: caixa média 780 g". */
   function tareText(target, preset, typed) {
     var s = tareSource(target, preset, typed);
     if (s.from === 'none') return 'tara: nenhuma, peso cheio';
+    if (s.from === 'boxtype') {
+      // Bruno pediu essa frase: "tara: caixa 20x20x20, 782 g"
+      return s.label === 'da caixa' ? ('tara da caixa: ' + s.g + ' g')
+        : ('tara: ' + s.label + ', ' + s.g + ' g');
+    }
     return 'tara: ' + s.label + ' ' + s.g + ' g';
   }
 
@@ -201,7 +258,12 @@
   /** Corpo do POST stock/count/weigh. */
   function weighBody(w) {
     var b = { product_id: w.product && w.product.id, gross_g: numOf(w.gross) };
-    var tare = tareFor(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped);
+    var src = w.target && (w.target.bin || w.target.box);
+    var from = tareSource(src, w.preset, w.tareTyped).from;
+    // A tara do TIPO de caixa fica com o SERVIDOR (ele conhece a media e o
+    // espalhamento do tipo; mandar o numero congelado mataria a faixa):
+    // tare_g so vai quando e deste local, do preset ou digitada.
+    var tare = from === 'boxtype' ? 0 : tareFor(src, w.preset, w.tareTyped);
     if (tare) b.tare_g = tare;
     var t = targetBody(w.target);
     if (t.bin_id) b.bin_id = t.bin_id;
@@ -621,6 +683,7 @@
     S.cnt.preview = weighPreview({
       gross_g: w.gross,
       tare_g: tareFor(target, w.preset, w.tareTyped),
+      tare_spread_g: tareSpreadFor(target, w.preset, w.tareTyped),
       unit_weight_g: w.product && w.product.unit_weight_g,
     });
   }
@@ -689,7 +752,7 @@
     api(path, { method: 'POST', body: body })
       .then(function (j) {
         S.busy = false;
-        toast(okMsg);
+        toast(typeof okMsg === 'function' ? okMsg(j) : okMsg);
         if (after) after(j);
         loadRecent(); loadTasks();
         render();
@@ -728,7 +791,15 @@
   function submitWeigh() {
     var err = countError(S.cnt, 'weigh');
     if (err) { toast(err); return; }
-    post('stock/count/weigh', weighBody(S.cnt), 'Contagem enviada. O admin aprova e o número muda.', function () {
+    post('stock/count/weigh', weighBody(S.cnt), function (j) {
+      // O servidor refaz a conta com a tara do tipo ± espalhamento e pode
+      // devolver a faixa (qty_min..qty_max). Quando ela existe, o operador
+      // ouve o MESMO numero que o admin vai ver.
+      var a = j == null ? null : intOf(j.qty_min);
+      var b = j == null ? null : intOf(j.qty_max);
+      var faixa = a != null && b != null && a !== b ? 'Deu de ' + a + ' a ' + b + '. ' : '';
+      return 'Contagem enviada. ' + faixa + 'O admin aprova e o número muda.';
+    }, function () {
       S.cnt = { target: null, product: null, mode: 'weigh', gross: '', qty: '', preset: S.cnt.preset, tareTyped: S.cnt.tareTyped, preview: null };
     });
   }
@@ -1094,34 +1165,78 @@
   function tareHtml(w, tare) {
     var src = w.target && (w.target.bin || w.target.box);
     var fromTarget = !!(src && numOf(src.tare_g) > 0);
+    var bt = fromTarget ? null : boxTypeOf(src);
+    var fromType = !!(bt && bt.tare_g != null && bt.tare_g > 0);
     var presets = (S.tasks && S.tasks.tares) || [];
     var h = '<div style="margin-bottom:12px;">' + microLbl('Quanto pesa vazia (tara)');
     if (fromTarget) {
       h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">'
         + 'Esse local já tem a tara cadastrada: ' + numOf(src.tare_g) + ' g. Usamos ela.</div>';
+    } else if (fromType) {
+      // O tipo ja foi pesado vazio (media das ~10): a tara vem dele sozinha.
+      h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">'
+        + (bt.name ? 'Caixa do tipo ' + esc(String(bt.name)) + ': tara ' + bt.tare_g + ' g, pesada com as vazias. Usamos ela.'
+          : 'A tara dessa caixa já está cadastrada: ' + bt.tare_g + ' g. Usamos ela.')
+        + '</div>';
     } else if (presets.length) {
       h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">Escolha o que está segurando as garrafas:</div>';
     } else {
       h += '<div style="font-size:12.5px; color:' + T.muted + '; margin:6px 0 8px;">Sem tara cadastrada. Pese a caixa vazia e digite abaixo, ou deixe em branco se estiver pesando só as garrafas.</div>';
     }
+    var locked = fromTarget || fromType;
     if (presets.length) {
-      h += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;' + (fromTarget ? ' opacity:.45;' : '') + '">';
+      h += '<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;' + (locked ? ' opacity:.45;' : '') + '">';
       presets.forEach(function (p) {
-        var on = !fromTarget && w.preset && String(w.preset.id) === String(p.id);
+        var on = !locked && w.preset && String(w.preset.id) === String(p.id);
         h += btn('cntTare', esc(p.name) + ' &middot; ' + (numOf(p.tare_g) || 0) + ' g', esc(p.id),
           'border:1px solid ' + (on ? T.ink : T.line) + '; cursor:pointer; border-radius:999px; min-height:44px; padding:0 16px;'
           + ' font-family:' + MONO + '; font-size:12px; font-weight:700;'
           + ' background:' + (on ? T.ink : '#fff') + '; color:' + (on ? '#fff' : T.muted) + ';');
       });
-      if (!fromTarget && w.preset) {
+      if (!locked && w.preset) {
         h += btn('cntTare', 'limpar', '', 'border:0; background:none; cursor:pointer; color:' + T.mute2 + '; font-size:12.5px; font-weight:700; min-height:44px; padding:0 10px;');
       }
       h += '</div>';
     }
-    if (!fromTarget) {
+    if (!locked) {
       h += '<input data-input="cntTare" inputmode="decimal" value="' + esc(String(w.tareTyped || '')) + '" placeholder="ou digite a tara em gramas" style="' + INPUT + ' font-size:15px;">';
     }
     return h + '</div>';
+  }
+
+  /**
+   * Miolo da previa da pesagem. contarHtml e renderPreview desenham o MESMO
+   * bloco por aqui: duas copias virariam duas previas diferentes.
+   * A FAIXA ("dá 109 a 111") vem do espalhamento da tara do tipo: fala da
+   * pesagem DO OPERADOR, nunca do numero guardado (a contagem segue cega).
+   */
+  function previewInner(pv) {
+    var cc = confChip(pv.confidence);
+    var h = microLbl('Dá mais ou menos')
+      + '<div style="font-family:' + SERIF + '; font-size:44px; color:' + T.ink + '; line-height:1.05;">' + pv.qty + '</div>'
+      + '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:8px;">líquido ' + pv.net_g + ' g &middot; sobra ' + pv.residual_g + ' g</div>';
+    if (pv.qty_min != null && pv.qty_max != null && pv.qty_min !== pv.qty_max) {
+      h += chip('dá ' + pv.qty_min + ' a ' + pv.qty_max + ' &middot; ' + cc.label, cc.bg, cc.fg, cc.ln);
+    } else {
+      h += chip(cc.label, cc.bg, cc.fg, cc.ln);
+    }
+    if (pv.recount_suggested) {
+      // Sobra grande demais pra conta fechar: numero em duvida nao vira
+      // registro calado. SUGERE contar na mao, com a porta aberta (REGRA #0).
+      // O motivo certo na frase certa: sobra grande e uma coisa, tara que
+      // varia entre caixas do mesmo tipo e outra.
+      var sobrona = pv.unit_weight_g > 0 && pv.residual_g != null && pv.residual_g / pv.unit_weight_g > 0.35;
+      var motivo = sobrona
+        ? 'Deu muita sobra pra fechar a conta. Melhor contar na mão.'
+        : 'A tara varia de caixa pra caixa e a conta não fecha num número só. Melhor contar na mão.';
+      h += '<div id="cntRecount" style="background:' + T.warnBg + '; border:1px solid ' + T.warnLn + '; border-radius:12px; padding:12px 14px; margin-top:10px; text-align:left;">'
+        + '<div style="font-size:13px; color:' + T.warnFg + '; font-weight:700; margin-bottom:9px;">' + motivo + '</div>'
+        + '<div style="display:flex; gap:9px; flex-wrap:wrap; align-items:center;">'
+        + btn('cntRecountManual', 'contar na mão', null, 'border:0; cursor:pointer; border-radius:999px; min-height:46px; padding:0 20px; background:' + T.ink + '; color:#fff; font-weight:800; font-size:14px; font-family:' + SORA + ';')
+        + btn('submitWeigh', S.busy ? 'Enviando&hellip;' : 'enviar assim mesmo', null, 'border:1px solid ' + T.warnLn + '; background:#fff; cursor:pointer; border-radius:999px; min-height:46px; padding:0 18px; font-weight:700; font-size:13.5px; color:' + T.warnFg + ';')
+        + '</div></div>';
+    }
+    return h;
   }
 
   // ── CONTAR ──────────────────────────────────────────────────
@@ -1150,7 +1265,11 @@
     if (w.mode === 'weigh') {
       var tare = tareFor(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped);
       h += '<div style="margin-bottom:12px;">' + microLbl('Peso na balança, com a caixa junto (gramas)')
-        + '<input data-input="cntGross" inputmode="decimal" value="' + esc(String(w.gross || '')) + '" placeholder="ex.: 4820" style="' + INPUT + ' margin-top:6px; font-size:24px; font-weight:800; text-align:center;"></div>';
+        + '<input data-input="cntGross" inputmode="decimal" value="' + esc(String(w.gross || '')) + '" placeholder="ex.: 4820" style="' + INPUT + ' margin-top:6px; font-size:24px; font-weight:800; text-align:center;">'
+        // balança hibrida (Bruno 08-22): hoje o operador digita o visor; a
+        // balança USB "digita" sozinha no MESMO campo, que vive focado.
+        + '<div style="font-family:' + MONO + '; font-size:10.5px; color:' + T.mute2 + '; margin-top:5px; text-align:center;">aceita balança USB que digita sozinha</div>'
+        + '</div>';
       h += tareHtml(w, tare);
       h += '<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">'
         + chip(esc(tareText(w.target && (w.target.bin || w.target.box), w.preset, w.tareTyped)), T.neuBg, T.neuFg, T.neuLn)
@@ -1158,17 +1277,17 @@
         + '</div>';
       // previa (conta local; o servidor refaz e manda o valor final)
       if (pv.qty != null) {
-        var cc = confChip(pv.confidence);
         h += '<div id="cntPreview" style="background:' + T.soft + '; border:1px solid ' + T.line + '; border-radius:14px; padding:14px 16px; margin-bottom:14px; text-align:center;">'
-          + microLbl('Dá mais ou menos')
-          + '<div style="font-family:' + SERIF + '; font-size:44px; color:' + T.ink + '; line-height:1.05;">' + pv.qty + '</div>'
-          + '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:8px;">líquido ' + pv.net_g + ' g &middot; sobra ' + pv.residual_g + ' g</div>'
-          + chip(cc.label, cc.bg, cc.fg, cc.ln)
+          + previewInner(pv)
           + '</div>';
       } else if (numOf(w.gross) != null) {
         h += '<div id="cntPreview" style="background:' + T.warnBg + '; border:1px solid ' + T.warnLn + '; border-radius:14px; padding:12px 14px; margin-bottom:14px; font-size:13px; color:' + T.warnFg + '; font-weight:600;">Esse produto ainda não tem o peso da garrafa cadastrado, então a balança não conta sozinha. Toque em Contar na mão e conte as garrafas.</div>';
       }
-      h += btn('submitWeigh', S.busy ? 'Enviando&hellip;' : 'Confirmar contagem', null, PILL + ' width:100%;');
+      // com a sugestao de recontagem na tela o botao grande se recolhe: o
+      // "enviar assim mesmo" do cartao ambar e o mesmo submit, um toque so.
+      h += '<div id="cntSubmitWrap"' + (pv.qty != null && pv.recount_suggested ? ' style="display:none;"' : '') + '>'
+        + btn('submitWeigh', S.busy ? 'Enviando&hellip;' : 'Confirmar contagem', null, PILL + ' width:100%;')
+        + '</div>';
     } else {
       h += '<div style="margin-bottom:4px;">' + microLbl('Quantas garrafas você contou') + '</div>';
       h += qtyStepper('cntQty', w.qty, 'garrafas');
@@ -1348,7 +1467,7 @@
   function render() {
     if (!el) return;
     el.innerHTML = S.screen === 'login' ? loginHtml() : hubHtml();
-    if (S.screen !== 'login') focusSink();
+    if (S.screen !== 'login') focusHome();
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1411,6 +1530,8 @@
       recompute(); render();
     },
     emptyCount: function () { submitManual(0); },
+    // do cartao de recontagem: troca pro manual SEM perder bin/caixa/produto
+    cntRecountManual: function () { S.cnt.mode = 'manual'; render(); },
     submitOrganize: function () { submitOrganize(); },
     submitWeigh: function () { submitWeigh(); },
     submitManual: function () { submitManual(); },
@@ -1451,11 +1572,9 @@
     var pv = S.cnt.preview;
     if (!node) { render(); return; }
     if (!pv || pv.qty == null) { render(); return; }
-    var cc = confChip(pv.confidence);
-    node.innerHTML = microLbl('Dá mais ou menos')
-      + '<div style="font-family:' + SERIF + '; font-size:44px; color:' + T.ink + '; line-height:1.05;">' + pv.qty + '</div>'
-      + '<div style="font-size:12.5px; color:' + T.muted + '; margin-bottom:8px;">líquido ' + pv.net_g + ' g &middot; sobra ' + pv.residual_g + ' g</div>'
-      + chip(cc.label, cc.bg, cc.fg, cc.ln);
+    node.innerHTML = previewInner(pv);
+    var wrap = el.querySelector('#cntSubmitWrap');
+    if (wrap) wrap.style.display = pv.recount_suggested ? 'none' : '';
   }
 
   // ── leitor USB: o teclado "digita" no sink invisivel ────────
@@ -1465,6 +1584,35 @@
     var a = document.activeElement;
     if (a && a !== sink && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
     try { sink.focus({ preventScroll: true }); } catch (e) { try { sink.focus(); } catch (e2) {} }
+  }
+
+  /**
+   * Onde o foco mora. No modo Pesar do Contar (com local escolhido) e o campo
+   * de gramas: a balança USB "digita" sozinha nele (Bruno 08-22, balança
+   * hibrida). No resto da tela, o sink do leitor de codigo. O leitor que
+   * "digitar" um codigo no campo de gramas nao se perde: o Enter dele cai no
+   * roteador grossEnterKind e vira scan.
+   */
+  function focusHome() {
+    var a = document.activeElement;
+    if (a && a !== sink && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
+    if (S.screen !== 'login' && S.scr === 'contar' && S.cnt.mode === 'weigh' && S.cnt.target) {
+      var g = el && el.querySelector('[data-input="cntGross"]');
+      if (g) { try { g.focus({ preventScroll: true }); } catch (e) { try { g.focus(); } catch (e2) {} } return; }
+    }
+    focusSink();
+  }
+
+  /**
+   * Enter no campo de gramas: a balança USB manda o peso + Enter, mas o leitor
+   * de codigo TAMBEM digita + Enter no que estiver focado. Numero curto (ate 6
+   * digitos, decimal com virgula ou ponto) = peso e fica; o resto = codigo de
+   * barras e vai pro scan.
+   */
+  function grossEnterKind(v) {
+    var s = normScan(v);
+    if (!s) return 'empty';
+    return /^\d{1,6}([.,]\d+)?$/.test(s) ? 'weight' : 'scan';
   }
 
   function bindEvents() {
@@ -1501,7 +1649,20 @@
       } else if (e.key === 'Backspace') { S.pin = S.pin.slice(0, -1); S.pinError = ''; render(); }
       else if (e.key === 'Enter' && S.pin.length === 4) submitPin();
     });
-    document.addEventListener('click', function () { focusSink(); });
+    document.addEventListener('click', function () { focusHome(); });
+    // leitor USB "digitou" um codigo no campo de gramas? O Enter denuncia.
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var t = e.target;
+      if (!t || !t.getAttribute || t.getAttribute('data-input') !== 'cntGross') return;
+      if (grossEnterKind(t.value) !== 'scan') return;   // peso de verdade fica quieto
+      e.preventDefault();
+      var code = normScan(t.value);
+      t.value = '';
+      S.cnt.gross = '';
+      recompute();
+      dispatchScan(code);
+    });
   }
 
   function boot() {
@@ -1527,6 +1688,7 @@
       organizeBody: organizeBody, organizeError: organizeError,
       weighBody: weighBody, manualBody: manualBody, countError: countError,
       tareSource: tareSource, tareText: tareText,
+      boxTypeOf: boxTypeOf, tareSpreadFor: tareSpreadFor, grossEnterKind: grossEnterKind,
       boxNewBody: boxNewBody, boxNewError: boxNewError, labelPayload: labelPayload,
       streamUrl: streamUrl, kindLabel: kindLabel, statusChip: statusChip,
       confChip: confChip, intOf: intOf, numOf: numOf, esc: esc, SCREENS: SCREENS, MENU: MENU,

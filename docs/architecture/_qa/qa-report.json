@@ -1,13 +1,13 @@
 {
-  "when": "2026-08-20T16:52:38.027Z",
+  "when": "2026-08-22T21:49:13.195Z",
   "tabStats": [
     {
       "key": "MASTER",
-      "nodes": 137,
+      "nodes": 138,
       "pass": true,
-      "kb": 142,
+      "kb": 141,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-01-MASTER.png",
-      "status": "rendered ✓  Master map  (429 lines, 137 nodes)"
+      "status": "rendered ✓  Master map  (432 lines, 138 nodes)"
     },
     {
       "key": "S02-http-surface",
@@ -19,11 +19,11 @@
     },
     {
       "key": "S03-frontends",
-      "nodes": 45,
+      "nodes": 46,
       "pass": true,
-      "kb": 172,
+      "kb": 171,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-03-S03-frontends.png",
-      "status": "rendered ✓  S03-frontends  (94 lines, 45 nodes)"
+      "status": "rendered ✓  S03-frontends  (99 lines, 46 nodes)"
     },
     {
       "key": "S04-workers",
@@ -35,11 +35,11 @@
     },
     {
       "key": "S05-S06-services-llm",
-      "nodes": 54,
+      "nodes": 55,
       "pass": true,
-      "kb": 177,
+      "kb": 190,
       "shot": "C:\\Claude Projects\\Supplements Production Line\\healthfare-tracker\\docs\\architecture\\_qa\\tab-05-S05-S06-services-llm.png",
-      "status": "rendered ✓  S05-S06-services-llm  (123 lines, 54 nodes)"
+      "status": "rendered ✓  S05-S06-services-llm  (125 lines, 55 nodes)"
     },
     {
       "key": "S07-legacy-v2",
@@ -101,13 +101,13 @@
       "group": "tab-fit",
       "name": "MASTER",
       "pass": true,
-      "detail": "fit scale=0.060 (whole diagram visible, 18719x5742)"
+      "detail": "fit scale=0.059 (whole diagram visible, 18904x5742)"
     },
     {
       "group": "tab",
       "name": "MASTER",
       "pass": true,
-      "detail": "137 nodes, status=\"rendered ✓  Master map  (429 lines\", shot 142KB, bodyClean=true"
+      "detail": "138 nodes, status=\"rendered ✓  Master map  (432 lines\", shot 141KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
@@ -125,13 +125,13 @@
       "group": "tab-fit",
       "name": "S03-frontends",
       "pass": true,
-      "detail": "fit scale=0.247 (whole diagram visible, 4541x1758)"
+      "detail": "fit scale=0.223 (whole diagram visible, 5023x1815)"
     },
     {
       "group": "tab",
       "name": "S03-frontends",
       "pass": true,
-      "detail": "45 nodes, status=\"rendered ✓  S03-frontends  (94 lin\", shot 172KB, bodyClean=true"
+      "detail": "46 nodes, status=\"rendered ✓  S03-frontends  (99 lin\", shot 171KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
@@ -149,13 +149,13 @@
       "group": "tab-fit",
       "name": "S05-S06-services-llm",
       "pass": true,
-      "detail": "fit scale=0.275 (whole diagram visible, 4066x2301)"
+      "detail": "fit scale=0.282 (whole diagram visible, 3967x2320)"
     },
     {
       "group": "tab",
       "name": "S05-S06-services-llm",
       "pass": true,
-      "detail": "54 nodes, status=\"rendered ✓  S05-S06-services-llm  \", shot 177KB, bodyClean=true"
+      "detail": "55 nodes, status=\"rendered ✓  S05-S06-services-llm  \", shot 190KB, bodyClean=true"
     },
     {
       "group": "tab-fit",
@@ -233,7 +233,7 @@
       "group": "behaviour",
       "name": "a1 live re-render after typing",
       "pass": true,
-      "detail": "status=\"rendered ✓  Master map  (430 lines, 137 nodes)\""
+      "detail": "status=\"rendered ✓  Master map  (433 lines, 138 nodes)\""
     },
     {
       "group": "behaviour",
@@ -287,13 +287,13 @@
       "group": "behaviour",
       "name": "e3 fit changes the transform",
       "pass": true,
-      "detail": "translate(20px, 288.219px) scale(0.0598333)"
+      "detail": "translate(20px, 289.899px) scale(0.059248)"
     },
     {
       "group": "behaviour",
       "name": "e4 fit is not degenerate (stays legible)",
       "pass": true,
-      "detail": "scale=0.0598333 fillW=0.97 fillH=0.37"
+      "detail": "scale=0.059248 fillW=0.97 fillH=0.37"
     },
     {
       "group": "behaviour",
@@ -311,7 +311,7 @@
       "group": "behaviour",
       "name": "g syntax error -> red error in #status, svg kept",
       "pass": true,
-      "detail": "status=\"Mermaid error: Parse error on line 2:\n... TB  A[Broken --> B\" class=err color=rgb(198, 40, 40) nodes 137->137"
+      "detail": "status=\"Mermaid error: Parse error on line 2:\n... TB  A[Broken --> B\" class=err color=rgb(198, 40, 40) nodes 138->138"
     },
     {
       "group": "behaviour",
@@ -335,7 +335,7 @@
       "group": "feature",
       "name": "a2 search pans to first match",
       "pass": true,
-      "detail": "{\"dx\":0.00006103515625,\"dy\":0}"
+      "detail": "{\"dx\":0.000030517578125,\"dy\":0}"
     },
     {
       "group": "feature",
@@ -365,7 +365,7 @@
       "group": "feature",
       "name": "b1 unchecking \"verified\" dims verified nodes",
       "pass": true,
-      "detail": "dimmed=96 opacity=0.13 verifiedDimmed=true"
+      "detail": "dimmed=97 opacity=0.13 verifiedDimmed=true"
     },
     {
       "group": "feature",
@@ -437,13 +437,13 @@
       "group": "feature",
       "name": "c3 map still renders with directives appended",
       "pass": true,
-      "detail": "rendered ✓  Master map  (436 lines, 137 nodes) nodes=137"
+      "detail": "rendered ✓  Master map  (439 lines, 138 nodes) nodes=138"
     },
     {
       "group": "feature",
       "name": "c4 missing ids -> red warning, no append",
       "pass": true,
-      "detail": "len 20574->20574 cls=err"
+      "detail": "len 20682->20682 cls=err"
     },
     {
       "group": "feature",

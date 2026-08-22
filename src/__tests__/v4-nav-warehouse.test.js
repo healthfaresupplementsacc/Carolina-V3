@@ -9,9 +9,11 @@
  *    (Planejamento + Produto logo DEPOIS de Metas; pp/picklist saíram daqui;
  *    Roadmap foi pro Admin — Bruno 08-21, "o plano do sistema inteiro").
  *  - Seção nova "Estoque" (en "Warehouse Inventory") com o hub #estoque,
- *    Aprovações, Locais, Etiquetas (S15 fase 3, LOGO DEPOIS de Locais — é o
- *    destino do botão "Imprimir etiquetas" da própria página Locais), as duas
- *    páginas antigas rotuladas "(antigo)", Product Setup e Configurações.
+ *    Montar estoque (S15.43, 08-22, LOGO DEPOIS do hub — porta de CARGA do
+ *    armazém), Aprovações, Locais, Etiquetas (S15 fase 3, LOGO DEPOIS de
+ *    Locais — é o destino do botão "Imprimir etiquetas" da própria página
+ *    Locais), as duas páginas antigas rotuladas "(antigo)", Product Setup e
+ *    Configurações.
  *  - Subgrupo "P&P" dentro da MESMA seção, com pp + picklist.
  *  - Seção Estoque gated por view_stock.
  */
@@ -66,10 +68,10 @@ describe('dashboard-v4 Shell NAV — seção Estoque (S15)', () => {
     expect(block).toMatch(/fn:\s*"view_stock"/);
   });
 
-  test('a seção Estoque tem hub, aprovações, locais, etiquetas, setup, config e o subgrupo P&P na ordem (sem as antigas, 08-19)', () => {
+  test('a seção Estoque tem hub, montar estoque, aprovações, locais, etiquetas, setup, config e o subgrupo P&P na ordem (sem as antigas, 08-19)', () => {
     const ids = idsIn(sectionBlock('Estoque'));
     expect(ids).toEqual([
-      'estoque', 'estoque-aprovacoes', 'estoque-locais', 'estoque-etiquetas',
+      'estoque', 'estoque-montar', 'estoque-aprovacoes', 'estoque-locais', 'estoque-etiquetas',
       'produto-setup', 'config-estoque',
       'pp', 'picklist',
     ]);

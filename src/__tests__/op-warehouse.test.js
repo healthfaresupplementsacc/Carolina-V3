@@ -109,6 +109,12 @@ function makeDb(state) {
         const b = state.boxes.find((x) => x.id === params[0]);
         return { rows: b ? [{ tare_g: b.tare_g }] : [] };
       }
+      // tara da caixa com o TIPO junto (S15.43: resolveTareInfo faz LEFT JOIN box_types)
+      if (/SELECT x\.tare_g, t\.tare_g AS type_tare_g/.test(q)) {
+        const b = state.boxes.find((x) => x.id === params[0]);
+        return { rows: b ? [{ tare_g: b.tare_g, type_tare_g: b.type_tare_g || null,
+          tare_min_g: b.tare_min_g || null, tare_max_g: b.tare_max_g || null }] : [] };
+      }
       if (/FROM v3\.stock_unplaced u JOIN v3\.products/.test(q)) {
         return { rows: [{ product_id: 10, qty: 80, product: 'BENF-300' }] };
       }

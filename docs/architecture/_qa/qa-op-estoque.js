@@ -51,6 +51,12 @@ const BOXES = [
   { id: 8, box_number: 'BX-0451', area: 'MEZ', qty: 100, tare_g: 900, product_id: 99, product: 'Rutin 500mg' },
   // caixa SEM tara cadastrada: e aqui que os presets de tara tem que aparecer
   { id: 9, box_number: 'BX-0452', area: 'MEZ', qty: 60, product_id: 99, product: 'Rutin 500mg' },
+  /* Bruno 08-22: caixa registrada por TIPO (20x20x20), pesada vazia em ~10:
+     tara media 782 g, espalhamento real 96 g. O shape box_type e o que o hub
+     espera do stock/context quando o backend pendurar o tipo na linha da
+     caixa (gap anotado pro agente do backend). */
+  { id: 10, box_number: 'BX-0453', area: 'MEZ', qty: 0, product_id: 99, product: 'Rutin 500mg',
+    box_type: { id: 1, name: '20x20x20', tare_g: 782, spread_g: 96 } },
 ];
 const CONTEXT = { enabled: true, products: PRODUCTS, bins: BINS, boxes: BOXES };
 const TASKS = {
@@ -132,7 +138,19 @@ function apiFixture(pathname, method, body, query) {
   }
   if (p === 'scan/resolve') return resolveBarcode(query && query.get('barcode'));
   if (p === 'stock/organize') return { ok: true, applied: true };
-  if (p === 'stock/count/weigh') return { ok: true, request_id: 91, qty: 100, confidence: 'high' };
+  if (p === 'stock/count/weigh') {
+    // shape do contrato D: qty_min/qty_max (tara do tipo ± spread/2) + recount
+    // shape REAL do countWeigh (op-warehouse.js, S15.44): sem tare_spread_g no
+    // corpo da resposta (ele viaja no meta da proposta), confidence em EN.
+    if (body && body.box_id === 10) {
+      return { ok: true, request_id: 95, status: 'pending', qty: 110, confidence: 'high',
+        residual_g: 0, qty_min: 109, qty_max: 111, residual_fraction: 0,
+        recount_suggested: true, unit_weight_g: 48, tare_g: 782, net_g: 5280 };
+    }
+    return { ok: true, request_id: 91, status: 'pending', qty: 100, confidence: 'high',
+      residual_g: 0, qty_min: 100, qty_max: 100, residual_fraction: 0,
+      recount_suggested: false, unit_weight_g: 48, tare_g: 500, net_g: 4800 };
+  }
   if (p === 'stock/count/manual') return { ok: true, request_id: 92 };
   if (p === 'stock/box/new') return { ok: true, request_id: 93, status: 'pending' };
   if (p === 'stock/box/label') {
@@ -325,6 +343,15 @@ async function main() {
     !/sistema diz/i.test(cnt0) && !/já tem/i.test(blind) && !/\b4\b/.test(blind), JSON.stringify(blind));
   rec('contar', 'explica por que o numero fica escondido',
     /Conte sem olhar o sistema/.test(cnt0) && /escondido de propósito/.test(cnt0), '');
+  // balança HIBRIDA (Bruno 08-22): hoje o operador digita o visor; a balança
+  // USB "digita sozinha" no MESMO campo, que vive focado.
+  rec('balanca', 'campo de gramas fica AUTOFOCADO (a balança USB digita nele)',
+    await page.evaluate(() => {
+      const a = document.activeElement;
+      return !!(a && a.getAttribute && a.getAttribute('data-input') === 'cntGross');
+    }), '');
+  rec('balanca', 'hint da balança USB embaixo do campo',
+    /aceita balança USB que digita sozinha/.test(cnt0), '');
 
   // 5300 g bruto - 500 tara = 4800 / 48 = 100 garrafas exatas
   await page.evaluate(() => {
@@ -402,6 +429,95 @@ async function main() {
   const ownTxt = await page.evaluate(() => document.body.innerText);
   rec('tara', 'local com tara cadastrada usa a DELE, nao o preset',
     /tara: cadastrada neste local 500 g/.test(ownTxt) && /já tem a tara cadastrada/i.test(ownTxt), '');
+
+  // ── TIPO de caixa (Bruno 08-22): tara do tipo + FAIXA da pesagem ──
+  // BX-0453 e do tipo 20x20x20 (tara media 782 g, espalhamento 96 g).
+  await scan('BX-0453');
+  await sleep(400);
+  const btTxt = await page.evaluate(() => document.body.innerText);
+  rec('tipo-caixa', 'a tela diz a tara do tipo: "tara: caixa 20x20x20, 782 g"',
+    /tara: caixa 20x20x20, 782 g/.test(btTxt), '');
+  rec('tipo-caixa', 'com a tara do tipo os presets nao roubam a vez',
+    /pesada com as vazias/.test(btTxt), '');
+  // 6062 bruto - 782 = 5280 = 110 exatas; com tara ±48 g a conta "dá 109 a 111"
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-input="cntGross"]');
+    i.value = '6062';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(500);
+  const btPv = await page.evaluate(() => {
+    const nx = document.querySelector('#cntPreview');
+    return nx ? nx.innerText.replace(/\s+/g, ' ') : '';
+  });
+  rec('tipo-caixa', 'a previa mostra a FAIXA "dá 109 a 111" com a confiança',
+    /dá 109 a 111/i.test(btPv) && /confiança alta/i.test(btPv), btPv.slice(0, 120));
+  rec('tipo-caixa', 'faixa aberta sugere contar na mao (cartao ambar, nunca trava)',
+    /Melhor contar na mão/.test(btPv) && /enviar assim mesmo/i.test(btPv), '');
+  rec('tipo-caixa', 'o Confirmar grande se recolhe: sobra UM envio, um toque',
+    await page.evaluate(() => {
+      const w = document.querySelector('#cntSubmitWrap');
+      return !!w && w.style.display === 'none';
+    }), '');
+  await shot('05c-contar-faixa');
+  // "contar na mao" troca o modo SEM perder a caixa escolhida
+  await (await page.$('[data-act="cntRecountManual"]')).click();
+  await sleep(400);
+  const manualKeep = await page.evaluate(() => ({
+    mode: window.HF_EST.state.cnt.mode,
+    box: window.HF_EST.state.cnt.target && window.HF_EST.state.cnt.target.box
+      ? window.HF_EST.state.cnt.target.box.box_number : null,
+  }));
+  rec('tipo-caixa', '"contar na mão" vira manual e SEGURA a caixa BX-0453',
+    manualKeep.mode === 'manual' && manualKeep.box === 'BX-0453', JSON.stringify(manualKeep));
+  // volta pro Pesar e manda assim mesmo: o POST sai SEM tare_g (a tara do tipo
+  // fica com o servidor, que conhece a media e o espalhamento)
+  await (await page.$('[data-act="cntMode"][data-arg="weigh"]')).click();
+  await sleep(400);
+  posted.length = 0;
+  await (await page.$('#cntPreview [data-act="submitWeigh"]')).click();
+  await sleep(800);
+  const btPost = posted.find((x) => x.pathname === '/api/v3/op/stock/count/weigh');
+  rec('tipo-caixa', '"enviar assim mesmo" posta SEM tare_g e com box_id',
+    !!btPost && btPost.body.box_id === 10 && btPost.body.tare_g === undefined && btPost.body.gross_g === 6062,
+    btPost ? JSON.stringify(btPost.body) : 'sem post');
+  const btToast = await page.evaluate(() => document.body.innerText);
+  rec('tipo-caixa', 'o toast repete a faixa do servidor ("Deu de 109 a 111")',
+    /Contagem enviada/.test(btToast) && /Deu de 109 a 111/.test(btToast), '');
+
+  // ── sobra no meio do caminho: 100,5 garrafas → recontagem ──
+  await scan('A03B2');
+  await sleep(400);
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-input="cntGross"]');
+    i.value = '5324';
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(500);
+  const midPv = await page.evaluate(() => {
+    const nx = document.querySelector('#cntPreview');
+    return nx ? nx.innerText.replace(/\s+/g, ' ') : '';
+  });
+  rec('recontagem', 'meia garrafa de sobra: "Deu muita sobra pra fechar a conta"',
+    /Deu muita sobra pra fechar a conta/.test(midPv) && /Melhor contar na mão/.test(midPv), midPv.slice(0, 140));
+  rec('recontagem', 'a conta NUNCA desce: 100,5 garrafas viram 101',
+    /\b101\b/.test(midPv), midPv.slice(0, 80));
+  await shot('05d-contar-recontagem');
+
+  // leitor USB "digitou" um codigo no campo de gramas focado: o Enter vira scan
+  await page.evaluate(() => {
+    const i = document.querySelector('[data-input="cntGross"]');
+    i.focus(); i.value = 'BX-0451';
+    i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
+  await sleep(500);
+  const reroute = await page.evaluate(() => ({
+    box: window.HF_EST.state.cnt.target && window.HF_EST.state.cnt.target.box
+      ? window.HF_EST.state.cnt.target.box.box_number : null,
+    gross: window.HF_EST.state.cnt.gross,
+  }));
+  rec('balanca', 'codigo lido dentro do campo de gramas vira scan (e some do campo)',
+    reroute.box === 'BX-0451' && reroute.gross === '', JSON.stringify(reroute));
 
   // "Esta vazio" = contagem no zero, um toque
   await scan('A03B2');

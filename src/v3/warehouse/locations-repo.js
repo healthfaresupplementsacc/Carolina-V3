@@ -28,9 +28,11 @@ class LocationsRepo {
        ORDER BY b.active DESC, b.shelf_code NULLS LAST, b.bin_code`)).rows;
     const boxes = (await this.db.query(`
       SELECT x.id, x.box_number, x.area, x.product_id, x.qty, x.status,
+             x.box_type_id, t.name AS box_type,
              COALESCE(p.nickname, p.canonical_name) AS product
         FROM v3.stock_boxes x
         LEFT JOIN v3.products p ON p.id = x.product_id
+        LEFT JOIN v3.box_types t ON t.id = x.box_type_id
        ORDER BY x.status, x.box_number`)).rows;
     return { bins, boxes };
   }
@@ -71,20 +73,24 @@ class LocationsRepo {
 
   /**
    * Cria/atualiza uma caixa pelo número. NUNCA toca qty (a entrada inicial passa
-   * pelo StockService no router). p: {box_number, area?, product_id?}
+   * pelo StockService no router). box_type_id (S15.43) liga a caixa ao TAMANHO
+   * dela ("20x20x20") — é de lá que a tara média + espalhamento vêm na pesagem.
+   * p: {box_number, area?, product_id?, box_type_id?}
    */
   async upsertBox(p = {}) {
     const num = String(p.box_number || '').trim();
     if (!num) throw new Error('box_number obrigatório');
     const r = await this.db.query(`
-      INSERT INTO v3.stock_boxes (box_number, area, product_id)
-      VALUES ($1,$2,$3)
+      INSERT INTO v3.stock_boxes (box_number, area, product_id, box_type_id)
+      VALUES ($1,$2,$3,$4)
       ON CONFLICT (box_number) DO UPDATE
-        SET area       = COALESCE(EXCLUDED.area,       v3.stock_boxes.area),
-            product_id = COALESCE(EXCLUDED.product_id, v3.stock_boxes.product_id),
-            updated_at = NOW()
+        SET area        = COALESCE(EXCLUDED.area,        v3.stock_boxes.area),
+            product_id  = COALESCE(EXCLUDED.product_id,  v3.stock_boxes.product_id),
+            box_type_id = COALESCE(EXCLUDED.box_type_id, v3.stock_boxes.box_type_id),
+            updated_at  = NOW()
       RETURNING *`,
-    [num, p.area || null, p.product_id ? Number(p.product_id) : null]);
+    [num, p.area || null, p.product_id ? Number(p.product_id) : null,
+      p.box_type_id ? Number(p.box_type_id) : null]);
     return r.rows[0];
   }
 

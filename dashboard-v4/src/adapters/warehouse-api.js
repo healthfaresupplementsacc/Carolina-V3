@@ -247,3 +247,31 @@ export async function fetchPrintFile(jobId) {
 export const getDrift      = () => whGet('/drift');
 /** Copia o UPC da Veeqo pros SKUs mapeados. */
 export const importUpc     = () => whPost('/skus/import-upc', {});
+
+/* ── MONTAR ESTOQUE (S15.43, Bruno 08-22) ──────────────────────────
+   A página #estoque-montar é a porta de CARGA do armazém: pesos por
+   produto, tipos de caixa com tara calibrada, e o POST /load que é a
+   ÚNICA porta que a página usa pra pôr garrafa no estoque (o backend
+   compõe os verbos do StockService; nunca SQL direto).
+
+   Tipos de caixa: a caixa é cadastrada por TAMANHO ("20x20x20"); pesa-se
+   ~10 vazias e o sistema guarda a MÉDIA como tara + a variação real entre
+   elas. spread_g = tare_max_g - tare_min_g. needs_recalibration avisa,
+   NUNCA bloqueia. */
+export const getBoxTypes     = () => whGet('/box-types');
+export const createBoxType   = (body) => whPost('/box-types', body);
+/** Calibrar tara: ou {weights_g:[...]} (uma por uma) ou {total_g, count}
+ *  (todas juntas). Substitui as estatísticas e carimba last_calibrated_at. */
+export const calibrateBoxType = (id, body) => whPost('/box-types/' + id + '/calibrate', body);
+export const updateBoxType   = (id, body) => whPost('/box-types/' + id, body);
+
+/** A porta única da carga. body = { product_id, qty, dest:{kind,id?},
+ *  source:'count_manual'|'count_weigh'|'production_direct'|'loose_fixed',
+ *  meta?, client_ref (uuid: repetir a chamada não duplica) }.
+ *  Resposta traz o produto atualizado + veeqo_match pro chip ao vivo. */
+export const postLoad        = (body) => whPost('/load', body);
+
+/** O cabeçalho da página numa consulta só: produtos, pesos, locais,
+ *  garrafas carregadas, quantos batem com a Veeqo e quais tipos de caixa
+ *  precisam re-pesar. */
+export const getLoadProgress = () => whGet('/load/progress');
