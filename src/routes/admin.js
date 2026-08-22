@@ -17,6 +17,8 @@
  *   POST /api/adminpanel/operators/:id/force-logout
  *   GET  /api/adminpanel/operators/:id/sessions         últimas 30d
  *   GET  /api/adminpanel/operators/:id/events           últimos 7d (read-only)
+ *   GET  /api/adminpanel/operators/:id/clock-candidates roster NGTeco + sugestão de vínculo
+ *   PUT  /api/adminpanel/operators/:id/clock-code       {code|null} vincula/desvincula relógio
  *
  * Notifications (Fase C):
  *   GET  /api/adminpanel/notifications?status=&type=&limit=&offset=
@@ -25,6 +27,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const opAuth = require('../lib/op-auth');
+const clockLink = require('../v3/services/clock-link');
 const { makeRateLimit } = require('../middleware/security');
 
 const SESSION_HOURS = 8;
@@ -277,6 +280,7 @@ function createAdminRouter(deps = {}) {
   router.get('/api/adminpanel/operators', h(async (req, res) => {
     const r = await db.query(`
       SELECT p.id, p.display_name, (p.pin_hash IS NOT NULL) AS has_pin,
+             p.clock_code,
              p.auto_logoff_seconds, p.count_exempt, p.active AS is_active,
              p.last_page_login_at,
              (SELECT COUNT(*)::int FROM v3.operator_sessions s
@@ -313,7 +317,58 @@ function createAdminRouter(deps = {}) {
        RETURNING id, display_name, auto_logoff_seconds, count_exempt`,
       [name, pin_hash, pin_salt, autoLogoff === null ? null : parseInt(autoLogoff, 10) || 30, countExempt]);
     await audit('operator.created', 'person', ins.rows[0].id, { display_name: name, via: 'admin_panel' });
-    res.json({ ok: true, operator: ins.rows[0] });
+
+    // Vínculo automático com o relógio NGTeco (Bruno 08-21): procura o nome no
+    // roster e vincula SÓ com match único de nome+sobrenome. Best-effort — se o
+    // NGTeco falhar, o operador é criado do mesmo jeito (REGRA #0) e o vínculo
+    // fica pra fazer no "Gerenciar".
+    let clock = { status: 'skipped' };
+    if (clockLink.configured()) {
+      try {
+        const found = await clockLink.lookup(db, name, ins.rows[0].id);
+        clock = { status: found.status, match: found.match || null, candidates: found.candidates };
+        if (found.status === 'matched') {
+          await db.query(`UPDATE v3.persons SET clock_code=$2, updated_at=NOW() WHERE id=$1`, [ins.rows[0].id, found.match.code]);
+          await audit('person.clock_link', 'person', ins.rows[0].id,
+            { clock_code: found.match.code, clock_name: found.match.name, via: 'auto_on_create' }, req);
+        }
+      } catch (e) {
+        console.error('[admin] clock-link auto falhou:', e.message);
+        clock = { status: 'error', detail: e.message };
+      }
+    }
+    res.json({ ok: true, operator: ins.rows[0], clock_link: clock });
+  }));
+
+  // ── relógio de ponto (NGTeco) ↔ pessoa (Bruno 08-21) ─────────
+  // Candidatos pro vínculo manual: roster completo + sugestão pro nome.
+  router.get('/api/adminpanel/operators/:id/clock-candidates', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const p = await db.query(`SELECT id, display_name, clock_code FROM v3.persons WHERE id=$1 AND role='operator' AND deleted_at IS NULL`, [id]);
+    if (!p.rows[0]) return res.status(404).json({ error: 'operator_not_found' });
+    if (!clockLink.configured()) return res.status(503).json({ error: 'ngteco_not_configured' });
+    const found = await clockLink.lookup(db, p.rows[0].display_name, id);
+    res.json({ ok: true, person: p.rows[0], status: found.status, match: found.match || null, candidates: found.candidates, roster: found.roster });
+  }));
+
+  // Vincular/desvincular manualmente. body {code} (null/'' = desvincular).
+  router.put('/api/adminpanel/operators/:id/clock-code', h(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const raw = req.body ? req.body.code : undefined;
+    const code = raw == null ? null : String(raw).trim() || null;
+    const p = await db.query(`SELECT id, display_name, clock_code FROM v3.persons WHERE id=$1 AND role='operator' AND deleted_at IS NULL`, [id]);
+    if (!p.rows[0]) return res.status(404).json({ error: 'operator_not_found' });
+    if (code) {
+      const dup = await db.query(
+        `SELECT id, display_name FROM v3.persons WHERE clock_code=$1 AND id<>$2 AND deleted_at IS NULL LIMIT 1`, [code, id]);
+      if (dup.rows[0]) {
+        return res.status(400).json({ error: 'code_taken', detail: `Código #${code} já é de ${dup.rows[0].display_name}.` });
+      }
+    }
+    await db.query(`UPDATE v3.persons SET clock_code=$2, updated_at=NOW() WHERE id=$1`, [id, code]);
+    await audit(code ? 'person.clock_link' : 'person.clock_unlink', 'person', id,
+      { clock_code: code, was: p.rows[0].clock_code, via: 'admin_panel_manual' }, req);
+    res.json({ ok: true, id, clock_code: code });
   }));
 
   // remover operador (soft-delete; mantém events históricos) (Fase E)

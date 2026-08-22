@@ -117,7 +117,10 @@
         : !o.has_pin ? '<span class="pill warn">🟡 sem PIN</span>'
           : '<span class="pill on">🟢 ativo</span>';
       const c = el('div', 'card');
-      c.appendChild(el('div', 'row', `<span class="title">${o.display_name}</span>${status}`));
+      const clock = o.clock_code
+        ? `<span class="pill on">⏰ relógio #${o.clock_code}</span>`
+        : '<span class="pill warn">⏰ sem relógio</span>';
+      c.appendChild(el('div', 'row', `<span class="title">${o.display_name}</span>${status}${clock}`));
       c.appendChild(el('div', 'sub',
         `Auto-logoff: <b>${o.auto_logoff_seconds == null ? 'desligado' : o.auto_logoff_seconds + 's'}</b> · ` +
         `Pula contagem: <b>${o.count_exempt ? 'sim' : 'não'}</b> · ` +
@@ -176,6 +179,61 @@
       } catch (e) { toast('❌ ' + e.message); }
     };
     fEx.appendChild(btEx); box.appendChild(fEx);
+
+    // relógio de ponto NGTeco (Bruno 08-21): mostra o vínculo, procura no
+    // roster e vincula/desvincula. Sem vínculo a pessoa não aparece no PONTO.
+    const fCk = el('div', 'field');
+    fCk.appendChild(el('label', null, '⏰ Relógio de ponto (NGTeco)'));
+    const ckStatus = el('div', 'sub', o.clock_code
+      ? `Vinculado ao código <b>#${o.clock_code}</b>`
+      : '<b>Sem vínculo</b> — não aparece no Ponto do dashboard');
+    fCk.appendChild(ckStatus);
+    const ckBox = el('div', 'cards');
+    const setCode = async (code, label) => {
+      if (!window.confirm(code ? `Vincular ${o.display_name} ao relógio #${code} (${label})?` : `Desvincular ${o.display_name} do relógio #${o.clock_code}?`)) return;
+      try {
+        await api(`/api/adminpanel/operators/${o.id}/clock-code`, { method: 'PUT', body: { code } });
+        o.clock_code = code;
+        ckStatus.innerHTML = code ? `Vinculado ao código <b>#${code}</b>` : '<b>Sem vínculo</b> — não aparece no Ponto do dashboard';
+        ckBox.innerHTML = '';
+        toast(code ? `✅ Vinculado ao relógio #${code}` : '✅ Desvinculado');
+      } catch (e) { toast('❌ ' + e.message); }
+    };
+    const rowCk = el('div', 'inline');
+    const btCk = el('button', 'btn-sm', '🔍 Procurar no relógio');
+    btCk.onclick = async () => {
+      btCk.disabled = true; ckBox.innerHTML = '';
+      try {
+        const r = await api(`/api/adminpanel/operators/${o.id}/clock-candidates`);
+        const M = {
+          matched: '🎯 Achei um match certo:',
+          needs_full_name: '⚠️ Nome de um token só — confirme na lista:',
+          ambiguous: '⚠️ Mais de um candidato — escolha:',
+          not_found: '❌ Nenhum nome parecido. Roster completo:',
+          code_taken: '⚠️ O match já está vinculado a outra pessoa:',
+        };
+        ckBox.appendChild(el('div', 'sub', M[r.status] || 'Roster do relógio:'));
+        const list = (r.candidates && r.candidates.length) ? r.candidates : (r.roster || []);
+        list.forEach((c) => {
+          const row = el('div', 'card');
+          row.appendChild(el('div', 'row', `<span class="title">#${c.code} ${c.name}</span>${c.taken ? '<span class="pill warn">já vinculado</span>' : ''}`));
+          if (!c.taken) {
+            const bt = el('button', 'btn-sm', 'Vincular');
+            bt.onclick = () => setCode(c.code, c.name);
+            const act2 = el('div', 'actions'); act2.appendChild(bt); row.appendChild(act2);
+          }
+          ckBox.appendChild(row);
+        });
+      } catch (e) { toast('❌ ' + e.message); }
+      finally { btCk.disabled = false; }
+    };
+    rowCk.appendChild(btCk);
+    if (o.clock_code) {
+      const btUn = el('button', 'btn-sm', '✖ Desvincular');
+      btUn.onclick = () => setCode(null);
+      rowCk.appendChild(btUn);
+    }
+    fCk.appendChild(rowCk); fCk.appendChild(ckBox); box.appendChild(fCk);
 
     // ativo + force logout
     const fAct = el('div', 'field');
@@ -961,12 +1019,21 @@
       if (!fields.name.value.trim()) { toast('Nome obrigatório'); return; }
       if (!/^\d{4}$/.test(fields.pin.value)) { toast('PIN precisa de 4 dígitos'); return; }
       try {
-        await api('/api/adminpanel/operators', { method: 'POST', body: {
+        const r = await api('/api/adminpanel/operators', { method: 'POST', body: {
           display_name: fields.name.value.trim(), pin: fields.pin.value,
           auto_logoff_seconds: fields.logoff.value === '' ? null : parseInt(fields.logoff.value, 10),
           count_exempt: cEx.checked,
         } });
-        toast('✅ Operador criado'); show('ops'); await loadOps();
+        // resultado do vínculo automático com o relógio NGTeco (Bruno 08-21)
+        const cl = r.clock_link || {};
+        if (cl.status === 'matched' && cl.match) toast(`✅ Criado · relógio #${cl.match.code} (${cl.match.name})`);
+        else if (cl.status === 'needs_full_name') toast('✅ Criado · ⚠️ nome+sobrenome pra vincular o relógio: use Gerenciar');
+        else if (cl.status === 'ambiguous') toast('✅ Criado · ⚠️ mais de um no relógio com esse nome: vincule em Gerenciar');
+        else if (cl.status === 'not_found') toast('✅ Criado · ⚠️ não achei no relógio de ponto: vincule em Gerenciar');
+        else if (cl.status === 'code_taken') toast('✅ Criado · ⚠️ código do relógio já usado por outra pessoa: veja Gerenciar');
+        else if (cl.status === 'error') toast('✅ Criado · ⚠️ relógio fora do ar, vincule depois em Gerenciar');
+        else toast('✅ Operador criado');
+        show('ops'); await loadOps();
       } catch (e) {
         const M = { name_taken: 'Nome já existe', pin_taken: 'PIN já usado por outro operador', bad_pin_format: 'PIN inválido' };
         toast('❌ ' + (M[e.message] || e.message));
@@ -981,6 +1048,8 @@
   let auditOffset = 0;
   const ACTION_LABEL = {
     'person.pin_changed': (m) => 'Mudou PIN de ' + (m.target_id ? '#' + m.target_id : ''),
+    'person.clock_link': (m) => '⏰ Vinculou relógio #' + (m.clock_code || '?'),
+    'person.clock_unlink': () => '⏰ Desvinculou relógio',
     'person.pin_set': () => 'Definiu PIN',
     'event.deleted': (m) => 'Apagou evento ev' + m.target_id,
     'event.closed_via_carolina': (m) => 'Fechou ev' + m.target_id + ' (via Carolina)',

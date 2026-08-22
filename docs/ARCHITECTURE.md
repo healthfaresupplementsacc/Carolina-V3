@@ -400,6 +400,7 @@ View-only PIN-gated proxy to the camera-PC gateway + machine-motion signal.
 - WRITE `v3.blocked_ips` — via brute-force guard (`wire.js:126` → `security.js:121`).
 - READ legacy `public.tasks`/`public.phase_instances` — divergences cross-ref `admin-v3/routes.js:167`.
 - admin.js also manages `v3.persons`, `v3.operator_sessions`, `v3.notifications` per endpoint.
+- WRITE `v3.persons.clock_code` — clock-link NGTeco (08-21): auto-link no create-operator (`admin.js` POST `/api/adminpanel/operators`, match único nome+sobrenome via `src/v3/services/clock-link.js`) + vínculo manual `PUT /api/adminpanel/operators/:id/clock-code`; candidatos em `GET /api/adminpanel/operators/:id/clock-candidates`. Sem clock_code a pessoa não entra no `/attendance` nem no attendance-sync.
 
 **Receives from**
 - Slack sender: `createAdminRouter` receives `{ postAs, updateMessage }` `admin.js:59`.

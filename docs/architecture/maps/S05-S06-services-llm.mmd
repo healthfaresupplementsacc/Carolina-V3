@@ -24,6 +24,7 @@ subgraph S05["S05 · V3 services (src/v3/services) — all reachable"]
   S05_15["S05.15 · ems-api client"]:::verified
   S05_16["S05.16 · veeqo-api client (1 write: setStock wh 108841)"]:::verified
   S05_17["S05.17 · ngteco client (3-step handshake)"]:::verified
+  S05_18["S05.18 · clock-link (pessoa↔relógio NGTeco, match nome+sobrenome)"]:::verified
 end
 
 subgraph S06["S06 · Carolina V3 LLM"]
@@ -111,6 +112,7 @@ S06_17 --> S10_01
 S05_15 --> S10_02
 S05_16 --> S10_03
 S05_17 --> S10_04
+S05_18 --> S05_17
 S05_13 --> S05_15
 S05_13 --> S05_16
 WIRE["S01.03 wire.js"]:::verified
