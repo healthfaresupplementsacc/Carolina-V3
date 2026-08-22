@@ -186,6 +186,7 @@ IDs refer to `STRUCTURE_INDEX.md`. Mermaid uses the same R-ids as edge labels wh
 | R165 | S15.20 migration 071 → S08.05.05 (+2 tables, widened CHECKs) | VERIFIED | migration file |
 | R167 | S02.08 op.js `stock/take|propose|recent` → S15 `src/v3/warehouse/op-stock.js` → S15.18 StockRequestService / S15.19 StockService.separate; `stock/context`+`stock/restock` session-only | VERIFIED | `op-stock.js`; `op.js:311-345` |
 | R168 | S03.02 /op `ws.js` (workspace) → `/api/v3/op/stock/take|propose|restock|context|recent` | VERIFIED | `src/op/ws.js`; `op-redesign.test.js` REAL list |
+| R245 | SKU `<raiz>-WFS` -> MESMO produto do SKU `<raiz>`: `-WFS` e sufixo do canal Walmart (WFS), nunca produto proprio; tabela legivel em docs/architecture/data/WALMART-WFS-SKUS.md | VERIFIED | `v3.product_skus`; 55 orfaos religados 08-22 |
 | R170 | S15.24 import-veeqo → StockService.storeIn (unplaced, kind import, source veeqo_import, idempotent per day) | VERIFIED | router.js importVeeqo |
 | R171 | Phone `/scan/` → `POST /api/v3/scan/push` (pair code) → scan-hub → SSE `GET /api/v3/scan/stream?code&t=` → operator hub (`estoque.js`) | VERIFIED | op-warehouse.js; estoque.js streamUrl |
 | R172 | S15.26 operator hub → `/api/v3/op/stock/organize` (place, immediate) · `stock/count/weigh|manual` (proposal with meta) · `stock/box/new` (proposal; box allocated on approval by StockRequestService) · `stock/tasks` · `stock/lookup` | VERIFIED | op.js:326-339 |
