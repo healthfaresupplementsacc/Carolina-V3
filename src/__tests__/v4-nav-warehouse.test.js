@@ -5,8 +5,9 @@
  * de UI existentes, ex. op-redesign.test.js, também usam regex sobre o fonte).
  *
  * Regras travadas aqui (Bruno 08-18, estudo S15 §5/§10):
- *  - Operação = Hoje, Roadmap, Produção, Metas, Planejamento, Produto, Pessoas
- *    (Planejamento + Produto logo DEPOIS de Metas; pp/picklist saíram daqui).
+ *  - Operação = Hoje, Produção, Metas, Planejamento, Produto, Pessoas
+ *    (Planejamento + Produto logo DEPOIS de Metas; pp/picklist saíram daqui;
+ *    Roadmap foi pro Admin — Bruno 08-21, "o plano do sistema inteiro").
  *  - Seção nova "Estoque" (en "Warehouse Inventory") com o hub #estoque,
  *    Aprovações, Locais, Etiquetas (S15 fase 3, LOGO DEPOIS de Locais — é o
  *    destino do botão "Imprimir etiquetas" da própria página Locais), as duas
@@ -38,9 +39,16 @@ function idsIn(block) {
 describe('dashboard-v4 Shell NAV — seção Estoque (S15)', () => {
   test('Operação tem a ordem certa e Planejamento/Produto logo depois de Metas', () => {
     const ids = idsIn(sectionBlock('Operação'));
-    expect(ids).toEqual(['hoje', 'roadmap', 'producao', 'metas', 'planejamento', 'produto', 'pessoas']);
+    expect(ids).toEqual(['hoje', 'producao', 'metas', 'planejamento', 'produto', 'pessoas']);
     expect(ids.indexOf('planejamento')).toBe(ids.indexOf('metas') + 1);
     expect(ids.indexOf('produto')).toBe(ids.indexOf('planejamento') + 1);
+  });
+
+  test('Roadmap mora no Admin, gated por admin_page (Bruno 08-21)', () => {
+    const op = idsIn(sectionBlock('Operação'));
+    expect(op).not.toContain('roadmap');
+    const admin = sectionBlock('Admin');
+    expect(admin).toMatch(/id:\s*"roadmap",[^}]*fn:\s*"admin_page"/);
   });
 
   test('Operação não tem mais P&P nem Picklist', () => {

@@ -26,7 +26,6 @@ import healthFareLogo from '../../assets/healthfare-logo.png';
 const NAV = [
   { section: "Operação", en: "Operations", icon: "home", items: [
     { id: "hoje",         pt: "Hoje",         en: "Today",       icon: "home" },
-    { id: "roadmap",      pt: "Roadmap",      en: "Roadmap",     icon: "plan" },
     { id: "producao",     pt: "Produção",     en: "Production",  icon: "factory" },
     { id: "metas",        pt: "Metas",        en: "Goals",       icon: "target" },
     { id: "planejamento", pt: "Planejamento", en: "Planning",    icon: "plan" },
@@ -59,8 +58,11 @@ const NAV = [
     { id: "suporte",      pt: "Suporte",        en: "Support",         icon: "support" },
   ]},
   // Admin: só quem tem a função aparece (manager NÃO vê — Bruno 08-03).
+  // Roadmap = plano do sistema inteiro, é assunto de admin, não de operação
+  // (Bruno 08-21: "deveria estar dentro do menu do ADMIN").
   { section: "Admin", en: "Admin", icon: "config", items: [
     { id: "admin",        pt: "Admin",              en: "Admin panel",     icon: "config", fn: "admin_page" },
+    { id: "roadmap",      pt: "Roadmap",            en: "Roadmap",         icon: "plan",   fn: "admin_page" },
     { id: "operadores",   pt: "Operadores",         en: "Operators",       icon: "people", fn: "admin_page" },
     { id: "usuarios",     pt: "Usuários & Acessos", en: "Users & Access",  icon: "people", fn: "manage_users" },
     { id: "config",       pt: "Config",             en: "Settings",        icon: "config", fn: "config_page" },
