@@ -19,12 +19,22 @@ const { onDemandActive, getPlan } = require('../v3/workday');
 // Tarefas que NÃO contam como "operador trabalhando" (limpeza / pausa / fim de dia).
 const NON_WORK_SLUGS = "('cleaning','cleaning_other','break','lunch','end_of_day')";
 
+/** Esse nome de máquina é a ENCAPSULADORA? Insensível a acento e maiúscula, pra
+ *  casar tanto "Capsule Dispensing Machine" (v3.camera_zones id 4 e 6) quanto
+ *  "Encapsuladora" ou "encapsulação". Bruno 08-25. */
+function isEncapName(name) {
+  if (!name) return false;
+  const n = String(name).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return /encapsul|capsul/.test(n);
+}
+
 class EncapMonitor {
   constructor(deps = {}) {
     this.db = deps.db;
     this.slack = deps.slack || null; // { postAs }
     this.channelId = deps.channelId; // canal dos operadores
     this.adminChannelId = deps.adminChannelId || 'C0B36DR5MP1'; // admin-orin (pergunta antes de auto-registrar)
+    this.fs = deps.fs || null;                                  // só existe na máquina que tem o G: (dossiê)
     // idade máx do sinal da câmera pra confiar nele (o .28 faz push ~30s; 3min = folga)
     this.cameraMaxAgeMs = deps.cameraMaxAgeMs || 3 * 60 * 1000;
     this.enabled = deps.enabled !== undefined ? deps.enabled : (process.env.ENCAP_MONITOR_ENABLED !== 'false');
@@ -150,23 +160,95 @@ class EncapMonitor {
     return r.rowCount > 0;
   }
 
-  /** A CÂMERA (machinemon .28, cam3/cam4) diz que a máquina está SE MEXENDO agora?
+  /** A CÂMERA (machinemon .28) diz que a ENCAPSULADORA está SE MEXENDO agora?
    *  Sinal vem por push em v3.settings 'machine_state'. RULE #1: cruza câmera ↔ eventos
-   *  antes de gritar "parada". Retorna { moving, fresh, at } — moving só vale se o sinal
-   *  é FRESCO (< cameraMaxAgeMs); se o .28 caiu / sem sinal, fresh=false → não bloqueia
-   *  o alarme (não sabemos, então segue a regra por eventos). */
+   *  antes de gritar "parada".
+   *
+   *  BUG CONSERTADO (Bruno 08-25): antes isto era `machines.some(m => m.moving || m.running)`.
+   *  QUALQUER máquina se mexendo calava o alarme DA CÁPSULA. Na prática o último
+   *  payload real do .28 só trazia { name:'Production Line', moving:true } — a linha
+   *  de produção rodando calava o alerta da encapsuladora, que podia estar parada
+   *  de verdade. Agora casa a ENCAPSULADORA pelo nome (sem acento, /encapsul|capsul/),
+   *  e quando ela NÃO aparece no payload isso é 'não sei' (matched:false), não
+   *  'está rodando'.
+   *
+   *  Retorna { moving, fresh, at, matched, machines }:
+   *    fresh=false   → sinal velho/ausente: não bloqueia o alarme (não sabemos)
+   *    matched=false → sinal fresco mas SEM a encapsuladora: também não bloqueia,
+   *                    e o tick abre o incidente camera_no_encap_zone (é a fresta
+   *                    invisível que gerou este bug). */
   async _cameraSaysMoving() {
     try {
       const r = await this.db.query("SELECT value FROM v3.settings WHERE key='machine_state'");
       const v = r.rows[0] && r.rows[0].value;
-      if (!v || !v.at) return { moving: false, fresh: false, at: null };
+      if (!v || !v.at) return { moving: false, fresh: false, at: null, matched: false, machines: [] };
       const ageMs = Date.now() - new Date(v.at).getTime();
-      if (ageMs > this.cameraMaxAgeMs) return { moving: false, fresh: false, at: v.at };
-      // qualquer máquina com moving=true (e sem depender de humano — cam3/cam4 são
-      // válidas pro Bruno). "moving" = a câmera vê movimento não-humano na área.
-      const moving = Array.isArray(v.machines) && v.machines.some((m) => m && (m.moving === true || m.running === true));
-      return { moving, fresh: true, at: v.at };
-    } catch (_) { return { moving: false, fresh: false, at: null }; }
+      const machines = Array.isArray(v.machines) ? v.machines : [];
+      if (ageMs > this.cameraMaxAgeMs) return { moving: false, fresh: false, at: v.at, matched: false, machines };
+      const hit = machines.find((m) => m && isEncapName(m.name));
+      if (!hit) return { moving: false, fresh: true, at: v.at, matched: false, machines };
+      return {
+        moving: hit.moving === true || hit.running === true,
+        fresh: true, at: v.at, matched: true, machine: hit, machines,
+      };
+    } catch (_) { return { moving: false, fresh: false, at: null, matched: false, machines: [] }; }
+  }
+
+  /** Nomes de máquina que a câmera CONHECE como encapsuladora (v3.camera_zones,
+   *  kind='machine'). Só pro dossiê do incidente: mostra que a zona existe no
+   *  cadastro mas não aparece no payload. */
+  async _encapZones() {
+    try {
+      const r = await this.db.query(
+        "SELECT id, cam, name, kind FROM v3.camera_zones WHERE kind = 'machine'");
+      return (r.rows || []).filter((z) => isEncapName(z.name));
+    } catch (_) { return []; }
+  }
+
+  /** Sinal de câmera fresco mas SEM a encapsuladora: abre incidente 1x por dia NY.
+   *  Passa pelo mesmo pipeline do watchdog (dossiê no Obsidian + 1 linha no
+   *  admin-orin), porque essa é a falha silenciosa que ninguém vê acontecer. */
+  async _noEncapZoneIncident(cam) {
+    const date = new Date().toLocaleDateString('en-CA', { timeZone: EDT });
+    try {
+      const seen = await this.db.query(
+        `SELECT 1 FROM v3.audit_log
+          WHERE action = 'signal_incident'
+            AND metadata->>'signal' = 'camera_no_encap_zone'
+            AND metadata->>'ny_date' = $1 LIMIT 1`, [date]);
+      if ((seen.rowCount || 0) > 0) return false;
+    } catch (_) { return false; }
+
+    const zones = await this._encapZones();
+    const nomes = (cam.machines || []).map((m) => (m && m.name) || '?');
+    try {
+      const { openIncident } = require('../v3/health/incident');
+      const res = await openIncident(
+        { db: this.db, slack: this.slack, channelId: this.adminChannelId, fs: this.fs || null },
+        {
+          code: 'camera_no_encap_zone',
+          title: 'Câmera não manda a encapsuladora',
+          oneLine: `A câmera do .28 está mandando sinal, mas a encapsuladora não vem dentro dele. Só chegou: ${nomes.join(', ') || 'nada'}.`,
+          detail: { cam_at: cam.at, machines: cam.machines, zonas_cadastradas: zones },
+          fix_hint: 'No .28, conferir quais zonas o machinemon está publicando. A encapsuladora está cadastrada em v3.camera_zones mas não aparece no payload.',
+          dossier: {
+            o_que_aconteceu: 'O machinemon do .28 está vivo e mandando estado de máquina, mas a encapsuladora não aparece na lista. Sem ela, o cruzamento câmera contra eventos nunca consegue confirmar se a cápsula está rodando.',
+            desde: cam.at ? String(cam.at) : 'desconhecido',
+            esperado: 'Uma entrada de máquina com nome de encapsuladora (Capsule Dispensing Machine) dentro de machines[].',
+            observado: `Payload fresco de ${cam.at}, com as máquinas: ${nomes.join(', ') || 'nenhuma'}.`,
+            afeta: [
+              'O alarme da encapsulação fica cego: não consegue distinguir máquina parada de tarefa não registrada.',
+              'A linha de produção rodando não pode mais ser usada como prova de que a cápsula roda (e nem devia ser).',
+            ],
+            dados_crus: { payload_machines: cam.machines, camera_zones_encap: zones, cam_at: cam.at },
+          },
+        });
+      await this.db.query(
+        `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+         VALUES ('system', NULL, 'signal_incident', 'signal', NULL, $1::jsonb)`,
+        [JSON.stringify({ signal: 'camera_no_encap_zone', ny_date: date, incident_id: res.id })]).catch(() => {});
+      return true;
+    } catch (e) { console.error('[encap] incidente no-encap-zone falhou:', e.message); return false; }
   }
 
   async _adminAsk(text) {
@@ -199,7 +281,15 @@ class EncapMonitor {
       // admin-orin (1x por hora, dedupe próprio) pra Bruno confirmar quem está
       // encapsulando. (RULE #0 — auto-registrar — fica pra quando o sinal for 100%.)
       const cam = await this._cameraSaysMoving();
-      if (cam.fresh && cam.moving) {
+      // FRESTA INVISÍVEL (Bruno 08-25): sinal CHEGANDO, mas sem a encapsuladora
+      // dentro dele. Era exatamente esse o caso — o último payload real do .28 só
+      // trazia { name:'Production Line' }, então nem com sinal vivo a supressão
+      // conseguiria casar a máquina certa. Isso NÃO cala o alarme (não sabemos se
+      // ela roda), mas vira incidente 1x por dia pra alguém consertar o machinemon.
+      if (cam.fresh && !cam.matched) {
+        await this._noEncapZoneIncident(cam);
+      }
+      if (cam.fresh && cam.matched && cam.moving) {
         if (!(await this._alertedRecently())) {   // reusa o dedupe horário
           await this._adminAsk(
             `:camera: Câmera mostra a encapsulação rodando, mas ninguém registrou tarefa há ${fmt(st.off_min)}. Quem tá encapsulando? Confirma aqui que eu ajusto. (Não avisei os operadores pra não dar alarme falso.)`);
@@ -213,17 +303,34 @@ class EncapMonitor {
         return { off: true, camera_moving: true, asked_admin: true };
       }
       if (await this._alertedRecently()) return { off: true, deduped: true };
+      // CÂMERA CEGA na hora de gritar (Bruno 08-25): se o sinal está velho, o
+      // motivo tem que ficar VISÍVEL no momento, no canal do ADMIN (não no do
+      // operador, que não tem o que fazer com isso). Foi a falta disso que deixou
+      // 42h de sinal morto passarem despercebidas.
+      if (!cam.fresh) {
+        const desdeT = cam.at
+          ? new Date(cam.at).toLocaleString('pt-BR', { timeZone: EDT, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : 'nunca';
+        await this._adminAsk(
+          `:camera: Vou avisar os operadores que ninguém registrou encapsulação há ${fmt(st.off_min)}. Aviso que a câmera está cega desde ${desdeT}, então não deu pra confirmar se a máquina está rodando.`);
+      }
       if (this.slack && this.slack.postAs && this.channelId) {
         try {
           // ALARME GRANDE de propósito (Bruno 07-06): a fábrica depende da máquina
           // rodando o tempo todo — o lembrete horário e o total acumulado são
           // IMPORTANTES. O que estava errado era só o HORÁRIO (gritar com a parede
           // fora do expediente); isso os gates de expediente + presença resolvem.
+          //
+          // TEXTO CORRIGIDO (Bruno 08-25): antes dizia "Encapsulação parada há X",
+          // afirmando algo que o sistema NÃO SABE. Ele só sabe que ninguém
+          // REGISTROU. Com a câmera cega em 23/08 isso virou mentira na cara dos
+          // operadores. Agora a frase diz exatamente o que a gente enxerga, e o
+          // total do dia também é tempo SEM REGISTRO, não tempo de máquina parada.
           await this.slack.postAs({
             channel: this.channelId,
             sender: { name: 'HealthFare Tracker', icon: ':rotating_light:' },
             thread_ts: null, unfurl_links: false, unfurl_media: false,
-            text: `:rotating_light: Encapsulação parada há *${fmt(st.off_min)}*. Tá correto? Hoje já ficou ${fmt(st.total_off_min)} parada. Se estão encapsulando, registrem agora.`,
+            text: `:rotating_light: Nenhuma encapsulação registrada desde as ${st.off_since_t} (${fmt(st.off_min)}). Se a máquina tá rodando, registrem agora. Se tá parada mesmo, tudo certo.\nHoje já são ${fmt(st.total_off_min)} sem registro de encapsulação.`,
           });
         } catch (e) { console.error('[encap] post falhou:', e.message); return { off: true, post_failed: true }; }
       }

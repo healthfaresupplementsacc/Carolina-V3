@@ -81,6 +81,7 @@ describe('drift: route surfaces mounted are documented', () => {
     './print-queue/router', // Print queue /api/v3/print-queue/* — wire.js:234 (documented §4 Stock + §6 Printing)
     './prefs/router',       // Per-account preferences /api/v3/prefs/* (documented §2 routes + §4 tables)
     './review/router',      // Review day/calendar/waiting /api/v3/review/* (documented §2 routes + §4 modules)
+    './health/router',      // Signal health /api/v3/health/* (documented §2 routes + §4 modules)
   ]);
   const idx = read('src/index.js');
   const wire = read('src/v3/wire.js');

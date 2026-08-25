@@ -4,6 +4,7 @@ classDef verified fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
 classDef partial fill:#fff8e1,stroke:#f9a825,color:#5d4037
 classDef optin fill:#f3e5f5,stroke:#8e24aa,color:#4a148c
 classDef inline fill:#eceff1,stroke:#546e7a,color:#263238
+classDef external fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
 
 subgraph ALWAYS["Default ON (opt-out !== 'false' or none)"]
   direction TB
@@ -38,6 +39,7 @@ subgraph OPTIN["Opt-in (=== 'true')"]
   S04_14["S04.14 · veeqo-dup-shipment · 60 min (13-20h)"]:::optin
   S04_21["S04.21 · dedupe-watcher · 60s (heartbeat decoupled)"]:::optin
   S04_25["S04.25 · note-analyzer · on-demand · NOTE_LLM_ENABLED · own Gemini"]:::optin
+  S04_36["S04.36 · signal-watchdog · 5 min · WORKER_SIGNAL_WATCHDOG_ENABLED · detecta AUSENCIA de sinal"]:::optin
 end
 
 subgraph V2["S04.28 · Legacy V2 crons (scheduler.js, node-cron) — skipped when V2_DISABLED=1"]
@@ -57,6 +59,10 @@ S04_31["S04.31 · CAROLINA_SILENT_MODE default ON — gates only S04.02 alerts, 
 S04_32["S04.32 · Camera broker per-stream state machine (6 timers; reconnect; linger) inside cameras.js — not in registry"]:::inline
 S04_33["S04.33 · Worker first-tick kicks (staggered 20–80s after boot)"]:::inline
 S04_34["S04.34 · Streaming teardown res.on(close) ×3 · architect-audit res.on(finish)"]:::inline
+S04_35["S04.35 · signal-registry.js · lista unica dos sinais externos · machine_state, print_event, ems_sync, veeqo_sync, ngteco_clock"]:::verified
+S04_37["S04.37 · incident.js · v3.incidents + dossie Markdown + 1 linha no admin-orin · fs INJETADO"]:::verified
+S04_38["S04.38 · encap-monitor CORRIGIDO 08-25 · casa a encapsuladora especifica · matched=false nao suprime"]:::verified
+S04_39["S04.39 · GET /api/v3/health/signals · router proprio, data/router.js nao pode crescer"]:::verified
 S04_33 -.-> OPTIN
 S04_33 -.-> S04_17
 S04_33 -.-> S04_18
@@ -102,3 +108,14 @@ S04_28_02 --> S10_01
 ALWAYS --> S10_01
 OPTIN --> S10_01
 S04_23 --> S10_01
+
+S04_36 -->|R253 le o registro, nao conhece sinal por dentro| S04_35
+S04_36 -->|R254 sinal morto vira incidente com dossie| S04_37
+S04_37 -->|R255 v3.incidents + audit_log dedupe por dia NY| S08_05
+S04_37 ==>|R255 admin-orin, NUNCA canal do operador| S10_01
+S04_37 -.->|R256 Obsidian via fs injetado; sem G: guarda no banco| OBSIDIAN
+S04_38 -->|R257 camera sem a encapsuladora abre incidente| S04_37
+S04_38 -->|R258 exige fresh e matched e moving pra suprimir| S11_01
+S04_39 -->|R259 estado ao vivo dos sinais| S04_35
+OBSIDIAN["Obsidian vault G: · pasta Incidentes · so na maquina do Bruno"]:::external
+S11_01["S11.01 · PC .28 · push machine_state e print-event · o servidor NAO alcanca o .28"]:::external

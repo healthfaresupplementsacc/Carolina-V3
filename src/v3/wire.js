@@ -256,6 +256,12 @@ function mount(app) {
   // salva o que é DELE; login de emergência (sem id) segue no localStorage.
   const prefsApi = require('./prefs/router');
   app.use('/', prefsApi.createPrefsRouter({ db: _pool }));
+  // SAÚDE DOS SINAIS (Bruno 08-25) — /api/v3/health/signals. Estado ao vivo de
+  // todo sinal externo que tem que continuar chegando (câmera do .28, impressão,
+  // EMS, Veeqo, relógio) + incidentes abertos. Router próprio e pequeno porque
+  // src/v3/data/router.js (a página de Saúde) não pode crescer.
+  const healthApi = require('./health/router');
+  app.use('/', healthApi.createHealthRouter({ db: _pool }));
   // REVISÃO DO DIA (Bruno 08-19) — /api/v3/review/*. O popup do widget "Revisão"
   // da Hoje: escolher um dia no mini calendário e ver quem revisou o quê,
   // quantas garrafas, quanto tempo, e se o lote já rodou na linha — mais a fila
@@ -515,6 +521,27 @@ async function startWorker() {
         heartbeat: () => beat('stock_drift'),
       }).start(10 * 60 * 1000);
     } catch (e) { console.error('[V3] stock-drift-alert não iniciou:', e.message); }
+  }
+
+  // VIGIA DE SINAIS EXTERNOS (Bruno 08-25): o push de câmera do .28 parou em 23/08
+  // e ficou 42h morto sem ninguém ver — e o encap-monitor, cego, gritou alarme
+  // falso pros operadores. A cada 5min este vigia confere se cada sinal do
+  // registro (src/v3/health/signal-registry.js) ainda está chegando; sinal morto
+  // dentro da janela vira UM incidente por dia: linha em v3.incidents, dossiê em
+  // Markdown e uma mensagem no admin-orin. Só mede AUSÊNCIA (o servidor não
+  // alcança o .28). OPT-IN: WORKER_SIGNAL_WATCHDOG_ENABLED=true.
+  if (process.env.WORKER_SIGNAL_WATCHDOG_ENABLED === 'true') {
+    try {
+      const { SignalWatchdog } = require('../workers/signal-watchdog');
+      new SignalWatchdog({
+        db: _pool, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        // fs fica NULL de propósito: no Railway não existe o G: do Obsidian. O
+        // dossiê fica no banco e uma máquina com o vault grava depois.
+        fs: null,
+        heartbeat: () => beat('signal_watchdog'),
+      }).start(5 * 60 * 1000);
+    } catch (e) { console.error('[V3] signal-watchdog não iniciou:', e.message); }
   }
 
   // Sincronização de SKU da Veeqo (S15.39, Bruno 08-19): "pq q ele nao ta

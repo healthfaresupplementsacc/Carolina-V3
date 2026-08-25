@@ -95,6 +95,13 @@ const PROCESSES = [
     detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador).',
   },
   {
+    key: 'signal_watchdog', name: 'Vigia de sinais externos', where: 'railway', tickMs: 300000,
+    heartbeat: true, staleMin: 15, critical: true, since: '2026-08-25',
+    enabledEnv: { var: 'WORKER_SIGNAL_WATCHDOG_ENABLED', onValue: 'true' },
+    short: 'A cada 5min confere se cada sinal externo ainda está chegando; sinal morto vira incidente com dossiê.',
+    detail: 'Bruno 08-25 ("temos que fechar todas as aberturas de esses erros repentinos"). O push de câmera do .28 parou em 23/08 às 23:39 e ficou 42h morto sem ninguém ver; o encap-monitor, cego, gritou alarme falso pros operadores. Este vigia lê src/v3/health/signal-registry.js (machine_state, print_event, ems_sync, veeqo_sync, ngteco_clock) e, pra cada sinal VELHO dentro da janela em que ele deveria estar vivo, abre UM incidente por dia NY: linha em v3.incidents, dossiê Markdown no Obsidian (pasta Incidentes) e UMA mensagem no admin-orin. Quando o sinal volta, posta uma linha e fecha o incidente. NÃO tenta alcançar o .28 (o servidor não consegue: o .28 é quem sempre inicia) — só mede AUSÊNCIA. Nunca escreve estoque, nunca posta no canal dos operadores, nunca bloqueia nada. No Railway não existe o G: do Obsidian, então o dossiê fica guardado em v3.incidents.detail.dossier_md e uma máquina com o vault grava depois via flushDossiers. Dedupe por audit_log signal_incident / signal_recovered. OPT-IN: WORKER_SIGNAL_WATCHDOG_ENABLED=true.',
+  },
+  {
     key: 'veeqo_sku_sync', name: 'Sincronização e absorção da Veeqo', where: 'railway', tickMs: 21600000,
     heartbeat: true, staleMin: 400, critical: false, since: '2026-08-19',
     enabledEnv: { var: 'WORKER_VEEQO_SKU_SYNC_ENABLED', onValue: 'true' },
