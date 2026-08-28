@@ -149,6 +149,22 @@ class FreightWatch {
       ' Se ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra mais barato. Antes do SCAN form do dia.';
   }
 
+  /** Vários outliers no mesmo tick = UMA mensagem, uma linha por etiqueta. */
+  _groupAlertText(rows) {
+    const excesso = rows.reduce((a, r) => a + (Number(r.cost) - Number(r.expected_cost || 0)), 0);
+    const lines = rows.slice(0, 12).map((r) => {
+      const ped = (r.order_number || r.order_id || r.shipment_id) + (r.channel ? ' (' + r.channel + ')' : '');
+      const normal = r.expected_cost != null ? ', normal ' + money(r.expected_cost) : ', teto ' + money(freight.CEILING_COST);
+      const slack = this._slackDays(r.due_date);
+      const folga = (r.due_date && slack != null && slack >= 2) ? ', folga de ' + slack + ' dias' : '';
+      return '• ' + ped + ': ' + money(r.cost) + normal + folga;
+    });
+    if (rows.length > 12) lines.push('• e mais ' + (rows.length - 12));
+    return ':money_with_wings: *' + rows.length + ' etiquetas acima do normal* (excesso de ' + money(excesso) + ')\n'
+      + lines.join('\n')
+      + '\nSe ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra mais barato. Antes do SCAN form do dia.';
+  }
+
   async _post(text) {
     if (!(this.slack && this.slack.postAs)) return false;
     try {
@@ -235,14 +251,20 @@ class FreightWatch {
         judged++;
       }
 
-      // 3. alerta IMEDIATO de cada outlier de hoje ainda não avisado (cobre
-      //    também um tick anterior que julgou mas caiu antes de postar)
+      // 3. alerta IMEDIATO dos outliers de hoje ainda não avisados (cobre
+      //    também um tick anterior que julgou mas caiu antes de postar).
+      //    AGRUPADO num post só por tick: a Simone compra em rajada, então um
+      //    tick pega vários de uma vez; 10+ pings soltos por dia ensinariam o
+      //    admin a ignorar o canal, e alerta ignorado não recupera estorno.
       let alerted = 0;
       const pending = (await freight.todayOutliers(this.db)).filter((o) => !o.alerted_at);
-      for (const o of pending) {
-        if (!(await this._post(this._alertText(o)))) continue;
-        await freight.markAlerted(this.db, o.shipment_id);
-        alerted++;
+      if (pending.length) {
+        const text = pending.length === 1
+          ? this._alertText(pending[0])
+          : this._groupAlertText(pending);
+        if (await this._post(text)) {
+          for (const o of pending) { await freight.markAlerted(this.db, o.shipment_id); alerted++; }
+        }
       }
 
       // 4. digest do dia, 16:15 NY em diante (antes do SCAN form típico)

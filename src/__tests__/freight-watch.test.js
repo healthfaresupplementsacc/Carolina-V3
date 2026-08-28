@@ -61,7 +61,7 @@ function boot({ hour = 10, minute = 0, orders = [], enabled = true } = {}) {
 }
 
 const nowIso = (hour) => atNy(hour)().toISOString();
-const alerts = (posts) => posts.filter((p) => p.text.includes('Etiqueta acima do normal'));
+const alerts = (posts) => posts.filter((p) => /[Ee]tiquetas? acima do normal/.test(p.text));
 const digests = (posts) => posts.filter((p) => p.text.includes('Frete de hoje:'));
 
 describe('janela 8h-19h NY', () => {
@@ -117,6 +117,32 @@ describe('alerta imediato de outlier', () => {
     expect(t).toContain('Antes do SCAN form do dia.');
     expect(t).not.toMatch(/[—–]/);                       // sem em dash, nunca
     expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);  // 1 emoji máx
+  });
+
+  test('3 outliers no MESMO tick = UMA mensagem agrupada (rajada da Simone não vira spam)', async () => {
+    const tres = [
+      order({ id: 55, number: '2751', shipmentId: 501, cost: 7.86, createdAt: nowIso(9), dueDate: '2026-09-04T16:00:00Z' }),
+      order({ id: 56, number: '2752', shipmentId: 502, cost: 8.40, createdAt: nowIso(9) }),
+      order({ id: 57, number: '2753', shipmentId: 503, cost: 9.62, createdAt: nowIso(9) }),
+    ];
+    const { db, posts, worker } = boot({ hour: 10, orders: tres });
+    await seedHistory(db);
+    const out = await worker.tick();
+    expect(out.alerted).toBe(3);                         // os 3 carimbados
+    const a = alerts(posts);
+    expect(a.length).toBe(1);                            // mas UM post só
+    const t = a[0].text;
+    expect(t).toContain('*3 etiquetas acima do normal*');
+    expect(t).toContain('2751');
+    expect(t).toContain('2752');
+    expect(t).toContain('2753');
+    expect(t).toContain('deleta o envio na Veeqo que o estorno e automatico');
+    expect(t).not.toMatch(/[—–]/);
+    expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
+    // tick seguinte: nada repete
+    const out2 = await worker.tick();
+    expect(out2.alerted).toBe(0);
+    expect(alerts(posts).length).toBe(1);
   });
 
   test('tick seguinte NÃO repete o alerta (alerted_at carimba uma vez)', async () => {
