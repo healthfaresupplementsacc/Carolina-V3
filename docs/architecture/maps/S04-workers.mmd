@@ -40,6 +40,7 @@ subgraph OPTIN["Opt-in (=== 'true')"]
   S04_21["S04.21 · dedupe-watcher · 60s (heartbeat decoupled)"]:::optin
   S04_25["S04.25 · note-analyzer · on-demand · NOTE_LLM_ENABLED · own Gemini"]:::optin
   S04_36["S04.36 · signal-watchdog · 5 min · WORKER_SIGNAL_WATCHDOG_ENABLED · detecta AUSENCIA de sinal"]:::optin
+  S04_40["S04.40 · freight-watch · 5 min 8h-19h NY · WORKER_FREIGHT_WATCH_ENABLED · etiqueta cara vs mediana 30d da faixa · alerta antes do SCAN form · digest 16:15"]:::optin
 end
 
 subgraph V2["S04.28 · Legacy V2 crons (scheduler.js, node-cron) — skipped when V2_DISABLED=1"]

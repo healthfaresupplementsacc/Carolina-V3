@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, CountdownCard, OperatorAvatar } from '../components/Primitives.jsx';
 import { FalarCarolina } from './CarolinaFalar.jsx';
+import { useFreight } from '../adapters/freight-api.js';
 import './pages-operacao.css';
 
 /* Production, Goals, People + light placeholders for the rest.
@@ -333,6 +334,123 @@ function PlaceholderPage({ icon, pt, en, subtitle, body, eyebrow, before, em, af
   );
 }
 
+/* ── Frete: custo das etiquetas (Bruno 08-28) ─────────────────────────────
+   A Veeqo compra etiqueta com pressa que ninguém pediu e o carrier cobra
+   caro. O card mostra o gasto de hoje vs a média de 30d, as etiquetas acima
+   do normal (com a dica acionável: deletar na Veeqo estorna automático,
+   antes do SCAN form) e a mini tabela de 14 dias. Dado do /api/v3/freight/*
+   via useFreight; nunca mexe em nada, só lê. Classes próprias (fr-*) de
+   propósito: nada de .opa-row ou .card.kpi pra não poluir contagens da página. */
+function FreightCard() {
+  const { loading, summary, outliers, error } = useFreight();
+  const [open, setOpen] = React.useState(false);
+  const money = (v) => (v == null ? '—' : '$' + Number(v).toFixed(2));
+  if (loading) return (
+    <div className="kit-card pad freight-card" style={{ marginTop: 14 }}>
+      <span className="kit-mlabel">Frete · custo das etiquetas</span>
+      <div style={{ color: 'var(--ink-faint)', fontSize: 13, marginTop: 8 }}>Carregando frete…</div>
+    </div>
+  );
+  if (error) return (
+    <div className="kit-card pad freight-card" style={{ marginTop: 14 }}>
+      <span className="kit-mlabel">Frete · custo das etiquetas</span>
+      <div style={{ color: 'var(--ink-faint)', fontSize: 13, marginTop: 8 }}>Frete indisponível: {error}</div>
+    </div>
+  );
+  const days = (summary && summary.days) || [];
+  const today = days[0] || null;
+  const avg30 = summary ? summary.avg_30d : null;
+  const nOut = (outliers || []).length;
+  const slackDays = (due) => {
+    if (!due) return null;
+    const d = Math.floor((Date.parse(due) - Date.now()) / 86400000);
+    return Number.isFinite(d) ? d : null;
+  };
+  return (
+    <div className="kit-card pad freight-card" style={{ marginTop: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span className="kit-mlabel">Frete · custo das etiquetas</span>
+        <span className={`kit-chip ${nOut > 0 ? 'bad' : 'ok'} fr-badge`}>
+          {nOut > 0 ? `${nOut} acima do normal` : 'nenhuma acima do normal'}
+        </span>
+        {today && today.walmart_zero > 0 && (
+          <span className="kit-chip neutral">{today.walmart_zero} Walmart sem custo</span>
+        )}
+      </div>
+      <div className="fr-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginTop: 12 }}>
+        <div className="fr-stat">
+          <div className="kit-mlabel">Gasto hoje</div>
+          <div className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)' }}>{money(today && today.total_cost)}</div>
+        </div>
+        <div className="fr-stat">
+          <div className="kit-mlabel">Etiquetas</div>
+          <div className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)' }}>{today ? today.labeled : '—'}</div>
+        </div>
+        <div className="fr-stat">
+          <div className="kit-mlabel">Média de hoje</div>
+          <div className="mono" style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)' }}>
+            {money(today && today.avg_cost)}
+            <span style={{ fontSize: 12, color: 'var(--ink-faint)', fontWeight: 400 }}> vs 30d {money(avg30)}</span>
+          </div>
+        </div>
+      </div>
+      {nOut > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button type="button" className="kit-chip warn fr-toggle" style={{ cursor: 'pointer', border: 'none' }}
+                  onClick={() => setOpen((o) => !o)}>
+            {open ? 'Esconder etiquetas caras' : `Ver as ${nOut} etiquetas caras`}
+          </button>
+          {open && (
+            <div className="fr-outliers" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {outliers.map((o) => {
+                const sd = slackDays(o.due_date);
+                return (
+                  <div key={o.shipment_id} className="fr-outlier" style={{ padding: '8px 10px', background: 'var(--bad-bg)', borderRadius: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                      Pedido {o.order_number || o.shipment_id}{o.channel ? ` (${o.channel})` : ''}
+                    </div>
+                    <div className="mono" style={{ fontSize: 12, color: 'var(--ink-dim)', marginTop: 2 }}>
+                      {o.service || 'etiqueta'}: {money(o.cost)}
+                      {o.expected_cost != null ? ` vs ${money(o.expected_cost)} normal da faixa` : ' (teto absoluto)'}
+                      {sd != null && sd >= 2 ? ` · cliente aceita até daqui ${sd} dias` : ''}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 2 }}>
+                      Se ainda não despachou: deleta o envio na Veeqo e recompra mais barato. Antes do SCAN form do dia.
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      {days.length > 0 && (
+        <>
+          <Section label="Últimos 14 dias"/>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="kit-table fr-table">
+              <thead>
+                <tr><th>Dia</th><th>Etiquetas</th><th>Gasto</th><th>Média</th><th>Acima</th></tr>
+              </thead>
+              <tbody>
+                {days.map((d) => (
+                  <tr key={d.day}>
+                    <td className="mono">{d.day.slice(5)}</td>
+                    <td className="mono">{d.labeled}{d.walmart_zero > 0 ? ` +${d.walmart_zero} wmt` : ''}</td>
+                    <td className="mono">{money(d.total_cost)}</td>
+                    <td className="mono">{money(d.avg_cost)}</td>
+                    <td className="mono">{d.outliers > 0 ? d.outliers : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
   // E7-resto Leva 1: ligada em hfdata real.
   // Sub-passos reais do /api/v3/data/pp:
@@ -424,6 +542,7 @@ function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
           </div>
         )}
       </div>
+      <FreightCard/>
     </div>
   );
 }

@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-20T16:49:42.187Z",
+  "at": "2026-08-28T14:49:23.562Z",
   "results": [
     {
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "219 KB → theme-A-hoje.png"
+      "detail": "217 KB → theme-A-hoje.png"
     },
     {
       "group": "hoje",
@@ -53,7 +53,7 @@
       "group": "screenshot",
       "name": "producao",
       "pass": true,
-      "detail": "134 KB → theme-A-producao.png"
+      "detail": "133 KB → theme-A-producao.png"
     },
     {
       "group": "producao",
@@ -101,7 +101,7 @@
       "group": "screenshot",
       "name": "metas",
       "pass": true,
-      "detail": "113 KB → theme-A-metas.png"
+      "detail": "111 KB → theme-A-metas.png"
     },
     {
       "group": "metas",
@@ -149,7 +149,7 @@
       "group": "screenshot",
       "name": "pessoas",
       "pass": true,
-      "detail": "130 KB → theme-A-pessoas.png"
+      "detail": "128 KB → theme-A-pessoas.png"
     },
     {
       "group": "pessoas",
@@ -197,7 +197,7 @@
       "group": "screenshot",
       "name": "pp",
       "pass": true,
-      "detail": "129 KB → theme-A-pp.png"
+      "detail": "179 KB → theme-A-pp.png"
     },
     {
       "group": "pp",
@@ -245,7 +245,7 @@
       "group": "screenshot",
       "name": "suporte",
       "pass": true,
-      "detail": "99 KB → theme-A-suporte.png"
+      "detail": "100 KB → theme-A-suporte.png"
     },
     {
       "group": "suporte",
@@ -293,7 +293,7 @@
       "group": "screenshot",
       "name": "produto",
       "pass": true,
-      "detail": "128 KB → theme-A-produto.png"
+      "detail": "126 KB → theme-A-produto.png"
     },
     {
       "group": "produto",
@@ -389,7 +389,7 @@
       "group": "screenshot",
       "name": "planejamento",
       "pass": true,
-      "detail": "81 KB → theme-A-planejamento.png"
+      "detail": "79 KB → theme-A-planejamento.png"
     },
     {
       "group": "planejamento",
@@ -485,7 +485,7 @@
       "group": "screenshot",
       "name": "config",
       "pass": true,
-      "detail": "98 KB → theme-A-config.png"
+      "detail": "100 KB → theme-A-config.png"
     },
     {
       "group": "config",
@@ -551,7 +551,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "91 KB → theme-A-roadmap.png"
+      "detail": "93 KB → theme-A-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -604,8 +604,8 @@
     {
       "group": "hoje",
       "name": "faixa de Ponto com 3 pessoas",
-      "pass": false,
-      "detail": "cards=0"
+      "pass": true,
+      "detail": "cards=3"
     },
     {
       "group": "hoje",
@@ -696,6 +696,60 @@
       "name": "3 KPIs do bloco",
       "pass": true,
       "detail": "kpis=3"
+    },
+    {
+      "group": "pp",
+      "name": "card Frete presente",
+      "pass": true,
+      "detail": "ok"
+    },
+    {
+      "group": "pp",
+      "name": "badge de outliers em tom bad com a contagem",
+      "pass": true,
+      "detail": "2 acima do normal"
+    },
+    {
+      "group": "pp",
+      "name": "3 stats do dia (gasto, etiquetas, media)",
+      "pass": true,
+      "detail": "stats=3"
+    },
+    {
+      "group": "pp",
+      "name": "mini tabela de 14d com os 3 dias da fixture",
+      "pass": true,
+      "detail": "linhas=3"
+    },
+    {
+      "group": "pp",
+      "name": "gasto de hoje e media vs 30d na tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "sem em dash no card",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "expande as 2 etiquetas caras",
+      "pass": true,
+      "detail": "linhas=2"
+    },
+    {
+      "group": "pp",
+      "name": "outlier mostra custo vs normal + dica da Veeqo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "teto absoluto aparece rotulado",
+      "pass": true,
+      "detail": ""
     },
     {
       "group": "produto",

@@ -95,6 +95,13 @@ const PROCESSES = [
     detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador).',
   },
   {
+    key: 'freight_watch', name: 'Vigia de custo de frete', where: 'railway', tickMs: 300000,
+    heartbeat: true, staleMin: 20, critical: false, since: '2026-08-28',
+    enabledEnv: { var: 'WORKER_FREIGHT_WATCH_ENABLED', onValue: 'true' },
+    short: 'A cada 5min julga o custo de cada etiqueta nova da Veeqo; cara demais → admin-orin na hora, digest 16:15 NY.',
+    detail: 'Bruno 08-28 ("o custo eh uma coisa muito seria... tem como eu saber oq o custo ta acima e oq nao ta antes de imprimir?"). A Veeqo compra etiqueta com data antes do prazo que o cliente pediu (due_date) e o carrier cobra caro. A cada 5min (janela 8h-19h NY) espelha os shipments recentes (48h) em v3.shipment_costs e julga cada etiqueta NOVA contra a mediana móvel 30d da faixa (serviço + faixa de peso; <8 amostras nunca julga; teto absoluto $12 pra <1lb). Etiqueta acima do normal → 1 mensagem no admin-orin NA HORA, porque deletar o envio na Veeqo estorna a etiqueta automático (14 dias) MAS pra USPS isso morre quando o SCAN form do dia sai (~tarde): alerta em minutos = dinheiro recuperável. 16:15 NY manda o digest do dia (dedupe audit_log freight_digest; dia normal = 1 linha). Walmart chega com custo 0 (etiqueta deles): contado à parte, nunca em média. Leitura no /api/v3/freight/* e card Frete na página P&P. READ-ONLY na Veeqo, nunca escreve estoque, nunca canal de operador.',
+  },
+  {
     key: 'signal_watchdog', name: 'Vigia de sinais externos', where: 'railway', tickMs: 300000,
     heartbeat: true, staleMin: 15, critical: true, since: '2026-08-25',
     enabledEnv: { var: 'WORKER_SIGNAL_WATCHDOG_ENABLED', onValue: 'true' },

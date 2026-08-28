@@ -31,6 +31,7 @@ subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
   S02_12["S02.12 · cameras.js ×10 (/api/cam, /cameras*) — CAM PIN→HMAC"]:::verified
   S02_17["S02.17 · /api/v3/prefs ×4 (prefs/router.js) — PIN sem gate de funcao; preferencia por conta"]:::verified
   S02_18["S02.18 · /api/v3/review ×3 (review/router.js) — day, calendar, waiting; PIN sem gate; so leitura"]:::verified
+  S02_19["S02.19 · /api/v3/freight ×3 (freight/router.js) — PIN + view_stock; summary, outliers, bands; so leitura"]:::verified
   S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
 end
 S01_02 --> MOUNT

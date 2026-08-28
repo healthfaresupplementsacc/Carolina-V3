@@ -39,6 +39,24 @@ const DAY = readFix('opA-day.json');
 
 const LOGIN = { name: 'QA Admin', role: 'admin', functions: ['*'] };
 
+// ── freight cost watch (card Frete da pagina P&P, Bruno 08-28) ─────────
+const FREIGHT_SUMMARY = {
+  days: [
+    { day: '2026-08-28', shipments: 126, labeled: 114, walmart_zero: 12, total_cost: 692.04, avg_cost: 6.07, outliers: 2, outlier_excess: 3.54 },
+    { day: '2026-08-27', shipments: 160, labeled: 154, walmart_zero: 6, total_cost: 890.92, avg_cost: 5.79, outliers: 0, outlier_excess: 0 },
+    { day: '2026-08-26', shipments: 155, labeled: 153, walmart_zero: 2, total_cost: 910.34, avg_cost: 5.95, outliers: 1, outlier_excess: 2.10 },
+  ],
+  avg_30d: 6.02, labeled_30d: 481,
+};
+const FREIGHT_OUTLIERS = { outliers: [
+  { shipment_id: 501, order_number: '2751', channel: 'eBay', service: 'USPS Ground Advantage',
+    cost: 7.86, expected_cost: 6.09, band: 'usps_ga|4-8oz', outlier_reason: 'acima_da_faixa',
+    due_date: '2026-09-04T16:00:00Z', alerted_at: '2026-08-28T13:45:00Z' },
+  { shipment_id: 502, order_number: '2760', channel: 'Amazon', service: 'UPS 2nd Day Air',
+    cost: 12.50, expected_cost: null, band: 'ups_2nd_day_air|4-8oz', outlier_reason: 'teto_absoluto',
+    due_date: null, alerted_at: null },
+] };
+
 /** Resposta pra qualquer /api/**. */
 function apiFixture(pathname) {
   if (pathname === '/api/v3/data/login') return { data: LOGIN };
@@ -53,6 +71,8 @@ function apiFixture(pathname) {
   if (pathname === '/api/v3/data/deadlines') return { data: DAY.deadlines };
   if (pathname === '/api/v3/data/review-rate') return { data: DAY.review };
   if (pathname === '/api/v3/data/veeqo-today') return { data: DAY.veeqo };
+  if (pathname === '/api/v3/freight/summary') return { data: FREIGHT_SUMMARY };
+  if (pathname === '/api/v3/freight/outliers') return { data: FREIGHT_OUTLIERS };
   if (pathname === '/api/v3/data/attendance') return { data: DAY.attendance };
   if (pathname === '/api/v3/data/incidents') return { data: DAY.incidents };
   if (pathname === '/api/v3/data/pending-totals') return { data: DAY.pending_totals };
@@ -248,7 +268,8 @@ async function main() {
   await page.waitForSelector('[data-page-op="hoje"]', { timeout: 9000 }).catch(() => {});
   const hojeStats = await page.evaluate(() => ({
     kpis: document.querySelectorAll('[data-page-op="hoje"] .card.kpi').length,
-    att: document.querySelectorAll('.opa-att-card').length,
+    // Ponto virou PontoStrip (components/PontoStrip.jsx): 1 chip por pessoa
+    att: document.querySelectorAll('[data-ponto-person]').length,
     alertBoxes: document.querySelectorAll('.opa-alertbox').length,
     strips: document.querySelectorAll('.opa-strip-item').length,
     kitChips: document.querySelectorAll('[data-page-op="hoje"] .kit-chip').length,
@@ -317,6 +338,47 @@ async function main() {
   }));
   rec('pp', 'lista os 3 sub-passos', ppStats.rows === 3, 'linhas=' + ppStats.rows);
   rec('pp', '3 KPIs do bloco', ppStats.kpis === 3, 'kpis=' + ppStats.kpis);
+
+  // card Frete (freight cost watch, Bruno 08-28)
+  await page.waitForSelector('[data-page-op="pp"] .freight-card', { timeout: 9000 }).catch(() => {});
+  const fr = await page.evaluate(() => {
+    const card = document.querySelector('[data-page-op="pp"] .freight-card');
+    if (!card) return null;
+    return {
+      badge: (card.querySelector('.fr-badge') || {}).textContent || '',
+      badgeBad: !!card.querySelector('.fr-badge.bad'),
+      stats: card.querySelectorAll('.fr-stat').length,
+      tableRows: card.querySelectorAll('.fr-table tbody tr').length,
+      text: card.textContent,
+    };
+  });
+  rec('pp', 'card Frete presente', !!fr, fr ? 'ok' : 'card ausente');
+  if (fr) {
+    rec('pp', 'badge de outliers em tom bad com a contagem', fr.badgeBad && /2 acima do normal/.test(fr.badge), fr.badge);
+    rec('pp', '3 stats do dia (gasto, etiquetas, media)', fr.stats === 3, 'stats=' + fr.stats);
+    rec('pp', 'mini tabela de 14d com os 3 dias da fixture', fr.tableRows === 3, 'linhas=' + fr.tableRows);
+    rec('pp', 'gasto de hoje e media vs 30d na tela', /\$692\.04/.test(fr.text) && /\$6\.02/.test(fr.text), '');
+    rec('pp', 'sem em dash no card', !/[—–]/.test(fr.text), '');
+    // expande a lista de etiquetas caras
+    await 0;
+  }
+  if (fr) {
+    const opened = await page.evaluate(() => {
+      const btn = document.querySelector('[data-page-op="pp"] .fr-toggle');
+      if (!btn) return null;
+      btn.click();
+      return true;
+    });
+    await sleep(300);
+    const out = await page.evaluate(() => ({
+      rows: document.querySelectorAll('[data-page-op="pp"] .fr-outlier').length,
+      text: (document.querySelector('[data-page-op="pp"] .fr-outliers') || {}).textContent || '',
+    }));
+    rec('pp', 'expande as 2 etiquetas caras', opened === true && out.rows === 2, 'linhas=' + out.rows);
+    rec('pp', 'outlier mostra custo vs normal + dica da Veeqo',
+      /\$7\.86/.test(out.text) && /\$6\.09/.test(out.text) && /deleta o envio na Veeqo/.test(out.text), '');
+    rec('pp', 'teto absoluto aparece rotulado', /teto absoluto/.test(out.text), '');
+  }
 
   // #produto: 2 produtos com atividade
   await go('produto');

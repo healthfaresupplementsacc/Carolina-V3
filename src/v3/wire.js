@@ -262,6 +262,12 @@ function mount(app) {
   // src/v3/data/router.js (a página de Saúde) não pode crescer.
   const healthApi = require('./health/router');
   app.use('/', healthApi.createHealthRouter({ db: _pool }));
+  // FRETE (Bruno 08-28) — /api/v3/freight/*. Leitura do freight cost watch:
+  // gasto de etiqueta por dia vs ordens, etiquetas acima do normal e as
+  // medianas por faixa (a régua à mostra). Router próprio e pequeno (o data
+  // router não pode crescer); auth da mesma família do warehouse (view_stock).
+  const freightApi = require('./freight/router');
+  app.use('/', freightApi.createFreightRouter({ db: _pool }));
   // REVISÃO DO DIA (Bruno 08-19) — /api/v3/review/*. O popup do widget "Revisão"
   // da Hoje: escolher um dia no mini calendário e ver quem revisou o quê,
   // quantas garrafas, quanto tempo, e se o lote já rodou na linha — mais a fila
@@ -642,6 +648,22 @@ async function startWorker() {
         channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
         heartbeat: () => beat('dup_shipment') }).start(60 * 60 * 1000);
     } catch (e) { console.error('[V3] veeqo-dup-shipment-detector não iniciou:', e.message); }
+  }
+
+  // FREIGHT WATCH (Bruno 08-28): a Veeqo compra etiqueta com pressa que ninguém
+  // pediu e o carrier cobra caro. A cada 5min (8h-19h NY) espelha os shipments
+  // em v3.shipment_costs, julga contra a mediana 30d da faixa e avisa o
+  // admin-orin NA HORA (deletar o envio na Veeqo estorna automático, mas pra
+  // USPS só até o SCAN form do dia). Digest 16:15 NY. READ-ONLY na Veeqo, nunca
+  // escreve estoque, nunca posta pro operador. OPT-IN: WORKER_FREIGHT_WATCH_ENABLED=true.
+  if (process.env.WORKER_FREIGHT_WATCH_ENABLED === 'true') {
+    try {
+      const { FreightWatch } = require('../workers/freight-watch');
+      const { veeqo } = require('./services/veeqo-api');
+      new FreightWatch({ db: _pool, veeqo, slack: { postAs: slackSender.postAs },
+        channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
+        heartbeat: () => beat('freight_watch') }).start(5 * 60 * 1000);
+    } catch (e) { console.error('[V3] freight-watch não iniciou:', e.message); }
   }
 
   // Relógio de ponto NGTeco (Bruno 07-22): punches → att_punch/att_state; chegada/
