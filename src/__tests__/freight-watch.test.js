@@ -7,6 +7,7 @@
  *  4. NUNCA canal de operador; desligado por padrão
  *  5. texto do alerta: forma combinada, sem em dash, folga do due_date
  *  6. Walmart custo 0 registrado mas nunca alertado
+ *  7. state-aware (v2): histórico do estado muda a régua E o texto do alerta
  * DB/Veeqo/Slack mockados; relógio injetado.
  */
 const { FreightWatch } = require('../workers/freight-watch');
@@ -23,11 +24,11 @@ function atNy(hour, minute = 0) {
 
 /** Pedido da Veeqo com um shipment (forma real: allocations[0].shipment). */
 function order({ id, number, channel = 'eBay', shipmentId, service = 'USPS Ground Advantage',
-  weight = 200, cost, createdAt, dueDate }) {
+  weight = 200, cost, createdAt, dueDate, state = 'TX' }) {
   return {
     id, number, channel: { name: channel },
     due_date: dueDate || null, dispatch_date: null,
-    deliver_to: { state: 'TX', zip: '75001' },
+    deliver_to: { state, zip: '75001' },
     allocations: [{ shipment: {
       id: shipmentId, service_name: service, weight,
       outbound_label_charges: { value: String(cost) },
@@ -36,12 +37,14 @@ function order({ id, number, channel = 'eBay', shipmentId, service = 'USPS Groun
   };
 }
 
-/** Histórico: 9 etiquetas de $6.00 na faixa usps_ga|4-8oz, ONTEM (mediana pronta). */
-async function seedHistory(db) {
+/** Histórico: 9 etiquetas na faixa usps_ga|4-8oz, ONTEM (mediana pronta).
+ *  Default: $6.00 sem estado (régua da faixa). Com { state, cost } vira
+ *  histórico do ESTADO e liga a régua estadual do expectedFor v2. */
+async function seedHistory(db, { state = null, cost = 6.00, startId = 8000 } = {}) {
   for (let i = 0; i < 9; i++) {
-    const id = 8000 + i;
-    await freight.upsertShipments(db, [{ shipment_id: id, cost: 6.00,
-      service: 'USPS Ground Advantage', weight_g: 200,
+    const id = startId + i;
+    await freight.upsertShipments(db, [{ shipment_id: id, cost,
+      service: 'USPS Ground Advantage', weight_g: 200, dest_state: state,
       ny_day: '2026-08-20', bought_at: '2026-08-20T14:00:00Z' }]);
     await freight.saveJudgement(db, id, { band: 'usps_ga|4-8oz', expected_cost: null, outlier: false, outlier_reason: null });
   }
@@ -190,6 +193,45 @@ describe('alerta imediato de outlier', () => {
     await worker.tick();
     expect(db._rows.has('505')).toBe(true);
     expect(alerts(posts).length).toBe(0);
+  });
+
+  test('outlier julgado pelo ESTADO: alerta diz o normal do estado, nao da faixa', async () => {
+    const ga = order({ id: 70, number: '2901', shipmentId: 510, cost: 8.40,
+      createdAt: nowIso(9), state: 'GA' });
+    const { db, posts, worker } = boot({ hour: 10, orders: [ga] });
+    await seedHistory(db);                                            // faixa: 9x $6.00 sem estado
+    await seedHistory(db, { state: 'GA', cost: 5.97, startId: 8100 }); // GA: 9x $5.97
+    const out = await worker.tick();
+    expect(out.alerted).toBe(1);
+    const a = alerts(posts);
+    expect(a.length).toBe(1);
+    const t = a[0].text;
+    expect(t).toContain('Pedido 2901 (eBay)');
+    expect(t).toContain('USPS Ground Advantage saiu $8.40, o normal pra GA e $5.97.');
+    expect(t).not.toContain('o normal dessa faixa');
+    expect(t).not.toMatch(/[—–]/);
+    expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
+  });
+
+  test('rajada pro mesmo estado: mensagem agrupada tambem fala o normal do estado', async () => {
+    const dois = [
+      order({ id: 71, number: '2902', shipmentId: 511, cost: 8.40, createdAt: nowIso(9), state: 'HI' }),
+      order({ id: 72, number: '2903', shipmentId: 512, cost: 9.10, createdAt: nowIso(9), state: 'HI' }),
+    ];
+    const { db, posts, worker } = boot({ hour: 10, orders: dois });
+    await seedHistory(db);                                            // faixa: 9x $6.00 sem estado
+    await seedHistory(db, { state: 'HI', cost: 6.20, startId: 8200 }); // HI: 9x $6.20
+    const out = await worker.tick();
+    expect(out.alerted).toBe(2);
+    const a = alerts(posts);
+    expect(a.length).toBe(1);
+    const t = a[0].text;
+    expect(t).toContain('*2 etiquetas acima do normal*');
+    expect(t).toContain('2902');
+    expect(t).toContain('2903');
+    expect(t).toContain(', normal pra HI $6.20');
+    expect(t).not.toMatch(/[—–]/);
+    expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
   });
 });
 

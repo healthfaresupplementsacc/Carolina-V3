@@ -44,6 +44,11 @@ class FreightWatch {
     this.maxPages = deps.maxPages || 4;          // gentil: 400 pedidos/tick dá folga
     this.lookbackHours = deps.lookbackHours || 48;
     this._t = null; this._kick = null; this._ticking = false;
+    // scope do julgamento por shipment_id ('estado' | 'banda'), só em memória:
+    // o alerta precisa saber qual mediana julgou pra falar certo, e coluna nova
+    // no banco pra isso seria exagero. Reinício entre julgar e postar = cai no
+    // texto de faixa, que continua verdadeiro.
+    this._scopes = new Map();
   }
 
   start(ms = 5 * 60 * 1000) {
@@ -137,7 +142,11 @@ class FreightWatch {
     const svc = row.service || 'etiqueta';
     let base;
     if (row.expected_cost != null) {
-      base = svc + ' saiu ' + money(row.cost) + ', o normal dessa faixa e ' + money(row.expected_cost) + '.';
+      // scope 'estado' = a mediana que julgou foi a do destino, e o texto diz
+      const normal = (row.expected_scope === 'estado' && row.dest_state)
+        ? 'o normal pra ' + String(row.dest_state).toUpperCase() + ' e '
+        : 'o normal dessa faixa e ';
+      base = svc + ' saiu ' + money(row.cost) + ', ' + normal + money(row.expected_cost) + '.';
     } else {
       base = svc + ' saiu ' + money(row.cost) + ', passou do teto de ' + money(freight.CEILING_COST) + ' pra pacote de menos de 1lb.';
     }
@@ -154,7 +163,11 @@ class FreightWatch {
     const excesso = rows.reduce((a, r) => a + (Number(r.cost) - Number(r.expected_cost || 0)), 0);
     const lines = rows.slice(0, 12).map((r) => {
       const ped = (r.order_number || r.order_id || r.shipment_id) + (r.channel ? ' (' + r.channel + ')' : '');
-      const normal = r.expected_cost != null ? ', normal ' + money(r.expected_cost) : ', teto ' + money(freight.CEILING_COST);
+      const normal = r.expected_cost != null
+        ? ((r.expected_scope === 'estado' && r.dest_state)
+          ? ', normal pra ' + String(r.dest_state).toUpperCase() + ' ' + money(r.expected_cost)
+          : ', normal ' + money(r.expected_cost))
+        : ', teto ' + money(freight.CEILING_COST);
       const slack = this._slackDays(r.due_date);
       const folga = (r.due_date && slack != null && slack >= 2) ? ', folga de ' + slack + ' dias' : '';
       return '• ' + ped + ': ' + money(r.cost) + normal + folga;
@@ -242,12 +255,15 @@ class FreightWatch {
       for (const row of upserted) {
         if (!row.inserted) continue;
         const band = freight.bandOf(row.service, row.weight_g);
-        const { expected, samples } = await freight.expectedFor(this.db, band);
+        // state-aware: com 5+ amostras do (faixa, estado) em 30d a régua é a
+        // mediana do próprio estado (Havaí caro é Havaí, não erro da Veeqo)
+        const { expected, samples, scope } = await freight.expectedFor(this.db, band, row.dest_state);
         const verdict = freight.judge({ cost: row.cost, expected, samples, weight_g: row.weight_g });
         await freight.saveJudgement(this.db, row.shipment_id, {
           band, expected_cost: expected,
           outlier: verdict.outlier, outlier_reason: verdict.reason,
         });
+        if (verdict.outlier) this._scopes.set(String(row.shipment_id), scope);
         judged++;
       }
 
@@ -257,13 +273,18 @@ class FreightWatch {
       //    tick pega vários de uma vez; 10+ pings soltos por dia ensinariam o
       //    admin a ignorar o canal, e alerta ignorado não recupera estorno.
       let alerted = 0;
-      const pending = (await freight.todayOutliers(this.db)).filter((o) => !o.alerted_at);
+      const pending = (await freight.todayOutliers(this.db))
+        .filter((o) => !o.alerted_at)
+        .map((o) => ({ ...o, expected_scope: this._scopes.get(String(o.shipment_id)) || 'banda' }));
       if (pending.length) {
         const text = pending.length === 1
           ? this._alertText(pending[0])
           : this._groupAlertText(pending);
         if (await this._post(text)) {
-          for (const o of pending) { await freight.markAlerted(this.db, o.shipment_id); alerted++; }
+          for (const o of pending) {
+            await freight.markAlerted(this.db, o.shipment_id); alerted++;
+            this._scopes.delete(String(o.shipment_id));
+          }
         }
       }
 

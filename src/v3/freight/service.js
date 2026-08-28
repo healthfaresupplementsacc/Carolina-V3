@@ -8,10 +8,12 @@
  * sistema ta pegando o valor certo sempre?".
  *
  * A RESPOSTA: cada etiqueta comprada vira uma linha em v3.shipment_costs; o
- * custo é julgado contra a MEDIANA MÓVEL de 30 dias da FAIXA dele (serviço +
- * faixa de peso). Faixa é serviço + peso porque é o que a gente sabe explicar
- * hoje; o estado/zip ficam guardados pra zona refinar o modelo depois (a zona
- * explica parte do espalhamento: GA <1lb vai de $5.17 a $8.40 no histórico).
+ * custo é julgado contra a MEDIANA MÓVEL de 30 dias. V2 (state-aware): quando o
+ * DESTINO (faixa + estado) tem amostra suficiente em 30d, a régua é a mediana do
+ * próprio estado; senão, a da faixa inteira (serviço + faixa de peso), como no
+ * v1. Motivo: etiqueta pro Havaí é cara porque é Havaí, não porque a Veeqo
+ * errou; medido em produção, 51 de 317 "outliers" de 30d eram zona legítima.
+ * O zip fica guardado pra refinar por zona de verdade depois.
  *
  * Este módulo NÃO fala com Slack nem com a Veeqo: funções puras (bandOf, judge)
  * + repo (expectedFor, upsertShipments, summary, todayOutliers). Quem orquestra
@@ -36,6 +38,10 @@ const LB_G = 16 * OZ_G;            // 1 lb = 453.592 g
 const OUTLIER_PCT = 0.30;
 const OUTLIER_ABS = 1.50;
 const MIN_SAMPLES = 8;
+// MIN_STATE_SAMPLES=5: com 5+ etiquetas pro MESMO estado na mesma faixa em 30d,
+// a mediana do estado já separa "destino caro" (Havaí) de "Veeqo errou". Menos
+// que isso a mediana estadual é ruído e a faixa inteira julga, como no v1.
+const MIN_STATE_SAMPLES = 5;
 const CEILING_COST = 12.00;
 const CEILING_MAX_WEIGHT_G = LB_G;   // teto vale só pra pacote < 1lb
 
@@ -73,9 +79,25 @@ function bandOf(service, weightG) {
   return serviceKey(service) + '|' + weightBand(weightG);
 }
 
-/** Mediana móvel de 30d da faixa (custo>0: Walmart/etiqueta de fora nunca entra).
- *  @returns {{expected:number|null, samples:number}} */
-async function expectedFor(db, band) {
+/** Mediana móvel de 30d (custo>0: Walmart/etiqueta de fora nunca entra).
+ *  Com dest_state e 5+ amostras de (faixa, estado) em 30d, a régua é a mediana
+ *  do ESTADO (scope 'estado'); senão, a da faixa inteira (scope 'banda'),
+ *  exatamente como no v1. Chamada com 2 argumentos continua igual ao v1.
+ *  @returns {{expected:number|null, samples:number, scope:'estado'|'banda'}} */
+async function expectedFor(db, band, destState) {
+  if (destState) {
+    const rs = await db.query(
+      `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost) AS median,
+              COUNT(*)::int AS samples
+         FROM v3.shipment_costs
+        WHERE band = $1 AND dest_state = $2 AND cost > 0
+          AND bought_at > NOW() - INTERVAL '30 days'`, [band, destState]);
+    const srow = (rs.rows && rs.rows[0]) || {};
+    const ssamples = Number(srow.samples || 0);
+    if (ssamples >= MIN_STATE_SAMPLES && srow.median != null) {
+      return { expected: Number(srow.median), samples: ssamples, scope: 'estado' };
+    }
+  }
   const r = await db.query(
     `SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY cost) AS median,
             COUNT(*)::int AS samples
@@ -84,7 +106,7 @@ async function expectedFor(db, band) {
         AND bought_at > NOW() - INTERVAL '30 days'`, [band]);
   const row = (r.rows && r.rows[0]) || {};
   const median = row.median != null ? Number(row.median) : null;
-  return { expected: median, samples: Number(row.samples || 0) };
+  return { expected: median, samples: Number(row.samples || 0), scope: 'banda' };
 }
 
 /**
@@ -250,5 +272,5 @@ module.exports = {
   bandOf, serviceKey, weightBand, judge,
   expectedFor, upsertShipments, saveJudgement, markAlerted,
   summary, outliersOf, todayOutliers, bands,
-  MIN_SAMPLES, OUTLIER_PCT, OUTLIER_ABS, CEILING_COST,
+  MIN_SAMPLES, MIN_STATE_SAMPLES, OUTLIER_PCT, OUTLIER_ABS, CEILING_COST,
 };

@@ -51,10 +51,12 @@ function makeFreightDb() {
         return { rows: [{ ...row, inserted: true }], rowCount: 1 };
       }
 
-      // mediana da faixa (expectedFor)
+      // mediana da faixa OU do (faixa, estado) (expectedFor v2)
       if (/PERCENTILE_CONT/.test(q) && /WHERE band = \$1/.test(q)) {
+        const byState = /dest_state = \$2/.test(q);
         const cs = [...rows.values()]
-          .filter((r) => r.band === params[0] && Number(r.cost) > 0)
+          .filter((r) => r.band === params[0] && Number(r.cost) > 0
+            && (!byState || r.dest_state === params[1]))
           .map((r) => Number(r.cost)).sort((a, b) => a - b);
         return { rows: [{ median: median(cs), samples: cs.length }], rowCount: 1 };
       }

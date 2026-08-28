@@ -79,6 +79,84 @@ describe('mediana da faixa (expectedFor)', () => {
   });
 });
 
+describe('mediana por estado (expectedFor v2, state-aware)', () => {
+  const BAND = 'usps_ga|4-8oz';
+
+  /** Semeia N etiquetas da faixa pro mesmo estado (ids únicos por chamada). */
+  async function seedState(db, costs, state, startId) {
+    let id = startId;
+    for (const c of costs) {
+      await freight.upsertShipments(db, [{ shipment_id: ++id, cost: c,
+        service: 'USPS Ground Advantage', weight_g: 200, dest_state: state,
+        ny_day: '2026-08-20', bought_at: '2026-08-20T12:00:00Z' }]);
+      await freight.saveJudgement(db, id, { band: BAND, expected_cost: null, outlier: false, outlier_reason: null });
+    }
+  }
+
+  test('5+ amostras do (faixa, estado): a mediana e a do ESTADO, scope estado', async () => {
+    const db = makeFreightDb();
+    await seedState(db, [5.17, 5.5, 5.97, 6.1, 6.4], 'GA', 9100);   // mediana GA = 5.97
+    await seedState(db, [8.0, 8.2, 8.4], 'HI', 9200);               // HI só 3, não interfere
+    const r = await freight.expectedFor(db, BAND, 'GA');
+    expect(r).toEqual({ expected: 5.97, samples: 5, scope: 'estado' });
+  });
+
+  test('4 ou menos amostras do estado: cai na faixa inteira, scope banda', async () => {
+    const db = makeFreightDb();
+    await seedState(db, [5.17, 5.5, 5.97, 6.1, 6.4], 'GA', 9100);
+    await seedState(db, [8.0, 8.1, 8.2, 8.4], 'HI', 9200);          // HI com 4: ainda fino
+    const r = await freight.expectedFor(db, BAND, 'HI');
+    expect(r.scope).toBe('banda');
+    expect(r.samples).toBe(9);            // a faixa inteira, GA + HI
+    expect(r.expected).toBe(6.4);         // mediana dos 9 da faixa
+  });
+
+  test('chamada com 2 argumentos continua igual ao v1 (compatível)', async () => {
+    const db = makeFreightDb();
+    await seedState(db, [5.17, 5.5, 5.97, 6.1, 6.4], 'GA', 9100);
+    const r = await freight.expectedFor(db, BAND);
+    expect(r.expected).toBe(5.97);
+    expect(r.samples).toBe(5);
+    // e sem dest_state nenhuma query estadual roda
+    expect(db._queries.some((x) => /dest_state = \$2/.test(x.q))).toBe(false);
+  });
+
+  test('a query REAL do estado filtra dest_state, cost>0 e 30 dias', async () => {
+    const db = makeFreightDb();
+    await freight.expectedFor(db, 'x|y', 'HI');
+    const q = db._queries.find((x) => /dest_state = \$2/.test(x.q)).q;
+    expect(q).toMatch(/PERCENTILE_CONT/);
+    expect(q).toMatch(/cost > 0/);
+    expect(q).toMatch(/30 days/);
+  });
+
+  test('$8.40 pra estado de mediana $5.97 grita, com scope estado', async () => {
+    const db = makeFreightDb();
+    await seedState(db, [5.17, 5.5, 5.8, 5.9, 5.97, 6.0, 6.1, 6.2, 6.4], 'GA', 9300);
+    const e = await freight.expectedFor(db, BAND, 'GA');
+    expect(e).toEqual({ expected: 5.97, samples: 9, scope: 'estado' });
+    const v = freight.judge({ cost: 8.40, expected: e.expected, samples: e.samples, weight_g: 200 });
+    expect(v).toEqual({ outlier: true, reason: 'acima_da_faixa' });
+  });
+
+  test('$8.40 pro Havai (mediana do estado $8.20) NAO grita; a faixa teria gritado', async () => {
+    const db = makeFreightDb();
+    await seedState(db, Array(20).fill(5.97), 'GA', 9400);          // faixa dominada por barato
+    await seedState(db, [8.0, 8.05, 8.1, 8.15, 8.2, 8.25, 8.3, 8.35, 8.4], 'HI', 9500);
+    const e = await freight.expectedFor(db, BAND, 'HI');
+    expect(e.scope).toBe('estado');
+    expect(e.expected).toBe(8.2);
+    expect(e.samples).toBe(9);
+    const v = freight.judge({ cost: 8.40, expected: e.expected, samples: e.samples, weight_g: 200 });
+    expect(v.outlier).toBe(false);        // Havai e caro porque e Havai
+    // contraprova: a régua v1 (faixa inteira) teria dado alerta falso
+    const banda = await freight.expectedFor(db, BAND);
+    expect(banda.expected).toBe(5.97);
+    const v1 = freight.judge({ cost: 8.40, expected: banda.expected, samples: banda.samples, weight_g: 200 });
+    expect(v1.outlier).toBe(true);
+  });
+});
+
 describe('judge: a régua do outlier', () => {
   const base = { expected: 6.00, samples: 10, weight_g: 200 };
   test('29% acima da mediana NÃO grita', () => {
