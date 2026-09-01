@@ -337,7 +337,11 @@ class FreightWatch {
             } catch (e) { q = null; }        // cliente já devolve null, mas cinto e suspensório
             if (!q) continue;                // sem cotação: fica na fila, tenta no próximo tick
             const valid = rates.validQuotes(q.quotes);
-            const best = rates.bestValid(q.quotes, { dueDate: row.due_date });
+            // FASE A (advisory): SEMPRE a mais barata valida, SEM filtro de prazo.
+            // Com o filtro, quando a estimativa do cotador pro GA passa do due_date
+            // so sobram os expressos e o "melhor" vira FedEx $14 — absurdo visto em
+            // producao 09-01. O prazo entra na FASE B (na hora de COMPRAR), nao aqui.
+            const best = rates.bestValid(q.quotes);
             await freight.saveQuote(this.db, row.shipment_id, {
               quoted_best_cost: best ? best.price : null,
               quoted_best_service: best ? best.name : null,
