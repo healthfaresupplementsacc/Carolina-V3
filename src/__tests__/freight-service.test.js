@@ -297,3 +297,108 @@ describe('summary: Walmart contado à parte, nunca na média', () => {
     expect(bands[0].max).toBe(8);
   });
 });
+
+describe('FASE A: saveQuote + copilotSummary (a matematica do copiloto)', () => {
+  const seedDay = async (db, day) => {
+    // 4 etiquetas do dia: 2 outliers, 1 normal, 1 Walmart custo 0
+    await freight.upsertShipments(db, [
+      { shipment_id: 40, cost: 8.40, service: 'GA', weight_g: 200, dest_zip: '30301', ny_day: day, bought_at: new Date().toISOString() },
+      { shipment_id: 41, cost: 9.00, service: 'GA', weight_g: 200, dest_zip: '96801', ny_day: day, bought_at: new Date().toISOString() },
+      { shipment_id: 42, cost: 6.00, service: 'GA', weight_g: 200, dest_zip: '75001', ny_day: day, bought_at: new Date().toISOString() },
+      { shipment_id: 43, cost: 0, service: '', weight_g: 200, ny_day: day, bought_at: new Date().toISOString(), channel: 'Walmart' },
+    ]);
+    await freight.saveJudgement(db, 40, { band: 'usps_ga|4-8oz', expected_cost: 6.00, outlier: true, outlier_reason: 'acima_da_faixa' });
+    await freight.saveJudgement(db, 41, { band: 'usps_ga|4-8oz', expected_cost: 6.00, outlier: true, outlier_reason: 'acima_da_faixa' });
+    await freight.saveJudgement(db, 42, { band: 'usps_ga|4-8oz', expected_cost: 6.00, outlier: false, outlier_reason: null });
+  };
+
+  test('saveQuote grava quoted_* e carimba quoted_at, sem tocar julgamento nem alerta', async () => {
+    const db = makeFreightDb();
+    const day = nyToday();
+    await seedDay(db, day);
+    await freight.saveQuote(db, 40, { quoted_best_cost: 5.62, quoted_best_service: 'USPS GA', quoted_valid_count: 3 });
+    const r = db._rows.get('40');
+    expect(Number(r.quoted_best_cost)).toBe(5.62);
+    expect(r.quoted_best_service).toBe('USPS GA');
+    expect(r.quoted_valid_count).toBe(3);
+    expect(r.quoted_at).toBeTruthy();
+    expect(r.outlier).toBe(true);              // julgamento intacto
+    expect(r.alerted_at).toBe(null);           // alerta intacto
+  });
+
+  test('saveQuote com best null (cotou, nenhuma valida) AINDA carimba quoted_at', async () => {
+    const db = makeFreightDb();
+    await seedDay(db, nyToday());
+    await freight.saveQuote(db, 41, { quoted_best_cost: null, quoted_best_service: null, quoted_valid_count: 0 });
+    const r = db._rows.get('41');
+    expect(r.quoted_best_cost).toBe(null);
+    expect(r.quoted_valid_count).toBe(0);
+    expect(r.quoted_at).toBeTruthy();
+  });
+
+  test('copilotSummary: with_cheaper exige MARGEM de $0.25 abaixo do pago', async () => {
+    const db = makeFreightDb();
+    const day = nyToday();
+    await seedDay(db, day);
+    // 40: cotou $5.62 (8.40 - 5.62 = 2.78 > 0.25 → cheaper)
+    await freight.saveQuote(db, 40, { quoted_best_cost: 5.62, quoted_best_service: 'USPS GA', quoted_valid_count: 3 });
+    // 41: cotou $8.80 (9.00 - 8.80 = 0.20 <= 0.25 → NAO e cheaper, e best_already)
+    await freight.saveQuote(db, 41, { quoted_best_cost: 8.80, quoted_best_service: 'USPS GA', quoted_valid_count: 2 });
+    const cop = await freight.copilotSummary(db, day);
+    expect(cop.labeled).toBe(3);               // Walmart custo 0 fora
+    expect(cop.total_cost).toBeCloseTo(23.40, 2);
+    expect(cop.outliers).toBe(2);
+    expect(cop.with_cheaper.n).toBe(1);
+    expect(cop.with_cheaper.saving).toBeCloseTo(2.78, 2);
+    expect(cop.best_already.n).toBe(1);
+    expect(cop.unquoted.n).toBe(0);
+  });
+
+  test('copilotSummary: outlier sem cotacao cai em unquoted', async () => {
+    const db = makeFreightDb();
+    const day = nyToday();
+    await seedDay(db, day);
+    await freight.saveQuote(db, 40, { quoted_best_cost: 5.62, quoted_best_service: 'USPS GA', quoted_valid_count: 3 });
+    const cop = await freight.copilotSummary(db, day);
+    expect(cop.with_cheaper.n).toBe(1);
+    expect(cop.best_already.n).toBe(0);
+    expect(cop.unquoted.n).toBe(1);            // o 41 nunca foi cotado
+  });
+
+  test('unquoted: so cost>0 com CEP e sem quoted_at, mais velhas primeiro', async () => {
+    const db = makeFreightDb();
+    const day = nyToday();
+    await freight.upsertShipments(db, [
+      { shipment_id: 50, cost: 6, service: 'GA', weight_g: 200, dest_zip: '30301', ny_day: day, bought_at: '2026-08-21T15:00:00Z' },
+      { shipment_id: 51, cost: 6, service: 'GA', weight_g: 200, dest_zip: '30301', ny_day: day, bought_at: '2026-08-21T14:00:00Z' },
+      { shipment_id: 52, cost: 0, service: '', weight_g: 200, dest_zip: '30301', ny_day: day, bought_at: '2026-08-21T13:00:00Z' },   // Walmart: nada a cotar
+      { shipment_id: 53, cost: 6, service: 'GA', weight_g: 200, ny_day: day, bought_at: '2026-08-21T12:00:00Z' },                     // sem CEP: incotavel
+    ]);
+    await freight.saveQuote(db, 50, { quoted_best_cost: 5, quoted_best_service: 'X', quoted_valid_count: 1 });
+    const fila = await freight.unquoted(db, { limit: 25 });
+    expect(fila.map((r) => String(r.shipment_id))).toEqual(['51']);
+  });
+
+  test('todayOutliers e summary carregam os campos quoted_*', async () => {
+    const db = makeFreightDb();
+    const day = nyToday();
+    await seedDay(db, day);
+    await freight.saveQuote(db, 40, { quoted_best_cost: 5.62, quoted_best_service: 'USPS GA', quoted_valid_count: 3 });
+    const out = await freight.todayOutliers(db);
+    const o40 = out.find((o) => String(o.shipment_id) === '40');
+    expect(Number(o40.quoted_best_cost)).toBe(5.62);
+    expect(o40.quoted_best_service).toBe('USPS GA');
+    expect(o40.quoted_at).toBeTruthy();
+    const o41 = out.find((o) => String(o.shipment_id) === '41');
+    expect(o41.quoted_at).toBe(null);
+    // summary por dia: quantas cotadas + quantos outliers com opcao mais barata
+    const sum = await freight.summary(db, { days: 1 });
+    const today = sum.days.find((d) => d.day === day);
+    expect(today.quoted).toBe(1);
+    expect(today.with_cheaper).toBe(1);
+    expect(today.cheaper_saving).toBeCloseTo(2.78, 2);
+    // e a query REAL usa a margem literal de 0.25
+    const q = db._queries.find((x) => /GROUP BY ny_day/.test(x.q)).q;
+    expect(q).toMatch(/quoted_best_cost < cost - 0\.25/);
+  });
+});

@@ -19,12 +19,23 @@
  *  4. 16:15 NY (antes do SCAN form típico) → digest do dia, 1x (dedupe via
  *     audit_log action 'freight_digest').
  *
+ * V3 (FASE A do copiloto, estudo S15-VEEQO-LABEL-API-STUDY): antes de
+ * aconselhar, o watch COTA (Rate Shopping API via deps.rates, até 25 por tick,
+ * mais velhas primeiro) e guarda quoted_* na linha. O alerta ficou HONESTO:
+ * provado em 8/8 outliers recentes que o pago JÁ ERA o mais barato válido, e o
+ * Bruno cravou "vc vai ficar mandando td mundo deletar, e se nao tiver opcao e
+ * essa eh a unica opcao oferecida no veeqo?" — então "deleta e recompra" só
+ * sai quando a alternativa EXISTE; sem alternativa o alerta diz isso; sem
+ * cotação ele manda conferir. Cotar é acessório: falha de cotação NUNCA
+ * derruba o tick (o rates-client devolve null pra toda falha).
+ *
  * NUNCA escreve estoque, NUNCA posta no canal dos operadores (custo de frete é
  * decisão de admin). Estilo das mensagens (memória): curto, direto, humano, sem
  * em dash, no máximo 1 emoji. OPT-IN: WORKER_FREIGHT_WATCH_ENABLED=true.
  */
 const EDT = 'America/New_York';
 const freight = require('../v3/freight/service');
+const rates = require('../v3/freight/rates-client');   // validQuotes/bestValid (puras)
 
 const money = (v) => '$' + Number(v || 0).toFixed(2);
 
@@ -43,6 +54,10 @@ class FreightWatch {
     this.digestMin = deps.digestMin != null ? deps.digestMin : (16 * 60 + 15); // 16:15 NY
     this.maxPages = deps.maxPages || 4;          // gentil: 400 pedidos/tick dá folga
     this.lookbackHours = deps.lookbackHours || 48;
+    // FASE A: cliente de cotação (rates-client). null = sem copiloto, o watch
+    // segue igual ao v2 e o alerta cai no texto "nao consegui cotar".
+    this.rates = deps.rates || null;
+    this.quoteCap = deps.quoteCap != null ? deps.quoteCap : 25;  // gentil com a API de rates
     this._t = null; this._kick = null; this._ticking = false;
     // scope do julgamento por shipment_id ('estado' | 'banda'), só em memória:
     // o alerta precisa saber qual mediana julgou pra falar certo, e coluna nova
@@ -135,7 +150,19 @@ class FreightWatch {
     return Math.floor(ms / (24 * 3600 * 1000));
   }
 
-  /** Texto do alerta imediato (curto, direto, sem em dash, 1 emoji). */
+  /** O que a cotação disse desta etiqueta: 'cheaper' (tem válida mais barata,
+   *  margem $0.25) | 'best' (cotou e o pago já era o melhor) | 'none' (sem
+   *  cotação: falhou ou ainda na fila do tick). */
+  _quoteVerdict(row) {
+    if (row.quoted_best_cost != null
+      && Number(row.quoted_best_cost) < Number(row.cost) - freight.QUOTE_MARGIN) return 'cheaper';
+    if (row.quoted_at != null) return 'best';
+    return 'none';
+  }
+
+  /** Texto do alerta imediato (curto, direto, sem em dash, 1 emoji).
+   *  V3: o conselho depende da COTAÇÃO. "Deleta e recompra" só quando a
+   *  alternativa existe (objeção do Bruno: sem opção, deletar é só retrabalho). */
   _alertText(row) {
     const ped = 'Pedido ' + (row.order_number || row.order_id || row.shipment_id) +
       (row.channel ? ' (' + row.channel + ')' : '');
@@ -154,8 +181,17 @@ class FreightWatch {
     const dueLine = (row.due_date && slack != null && slack >= 2)
       ? ' Cliente aceita ate ' + this._ddmm(row.due_date) + ', folga de ' + slack + ' dias.'
       : '';
-    return ':money_with_wings: *Etiqueta acima do normal* ' + ped + ': ' + base + dueLine +
-      ' Se ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra mais barato. Antes do SCAN form do dia.';
+    const verdict = this._quoteVerdict(row);
+    let advice;
+    if (verdict === 'cheaper') {
+      advice = ' Cotei agora: tem ' + row.quoted_best_service + ' por ' + money(row.quoted_best_cost) +
+        '. Se ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra. Antes do SCAN form do dia.';
+    } else if (verdict === 'best') {
+      advice = ' Cotei agora: ja era o melhor preco valido disponivel. Nao adianta recomprar; a causa e tarifa ou peso declarado.';
+    } else {
+      advice = ' Nao consegui cotar agora; confere na Veeqo se tem opcao mais barata antes de decidir.';
+    }
+    return ':money_with_wings: *Etiqueta acima do normal* ' + ped + ': ' + base + dueLine + advice;
   }
 
   /** Vários outliers no mesmo tick = UMA mensagem, uma linha por etiqueta. */
@@ -170,12 +206,21 @@ class FreightWatch {
         : ', teto ' + money(freight.CEILING_COST);
       const slack = this._slackDays(r.due_date);
       const folga = (r.due_date && slack != null && slack >= 2) ? ', folga de ' + slack + ' dias' : '';
-      return '• ' + ped + ': ' + money(r.cost) + normal + folga;
+      // sufixo do copiloto: o que a cotação achou DESTA etiqueta
+      const v = this._quoteVerdict(r);
+      const cotei = v === 'cheaper'
+        ? ' | cotei: da ' + money(r.quoted_best_cost) + ' (' + r.quoted_best_service + ')'
+        : (v === 'best' ? ' | ja era o melhor' : ' | sem cotacao');
+      return '• ' + ped + ': ' + money(r.cost) + normal + folga + cotei;
     });
     if (rows.length > 12) lines.push('• e mais ' + (rows.length - 12));
+    // a linha de ação só manda deletar quando EXISTE alternativa em alguma linha
+    const anyCheaper = rows.some((r) => this._quoteVerdict(r) === 'cheaper');
+    const action = anyCheaper
+      ? '\nSe ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra as que tem opcao mais barata. Antes do SCAN form do dia.'
+      : '\nNenhuma com opcao mais barata na cotacao. Nao adianta recomprar; a causa e tarifa ou peso declarado.';
     return ':money_with_wings: *' + rows.length + ' etiquetas acima do normal* (excesso de ' + money(excesso) + ')\n'
-      + lines.join('\n')
-      + '\nSe ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra mais barato. Antes do SCAN form do dia.';
+      + lines.join('\n') + action;
   }
 
   async _post(text) {
@@ -226,6 +271,13 @@ class FreightWatch {
       text += ' Nenhuma acima do normal, mas a media fugiu mais de 10% do padrao de 30d.';
     } else {
       text += ' ' + outliers.length + ' acima do normal, excesso de ' + money(today.outlier_excess) + '.';
+      // copiloto: quanto ainda da pra recuperar deletando e recomprando
+      try {
+        const cop = await freight.copilotSummary(this.db, nyDate);
+        if (cop.with_cheaper.n > 0) {
+          text += ' ' + cop.with_cheaper.n + ' com opcao mais barata (da pra recuperar ' + money(cop.with_cheaper.saving) + ').';
+        }
+      } catch (e) { console.error('[freight] copilotSummary no digest:', e.message); }
       for (const o of outliers) {
         const exp = o.expected_cost != null ? ' vs ' + money(o.expected_cost) : ' (teto absoluto)';
         text += '\n' + (o.order_number || o.shipment_id) + (o.channel ? ' (' + o.channel + ')' : '') +
@@ -267,6 +319,35 @@ class FreightWatch {
         judged++;
       }
 
+      // 2.5. FASE A: cota as etiquetas novas ANTES de aconselhar (até 25 por
+      //      tick, mais velhas primeiro; o resto fica pro próximo tick via a
+      //      fila quoted_at IS NULL). Cotar é conselho: QUALQUER falha aqui é
+      //      engolida e o alerta sai com "nao consegui cotar".
+      let quoted = 0;
+      if (this.rates) {
+        try {
+          const fila = await freight.unquoted(this.db, { hours: this.lookbackHours, limit: this.quoteCap });
+          for (const row of fila) {
+            let q = null;
+            try {
+              q = await this.rates.quoteParcel({
+                dest_zip: row.dest_zip, dest_state: row.dest_state,
+                weight_g: row.weight_g, reference: row.order_number || row.shipment_id,
+              });
+            } catch (e) { q = null; }        // cliente já devolve null, mas cinto e suspensório
+            if (!q) continue;                // sem cotação: fica na fila, tenta no próximo tick
+            const valid = rates.validQuotes(q.quotes);
+            const best = rates.bestValid(q.quotes, { dueDate: row.due_date });
+            await freight.saveQuote(this.db, row.shipment_id, {
+              quoted_best_cost: best ? best.price : null,
+              quoted_best_service: best ? best.name : null,
+              quoted_valid_count: valid.length,
+            });
+            quoted++;
+          }
+        } catch (e) { console.error('[freight] cotacao falhou (segue sem):', e.message); }
+      }
+
       // 3. alerta IMEDIATO dos outliers de hoje ainda não avisados (cobre
       //    também um tick anterior que julgou mas caiu antes de postar).
       //    AGRUPADO num post só por tick: a Simone compra em rajada, então um
@@ -292,7 +373,7 @@ class FreightWatch {
       let digest = null;
       if (hour * 60 + minute >= this.digestMin) digest = await this._digest(date);
 
-      return { fetched: fetched.length, judged, alerted, digest };
+      return { fetched: fetched.length, judged, quoted, alerted, digest };
     } finally {
       this._ticking = false;
     }

@@ -55,6 +55,7 @@ subgraph S02["S02 · HTTP surface (~370 routes)"]
   S02_15_06["S02.15.06 · /dashboard → public/dashboard (DIR MISSING)"]:::orphaned
   S02_16["S02.16 · events-v2 createRouter (never mounted)"]:::orphaned
   S02_19["S02.19 · Freight API /api/v3/freight (3) — custo de etiqueta, outliers, faixas"]:::verified
+  S02_20["S02.20 · Copiloto de frete /api/v3/op-freight (1) — resumo do dia pra Central, Fase A so leitura"]:::verified
 end
 
 %% ---------------------------------------------------------------- S03 frontends
@@ -407,10 +408,12 @@ S03_01 -->|R161| S15_BUILT
 S15_PLAN -.->|reserve derived from pnp_order_lines| S08_05
 S15_CORE -.->|separate by design| S08_05
 
-%% freight cost watch (Bruno 08-28)
+%% freight cost watch (Bruno 08-28) + copiloto Fase A (09-01)
 S04_40 -->|R260 le pedidos shipped| S10_03
+S04_40 -->|R263 cota rate shopping antes de aconselhar| S10_03
 S04_40 -->|R260 alerta admin-orin| S10_01
 S03_01_04 -->|R262 card Frete na pagina P&P| S02_19
+S03_02 -->|R264 bloco Copiloto na Central| S02_20
 
 %% duplicate surfaces (GENERATIONS)
 S03_03 ==>|R120 same API| S03_01_06

@@ -49,12 +49,17 @@ const FREIGHT_SUMMARY = {
   avg_30d: 6.02, labeled_30d: 481,
 };
 const FREIGHT_OUTLIERS = { outliers: [
+  // Fase A (09-01): o copiloto cotou este — tem valida mais barata (verde + dica)
   { shipment_id: 501, order_number: '2751', channel: 'eBay', service: 'USPS Ground Advantage',
     cost: 7.86, expected_cost: 6.09, band: 'usps_ga|4-8oz', outlier_reason: 'acima_da_faixa',
-    due_date: '2026-09-04T16:00:00Z', alerted_at: '2026-08-28T13:45:00Z' },
+    due_date: '2026-09-04T16:00:00Z', alerted_at: '2026-08-28T13:45:00Z',
+    quoted_best_cost: 5.62, quoted_best_service: 'USPS GA', quoted_valid_count: 4,
+    quoted_at: '2026-08-28T13:44:00Z' },
+  // este ainda sem cotacao (quoted_at null) — a linha diz "sem cotação", sem dica
   { shipment_id: 502, order_number: '2760', channel: 'Amazon', service: 'UPS 2nd Day Air',
     cost: 12.50, expected_cost: null, band: 'ups_2nd_day_air|4-8oz', outlier_reason: 'teto_absoluto',
-    due_date: null, alerted_at: null },
+    due_date: null, alerted_at: null,
+    quoted_best_cost: null, quoted_best_service: null, quoted_valid_count: null, quoted_at: null },
 ] };
 
 /** Resposta pra qualquer /api/**. */
@@ -375,8 +380,12 @@ async function main() {
       text: (document.querySelector('[data-page-op="pp"] .fr-outliers') || {}).textContent || '',
     }));
     rec('pp', 'expande as 2 etiquetas caras', opened === true && out.rows === 2, 'linhas=' + out.rows);
-    rec('pp', 'outlier mostra custo vs normal + dica da Veeqo',
-      /\$7\.86/.test(out.text) && /\$6\.09/.test(out.text) && /deleta o envio na Veeqo/.test(out.text), '');
+    rec('pp', 'outlier mostra custo vs normal', /\$7\.86/.test(out.text) && /\$6\.09/.test(out.text), '');
+    // Fase A: a dica de deletar SO aparece quando a cotacao achou mais barata
+    rec('pp', 'veredito da cotacao: "cotei $5.62 USPS GA" verde + dica de deletar nessa linha',
+      /cotei: \$5\.62 USPS GA/.test(out.text) && /deleta o envio na Veeqo/.test(out.text), '');
+    rec('pp', 'etiqueta sem cotacao diz "sem cotação" e NAO leva dica de deletar',
+      /sem cotação/.test(out.text) && (out.text.match(/deleta o envio na Veeqo/g) || []).length === 1, '');
     rec('pp', 'teto absoluto aparece rotulado', /teto absoluto/.test(out.text), '');
   }
 

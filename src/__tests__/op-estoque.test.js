@@ -496,7 +496,7 @@ describe('estoque — arquivos da casca (html + sw + vendor)', () => {
   });
   test('sw cacheia a tela nova e subiu de versao', () => {
     const sw = read('op', 'sw.js');
-    expect(sw).toContain("'hf-op-v45'"); // Bruno 08-22: faixa da pesagem + balança USB no Contar
+    expect(sw).toContain("'hf-op-v46'"); // 09-01: copiloto de frete (Fase A) no cartao de envio
     ['/op/estoque.html', '/op/estoque.js', '/op/nav.js', '/op/vendor/code128.js', '/op/vendor/qrcode.min.js',
       '/shared/label-sheet.js', '/shared/print-queue-card.js']
       .forEach((s) => expect(sw).toContain(s));

@@ -46,7 +46,8 @@ function makeFreightDb() {
         const row = { shipment_id, order_id, order_number, channel, service, weight_g,
           cost, currency: currency || 'USD', bought_at, due_date, dispatch_date,
           dest_state, dest_zip, ny_day, expected_cost: null, band: null,
-          outlier: false, outlier_reason: null, alerted_at: null };
+          outlier: false, outlier_reason: null, alerted_at: null,
+          quoted_best_cost: null, quoted_best_service: null, quoted_valid_count: null, quoted_at: null };
         rows.set(key, row);
         return { rows: [{ ...row, inserted: true }], rowCount: 1 };
       }
@@ -59,6 +60,43 @@ function makeFreightDb() {
             && (!byState || r.dest_state === params[1]))
           .map((r) => Number(r.cost)).sort((a, b) => a - b);
         return { rows: [{ median: median(cs), samples: cs.length }], rowCount: 1 };
+      }
+
+      // cotação do copiloto (saveQuote) — quoted_at carimba mesmo com best null
+      if (q.startsWith('UPDATE v3.shipment_costs SET quoted_best_cost')) {
+        const r = rows.get(String(params[0]));
+        if (r) {
+          r.quoted_best_cost = params[1]; r.quoted_best_service = params[2];
+          r.quoted_valid_count = params[3]; r.quoted_at = new Date().toISOString();
+        }
+        return { rows: [], rowCount: r ? 1 : 0 };
+      }
+
+      // fila de cotação (unquoted): sem quoted_at, cost>0, com CEP, mais velhas primeiro
+      if (/WHERE quoted_at IS NULL AND cost > 0/.test(q)) {
+        const lim = Number((q.match(/LIMIT (\d+)/) || [])[1] || 25);
+        const out = [...rows.values()]
+          .filter((r) => !r.quoted_at && Number(r.cost) > 0 && r.dest_zip != null)
+          .sort((a, b) => String(a.bought_at || '').localeCompare(String(b.bought_at || '')))
+          .slice(0, lim);
+        return { rows: out, rowCount: out.length };
+      }
+
+      // copilotSummary (um dia NY): cheaper/best_already/unquoted com margem 0.25
+      if (/AS cheaper_n/.test(q)) {
+        const day = params[0];
+        const ds = [...rows.values()].filter((r) => r.ny_day === day);
+        const cheaper = (r) => r.quoted_best_cost != null && Number(r.quoted_best_cost) < Number(r.cost) - 0.25;
+        const outs = ds.filter((r) => r.outlier);
+        return { rows: [{
+          labeled: ds.filter((r) => Number(r.cost) > 0).length,
+          total_cost: ds.filter((r) => Number(r.cost) > 0).reduce((s, r) => s + Number(r.cost), 0),
+          outliers: outs.length,
+          cheaper_n: outs.filter(cheaper).length,
+          cheaper_saving: outs.filter(cheaper).reduce((s, r) => s + (Number(r.cost) - Number(r.quoted_best_cost)), 0),
+          best_n: outs.filter((r) => r.quoted_at && !cheaper(r)).length,
+          unquoted_n: outs.filter((r) => !r.quoted_at).length,
+        }], rowCount: 1 };
       }
 
       // julgamento (saveJudgement)
@@ -80,10 +118,14 @@ function makeFreightDb() {
         const byDay = new Map();
         for (const r of rows.values()) {
           if (!r.ny_day) continue;
-          const d = byDay.get(r.ny_day) || { day: r.ny_day, shipments: 0, labeled: 0, walmart_zero: 0, total_cost: 0, outliers: 0, outlier_excess: 0 };
+          const d = byDay.get(r.ny_day) || { day: r.ny_day, shipments: 0, labeled: 0, walmart_zero: 0, total_cost: 0, outliers: 0, outlier_excess: 0, quoted: 0, with_cheaper: 0, cheaper_saving: 0 };
           d.shipments++;
           if (Number(r.cost) > 0) { d.labeled++; d.total_cost += Number(r.cost); } else d.walmart_zero++;
           if (r.outlier) { d.outliers++; if (r.expected_cost != null) d.outlier_excess += Number(r.cost) - Number(r.expected_cost); }
+          if (r.quoted_at) d.quoted++;
+          if (r.outlier && r.quoted_best_cost != null && Number(r.quoted_best_cost) < Number(r.cost) - 0.25) {
+            d.with_cheaper++; d.cheaper_saving += Number(r.cost) - Number(r.quoted_best_cost);
+          }
           byDay.set(r.ny_day, d);
         }
         const out = [...byDay.values()].sort((a, b) => b.day.localeCompare(a.day));

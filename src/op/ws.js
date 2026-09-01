@@ -516,8 +516,45 @@
     if (!w.ship) w.ship = { prev: null, busy: false, err: '' };
     return w.ship;
   }
+
+  /* ── COPILOTO DE FRETE (FASE A, só olhar) ─────────────────────
+     O resumo do dia vindo do freight-watch: etiquetas, gasto, quantas acima do
+     normal e quantas dessas tinham opção MAIS BARATA na cotação. Nenhum botão:
+     na Fase A nada compra, nada cancela. Anda no MESMO ciclo de 30 s do cartão
+     de envio (loadShipping chama). Falhou? O bloco some e o cartão segue. */
+  function copState() {
+    var w = st();
+    if (!w.cop) w.cop = { data: null };
+    return w.cop;
+  }
+  function loadCopilot() {
+    var c = copState();
+    return D.api('/api/v3/op-freight/copilot')
+      .then(function (r) { c.data = (r && r.data) || null; D.render(); })
+      .catch(function () { c.data = null; D.render(); });
+  }
+  function copilotHtml() {
+    var d = copState().data;
+    if (!d) return '';
+    var m = function (v) { return '$' + Number(v || 0).toFixed(2); };
+    var h = '<div style="border-top:1px dotted ' + T.dot + '; margin-top:12px; padding-top:10px;" data-block="freight-copilot">'
+      + microLbl('Copiloto de frete')
+      + '<div style="font-size:13px; color:' + T.ink2 + '; margin-top:5px;">Hoje: ' + (Number(d.labeled) || 0)
+      + ' etiquetas, ' + m(d.total_cost) + '. ' + (Number(d.outliers) || 0) + ' acima do normal.</div>';
+    var cheaper = (d.with_cheaper && Number(d.with_cheaper.n)) || 0;
+    if (cheaper > 0) {
+      h += '<div style="margin-top:6px;">'
+        + chip(cheaper + ' com op&ccedil;&atilde;o mais barata, d&aacute; pra recuperar ' + m(d.with_cheaper.saving), T.warnBg, T.warnFg, T.warnLn)
+        + '</div>';
+    } else if ((Number(d.outliers) || 0) > 0) {
+      h += '<div style="font-size:12.5px; color:' + T.mute2 + '; margin-top:5px;">As caras j&aacute; eram o melhor pre&ccedil;o.</div>';
+    }
+    return h + '</div>';
+  }
+
   function loadShipping() {
     var s = shipState();
+    loadCopilot();      // mesmo ciclo: um refresh só pro cartão inteiro
     return D.api(SHIP + '/preview?day=' + encodeURIComponent(todayNY()))
       .then(function (r) {
         var d = (r && r.data) || r || {};
@@ -598,7 +635,7 @@
         + '<button data-act="wsShipError" style="border:1px solid ' + T.badLn + '; cursor:pointer; border-radius:999px; min-height:48px; padding:0 20px; background:#fff; color:' + T.badFg + '; font-weight:700; font-size:14px; font-family:' + SORA + ';">Deu erro</button>'
         + '<a href="' + D.esc(aw.url) + '" target="_blank" rel="noopener" style="align-self:center; font-size:12.5px; color:' + T.neuFg + '; font-weight:700;">abrir o PDF de novo</a>'
         + '</div></div>';
-      return h + '</div>';
+      return h + copilotHtml() + '</div>';
     }
 
     if (!toPrint) {
@@ -614,7 +651,7 @@
       h += '<div style="margin-top:9px;"><button data-act="wsShipReprint" ' + (s.busy ? 'disabled' : '')
         + ' style="border:0; background:none; cursor:pointer; padding:6px 2px; font-size:12.5px; color:' + T.mute2 + '; font-weight:700; text-decoration:underline;">reimprimir tudo de hoje</button></div>';
     }
-    return h + '</div>';
+    return h + copilotHtml() + '</div>';
   }
 
   /**
@@ -721,6 +758,14 @@
         var c = p.counts || {};
         return (p.down ? 'X' : '') + (c.ready || 0) + '.' + (c.printed || 0) + '.' + (c.to_print || 0)
           + ((queue && queue.awaiting) ? 'A' + queue.awaiting.id : '') + (s.busy ? 'B' : '');
+      }())
+      // copiloto de frete: sem os números na key o bloco não aparecia quando a
+      // resposta chegava depois da primeira montagem do cartão.
+      + '|c' + (function () {
+        var d = copState().data;
+        if (!d) return 'L';
+        return (d.labeled || 0) + '.' + Number(d.total_cost || 0).toFixed(2) + '.' + (d.outliers || 0)
+          + '.' + ((d.with_cheaper && d.with_cheaper.n) || 0);
       }());
   }
 
@@ -982,7 +1027,7 @@
     wsPrintJob: function (arg) { if (queue) queue.take(arg); },
 
     // ── etiquetas de envio ────────────────────────────────────
-    wsShipReload: function () { shipState().prev = null; D.render(); loadShipping(); },
+    wsShipReload: function () { shipState().prev = null; D.render(); loadShipping(); },   // loadShipping recarrega o copiloto junto
     wsShipPrint: function () { shipSubmit(false); },
     wsShipReprint: function () { shipSubmit(true); },
     /* "Já imprimi" é o que carimba printed_at nas etiquetas e nas linhas do

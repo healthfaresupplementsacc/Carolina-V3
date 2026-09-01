@@ -404,6 +404,11 @@ function FreightCard() {
             <div className="fr-outliers" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {outliers.map((o) => {
                 const sd = slackDays(o.due_date);
+                /* Copiloto (Fase A): o veredito da COTAÇÃO por etiqueta. Só manda
+                   recomprar quando a alternativa EXISTE (provado em 8/8 outliers
+                   que o pago já era o mais barato válido — mandar deletar sem
+                   cotar era conselho errado na maioria das vezes). */
+                const cheaper = o.quoted_best_cost != null && Number(o.quoted_best_cost) < Number(o.cost) - 0.25;
                 return (
                   <div key={o.shipment_id} className="fr-outlier" style={{ padding: '8px 10px', background: 'var(--bad-bg)', borderRadius: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
@@ -414,9 +419,24 @@ function FreightCard() {
                       {o.expected_cost != null ? ` vs ${money(o.expected_cost)} normal da faixa` : ' (teto absoluto)'}
                       {sd != null && sd >= 2 ? ` · cliente aceita até daqui ${sd} dias` : ''}
                     </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 2 }}>
-                      Se ainda não despachou: deleta o envio na Veeqo e recompra mais barato. Antes do SCAN form do dia.
-                    </div>
+                    {cheaper ? (
+                      <div className="mono fr-quote" style={{ fontSize: 12, color: 'var(--ok-deep)', fontWeight: 600, marginTop: 2 }}>
+                        cotei: {money(o.quoted_best_cost)} {o.quoted_best_service}
+                      </div>
+                    ) : o.quoted_at ? (
+                      <div className="fr-quote" style={{ fontSize: 11.5, color: 'var(--ink-dim)', marginTop: 2 }}>
+                        já era o melhor
+                      </div>
+                    ) : (
+                      <div className="fr-quote" style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 2 }}>
+                        sem cotação
+                      </div>
+                    )}
+                    {cheaper && (
+                      <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 2 }}>
+                        Se ainda não despachou: deleta o envio na Veeqo (estorno automático) e recompra. Antes do SCAN form do dia.
+                      </div>
+                    )}
                   </div>
                 );
               })}

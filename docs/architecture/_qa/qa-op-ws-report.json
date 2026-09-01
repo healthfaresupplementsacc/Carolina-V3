@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-19T22:33:15.028Z",
+  "at": "2026-09-01T22:43:31.784Z",
   "results": [
     {
       "group": "boot",
@@ -275,7 +275,7 @@
       "group": "envio",
       "name": "mini lista por produto com apelido, quantas e local",
       "pass": true,
-      "detail": "📦 ETIQUETAS DE ENVIO DE HOJE Atualizar 4 prontas na Veeqo 1 já impressas 3 pra imprimir BENF-300 2 etiquetas A03B2 RUT-500 2 etiquetas S6 Imprimir etiquetas de envio (3) reimprimir tudo de hoje"
+      "detail": "📦 ETIQUETAS DE ENVIO DE HOJE Atualizar 4 prontas na Veeqo 1 já impressas 3 pra imprimir BENF-300 2 etiquetas A03B2 RUT-500 2 etiquetas S6 Imprimir etiquetas de envio (3) reimprimir tudo de hoje COPIL"
     },
     {
       "group": "envio",
@@ -308,16 +308,52 @@
       "detail": ""
     },
     {
+      "group": "copiloto",
+      "name": "bloco Copiloto de frete dentro do cartao de envio",
+      "pass": true,
+      "detail": "COPILOTO DE FRETE Hoje: 12 etiquetas, $73.40. 2 acima do normal. 1 com opção mais barata, dá pra recuperar $2.78"
+    },
+    {
+      "group": "copiloto",
+      "name": "estado 1: Hoje N etiquetas, $X, M acima do normal",
+      "pass": true,
+      "detail": "COPILOTO DE FRETE Hoje: 12 etiquetas, $73.40. 2 acima do normal. 1 com opção mais barata, dá pra recuperar $2.78"
+    },
+    {
+      "group": "copiloto",
+      "name": "estado 1: chip de aviso com a economia recuperavel",
+      "pass": true,
+      "detail": "COPILOTO DE FRETE Hoje: 12 etiquetas, $73.40. 2 acima do normal. 1 com opção mais barata, dá pra recuperar $2.78"
+    },
+    {
+      "group": "copiloto",
+      "name": "Fase A e SO OLHAR: nenhum botao no bloco",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "copiloto",
+      "name": "estado 2: sem mais barata + outliers → \"As caras já eram o melhor preço.\"",
+      "pass": true,
+      "detail": "COPILOTO DE FRETE Hoje: 12 etiquetas, $73.40. 2 acima do normal. As caras já eram o melhor preço."
+    },
+    {
+      "group": "copiloto",
+      "name": "estado 3: dia limpo → \"0 acima do normal\", sem chip e sem linha neutra",
+      "pass": true,
+      "detail": "COPILOTO DE FRETE Hoje: 9 etiquetas, $51.30. 0 acima do normal."
+    },
+    {
       "group": "envio",
       "name": "Imprimir posta {day, take:true} em shipping-labels",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-19\",\"take\":true}"
+      "detail": "{\"day\":\"2026-09-01\",\"take\":true}"
     },
     {
       "group": "envio",
       "name": "o dia e o de Nova York (fuso da fabrica, nao o do navegador)",
       "pass": true,
-      "detail": "2026-08-19"
+      "detail": "2026-09-01"
     },
     {
       "group": "envio",
@@ -371,7 +407,7 @@
       "group": "envio",
       "name": "reimprimir tudo de hoje manda reprint:true",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-19\",\"take\":true,\"reprint\":true}"
+      "detail": "{\"day\":\"2026-09-01\",\"take\":true,\"reprint\":true}"
     },
     {
       "group": "fila",

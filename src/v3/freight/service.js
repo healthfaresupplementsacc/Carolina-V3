@@ -181,6 +181,78 @@ async function saveJudgement(db, shipmentId, { band, expected_cost, outlier, out
       !!outlier, outlier_reason || null]);
 }
 
+// FASE A (copiloto): "mais barata" só quando a diferença é dinheiro de gente,
+// não centavo de arredondamento. $0.25 abaixo do pago é o piso pra dizer "tem
+// opção mais barata" — abaixo disso a recompra dá mais trabalho do que salva.
+const QUOTE_MARGIN = 0.25;
+
+/** Grava a cotação do copiloto numa linha (Fase A: conselho, nunca compra).
+ *  quoted_at = NOW() carimba "cotei", mesmo quando best é null (cotou e não
+ *  tinha nenhuma válida). Nunca mexe em julgamento nem alerted_at. */
+async function saveQuote(db, shipmentId, { quoted_best_cost, quoted_best_service, quoted_valid_count }) {
+  await db.query(
+    `UPDATE v3.shipment_costs
+        SET quoted_best_cost = $2, quoted_best_service = $3,
+            quoted_valid_count = $4, quoted_at = NOW()
+      WHERE shipment_id = $1`,
+    [shipmentId,
+      quoted_best_cost != null ? quoted_best_cost : null,
+      quoted_best_service || null,
+      quoted_valid_count != null ? quoted_valid_count : null]);
+}
+
+/** Etiquetas recentes ainda SEM cotação (o que o copiloto vai cotar neste
+ *  tick). Mais velhas primeiro; cost>0 (Walmart custo 0 não tem o que cotar);
+ *  dest_zip obrigatório (sem CEP não existe cotação — pular aqui evita ficar
+ *  re-tentando pra sempre uma linha incotável). */
+async function unquoted(db, { hours = 48, limit = 25 } = {}) {
+  const h = Math.max(1, Math.min(168, Number(hours) || 48));
+  const n = Math.max(1, Math.min(100, Number(limit) || 25));
+  const r = await db.query(
+    `SELECT shipment_id, order_number, cost, weight_g, dest_state, dest_zip, due_date, bought_at
+       FROM v3.shipment_costs
+      WHERE quoted_at IS NULL AND cost > 0 AND dest_zip IS NOT NULL
+        AND bought_at > NOW() - INTERVAL '${h} hours'
+      ORDER BY bought_at ASC
+      LIMIT ${n}`);
+  return r.rows || [];
+}
+
+/**
+ * Resumo do copiloto pra UM dia NY (o bloco da Central + a frase do digest).
+ * with_cheaper = outliers com cotação VÁLIDA mais barata que o pago (margem
+ * $0.25); best_already = outliers cotados onde o pago já era o melhor;
+ * unquoted = outliers ainda sem cotação (falha ou fila do tick).
+ * @returns {{day, labeled, total_cost, outliers, with_cheaper:{n,saving}, best_already:{n}, unquoted:{n}}}
+ */
+async function copilotSummary(db, nyDay) {
+  const r = await db.query(
+    `SELECT COUNT(*) FILTER (WHERE cost > 0)::int AS labeled,
+            COALESCE(SUM(cost) FILTER (WHERE cost > 0), 0)::numeric AS total_cost,
+            COUNT(*) FILTER (WHERE outlier)::int AS outliers,
+            COUNT(*) FILTER (WHERE outlier AND quoted_best_cost IS NOT NULL
+              AND quoted_best_cost < cost - ${QUOTE_MARGIN})::int AS cheaper_n,
+            COALESCE(SUM(cost - quoted_best_cost) FILTER (WHERE outlier
+              AND quoted_best_cost IS NOT NULL
+              AND quoted_best_cost < cost - ${QUOTE_MARGIN}), 0)::numeric AS cheaper_saving,
+            COUNT(*) FILTER (WHERE outlier AND quoted_at IS NOT NULL
+              AND NOT (quoted_best_cost IS NOT NULL
+                AND quoted_best_cost < cost - ${QUOTE_MARGIN}))::int AS best_n,
+            COUNT(*) FILTER (WHERE outlier AND quoted_at IS NULL)::int AS unquoted_n
+       FROM v3.shipment_costs
+      WHERE ny_day = $1::date`, [nyDay]);
+  const row = (r.rows && r.rows[0]) || {};
+  return {
+    day: nyDay,
+    labeled: Number(row.labeled || 0),
+    total_cost: Number(row.total_cost || 0),
+    outliers: Number(row.outliers || 0),
+    with_cheaper: { n: Number(row.cheaper_n || 0), saving: Number(row.cheaper_saving || 0) },
+    best_already: { n: Number(row.best_n || 0) },
+    unquoted: { n: Number(row.unquoted_n || 0) },
+  };
+}
+
 /** Carimba alerted_at (só se ainda nulo: 1 alerta por etiqueta, pra sempre). */
 async function markAlerted(db, shipmentId) {
   const r = await db.query(
@@ -205,7 +277,13 @@ async function summary(db, { days = 14 } = {}) {
             COALESCE(SUM(cost) FILTER (WHERE cost > 0), 0)::numeric AS total_cost,
             COUNT(*) FILTER (WHERE outlier)::int AS outliers,
             COALESCE(SUM(cost - expected_cost)
-              FILTER (WHERE outlier AND expected_cost IS NOT NULL), 0)::numeric AS outlier_excess
+              FILTER (WHERE outlier AND expected_cost IS NOT NULL), 0)::numeric AS outlier_excess,
+            COUNT(*) FILTER (WHERE quoted_at IS NOT NULL)::int AS quoted,
+            COUNT(*) FILTER (WHERE outlier AND quoted_best_cost IS NOT NULL
+              AND quoted_best_cost < cost - ${QUOTE_MARGIN})::int AS with_cheaper,
+            COALESCE(SUM(cost - quoted_best_cost) FILTER (WHERE outlier
+              AND quoted_best_cost IS NOT NULL
+              AND quoted_best_cost < cost - ${QUOTE_MARGIN}), 0)::numeric AS cheaper_saving
        FROM v3.shipment_costs
       WHERE ny_day >= ((NOW() AT TIME ZONE '${EDT}')::date - INTERVAL '${n - 1} days')::date
       GROUP BY ny_day ORDER BY ny_day DESC`);
@@ -218,6 +296,11 @@ async function summary(db, { days = 14 } = {}) {
     avg_cost: Number(d.labeled) > 0 ? Number(d.total_cost) / Number(d.labeled) : null,
     outliers: Number(d.outliers),
     outlier_excess: Number(d.outlier_excess),
+    // copiloto (Fase A): quantas do dia já cotadas e quantos outliers tinham
+    // alternativa válida mais barata (margem $0.25), com a economia possível
+    quoted: Number(d.quoted || 0),
+    with_cheaper: Number(d.with_cheaper || 0),
+    cheaper_saving: Number(d.cheaper_saving || 0),
   }));
   const r30 = await db.query(
     `SELECT COALESCE(SUM(cost), 0)::numeric AS total, COUNT(*)::int AS labeled
@@ -239,7 +322,8 @@ async function outliersOf(db, day) {
   const r = await db.query(
     `SELECT shipment_id, order_id, order_number, channel, service, weight_g,
             cost, expected_cost, band, outlier_reason, bought_at, due_date,
-            dest_state, dest_zip, alerted_at, ny_day::text AS ny_day
+            dest_state, dest_zip, alerted_at, ny_day::text AS ny_day,
+            quoted_best_cost, quoted_best_service, quoted_valid_count, quoted_at
        FROM v3.shipment_costs
       WHERE outlier = true AND ny_day = ${dayExpr}
       ORDER BY (cost - COALESCE(expected_cost, 0)) DESC`, params);
@@ -271,6 +355,8 @@ async function bands(db) {
 module.exports = {
   bandOf, serviceKey, weightBand, judge,
   expectedFor, upsertShipments, saveJudgement, markAlerted,
+  saveQuote, unquoted, copilotSummary,
   summary, outliersOf, todayOutliers, bands,
   MIN_SAMPLES, MIN_STATE_SAMPLES, OUTLIER_PCT, OUTLIER_ABS, CEILING_COST,
+  QUOTE_MARGIN,
 };

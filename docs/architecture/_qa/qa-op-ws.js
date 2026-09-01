@@ -121,6 +121,15 @@ const SHIP_READY = [
     printed_at: '2026-08-19T13:00:00Z', mixed: false,
     products: [{ product_id: 99, nickname: 'RUT-500', sku: 'HF-RUT-C2', bottles: 1, bin_code: 'B01', shelf_code: 'S6', area: 'P&P' }] },
 ];
+/* FASE A · COPILOTO DE FRETE (bloco read-only dentro do cartao de envio).
+   O resumo do dia do freight-watch: etiquetas, gasto, acima do normal e
+   quantas dessas tinham opcao MAIS BARATA na cotacao. Mutavel: o teste roda
+   os TRES estados (tem mais barata / ja eram o melhor / dia limpo). */
+let COPILOT = {
+  day: SHIP_DAY, labeled: 12, total_cost: 73.4, outliers: 2,
+  with_cheaper: { n: 1, saving: 2.78 }, best_already: { n: 1 }, unquoted: { n: 0 },
+};
+
 let SHIP_PRINTED = 1;             // quantas ja sairam no papel hoje
 let SHIP_JOB_SEQ = 900;
 let SHIP_LAST_JOB = null;         // o job devolvido pelo ultimo POST
@@ -135,6 +144,9 @@ const fileHits = [];
 
 function apiFixture(pathname, method, body) {
   if (method === 'POST') posted.push({ pathname, body });
+
+  // ── copiloto de frete (Fase A, so leitura) ──────────────────
+  if (pathname === '/api/v3/op-freight/copilot') return { data: COPILOT };
 
   // ── etiquetas de envio ───────────────────────────────────────
   if (pathname.indexOf('/api/v3/print-queue/shipping-labels/preview') === 0) {
@@ -541,6 +553,51 @@ async function main() {
     !!(await page.$('[data-act="wsShipReprint"]')));
   await toTop(); await shot('12-etiquetas-envio');
 
+  // ── COPILOTO DE FRETE (FASE A): tres estados, zero botoes ────
+  const copCard = () => page.evaluate(() => {
+    const c = document.querySelector('[data-block="freight-copilot"]');
+    return c ? c.innerText.replace(/\s+/g, ' ') : '';
+  });
+  let copTxt = await copCard();
+  rec('copiloto', 'bloco Copiloto de frete dentro do cartao de envio', /copiloto de frete/i.test(copTxt), copTxt.slice(0, 120));
+  rec('copiloto', 'estado 1: Hoje N etiquetas, $X, M acima do normal',
+    /Hoje: 12 etiquetas, \$73\.40\. 2 acima do normal\./.test(copTxt), copTxt.slice(0, 160));
+  rec('copiloto', 'estado 1: chip de aviso com a economia recuperavel',
+    /1 com opção mais barata, dá pra recuperar \$2\.78/.test(copTxt), copTxt.slice(0, 200));
+  rec('copiloto', 'Fase A e SO OLHAR: nenhum botao no bloco',
+    (await page.evaluate(() => {
+      const c = document.querySelector('[data-block="freight-copilot"]');
+      return c ? c.querySelectorAll('button, a').length : -1;
+    })) === 0, '');
+  await shot('16-copilot-mais-barata');
+
+  // estado 2: cotou tudo e as caras JA ERAM o melhor preco (linha neutra)
+  COPILOT = { day: SHIP_DAY, labeled: 12, total_cost: 73.4, outliers: 2,
+    with_cheaper: { n: 0, saving: 0 }, best_already: { n: 2 }, unquoted: { n: 0 } };
+  await page.evaluate(() => window.HF_WS.acts.wsShipReload());
+  await sleep(900);
+  copTxt = await copCard();
+  rec('copiloto', 'estado 2: sem mais barata + outliers → "As caras já eram o melhor preço."',
+    /As caras já eram o melhor preço\./.test(copTxt) && !/recuperar/.test(copTxt), copTxt.slice(0, 200));
+  await toTop(); await shot('17-copilot-ja-era-o-melhor');
+
+  // estado 3: dia limpo (zero acima do normal) → so a linha base, sem aviso
+  COPILOT = { day: SHIP_DAY, labeled: 9, total_cost: 51.3, outliers: 0,
+    with_cheaper: { n: 0, saving: 0 }, best_already: { n: 0 }, unquoted: { n: 0 } };
+  await page.evaluate(() => window.HF_WS.acts.wsShipReload());
+  await sleep(900);
+  copTxt = await copCard();
+  rec('copiloto', 'estado 3: dia limpo → "0 acima do normal", sem chip e sem linha neutra',
+    /Hoje: 9 etiquetas, \$51\.30\. 0 acima do normal\./.test(copTxt)
+      && !/mais barata/.test(copTxt) && !/já eram/.test(copTxt), copTxt.slice(0, 160));
+  await toTop(); await shot('18-copilot-dia-limpo');
+
+  // volta o fixture do estado 1 pro resto do fluxo (impressao nao depende dele)
+  COPILOT = { day: SHIP_DAY, labeled: 12, total_cost: 73.4, outliers: 2,
+    with_cheaper: { n: 1, saving: 2.78 }, best_already: { n: 1 }, unquoted: { n: 0 } };
+  await page.evaluate(() => window.HF_WS.acts.wsShipReload());
+  await sleep(900);
+
   // IMPRIMIR: POST {day, take:true} → abre o PDF com o token na query
   await page.evaluate(() => {
     window.__shipWin = null;
@@ -553,7 +610,9 @@ async function main() {
     };
   });
   posted.length = 0; fileHits.length = 0;
-  if (shipBtn) await shipBtn.click();
+  // re-busca o botao: os reloads do copiloto remontaram o cartao (handle velho descola)
+  const shipBtn2 = await page.$('[data-act="wsShipPrint"]');
+  if (shipBtn2) await shipBtn2.click();
   await sleep(1200);
   const shipPost = posted.find((x) => x.pathname === '/api/v3/print-queue/shipping-labels');
   rec('envio', 'Imprimir posta {day, take:true} em shipping-labels',

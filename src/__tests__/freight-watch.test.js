@@ -8,7 +8,10 @@
  *  5. texto do alerta: forma combinada, sem em dash, folga do due_date
  *  6. Walmart custo 0 registrado mas nunca alertado
  *  7. state-aware (v2): histórico do estado muda a régua E o texto do alerta
- * DB/Veeqo/Slack mockados; relógio injetado.
+ *  8. FASE A (v3, copiloto): cota antes de aconselhar; os TRES textos honestos
+ *     (tem mais barata / ja era o melhor / nao consegui cotar); cap 25/tick;
+ *     falha de cotacao NUNCA derruba o tick; digest ganha a frase da economia
+ * DB/Veeqo/Slack/rates mockados; relógio injetado.
  */
 const { FreightWatch } = require('../workers/freight-watch');
 const freight = require('../v3/freight/service');
@@ -50,17 +53,22 @@ async function seedHistory(db, { state = null, cost = 6.00, startId = 8000 } = {
   }
 }
 
-function boot({ hour = 10, minute = 0, orders = [], enabled = true } = {}) {
+function boot({ hour = 10, minute = 0, orders = [], enabled = true, rates = null, quoteCap } = {}) {
   const db = makeFreightDb();
   const posts = [];
   const veeqo = { getOrdersPage: jest.fn(async ({ page }) => (page === 1 ? orders : [])) };
   const worker = new FreightWatch({
-    db, veeqo, enabled,
+    db, veeqo, enabled, rates, quoteCap,
     slack: { postAs: jest.fn(async (m) => { posts.push(m); }) },
     channelId: 'C_ADMIN',
     now: atNy(hour, minute),
   });
   return { db, posts, veeqo, worker };
+}
+
+/** Cliente de rates fake: devolve sempre as mesmas quotes (ou null = falhou). */
+function fakeRates(quotes) {
+  return { quoteParcel: jest.fn(async () => (quotes ? { quotes } : null)) };
 }
 
 const nowIso = (hour) => atNy(hour)().toISOString();
@@ -116,8 +124,10 @@ describe('alerta imediato de outlier', () => {
     expect(t).toContain('Pedido 2751 (eBay)');
     expect(t).toContain('USPS Ground Advantage saiu $7.86, o normal dessa faixa e $6.00.');
     expect(t).toContain('Cliente aceita ate 04/09, folga de');
-    expect(t).toContain('deleta o envio na Veeqo que o estorno e automatico, e recompra mais barato');
-    expect(t).toContain('Antes do SCAN form do dia.');
+    // v3: SEM cliente de rates o alerta e honesto sobre nao ter cotado — e
+    // NUNCA manda deletar sem saber se existe opcao (objecao do Bruno)
+    expect(t).toContain('Nao consegui cotar agora; confere na Veeqo se tem opcao mais barata antes de decidir.');
+    expect(t).not.toContain('deleta o envio');
     expect(t).not.toMatch(/[—–]/);                       // sem em dash, nunca
     expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);  // 1 emoji máx
   });
@@ -139,7 +149,10 @@ describe('alerta imediato de outlier', () => {
     expect(t).toContain('2751');
     expect(t).toContain('2752');
     expect(t).toContain('2753');
-    expect(t).toContain('deleta o envio na Veeqo que o estorno e automatico');
+    // v3: sem rates cada linha diz "sem cotacao" e a acao NUNCA manda deletar
+    expect(t).toContain(' | sem cotacao');
+    expect(t).toContain('Nenhuma com opcao mais barata na cotacao.');
+    expect(t).not.toContain('deleta o envio');
     expect(t).not.toMatch(/[—–]/);
     expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
     // tick seguinte: nada repete
@@ -298,5 +311,146 @@ describe('canais e limites', () => {
       slack: { postAs: jest.fn() }, channelId: 'C_ADMIN', now: atNy(10) });
     await worker.tick();
     expect(veeqo.getOrdersPage.mock.calls.length).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('FASE A: copiloto cota antes de aconselhar', () => {
+  const gaOrder = (over = {}) => order({ id: 70, number: '2901', shipmentId: 510,
+    cost: 8.40, createdAt: nowIso(9), state: 'GA', ...over });
+  const seedGa = async (db) => {
+    await seedHistory(db);                                              // faixa: 9x $6.00
+    await seedHistory(db, { state: 'GA', cost: 5.97, startId: 8100 });  // GA: 9x $5.97
+  };
+
+  test('tem valida mais barata: o texto EXATO manda deletar e recomprar', async () => {
+    const rates = fakeRates([
+      { name: 'USPS Ground Advantage', price: 5.62, delivery_estimate: null, rate_id: 'r1' },
+      { name: 'USPS Media Mail', price: 3.90, delivery_estimate: null, rate_id: 'r2' },  // banida: nunca vence
+    ]);
+    const { db, posts, worker } = boot({ hour: 10, orders: [gaOrder()], rates });
+    await seedGa(db);
+    const out = await worker.tick();
+    expect(out.quoted).toBe(1);
+    expect(out.alerted).toBe(1);
+    const t = alerts(posts)[0].text;
+    expect(t).toBe(':money_with_wings: *Etiqueta acima do normal* Pedido 2901 (eBay): '
+      + 'USPS Ground Advantage saiu $8.40, o normal pra GA e $5.97.'
+      + ' Cotei agora: tem USPS Ground Advantage por $5.62.'
+      + ' Se ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra.'
+      + ' Antes do SCAN form do dia.');
+    expect(t).not.toMatch(/[—–]/);
+    expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
+    // a cotacao ficou na linha (quoted_* gravados)
+    const row = db._rows.get('510');
+    expect(Number(row.quoted_best_cost)).toBe(5.62);
+    expect(row.quoted_best_service).toBe('USPS Ground Advantage');
+    expect(row.quoted_valid_count).toBe(1);              // Media Mail fora
+    expect(row.quoted_at).toBeTruthy();
+  });
+
+  test('cotou e o pago JA ERA o melhor: o texto EXATO diz que recomprar nao adianta', async () => {
+    // melhor valida $8.30: acima de cost - $0.25 = $8.15, entao NAO e "mais barata"
+    const rates = fakeRates([{ name: 'USPS Ground Advantage', price: 8.30, delivery_estimate: null, rate_id: 'r1' }]);
+    const { db, posts, worker } = boot({ hour: 10, orders: [gaOrder()], rates });
+    await seedGa(db);
+    await worker.tick();
+    const t = alerts(posts)[0].text;
+    expect(t).toBe(':money_with_wings: *Etiqueta acima do normal* Pedido 2901 (eBay): '
+      + 'USPS Ground Advantage saiu $8.40, o normal pra GA e $5.97.'
+      + ' Cotei agora: ja era o melhor preco valido disponivel.'
+      + ' Nao adianta recomprar; a causa e tarifa ou peso declarado.');
+    expect(t).not.toContain('deleta o envio');
+  });
+
+  test('cotacao falhou (null): o texto EXATO manda conferir na Veeqo', async () => {
+    const { db, posts, worker } = boot({ hour: 10, orders: [gaOrder()], rates: fakeRates(null) });
+    await seedGa(db);
+    const out = await worker.tick();
+    expect(out.quoted).toBe(0);
+    const t = alerts(posts)[0].text;
+    expect(t).toBe(':money_with_wings: *Etiqueta acima do normal* Pedido 2901 (eBay): '
+      + 'USPS Ground Advantage saiu $8.40, o normal pra GA e $5.97.'
+      + ' Nao consegui cotar agora; confere na Veeqo se tem opcao mais barata antes de decidir.');
+    expect(db._rows.get('510').quoted_at).toBe(null);    // sem carimbo: tenta de novo depois
+  });
+
+  test('cliente de rates que EXPLODE nunca derruba o tick (alerta sai como sem cotacao)', async () => {
+    const rates = { quoteParcel: jest.fn(async () => { throw new Error('boom'); }) };
+    const { db, posts, worker } = boot({ hour: 10, orders: [gaOrder()], rates });
+    await seedGa(db);
+    const out = await worker.tick();
+    expect(out.alerted).toBe(1);                         // o tick viveu e avisou
+    expect(alerts(posts)[0].text).toContain('Nao consegui cotar agora');
+  });
+
+  test('agrupada: sufixo por linha (cotei/ja era/sem cotacao) e acao so quando TEM mais barata', async () => {
+    // 510 cota mais barato; 511 sem CEP nao entra na fila de cotacao (sem cotacao)
+    const rates = fakeRates([{ name: 'USPS Priority Mail', price: 5.62, delivery_estimate: null, rate_id: 'r1' }]);
+    const dois = [
+      gaOrder(),
+      order({ id: 71, number: '2902', shipmentId: 511, cost: 9.10, createdAt: nowIso(9), state: 'GA' }),
+    ];
+    dois[1].deliver_to.zip = null;                       // incotavel de proposito
+    const { db, posts, worker } = boot({ hour: 10, orders: dois, rates });
+    await seedGa(db);
+    await worker.tick();
+    const t = alerts(posts)[0].text;
+    expect(t).toContain('*2 etiquetas acima do normal*');
+    expect(t).toContain(' | cotei: da $5.62 (USPS Priority Mail)');
+    expect(t).toContain(' | sem cotacao');
+    expect(t).toContain('Se ainda nao despachou: deleta o envio na Veeqo que o estorno e automatico, e recompra as que tem opcao mais barata. Antes do SCAN form do dia.');
+    expect(t).not.toMatch(/[—–]/);
+    expect((t.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
+  });
+
+  test('agrupada sem NENHUMA mais barata: a acao nao manda deletar', async () => {
+    const rates = fakeRates([{ name: 'USPS Ground Advantage', price: 8.35, delivery_estimate: null, rate_id: 'r1' }]);
+    const dois = [
+      gaOrder(),
+      order({ id: 72, number: '2903', shipmentId: 512, cost: 8.50, createdAt: nowIso(9), state: 'GA' }),
+    ];
+    const { db, posts, worker } = boot({ hour: 10, orders: dois, rates });
+    await seedGa(db);
+    await worker.tick();
+    const t = alerts(posts)[0].text;
+    expect(t).toContain(' | ja era o melhor');
+    expect(t).toContain('Nenhuma com opcao mais barata na cotacao. Nao adianta recomprar; a causa e tarifa ou peso declarado.');
+    expect(t).not.toContain('deleta o envio');
+  });
+
+  test('cap de 25 cotacoes por tick; o resto fica pro proximo tick', async () => {
+    const many = [];
+    for (let i = 0; i < 30; i++) {
+      many.push(order({ id: 3000 + i, number: String(3000 + i), shipmentId: 4000 + i,
+        cost: 6.00, createdAt: nowIso(9) }));
+    }
+    const rates = fakeRates([{ name: 'USPS Ground Advantage', price: 5.50, delivery_estimate: null, rate_id: 'r1' }]);
+    const { worker } = boot({ hour: 10, orders: many, rates });
+    const out = await worker.tick();
+    expect(out.quoted).toBe(25);
+    expect(rates.quoteParcel.mock.calls.length).toBe(25);
+    const out2 = await worker.tick();                    // a fila (quoted_at IS NULL) entrega o resto
+    expect(out2.quoted).toBe(5);
+    expect(rates.quoteParcel.mock.calls.length).toBe(30);
+  });
+
+  test('digest ganha a frase da economia quando tem opcao mais barata', async () => {
+    const rates = fakeRates([{ name: 'USPS Ground Advantage', price: 5.62, delivery_estimate: null, rate_id: 'r1' }]);
+    const { db, posts, worker } = boot({ hour: 16, minute: 20, orders: [gaOrder({ createdAt: nowIso(15) })], rates });
+    await seedGa(db);
+    await worker.tick();
+    const d = digests(posts);
+    expect(d.length).toBe(1);
+    expect(d[0].text).toContain('1 acima do normal');
+    expect(d[0].text).toContain('1 com opcao mais barata (da pra recuperar $2.78).');
+    expect(d[0].text).not.toMatch(/[—–]/);
+  });
+
+  test('sem cliente de rates o tick segue identico ao v2 (quoted 0, nada explode)', async () => {
+    const { posts, worker } = boot({ hour: 10, orders: [gaOrder()] });
+    void posts;
+    const out = await worker.tick();
+    expect(out.quoted).toBe(0);
+    expect(out.fetched).toBe(1);
   });
 });

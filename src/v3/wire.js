@@ -268,6 +268,12 @@ function mount(app) {
   // router não pode crescer); auth da mesma família do warehouse (view_stock).
   const freightApi = require('./freight/router');
   app.use('/', freightApi.createFreightRouter({ db: _pool }));
+  // COPILOTO DE FRETE pro OPERADOR (Fase A) — /api/v3/op-freight/copilot. A
+  // Central de P&P mostra o resumo do dia (etiquetas, gasto, acima do normal,
+  // com opção mais barata). Auth = a dupla do /op (page token + sessão);
+  // router próprio porque src/routes/op.js não pode crescer. Só leitura.
+  const opCopilotApi = require('./freight/op-copilot-router');
+  app.use('/', opCopilotApi.createOpCopilotRouter({ db: _pool }));
   // REVISÃO DO DIA (Bruno 08-19) — /api/v3/review/*. O popup do widget "Revisão"
   // da Hoje: escolher um dia no mini calendário e ver quem revisou o quê,
   // quantas garrafas, quanto tempo, e se o lote já rodou na linha — mais a fila
@@ -660,7 +666,11 @@ async function startWorker() {
     try {
       const { FreightWatch } = require('../workers/freight-watch');
       const { veeqo } = require('./services/veeqo-api');
-      new FreightWatch({ db: _pool, veeqo, slack: { postAs: slackSender.postAs },
+      // FASE A (copiloto): cota antes de aconselhar (mesma VEEQO_API_KEY;
+      // rate shopping é read-only, toda falha vira null e o watch segue)
+      const { createRatesClient } = require('./freight/rates-client');
+      new FreightWatch({ db: _pool, veeqo, rates: createRatesClient(),
+        slack: { postAs: slackSender.postAs },
         channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
         heartbeat: () => beat('freight_watch') }).start(5 * 60 * 1000);
     } catch (e) { console.error('[V3] freight-watch não iniciou:', e.message); }

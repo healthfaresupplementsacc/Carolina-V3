@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-28T14:49:23.562Z",
+  "at": "2026-09-01T22:49:24.776Z",
   "results": [
     {
       "group": "screenshot",
       "name": "hoje",
       "pass": true,
-      "detail": "217 KB → theme-A-hoje.png"
+      "detail": "215 KB → theme-A-hoje.png"
     },
     {
       "group": "hoje",
@@ -53,7 +53,7 @@
       "group": "screenshot",
       "name": "producao",
       "pass": true,
-      "detail": "133 KB → theme-A-producao.png"
+      "detail": "132 KB → theme-A-producao.png"
     },
     {
       "group": "producao",
@@ -101,7 +101,7 @@
       "group": "screenshot",
       "name": "metas",
       "pass": true,
-      "detail": "111 KB → theme-A-metas.png"
+      "detail": "110 KB → theme-A-metas.png"
     },
     {
       "group": "metas",
@@ -197,7 +197,7 @@
       "group": "screenshot",
       "name": "pp",
       "pass": true,
-      "detail": "179 KB → theme-A-pp.png"
+      "detail": "155 KB → theme-A-pp.png"
     },
     {
       "group": "pp",
@@ -245,7 +245,7 @@
       "group": "screenshot",
       "name": "suporte",
       "pass": true,
-      "detail": "100 KB → theme-A-suporte.png"
+      "detail": "99 KB → theme-A-suporte.png"
     },
     {
       "group": "suporte",
@@ -341,7 +341,7 @@
       "group": "screenshot",
       "name": "falar",
       "pass": true,
-      "detail": "110 KB → theme-A-falar.png"
+      "detail": "109 KB → theme-A-falar.png"
     },
     {
       "group": "falar",
@@ -741,7 +741,19 @@
     },
     {
       "group": "pp",
-      "name": "outlier mostra custo vs normal + dica da Veeqo",
+      "name": "outlier mostra custo vs normal",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "veredito da cotacao: \"cotei $5.62 USPS GA\" verde + dica de deletar nessa linha",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pp",
+      "name": "etiqueta sem cotacao diz \"sem cotação\" e NAO leva dica de deletar",
       "pass": true,
       "detail": ""
     },
