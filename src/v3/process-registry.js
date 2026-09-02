@@ -257,6 +257,20 @@ const PROCESSES = [
     short: 'Fila de impressão do celular: hoje quem puxa é a página /print logada no .28 (e a Central/hub), a cada 30 s no navegador. Agente nativo = futuro.',
     detail: 'HOJE (08-19): a estação /print (src/print/print.js) e a Central/hub fazem poll de 30 s em GET /api/v3/print-queue com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token, tomam o job, imprimem pelo navegador (HF_LABELS) e fecham com done/error. Um agente NATIVO no .28 (sem navegador aberto) fica pra depois: poll a cada poucos segundos em GET /api/v3/print-queue com x-print-token (o MESMO PRINT_EVENT_TOKEN do /api/print-event, nenhum segredo novo): toma o job (POST /:id/take), desenha Code128 + QR do payload já resolvido, imprime 4x6, e fecha com POST /:id/done (que carimba label_printed_at nas caixas) ou POST /:id/error com o motivo. Enquanto ele não existe, a estação logada (/print ou /op) consegue tomar e concluir pela mesma API com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token.',
   },
+
+  // ── Satélites no PC do Bruno (canal Slack↔Claude) ─────────────────────────
+  {
+    key: 'claude_slack_watchdog', name: 'Slack Watchdog do Claude (PC Bruno)', where: 'pc-bruno',
+    tickMs: 10000, heartbeat: false, critical: false, since: '2026-09-02',
+    short: 'Mantém o Chrome do Claude vivo 24/7 e captura msgs do supplements-dashboard pro inbox do Claude.',
+    detail: 'Roda no PC do Bruno (scripts/analyst/slack-watchdog.js via run-watchdog.cmd, atalho no Startup, janela oculta). Relança o Chrome do perfil hf-carolina-chrome (CDP 9222) se cair e, a cada 10s, raspa o supplements-dashboard (C0BUKK6EH98) + admin-orin por mensagens pro Claude → appenda em scripts/analyst/_watch/inbox.jsonl. Se o Socket Mode listener está vivo, para de raspar (vira só keep-alive). Batida em _watch/heartbeat.txt; log em _watch/watchdog.log.',
+  },
+  {
+    key: 'claude_socket_listener', name: 'Slack Socket Mode Listener (PC Bruno)', where: 'pc-bruno',
+    tickMs: null, heartbeat: false, critical: false, pending: true, since: '2026-09-02',
+    short: 'Push em tempo real (<1s) do Slack pro Claude via Socket Mode. Aguardando tokens do app "Claude Listener".',
+    detail: 'Roda no PC do Bruno (scripts/analyst/slack-socket-listener.js via run-listener.cmd). WebSocket Socket Mode (apps.connections.open) de um app Slack SEPARADO "Claude Listener" — NUNCA ativar Socket Mode no app HealthFare Tracker (mataria a entrega HTTP pro Railway). Empurra cada msg pro mesmo inbox.jsonl na hora. pending até o Bruno criar os tokens (SETUP-SOCKET-MODE.md); vivo = _watch/listener-alive.txt fresco.',
+  },
 ];
 
 // enabled() — resolve o estado LIGADO/DESLIGADO por config, na hora.

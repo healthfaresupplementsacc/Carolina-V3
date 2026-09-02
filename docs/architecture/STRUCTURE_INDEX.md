@@ -349,6 +349,9 @@ Companion files: `MASTER_SYSTEM_MAP.mmd` (+ `.html` editor), `maps/*.mmd`, `UNCE
 | S11.06 | "Ana" Windows Scheduled Task invoking `carolina-say-file.js` | S11 | UNKNOWN | L | `README-carol.md:17` only | S11.04.01 | U-03 |
 | S11.07 | LAN Intercom (separate project `c:\Claude Projects\LAN Intercom`) | S11 | UNKNOWN | L | memory only | — | out of repo; U-04 |
 | S11.08 | Windows Scheduled Task for cameras/`print_watchdog` on .28 (SYSTEM) | S11.01 | PARTIAL | L | `print_watchdog.py:5-11` | — | — |
+| S11.09 | Bruno's PC: Slack↔Claude 24/7 watch (Startup shortcut → `start-watchdog-hidden.vbs` → 2 loops) | S11 | VERIFIED | H | `scripts/analyst/slack-watchdog.js`, `slack-socket-listener.js`, `run-*.cmd`, `SETUP-SOCKET-MODE.md`; validated live 09-02 | reads S10.01 (supplements-dashboard `C0BUKK6EH98`, admin-orin) via Claude's Chrome CDP 9222; writes `_watch/inbox.jsonl` → Claude session Monitor | registry `claude_slack_watchdog`/`claude_socket_listener` |
+| S11.09.01 | `slack-watchdog.js` (keeps Chrome profile alive + DOM-scrape capture 10s; yields to socket listener) | S11.09 | VERIFIED | M | file; `_watch/heartbeat.txt` | S10.01 via CDP; `inbox.jsonl` | — |
+| S11.09.02 | `slack-socket-listener.js` (Socket Mode push <1s; needs separate "Claude Listener" Slack app tokens; NEVER enable Socket Mode on prod app) | S11.09 | PARTIAL | M | file; `_watch/tokens.json` pending | S10.01 push → `inbox.jsonl` | pending tokens (Bruno) |
 
 ## S12 — Auth & security model (cross-cutting)
 

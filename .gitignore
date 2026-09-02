@@ -17,3 +17,6 @@ docs/design/screenshots/
 # NOTE: pattern is date-scoped so docs/DRIFT-SETUP.md stays tracked.
 drift-log.txt
 docs/DRIFT-[0-9]*.md
+
+# estado local do watchdog Slack<->Claude (tokens, inbox, logs) - NUNCA commitar
+scripts/analyst/_watch/

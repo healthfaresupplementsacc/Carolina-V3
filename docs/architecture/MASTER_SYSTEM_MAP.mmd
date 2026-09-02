@@ -193,6 +193,7 @@ subgraph S11["S11 · Satellites (other machines / out-of-process)"]
   S11_05["S11.05 · Simone PC .246 (NOT IN CODE)"]:::unknown
   S11_06["S11.06 · Ana scheduled task (README only)"]:::unknown
   S11_07["S11.07 · LAN Intercom (separate project)"]:::unknown
+  S11_09["S11.09 · Bruno PC: Slack↔Claude 24/7 watch (watchdog DOM 10s + Socket Mode push; Startup vbs; inbox.jsonl)"]:::satellite
 end
 
 %% ---------------------------------------------------------------- S12 auth
@@ -354,6 +355,8 @@ S07_05 -.->|R094| S10_07
 %% satellites
 S11_03 -->|R100 DM| S10_01
 S11_04 -->|R101| S10_01
+S11_09 -->|R163 lê supplements-dashboard via Chrome CDP 9222 / Socket Mode| S10_01
+S11_09 -->|R164 inbox.jsonl acorda sessão Claude, Monitor| S11_04
 S11_02 -->|R104| S10_08
 S11_05 -.->|R103 UNKNOWN| S02_08
 S11_01 -->|R023 /op/config.js| S02_08
