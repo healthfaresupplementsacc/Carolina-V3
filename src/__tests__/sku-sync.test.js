@@ -18,7 +18,7 @@
  *   8. rodar duas vezes não muda nada na segunda
  *   9. worker: dedupe, desligado por default, nunca toca quantidade
  */
-const { plan, createSkuSync, unitsOf, rootOf, isService, cleanName } =
+const { plan, createSkuSync, unitsOf, rootOf, isWfs, isService, cleanName } =
   require('../v3/warehouse/sku-sync');
 const { VeeqoSkuSync } = require('../workers/veeqo-sku-sync');
 
@@ -88,6 +88,27 @@ describe('o código do SKU é a verdade (regras a e b)', () => {
   test('C0 e C1 não são pacote de verdade', () => {
     expect(unitsOf('HF-X-C1')).toBe(1);
     expect(unitsOf('HF-X-C0')).toBe(1);
+  });
+});
+
+describe('sufixo -WFS é canal, não pacote (regra g, buraco de 08-22)', () => {
+  test('unitsOf: -WFS vale x1, e sai ANTES da cadeia -C<n>', () => {
+    expect(unitsOf('HF-PYGE-4500-WFS')).toBe(1);
+    expect(unitsOf('HF-VTB2-180-C2-WFS')).toBe(2);
+    expect(unitsOf('HF-X-C2-C4-WFS')).toBe(8);
+  });
+
+  test('rootOf tira o -WFS primeiro e depois a cadeia de pacote', () => {
+    expect(rootOf('HF-PYGE-4500-WFS')).toBe('HF-PYGE-4500');
+    expect(rootOf('HF-VTB2-180-C2-WFS')).toBe('HF-VTB2-180');
+    expect(rootOf('HF-FADO-600-WFS')).toBe('HF-FADO-600');
+  });
+
+  test('WFS colado no nome NÃO é sufixo de canal', () => {
+    expect(rootOf('HFWFS')).toBe('HFWFS');
+    expect(unitsOf('HFWFS')).toBe(1);
+    expect(isWfs('HFWFS')).toBe(false);
+    expect(isWfs('HF-PYGE-4500-WFS')).toBe(true);
   });
 });
 
@@ -278,6 +299,18 @@ describe('plan(): SKU base novo de verdade', () => {
     expect(p.create[0].root_not_in_catalog).toBe(true);
   });
 
+  test('-WFS cuja raiz não tem dono vira candidato de criação da RAIZ, como hoje', () => {
+    // igual ao casepack órfão: o -WFS nunca cria produto sozinho; o plano pede a
+    // RAIZ e o -WFS entra como filho (só nasce de verdade com create_missing)
+    const p = plan([sell('HF-FADO-600-WFS', 'Healthfare Fadogia Agrestis 600mg | 90 Capsules')],
+      { skus: [], products: [] });
+    expect(p.link.length).toBe(0);
+    expect(p.create.length).toBe(1);
+    expect(p.create[0].sku).toBe('HF-FADO-600');
+    expect(p.create[0].children).toEqual([{ sku: 'HF-FADO-600-WFS', units_per_pack: 1 }]);
+    expect(p.create[0].root_not_in_catalog).toBe(true);
+  });
+
   test('produto absorvido por merge nunca vira pai: o link sobe pra raiz', () => {
     const cur = {
       skus: [{ id: 1, product_id: 11, sku: 'HF-NAC-1300', channel: 'veeqo', units_per_pack: 1, is_base: true }],
@@ -288,6 +321,44 @@ describe('plan(): SKU base novo de verdade', () => {
     };
     const p = plan(CATALOG, cur);
     expect(p.link.find((l) => l.sku === 'HF-NAC-1300-C4').product_id).toBe(10);
+  });
+});
+
+describe('plan(): listagem Walmart -WFS liga no dono da raiz (regra g)', () => {
+  /** Os casos REAIS de 08-22: -WFS novos na Veeqo com a raiz já mapeada aqui. */
+  const cur = () => ({
+    skus: [
+      { id: 1, product_id: 10, sku: 'HF-PYGE-4500', channel: 'veeqo', units_per_pack: 1, is_base: true },
+      { id: 2, product_id: 11, sku: 'HF-VTB2-180', channel: 'veeqo', units_per_pack: 1, is_base: true },
+    ],
+    products: [
+      { id: 10, canonical_name: 'Pygeum 4500mg', nickname: 'PYGE', merged_into_product_id: null },
+      { id: 11, canonical_name: 'Vitamin B2 180mg', nickname: 'VTB2', merged_into_product_id: null },
+    ],
+  });
+  const cat = [
+    sell('HF-PYGE-4500-WFS', 'Healthfare Pygeum 4500mg | 100 Capsules'),
+    sell('HF-VTB2-180-C2-WFS', 'Healthfare Vitamin B2 180mg | 2 Bottles'),
+  ];
+
+  test('HF-PYGE-4500-WFS liga no dono do HF-PYGE-4500 com units 1', () => {
+    const p = plan(cat, cur());
+    const l = p.link.find((x) => x.sku === 'HF-PYGE-4500-WFS');
+    expect(l).toBeTruthy();
+    expect(l.product_id).toBe(10);
+    expect(l.units_per_pack).toBe(1);
+    expect(l.parent_sku).toBe('HF-PYGE-4500');
+    expect(l.reason).toBe('wfs_of_root');
+  });
+
+  test('HF-VTB2-180-C2-WFS liga no dono do HF-VTB2-180 com units 2', () => {
+    const p = plan(cat, cur());
+    const l = p.link.find((x) => x.sku === 'HF-VTB2-180-C2-WFS');
+    expect(l).toBeTruthy();
+    expect(l.product_id).toBe(11);
+    expect(l.units_per_pack).toBe(2);
+    expect(l.parent_sku).toBe('HF-VTB2-180');
+    expect(l.reason).toBe('wfs_of_root');
   });
 });
 
@@ -361,6 +432,37 @@ describe('apply(): a parte segura', () => {
     const nac4 = state.skus.find((s) => s.sku === 'HF-NAC-1300-C4');
     expect(nac4).toMatchObject({ product_id: 10, units_per_pack: 4, is_base: false });
     expect(state.skus.find((s) => s.sku === 'HF-NAC-1300-C2-C4').units_per_pack).toBe(8);
+  });
+
+  test('liga o -WFS órfão no dono da raiz (regra g), já confirmado', async () => {
+    const seed = {
+      skus: [{ id: 1, product_id: 10, sku: 'HF-PYGE-4500', channel: 'veeqo', units_per_pack: 1, is_base: true }],
+      products: [{ id: 10, canonical_name: 'Pygeum 4500mg', nickname: 'PYGE', merged_into_product_id: null }],
+    };
+    const { state, sync } = boot(seed, [sell('HF-PYGE-4500-WFS', 'Healthfare Pygeum 4500mg | 100 Capsules')]);
+    const out = await sync.run({ create_missing: false });
+    expect(out.applied.linked).toBe(1);
+    const row = state.skus.find((s) => s.sku === 'HF-PYGE-4500-WFS');
+    expect(row).toMatchObject({ product_id: 10, units_per_pack: 1, is_base: false });
+    // a linha nasce visível pro order-sync: o INSERT carrega confirmed_at
+    const ins = state.queries.find((x) => /^INSERT INTO v3\.product_skus/.test(x.q)
+      && x.params[1] === 'HF-PYGE-4500-WFS');
+    expect(ins.q).toMatch(/confirmed_at/);
+    expect(ins.q).toMatch(/NOW\(\)/);
+  });
+
+  test('TODO INSERT de mapeamento carrega confirmed_at = NOW() (planner nunca chuta)', async () => {
+    // o veeqo-order-sync só carrega WHERE confirmed_at IS NOT NULL; sem isto,
+    // SKU ligado pelo sync ficava invisível pra resolução de pedido (bug real
+    // que escondeu ~200 SKUs mapeados até 09-02)
+    const { state, sync } = boot(currentBase());
+    await sync.run({ create_missing: true });
+    const ins = state.queries.filter((x) => /^INSERT INTO v3\.product_skus/.test(x.q));
+    expect(ins.length).toBeGreaterThan(0);
+    for (const i of ins) {
+      expect(i.q).toMatch(/confirmed_at/);
+      expect(i.q).toMatch(/NOW\(\)/);
+    }
   });
 
   test('corrige units_per_pack errado sem trocar o produto', async () => {
@@ -549,6 +651,17 @@ describe('worker veeqo-sku-sync', () => {
     expect(post.text).toContain('SKUs novos da Veeqo');
     expect(post.text).toContain('HF-NAC-1300-C4 ligado no produto 10 (pacote de 4)');
     expect(post.text).toContain('2 SKUs sem pai: conferir no Estoque');
+  });
+
+  test('link -WFS aparece como listagem Walmart no aviso', async () => {
+    const applied = { ...APPLIED_QUIET, linked: 2, links: [
+      { sku: 'HF-PYGE-4500-WFS', product_id: 10, units_per_pack: 1, reason: 'wfs_of_root' },
+      { sku: 'HF-VTB2-180-C2-WFS', product_id: 11, units_per_pack: 2, reason: 'wfs_of_root' },
+    ] };
+    const { state, worker } = bootWorker({ planOut: PLAN_QUIET, applied });
+    await worker.tick();
+    expect(state.posts[0].text).toContain('HF-PYGE-4500-WFS ligado no produto 10 (listagem Walmart)');
+    expect(state.posts[0].text).toContain('HF-VTB2-180-C2-WFS ligado no produto 11 (listagem Walmart, pacote de 2)');
   });
 
   test('conflito de raiz disputada aparece como "juntar no hub"', async () => {

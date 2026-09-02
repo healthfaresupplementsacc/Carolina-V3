@@ -55,6 +55,15 @@
  * (f) REGRA DO BRUNO (memória 'sku-parent-single-unit'): o casepack é a MESMA
  *     garrafa física. O estoque conta UNIDADES sob o PAI, a Veeqo manda na
  *     identificação, e NUNCA se soma base + kit.
+ *
+ * (g) SUFIXO -WFS É CANAL, NÃO PACOTE (09-02; ver docs/architecture/data/
+ *     WALMART-WFS-SKUS.md, S15.42). SKU terminado em '-WFS' é a listagem do
+ *     Walmart Fulfillment Services da MESMA garrafa da raiz. Tira-se o '-WFS'
+ *     PRIMEIRO e depois a cadeia '-C<n>': HF-X-C2-WFS = pacote de 2 da raiz
+ *     HF-X. O '-WFS' em si vale x1 (canal não multiplica garrafa). O plano liga
+ *     o '-WFS' no dono da raiz igual liga casepack (reason 'wfs_of_root'). Sem
+ *     esta regra os -WFS novos de 08-22 (HF-PYGE-4500-WFS etc.) nasceram órfãos
+ *     e os pedidos deles ficaram dias sem resolver.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -77,9 +86,28 @@ function normSku(s) {
 }
 
 /**
+ * (g) tira o sufixo de canal '-WFS' do fim, quando existir. Aceita '-', '_'
+ * e ' ' como separador (mesmas grafias do casepack). NÃO tira 'WFS' colado
+ * ('HFWFS'): sem separador, as letras fazem parte do nome do produto.
+ * Recebe o SKU JÁ normalizado (uso interno das duas funções abaixo).
+ */
+function stripWfs(s) {
+  const m = String(s || '').match(/[-_\s]WFS$/);
+  return m ? s.slice(0, s.length - m[0].length) : s;
+}
+
+/** (g) este SKU é uma listagem Walmart WFS (termina em '-WFS')? */
+function isWfs(sku) {
+  const s = normSku(sku);
+  return /[-_\s]WFS$/.test(s);
+}
+
+/**
  * (a)+(b) — quantas unidades o CÓDIGO diz. Lê todos os sufixos `-C<n>` do fim,
  * da direita pra esquerda, e multiplica: 'HF-X-C4' → 4 · 'HF-X-C2-C4' → 8.
  * Sem sufixo → 1 (a garrafa avulsa é pacote de si mesma).
+ *
+ * (g) o sufixo '-WFS' sai PRIMEIRO e vale x1: 'HF-X-C2-WFS' → 2.
  *
  * Aceita '-C4', '_C4' e ' C4' porque a Veeqo tem as três grafias. NÃO aceita
  * 'C4' colado ('HFC4'): ali o C faz parte do nome do produto, não é sufixo.
@@ -87,7 +115,7 @@ function normSku(s) {
 function unitsOf(sku) {
   const s = normSku(sku);
   if (!s) return 1;
-  let rest = s;
+  let rest = stripWfs(s) || s;
   let units = 1;
   for (;;) {
     const m = rest.match(/[-_\s]C(\d+)$/);
@@ -103,12 +131,14 @@ function unitsOf(sku) {
 }
 
 /**
- * (a) — a RAIZ do SKU: o código sem nenhum sufixo de pacote.
+ * (a) — a RAIZ do SKU: o código sem nenhum sufixo de pacote nem de canal.
  * 'HF-NAC-1300-C4' → 'HF-NAC-1300' · 'HF-X-C2-C4' → 'HF-X'
+ * (g) 'HF-PYGE-4500-WFS' → 'HF-PYGE-4500' · 'HF-VTB2-180-C2-WFS' → 'HF-VTB2-180'
  * A raiz é a identidade do produto físico; é por ela que o filho acha o pai.
  */
 function rootOf(sku) {
-  let rest = normSku(sku);
+  const s = normSku(sku);
+  let rest = stripWfs(s) || s;
   for (;;) {
     const m = rest.match(/[-_\s]C(\d+)$/);
     if (!m) break;
@@ -329,16 +359,22 @@ function plan(sellables = [], current = {}, opts = {}) {
     if (owners && owners.size === 1) {
       const productId = [...owners][0];
       const parentRow = bySku.get(root) || null;
+      // (g) listagem Walmart liga no dono da raiz igual liga casepack, mas com
+      // reason próprio: no Slack e na auditoria "canal novo" e "pacote novo" são
+      // notícias diferentes.
+      const wfs = isWfs(sku);
       link.push({
         sku,
         units_per_pack: units,
         product_id: productId,
         parent_sku: root === sku ? null : root,
         sku_id: null,
-        reason: units > 1 ? 'casepack_of_root' : 'same_root',
-        message: units > 1
-          ? `${sku} é pacote de ${units} de ${root}`
-          : `${sku} tem a mesma raiz ${root}`,
+        reason: wfs ? 'wfs_of_root' : (units > 1 ? 'casepack_of_root' : 'same_root'),
+        message: wfs
+          ? `${sku} é a listagem Walmart WFS de ${root}${units > 1 ? ` (pacote de ${units})` : ''}`
+          : (units > 1
+            ? `${sku} é pacote de ${units} de ${root}`
+            : `${sku} tem a mesma raiz ${root}`),
         title,
         parent_is_mapped: !!parentRow,
       });
@@ -543,6 +579,12 @@ function createSkuSync(deps = {}) {
    * já está em algum produto foi posto ali por uma pessoa ou por uma rodada
    * anterior, e um worker não repõe mapeamento humano no automático. Isso é o
    * que torna a rodada IDEMPOTENTE: a segunda passada não muda nada.
+   *
+   * confirmed_at = NOW() de propósito: o planner só liga por regra EXATA de
+   * raiz, nunca por palpite, e isso é a própria definição de confirmado. Sem
+   * isso a linha nasceria invisível pro veeqo-order-sync, que só carrega
+   * mapeamento com confirmed_at (foi o bug que escondeu ~200 SKUs ligados até
+   * 09-02).
    * @returns {boolean} true se a linha nasceu agora
    */
   async function _attach(a) {
@@ -566,5 +608,5 @@ function createSkuSync(deps = {}) {
   return { plan, preview, apply, run, loadCurrent, loadSellables, family };
 }
 
-module.exports = { createSkuSync, plan, unitsOf, rootOf, isService, cleanName, normSku,
+module.exports = { createSkuSync, plan, unitsOf, rootOf, isWfs, isService, cleanName, normSku,
   SERVICE_PREFIXES, SERVICE_EXACT, MAX_PLAN_ITEMS };

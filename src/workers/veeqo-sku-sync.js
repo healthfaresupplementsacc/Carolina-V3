@@ -121,6 +121,9 @@ class VeeqoSkuSync {
         lines.push(`• ${l.sku} corrigido para pacote de ${l.units_per_pack}`);
       } else if (l.reason === 'created_base') {
         lines.push(`• ${l.sku} virou produto novo`);
+      } else if (l.reason === 'wfs_of_root') {
+        // (g) listagem Walmart WFS: mesma garrafa da raiz, canal diferente
+        lines.push(`• ${l.sku} ligado no produto ${l.product_id} (listagem Walmart${Number(l.units_per_pack) > 1 ? `, pacote de ${l.units_per_pack}` : ''})`);
       } else if (Number(l.units_per_pack) > 1) {
         lines.push(`• ${l.sku} ligado no produto ${l.product_id} (pacote de ${l.units_per_pack})`);
       } else {
