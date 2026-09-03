@@ -108,8 +108,9 @@ describe('desligado por padrão', () => {
 });
 
 describe('alerta imediato de outlier', () => {
+  const dueIn7 = () => new Date(atNy(16)().getTime() + 7 * 86400e3).toISOString();
   const expensive = () => order({ id: 55, number: '2751', shipmentId: 501,
-    cost: 7.86, createdAt: nowIso(9), dueDate: '2026-09-04T16:00:00Z' });
+    cost: 7.86, createdAt: nowIso(9), dueDate: dueIn7() });
 
   test('etiqueta cara nova → 1 mensagem no admin-orin, na hora, com a forma combinada', async () => {
     const { db, posts, worker } = boot({ hour: 10, orders: [expensive()] });
@@ -123,7 +124,7 @@ describe('alerta imediato de outlier', () => {
     expect(t).toContain(':money_with_wings: *Etiqueta acima do normal*');
     expect(t).toContain('Pedido 2751 (eBay)');
     expect(t).toContain('USPS Ground Advantage saiu $7.86, o normal dessa faixa e $6.00.');
-    expect(t).toContain('Cliente aceita ate 04/09, folga de');
+    expect(t).toMatch(/Cliente aceita ate \d\d.\d\d, folga de [67] dias/);
     // v3: SEM cliente de rates o alerta e honesto sobre nao ter cotado — e
     // NUNCA manda deletar sem saber se existe opcao (objecao do Bruno)
     expect(t).toContain('Nao consegui cotar agora; confere na Veeqo se tem opcao mais barata antes de decidir.');
@@ -134,7 +135,7 @@ describe('alerta imediato de outlier', () => {
 
   test('3 outliers no MESMO tick = UMA mensagem agrupada (rajada da Simone não vira spam)', async () => {
     const tres = [
-      order({ id: 55, number: '2751', shipmentId: 501, cost: 7.86, createdAt: nowIso(9), dueDate: '2026-09-04T16:00:00Z' }),
+      order({ id: 55, number: '2751', shipmentId: 501, cost: 7.86, createdAt: nowIso(9), dueDate: dueIn7() }),
       order({ id: 56, number: '2752', shipmentId: 502, cost: 8.40, createdAt: nowIso(9) }),
       order({ id: 57, number: '2753', shipmentId: 503, cost: 9.62, createdAt: nowIso(9) }),
     ];

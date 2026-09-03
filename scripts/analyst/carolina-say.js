@@ -22,8 +22,23 @@ const TEXT = (ti >= 0 ? String(argv[ti + 1] || '')
     : fs.readFileSync(DIR + 'carolina-text.txt', 'utf8')).trim();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// trava contra o watchdog (compartilham a MESMA aba do Chrome; sem isso o
+// watchdog navega no meio do envio e a mensagem vira rascunho perdido)
+const WATCH_DIR = DIR + '_watch' + path.sep;
+const SAY_LOCK = WATCH_DIR + 'say.lock';
+const SCRAPE_LOCK = WATCH_DIR + 'scrape.lock';
+function lockFresh(f, ms) { try { return (Date.now() - fs.statSync(f).mtimeMs) < ms; } catch (_) { return false; } }
+async function takeSayLock() {
+  try { fs.mkdirSync(WATCH_DIR, { recursive: true }); } catch (_) {}
+  for (let i = 0; i < 20 && lockFresh(SCRAPE_LOCK, 60000); i++) await sleep(2000); // espera o tick do watchdog acabar
+  for (let i = 0; i < 45 && lockFresh(SAY_LOCK, 90000); i++) await sleep(2000);    // espera OUTRA Carol terminar (2 envios simultâneos brigam pela aba)
+  fs.writeFileSync(SAY_LOCK, String(Date.now()));
+}
+function dropSayLock() { try { fs.unlinkSync(SAY_LOCK); } catch (_) {} }
+
 async function main() {
   if (!TEXT) throw new Error('carolina-text.txt vazio');
+  await takeSayLock();
   const list = await (await fetch('http://localhost:9222/json/list')).json();
   let t = list.find((x) => x.type === 'page' && /app\.slack\.com/.test(x.url || ''));
   if (!t) { t = await (await fetch('http://localhost:9222/json/new?url=' + encodeURIComponent('https://app.slack.com/client/' + TEAM + '/' + CH), { method: 'PUT' })).json(); await sleep(8000); }
@@ -58,15 +73,31 @@ async function main() {
   }
   if (!ok) { const s = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(DIR + 'say-fail.png', Buffer.from(s.data, 'base64')); throw new Error('composer (' + MODE + ') não apareceu — screenshot say-fail.png'); }
   await sleep(1000);
-  await evalJs('window.__carEl.focus(),true');
-  await send('Input.insertText', { text: TEXT });
-  await sleep(600);
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: '\r' });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
-  await sleep(2200);
+  // confere que a aba ainda está na conversa certa (o watchdog pode ter navegado)
+  const here = await evalJs('location.pathname');
+  if (!String(here || '').includes(CH)) throw new Error('aba saiu da conversa alvo (' + here + ') — tenta de novo');
+  // TUDO via DOM (execCommand + clique no botão de enviar) — os eventos de teclado
+  // do protocolo (Enter) pararam de submeter no Slack novo; o clique no botão é o
+  // caminho real de envio e funciona mesmo com a janela em segundo plano.
+  const MARK = TEXT.slice(0, 24);
+  const put = await evalJs('(function(){var el=window.__carEl;el.focus();' +
+    'document.execCommand("selectAll",false,null);' +
+    'var ok=document.execCommand("insertText",false,' + JSON.stringify(TEXT) + ');' +
+    'return {ok:ok,has:(el.textContent||"").indexOf(' + JSON.stringify(MARK) + ')>=0};})()');
+  if (!put || !put.has) throw new Error('texto não entrou no composer (execCommand ' + JSON.stringify(put) + ')');
+  await sleep(500);
+  const clicked = await evalJs('(function(){var b=document.querySelector(\'[data-qa="texty_send_button"]:not([disabled]),button[aria-label*="Send"]:not([disabled]),button[aria-label*="Enviar"]:not([disabled])\');' +
+    'if(!b)return false; b.click(); return true;})()');
+  if (!clicked) throw new Error('botão de enviar não achado/habilitado');
+  await sleep(1800);
+  // VERIFICAÇÃO REAL: enviou = composer esvaziou E a msg aparece na conversa.
+  let left = await evalJs('(window.__carEl && window.__carEl.textContent || "").trim().length');
+  const landed = await evalJs('(function(){var ns=document.querySelectorAll(\'[data-qa="message-text"],.p-rich_text_section\');' +
+    'for(var i=ns.length-1;i>=Math.max(0,ns.length-8);i--){if((ns[i].textContent||"").indexOf(' + JSON.stringify(MARK) + ')>=0)return true;}return false;})()');
   const s2 = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(DIR + 'say-after.png', Buffer.from(s2.data, 'base64'));
-  console.log('CAROL ENVIOU (' + MODE + ') ✓');
+  if (left && !landed) throw new Error('NÃO CONFIRMADO: composer ainda tem texto e a msg não apareceu — ver say-after.png');
+  console.log('CAROL ENVIOU (' + MODE + ') ✓ confirmado' + (landed ? ' (msg visível na conversa)' : ' (composer vazio)'));
   ws.close();
 }
-main().then(() => process.exit(0), (e) => { console.error('ERRO:', e.message); process.exit(1); });
+main().then(() => { dropSayLock(); process.exit(0); }, (e) => { dropSayLock(); console.error('ERRO:', e.message); process.exit(1); });

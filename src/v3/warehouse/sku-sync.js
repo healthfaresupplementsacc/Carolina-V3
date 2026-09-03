@@ -70,7 +70,9 @@
 // (e) — prefixos que NÃO são garrafa de suplemento. O estoque 9999 da Veeqo
 // nesses SKUs é sintético (plano de assinatura, consulta, seringa, insumo), e um
 // produto criado a partir deles poluiria o hub com linha que ninguém conta.
-const SERVICE_PREFIXES = ['HF-PLN-', 'HC-', 'HF-MED-', 'HF-SYR-', 'SHOPIFY-', 'SILIN-', 'RUBBER-'];
+// 'AUST-' = marca Austisol (Henrique). Ordem do Bruno 09-03: o sistema NAO registra
+// NADA da Austisol (nem SKU, nem linha de pedido, nem alerta) ate ele dizer o contrario.
+const SERVICE_PREFIXES = ['HF-PLN-', 'HC-', 'HF-MED-', 'HF-SYR-', 'SHOPIFY-', 'SILIN-', 'RUBBER-', 'AUST-'];
 // SKU pelado, sem prefixo nenhum: serviço da clínica cadastrado com o número solto.
 const SERVICE_EXACT = new Set(['70']);
 
@@ -285,6 +287,7 @@ function plan(sellables = [], current = {}, opts = {}) {
     if (!base) continue;
     const units = unitsOf(base.sku);
     if (units <= 1) continue;
+    if (isService(base.sku)) continue; // insumo/servico (ex.: lixeira RUBBER-) nunca vira conflito de garrafa
     const p = productById.get(pid) || {};
     conflicts.push({
       sku: normSku(base.sku),

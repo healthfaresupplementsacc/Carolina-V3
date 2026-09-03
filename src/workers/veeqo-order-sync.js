@@ -112,6 +112,9 @@ class VeeqoOrderSync {
       for (const o of rows) {
         for (const l of this._lines(o, mappedStatus)) {
           if (!l.qty) continue;
+          // Austisol (marca do Henrique): o Bruno mandou NAO registrar nada (09-03) —
+          // nem linha, nem alerta — ate ordem em contrario. Pula antes de existir.
+          if (l.sku && /^AUST/i.test(String(l.sku).trim())) continue;
           const map = l.sku ? skuMap.get(l.sku) : null;
           l.product_id = map ? map.product_id : null;
           l.error_note = map ? null : (l.sku ? 'SKU sem mapeamento confirmado' : 'linha sem SKU');

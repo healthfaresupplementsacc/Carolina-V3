@@ -267,9 +267,9 @@ const PROCESSES = [
   },
   {
     key: 'claude_socket_listener', name: 'Slack Socket Mode Listener (PC Bruno)', where: 'pc-bruno',
-    tickMs: null, heartbeat: false, critical: false, pending: true, since: '2026-09-02',
-    short: 'Push em tempo real (<1s) do Slack pro Claude via Socket Mode. Aguardando tokens do app "Claude Listener".',
-    detail: 'Roda no PC do Bruno (scripts/analyst/slack-socket-listener.js via run-listener.cmd). WebSocket Socket Mode (apps.connections.open) de um app Slack SEPARADO "Claude Listener" — NUNCA ativar Socket Mode no app HealthFare Tracker (mataria a entrega HTTP pro Railway). Empurra cada msg pro mesmo inbox.jsonl na hora. pending até o Bruno criar os tokens (SETUP-SOCKET-MODE.md); vivo = _watch/listener-alive.txt fresco.',
+    tickMs: null, heartbeat: false, critical: false, since: '2026-09-02',
+    short: 'Push em tempo real (<1s) do Slack pro Claude via Socket Mode (app "Claude Listener", bot claude_listener U0C00ECCBK2). LIGADO 09-02.',
+    detail: 'Roda no PC do Bruno (scripts/analyst/slack-socket-listener.js via run-listener.cmd). WebSocket Socket Mode (apps.connections.open) do app Slack SEPARADO "Claude Listener" (U0C00ECCBK2) — NUNCA ativar Socket Mode no app HealthFare Tracker (mataria a entrega HTTP pro Railway). Empurra cada msg do supplements-dashboard (e DMs com o bot) pro inbox.jsonl na hora; escreve _watch/covered.json (canais que o push cobre) pro watchdog raspar só o resto (DM da Carol D045L79UMME, admin-orin até convidarem o bot). Tokens em _watch/tokens.json (gitignored); vivo = _watch/listener-alive.txt fresco.',
   },
 ];
 

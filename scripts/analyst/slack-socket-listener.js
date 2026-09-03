@@ -62,12 +62,32 @@ function wanted(ev) {
   const user = ev.user || '';
   if (ev.subtype && SKIP_SUBTYPES.has(ev.subtype)) return false;
   if (user === CAROL) return false;                       // eu mesma (Carol)
-  const tagsMe = text.includes(CLAUDE_ID) || /@claude|@carol/i.test(text);
+  // menção crua em evento = <@Uxxxx>; cubro Claude/Carol por ID e por nome
+  const tagsMe = text.includes(CLAUDE_ID) || text.includes(CAROL) || /@claude|@carol/i.test(text);
   if (ev.bot_id && !tagsMe) return false;                 // bots só se me marcarem
+  if (chan.startsWith('D')) return true;                  // DM com o claude_listener: tudo é pra mim
   if (chan === PRIMARY) return true;                      // canal principal: tudo
   if (tagsMe) return true;                                // qualquer canal vigiado: tag
   if (!WATCHED.has(chan)) return false;
   return user === BRUNO || QRE.test(text) || text.includes(BRUNO);
+}
+
+// escreve _watch/covered.json = canais que o listener consegue LER (é membro).
+// O watchdog usa isso pra saber o que ainda precisa raspar por DOM (ex.: DM da
+// Carol, que este bot nunca vê; admin-orin enquanto não for convidado).
+async function probeCoverage(bot) {
+  const covered = [];
+  if (bot) {
+    for (const ch of WATCHED) {
+      try {
+        const r = await fetch('https://slack.com/api/conversations.history?channel=' + ch + '&limit=1', { headers: { Authorization: 'Bearer ' + bot } });
+        const j = await r.json();
+        if (j.ok) covered.push(ch);
+      } catch (_) {}
+    }
+  }
+  try { fs.writeFileSync(path.join(DIR, 'covered.json'), JSON.stringify(covered)); } catch (_) {}
+  log('cobertura push:', covered.length ? covered.join(',') : '(nenhuma — precisa de /invite)');
 }
 
 async function capture(bot, ev) {
@@ -88,6 +108,7 @@ async function openSocketUrl(app) {
 }
 
 async function runSocket(tokens) {
+  await probeCoverage(tokens.bot_token);
   const url = await openSocketUrl(tokens.app_token);
   const ws = new WebSocket(url);
   let alive = true;
