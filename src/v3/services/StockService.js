@@ -683,15 +683,36 @@ class StockService {
 
   /**
    * Ajuste manual do admin (correção). qty com sinal (+/-). Sempre auditado.
-   * p: {product_id?, qty (signed int ≠ 0), bin_id?, box_id?, person_id, note, is_test?}
+   * p: {product_id?, qty (signed int ≠ 0), bin_id?, box_id?, unplaced?, person_id,
+   *     note, source?, source_ref?, is_test?}
+   * unplaced (Fase 1, fix da célula "A organizar" que nunca salvava — plano
+   * tarefa 0.4): SEM bin e SEM caixa, mas com product_id + unplaced:true, o
+   * ajuste mexe no bucket v3.stock_unplaced. Era o único jeito de DESCER o
+   * "a organizar" sem mover pra um local — não existia verbo pra isso.
    */
   async adjust(p = {}) {
     if (!Number.isInteger(p.qty) || p.qty === 0) throw new Error('adjust: qty inteiro ≠ 0');
-    if (!p.bin_id && !p.box_id) throw new Error('adjust: bin_id ou box_id obrigatório');
+    const unplaced = !p.bin_id && !p.box_id;
+    if (unplaced && !(p.unplaced && p.product_id)) {
+      // mensagem da tela, não do programador: é o erro que o hub mostrava cru
+      // (400) toda vez que o produto ainda não tinha local cadastrado
+      throw new Error('o ajuste precisa de uma prateleira ou caixa. Este produto ainda não tem ' +
+        'local cadastrado: use o Modo simples do estoque ou faça uma Entrada primeiro.');
+    }
     if (!p.note) throw new Error('adjust: note (motivo) obrigatório');
     return this._withTx(async (c) => {
+      // idempotência ANTES de mexer em qty (mesmo padrão do pick): retry com o
+      // mesmo source_ref não pode aplicar o delta duas vezes
+      if (p.source && p.source_ref) {
+        const ex = await this._existing(c, p.source, p.source_ref);
+        if (ex) return { movement: ex, duplicate: true, applied: 0 };
+      }
       let productId = p.product_id || null; let before = null; let after = null;
-      if (p.bin_id) {
+      if (unplaced) {
+        before = await this._getUnplaced(c, p.product_id);
+        after = Math.max(0, before + p.qty);
+        await this._setUnplaced(c, p.product_id, after);
+      } else if (p.bin_id) {
         const bin = await this._getBin(c, p.bin_id);
         productId = productId || bin.product_id;
         before = bin.qty; after = Math.max(0, bin.qty + p.qty);
@@ -735,7 +756,8 @@ class StockService {
       return this._countInternal(c, {
         product_id: productId, bin_id: p.bin_id, box_id: p.box_id,
         found: p.found, expected, person_id: p.person_id,
-        source: p.source || 'op_kiosk', note: p.note, is_test: p.is_test,
+        source: p.source || 'op_kiosk', source_ref: p.source_ref || null,
+        note: p.note, is_test: p.is_test,
         actor_type: p.actor_type,
       });
     });
@@ -1004,6 +1026,13 @@ class StockService {
       veeqo_match: 'unknown',     // router
       status,
       bins: binsOut, boxes: boxesOut,
+      // MODO SIMPLES (contrato B): o local "de casa" de cada tipo — o único (ou
+      // o primeiro) bin/caixa do produto. É o que a página simples mostra e onde
+      // o simple/set aplica; com 2+ locais o simples manda pro Modo completo.
+      home_bin: binsOut.length
+        ? { id: binsOut[0].id, bin_code: binsOut[0].bin_code } : null,
+      main_box: boxesOut.length
+        ? { id: boxesOut[0].id, box_number: boxesOut[0].box_number } : null,
     };
   }
 

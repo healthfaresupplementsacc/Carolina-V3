@@ -37,6 +37,7 @@ async function call(method, path, body) {
   if (!r.ok) {
     const err = new Error((j.error && j.error.message) || ('erro ' + r.status));
     err.code = j.error && j.error.code;
+    err.status = r.status;
     throw err;
   }
   return j;
@@ -156,6 +157,21 @@ export const setBoxWeight  = (id, body) => whPost('/weights/box/' + id, body);
 
 /** Pesar pra contar: devolve qty + confiança sem gravar nada. */
 export const computeCount  = (body) => whPost('/count/compute', body);
+
+/* ── MODO SIMPLES (mutirão de carga, Bruno 09-04) ──────────────────
+   A célula manda o número ABSOLUTO que a pessoa acabou de contar e o backend
+   traduz em verbos do StockService (delta + storeIn/place/adjust/count). A
+   tela nunca escreve quantidade direto.
+
+   body = { product_id, scope:'shelf'|'box'|'unplaced', qty (int >= 0),
+            bin_code? (só no primeiro shelf de produto sem prateleira: cria),
+            box_type_id? (opcional no primeiro box), client_ref (uuid: repetir
+            a chamada não duplica) }.
+   Resposta: { data:{ product_id, veeqo_total, shelf_qty, box_qty,
+     unplaced_qty, total, delta_veeqo, match, home_bin, main_box } }.
+   Produto com MAIS de um local → 409 multi_location: o simples não adivinha
+   em qual, a UI manda pro Modo completo. */
+export const simpleSet = (body) => whPost('/simple/set', body);
 
 /** Dados das etiquetas escolhidas. bins/boxes = arrays de id. */
 export const getLabels = (bins, boxes) => {

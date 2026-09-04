@@ -16,6 +16,7 @@ import * as wh from '../adapters/warehouse-api.js';
 import { useAccountPref } from '../hooks/useAccountPref.js';
 import {
   SkuChip, InlineNumber, InlineText, FilterBar, SortableTh, MergePanel, QUICK_FILTERS,
+  suggestBinCode, CompareChip, SimpleCell, WeighPopover,
 } from './warehouse-table.jsx';
 
 // ── RBAC ──────────────────────────────────────────────────────────
@@ -35,6 +36,46 @@ export function canRead() {
 // ── helpers ───────────────────────────────────────────────────────
 const n = (v) => (v == null ? 0 : Number(v));
 const fmt = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR'));
+
+/* client_ref do simple/set: um uuid NOVO por clique salvo. Repetir a mesma
+   chamada (rede piscou, dedo duplo) não duplica movimento no backend. */
+const newRef = () => (window.crypto && window.crypto.randomUUID
+  ? window.crypto.randomUUID()
+  : 'ref-' + Date.now().toString(16) + '-' + Math.random().toString(16).slice(2, 10));
+
+/* O número da Veeqo da linha: o overview manda veeqo_total (SKU base, cache
+   de 10 min); o objeto veeqo.physical é o mesmo número no formato antigo. */
+const veeqoOf = (r) => (r.veeqo_total != null ? Number(r.veeqo_total)
+  : (r.veeqo && r.veeqo.physical != null ? Number(r.veeqo.physical) : null));
+
+/* A prateleira e a caixa "de casa" do produto no modo simples: o backend
+   manda home_bin/main_box; sem eles, o único local que existir serve. */
+const homeBinOf = (r) => r.home_bin || ((r.bins || []).length === 1 ? { id: r.bins[0].id, bin_code: r.bins[0].bin_code } : null);
+const mainBoxOf = (r) => r.main_box || ((r.boxes || []).length === 1 ? { id: r.boxes[0].id, box_number: r.boxes[0].box_number } : null);
+
+/* Busca do modo simples: o MESMO q do servidor, com o mesmo debounce da
+   FilterBar (300 ms). Componente próprio porque a barra completa carrega
+   chips e vista que o mutirão não usa. */
+function SimpleSearch({ q, onQ }) {
+  const [local, setLocal] = React.useState(q || '');
+  const timer = React.useRef(null);
+  React.useEffect(() => { setLocal(q || ''); }, [q]);
+  React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  return (
+    <input className="kit-input wht-search" value={local} data-simple-q
+           placeholder="Buscar produto, apelido ou SKU"
+           onChange={(e) => {
+             const v = e.target.value;
+             setLocal(v);
+             if (timer.current) clearTimeout(timer.current);
+             timer.current = setTimeout(() => onQ(v), 300);
+           }}
+           onKeyDown={(e) => {
+             if (e.key === 'Enter') { if (timer.current) clearTimeout(timer.current); onQ(local); }
+             if (e.key === 'Escape') { setLocal(''); onQ(''); }
+           }} />
+  );
+}
 /* Chips de status: as MESMAS palavras que o operador vê no hub dele. Nada de
    jargão de sistema na tela (drift virou "Veeqo diferente", sem_sku virou
    "SKU sem mapa"): quem lê a tabela decide o que fazer sem traduzir nada. */
@@ -979,12 +1020,25 @@ export function WarehousePage() {
 
   const writable = canWrite();
   /* toast guarda o tom junto com o texto: antes o vermelho dependia da frase
-     começar com "erro", então toda mensagem de erro tinha que ser feia. */
-  const ack = React.useCallback((m, bad) => {
-    setToast({ msg: m, bad: !!bad });
-    setTimeout(() => setToast(null), 2600);
+     começar com "erro", então toda mensagem de erro tinha que ser feia.
+     `action` = um botão dentro do toast (ex: pular pro Modo completo); com
+     botão o toast vive mais, senão some antes do clique. */
+  const toastTimer = React.useRef(null);
+  const ack = React.useCallback((m, bad, action) => {
+    setToast({ msg: m, bad: !!bad, action: action || null });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), action ? 6500 : 2600);
   }, []);
   const ackErr = React.useCallback((e) => { ack(friendlyError(e), true); }, [ack]);
+
+  /* ── MODO SIMPLES × MODO COMPLETO ────────────────────────────────
+     O padrão do hub é o modo do MUTIRÃO (Bruno 09-04): uma linha por
+     produto com o número da Veeqo do lado da contagem real, tudo editável
+     ali. O Modo completo (KPIs, filtros, painel, modais) continua inteiro
+     atrás do botão. A escolha segue a conta, como a vista. */
+  const [mode, setMode] = useAccountPref('estoque.modo', 'simples', { localKey: 'hf-estoque-modo' });
+  const simple = mode !== 'completo';
+  const [weigh, setWeigh] = React.useState(null);      // Row do popover de pesagem
 
   /* ── VISTA SALVA NA CONTA ────────────────────────────────────────
      Busca, chips, ordem e "só com quantidade" seguem a PESSOA, não o
@@ -1031,16 +1085,30 @@ export function WarehousePage() {
     return all.join(',');
   }, [chipStatuses, status]);
 
-  const path = React.useMemo(() => wh.overviewQuery({
-    q: q.trim(), sort: sort.col, dir: sort.dir,
-    status: statusParam, only_with_qty: onlyQty,
-    limit: pageSize, offset: 0,
-  }), [q, sort, statusParam, onlyQty, pageSize]);
+  /* Modo simples: SEM filtros de status e SEM paginação curta. O mutirão
+     percorre o catálogo inteiro em ordem de nome (a ordem da prateleira na
+     cabeça de quem conta); só a busca recorta. */
+  const path = React.useMemo(() => wh.overviewQuery(simple
+    ? { q: q.trim(), sort: 'name', dir: 'asc', limit: 500, offset: 0 }
+    : {
+      q: q.trim(), sort: sort.col, dir: sort.dir,
+      status: statusParam, only_with_qty: onlyQty,
+      limit: pageSize, offset: 0,
+    }), [simple, q, sort, statusParam, onlyQty, pageSize]);
 
-  // poll 20s, PAUSADO enquanto um modal está aberto (inclusive o de import)
-  const ov = wh.useWarehouse(path, [], 20000, !!modal || !!importOpen || !!mergeOpen);
+  // poll 20s, PAUSADO enquanto um modal está aberto (inclusive o de import
+  // e o popover da balança: trocar a linha embaixo de quem digita é sabotagem)
+  const ov = wh.useWarehouse(path, [], 20000, !!modal || !!importOpen || !!mergeOpen || !!weigh);
   const data = ov.data || {};
   const kpis = data.kpis || {};
+
+  /* Pesos por produto (pro popover da balança): uma busca só, no modo
+     simples. Se falhar, o popover cai no caminho de calibrar: nunca trava. */
+  const ws = wh.useWarehouse(simple ? '/weights' : null, [], 0);
+  const weightOf = React.useCallback((productId) => {
+    const list = (ws.data && ws.data.products) || [];
+    return list.find((x) => x.product_id === productId) || null;
+  }, [ws.data]);
 
   /* Uma linha por PRODUTO: as que viraram filhas somem na hora, sem esperar o
      poll. Foi a pessoa que mandou juntar, ver a linha antiga ainda ali por 20
@@ -1206,6 +1274,69 @@ export function WarehousePage() {
     }
   }, [rowsPatch, onRowUpdate, ack, ackErr]);
 
+  /* ── A CÉLULA DO MUTIRÃO (modo simples) ──────────────────────────
+     Manda o ABSOLUTO que a pessoa contou pro POST /simple/set; o backend
+     calcula o delta e aplica só verbos do StockService. A linha atualiza da
+     RESPOSTA (o chip de conferência vira na hora), nunca de palpite local.
+     Produto com mais de um local → 409 multi_location: o simples não
+     adivinha em qual prateleira, o toast leva pro Modo completo. */
+  const simpleCommit = React.useCallback(async ({ row, scope, qty, bin_code }) => {
+    const body = { product_id: row.product_id, scope, qty, client_ref: newRef() };
+    if (bin_code) body.bin_code = bin_code;
+    try {
+      const res = await wh.simpleSet(body);
+      const d = (res && res.data) || {};
+      const patched = {
+        ...row,
+        shelf_qty: d.shelf_qty, box_qty: d.box_qty, unplaced_qty: d.unplaced_qty,
+        total: d.total, veeqo_total: d.veeqo_total,
+        home_bin: d.home_bin || row.home_bin || null,
+        main_box: d.main_box || row.main_box || null,
+      };
+      if (d.home_bin && !(row.bins || []).some((b) => b.id === d.home_bin.id)) {
+        patched.bins = [...(row.bins || []), { id: d.home_bin.id, bin_code: d.home_bin.bin_code, qty: d.shelf_qty }];
+      }
+      if (d.main_box && !(row.boxes || []).some((b) => b.id === d.main_box.id)) {
+        patched.boxes = [...(row.boxes || []), { id: d.main_box.id, box_number: d.main_box.box_number, qty: d.box_qty }];
+      }
+      onRowUpdate(patched);
+      const hadBox = !!(row.main_box || (row.boxes || []).length);
+      const hadBin = !!(row.home_bin || (row.bins || []).length);
+      if (scope === 'box' && d.main_box && !hadBox) {
+        ack('Salvo na caixa ' + d.main_box.box_number + ' (criada agora).');
+      } else if (scope === 'shelf' && d.home_bin && !hadBin) {
+        ack('Prateleira ' + d.home_bin.bin_code + ' criada com a contagem.');
+      } else {
+        ack(d.match ? 'Salvo. Bate com a Veeqo.' : 'Salvo.');
+      }
+    } catch (e) {
+      if (e && (e.code === 'multi_location' || e.status === 409)) {
+        ack('Esse produto tem mais de um local. Ajuste no Modo completo.', true,
+          { label: 'Modo completo', run: () => setMode('completo') });
+        throw e;
+      }
+      ackErr(e);
+      throw e;
+    }
+  }, [onRowUpdate, ack, ackErr, setMode]);
+
+  /* Sugestão do próximo código de prateleira (padrão A01A1), calculada dos
+     códigos que já existem na página. Texto puro: a pessoa pode trocar. */
+  const suggestedCode = React.useMemo(() => suggestBinCode(rows), [rows]);
+
+  /* Imprimir a linha: as etiquetas da prateleira e da caixa DESTE produto,
+     na página de etiquetas que já existe (mesmo desenho Code 128 + QR do
+     resto do sistema; nada é redesenhado aqui). */
+  const printRow = React.useCallback((row) => {
+    const hb = homeBinOf(row);
+    const mb = mainBoxOf(row);
+    const parts = [];
+    if (hb) parts.push('bins=' + hb.id);
+    if (mb) parts.push('boxes=' + mb.id);
+    if (!parts.length) return;
+    window.location.hash = '#estoque-etiquetas?' + parts.join('&');
+  }, []);
+
   /* Apelido: texto puro, não mexe em estoque nenhum. Vai pela MESMA porta do
      Product Setup (POST /product-setup/:id), que é quem já é dona do campo:
      duas telas gravando o apelido por caminhos diferentes é como se cria um
@@ -1296,6 +1427,12 @@ export function WarehousePage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {/* o hub abre no modo do mutirão; a tabela completa fica a 1 clique */}
+          <button className="kit-btn sec" data-act="modo-view"
+                  title={simple ? 'Abrir a tabela completa (KPIs, filtros, painéis)' : 'Voltar pra tela simples da contagem'}
+                  onClick={() => setMode(simple ? 'completo' : 'simples')}>
+            {simple ? 'Modo completo' : 'Modo simples'}
+          </button>
           {writable && (
             <button className="kit-btn primary" data-act="entrada-top"
                     onClick={() => filtered[0] && openAction('entrada', filtered[0])}>Entrada</button>
@@ -1315,7 +1452,8 @@ export function WarehousePage() {
         </div>
       </div>
 
-      {/* KPIs (clicáveis → filtram) */}
+      {/* KPIs (clicáveis → filtram) — só no Modo completo */}
+      {!simple && (
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }} data-kpis>
         {KPIS.map((kp) => (
           <button key={kp.k} type="button"
@@ -1334,10 +1472,11 @@ export function WarehousePage() {
           </button>
         ))}
       </div>
+      )}
 
       {/* Propostas paradas. Fica ACIMA de tudo porque é a única coisa da tela
           onde tem gente esperando por uma pessoa, não por um número. */}
-      {pendingCount > 0 && (
+      {!simple && pendingCount > 0 && (
         <div className="kit-card pad warn" data-pending-notice
              style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--warn-deep)' }}>
@@ -1357,8 +1496,121 @@ export function WarehousePage() {
         </div>
       )}
 
+      {/* ══ MODO SIMPLES: a tela do mutirão ══════════════════════════
+          Placar + busca numa linha, e UMA linha por produto com tudo que o
+          Bruno pediu acima da dobra: o número da Veeqo (o alvo), as três
+          contagens editáveis no lugar, o chip que diz se bate, a impressora
+          da etiqueta e a balança. */}
+      {simple && (
+        <>
+          <div className="wht-scorebar" data-scorebar>
+            <SimpleSearch q={q} onQ={setQ} />
+            <span className="kit-mlabel" data-scoreboard>
+              {data.simple_progress
+                ? fmt(data.simple_progress.products) + ' produtos · '
+                  + fmt(data.simple_progress.matching) + ' batendo com a Veeqo · '
+                  + fmt(data.simple_progress.bottles_counted) + ' garrafas contadas de '
+                  + fmt(data.simple_progress.veeqo_bottles) + ' na Veeqo'
+                : (ov.loading ? 'carregando o placar…' : fmt(rows.length) + ' produtos')}
+            </span>
+          </div>
+
+          {/* dia 1 do mutirão: tudo zerado é o ponto de partida, não um erro */}
+          {rows.length > 0 && rows.every((r) => !n(r.total)) && (
+            <div className="kit-card pad" style={{ marginTop: 12, color: 'var(--ink-dim)' }} data-simple-empty>
+              Conte e digite direto na linha. O alvo de cada produto é o número da Veeqo.
+            </div>
+          )}
+
+          <div className="kit-card" style={{ marginTop: 12, padding: '8px 12px 4px', overflowX: 'auto', overflowY: 'auto', maxHeight: '72vh' }}>
+            <table className="kit-table" data-table="simples">
+              <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--card-bg, #fff)', boxShadow: '0 1px 0 var(--line, #d4e2f0)' }}>
+                <tr>
+                  <th>Produto</th>
+                  <th className="num" title="O que a Veeqo mostra agora (SKU base). É o alvo da contagem.">Veeqo</th>
+                  <th className="num">Prateleira</th>
+                  <th className="num">Caixa</th>
+                  <th className="num">A organizar</th>
+                  <th>Confere</th>
+                  <th colSpan={2} aria-label="Imprimir e pesar" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const hb = homeBinOf(r);
+                  const mb = mainBoxOf(r);
+                  const needCode = !hb && !(r.bins || []).length;
+                  return (
+                    <tr key={r.product_id} data-row={r.product_id}>
+                      <td style={{ minWidth: 240 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, color: 'var(--primary-deep)' }}>
+                            {r.nickname || r.name}
+                          </span>
+                          <SkuChip row={r} writable={false}
+                                   expanded={!!expanded[r.product_id]}
+                                   onToggle={() => setExpanded((x) => ({ ...x, [r.product_id]: !x[r.product_id] }))} />
+                        </div>
+                        {(hb || mb) && (
+                          <div style={{ display: 'flex', gap: 5, marginTop: 4, flexWrap: 'wrap' }}>
+                            {hb && <span className="kit-chip neutral" style={{ fontFamily: 'var(--font-mono)' }}>{hb.bin_code}</span>}
+                            {mb && <span className="kit-chip neutral" style={{ fontFamily: 'var(--font-mono)' }}>{mb.box_number}</span>}
+                          </div>
+                        )}
+                      </td>
+                      <td className="num sep"><b data-veeqo-cell={r.product_id}>{fmt(veeqoOf(r))}</b></td>
+                      <td className="num">
+                        <SimpleCell value={r.shelf_qty} row={r} scope="shelf" writable={writable}
+                                    askBinCode={needCode} suggestedCode={needCode ? suggestedCode : ''}
+                                    hint={needCode
+                                      ? 'Primeira contagem: digite quantas tem e o código da prateleira nova'
+                                      : 'Clique, digite a contagem da prateleira e dê Enter'}
+                                    onCommit={simpleCommit} />
+                      </td>
+                      <td className="num">
+                        <SimpleCell value={r.box_qty} row={r} scope="box" writable={writable}
+                                    hint={mb
+                                      ? 'Clique, digite a contagem da caixa e dê Enter'
+                                      : 'Primeira contagem: a caixa é criada sozinha com o próximo número BX'}
+                                    onCommit={simpleCommit} />
+                      </td>
+                      <td className="num">
+                        <SimpleCell value={r.unplaced_qty} row={r} scope="unplaced" writable={writable}
+                                    hint="Clique, digite quantas estão soltas e dê Enter"
+                                    onCommit={simpleCommit} />
+                      </td>
+                      <td><CompareChip row={r} /></td>
+                      <td style={{ width: 34 }}>
+                        <button className="kit-btn xs sec wht-rowbtn" data-act="print-row" data-print={r.product_id}
+                                disabled={!hb && !mb}
+                                title={hb || mb
+                                  ? 'Imprimir as etiquetas da prateleira e da caixa deste produto'
+                                  : 'Sem local ainda: salve uma contagem primeiro'}
+                                onClick={() => printRow(r)}>🖨</button>
+                      </td>
+                      <td style={{ width: 34 }}>
+                        {writable && (
+                          <button className="kit-btn xs sec wht-rowbtn" data-act="pesar-row" data-pesar={r.product_id}
+                                  title="Pesar a caixa pra contar sem abrir"
+                                  onClick={() => setWeigh(r)}>⚖</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!rows.length && !ov.loading && (
+                  <tr><td colSpan={8} style={{ color: 'var(--ink-faint)', padding: 20 }}>
+                    Nenhum produto com essa busca. Apague e tente de novo.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {/* Precisa de atenção hoje: os mais graves primeiro; no dia 1 (tudo zerado) seriam 190+ linhas, então mostra 8 e um botão pra abrir o resto */}
-      {(data.attention || []).length > 0 && (
+      {!simple && (data.attention || []).length > 0 && (
         <div className="kit-card pad" style={{ marginTop: 16 }} data-attention>
           <div className="kit-mlabel" style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>Precisa de atenção hoje</span>
@@ -1398,7 +1650,7 @@ export function WarehousePage() {
       )}
 
       {/* estado vazio do dia 1 */}
-      {empty && (
+      {!simple && empty && (
         <div className="kit-card pad" style={{ marginTop: 16 }} data-empty>
           <div className="kit-h2">Nenhuma prateleira ou caixa cadastrada ainda</div>
           <p className="kit-sub" style={{ marginTop: 6 }}>
@@ -1417,6 +1669,7 @@ export function WarehousePage() {
       )}
 
       {/* filtro: busca com debounce, chips rápidos e a vista salva na conta */}
+      {!simple && (
       <FilterBar
         q={q} onQ={setQ}
         chips={chips}
@@ -1434,8 +1687,10 @@ export function WarehousePage() {
           setView(null);
         }}
       />
+      )}
 
       {/* filtros de segunda linha: pouco usados, mas ninguém os perdeu */}
+      {!simple && (
       <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <select className="kit-input" value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="todos">Status: todos</option>
@@ -1449,9 +1704,10 @@ export function WarehousePage() {
           <input type="checkbox" checked={onlyToday} onChange={(e) => setOnlyToday(e.target.checked)} /> só com pedido hoje
         </label>
       </div>
+      )}
 
       {/* linhas marcadas: a barra só existe quando há o que juntar */}
-      {selectedIds.length > 0 && (
+      {!simple && selectedIds.length > 0 && (
         <div className="wht-selbar" data-selbar>
           <b>{selectedIds.length} {selectedIds.length === 1 ? 'linha marcada' : 'linhas marcadas'}</b>
           <span>Se forem a mesma garrafa em SKUs diferentes, junte numa linha só.</span>
@@ -1467,6 +1723,7 @@ export function WarehousePage() {
 
       {/* tabela · cabeçalho GRUDADO: a lista tem ~190 produtos, e sem isso quem
           rola perde de vista qual coluna é qual e lê o número errado. */}
+      {!simple && (
       <div className="kit-card" style={{ marginTop: 12, padding: '8px 12px 4px', overflowX: 'auto', overflowY: 'auto', maxHeight: '68vh' }}>
         <table className="kit-table" data-table="produtos">
           <thead data-sticky style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--card-bg, #fff)', boxShadow: '0 1px 0 var(--line, #d4e2f0)' }}>
@@ -1617,11 +1874,12 @@ export function WarehousePage() {
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Paginação por botão, não por rolagem infinita: quem está conferindo
           estoque precisa saber onde parou, e uma lista que cresce sozinha
           embaixo do dedo tira esse chão. */}
-      {hasMore && (
+      {!simple && hasMore && (
         <div className="wht-more" data-more>
           <span className="kit-mlabel">
             mostrando {fmt(filtered.length)} de {fmt(totalCount)}
@@ -1636,6 +1894,26 @@ export function WarehousePage() {
           Veeqo conferida em {String(data.veeqo_checked_at).slice(0, 16).replace('T', ' ')} · a coluna Veeqo é comparação, nunca entra na soma
         </div>
       )}
+
+      {/* popover da balança (modo simples): pesa, calcula e preenche a Caixa */}
+      {weigh && (() => {
+        const wrow = rowsPatch[weigh.product_id]
+          || rows.find((r) => r.product_id === weigh.product_id) || weigh;
+        return (
+          <WeighPopover
+            row={wrow}
+            weight={weightOf(weigh.product_id)}
+            tares={(ws.data && ws.data.tares) || []}
+            onCompute={(b) => wh.computeCount(b).then((j) => (j && j.data) || j)}
+            onCalibrate={(b) => wh.setProductWeight(weigh.product_id, b).then(() => { ws.refresh(); })}
+            onUse={async (qty) => {
+              try { await simpleCommit({ row: wrow, scope: 'box', qty }); setWeigh(null); }
+              catch (e) { /* o toast já explicou; o popover fica aberto */ }
+            }}
+            onClose={() => setWeigh(null)}
+          />
+        );
+      })()}
 
       {modal && (
         <ActionModal
@@ -1687,7 +1965,17 @@ export function WarehousePage() {
         />
       )}
 
-      {toast && <div className={'kit-toast ' + (toast.bad ? 'bad' : '')}>{toast.msg}</div>}
+      {toast && (
+        <div className={'kit-toast ' + (toast.bad ? 'bad' : '')}>
+          {toast.msg}
+          {toast.action && (
+            <button className="kit-btn xs" data-act="toast-acao" style={{ marginLeft: 10 }}
+                    onClick={() => { setToast(null); toast.action.run(); }}>
+              {toast.action.label}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

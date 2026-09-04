@@ -354,7 +354,19 @@ async function main() {
   const noErr = (group) => rec(group, 'sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 
   // ══ 1. HUB: botão de import + modal passo 1 ═══════════════════
+  /* O hub agora abre no MODO SIMPLES (a tela do mutirão, coberta a fundo pelo
+     qa-dashboard.js). O que a fase 3 prova mora no Modo completo, então o
+     teste atravessa o toggle — que é exatamente o que um admin faria. O modo
+     fica no localStorage, então uma travessia vale pro harness inteiro. */
   await go('estoque');
+  await page.waitForSelector('[data-table="simples"] tbody tr, [data-table="produtos"] tbody tr', { timeout: 10000 }).catch(() => {});
+  if (await page.$('[data-table="simples"]')) {
+    rec('hub', 'o hub abre no modo simples (o do mutirão)', true);
+    await page.click('[data-act="modo-view"]');
+    await sleep(500);
+  } else {
+    rec('hub', 'o hub abre no modo simples (o do mutirão)', false, 'já abriu no completo');
+  }
   await page.waitForSelector('[data-table="produtos"] tbody tr', { timeout: 10000 }).catch(() => {});
   noErr('hub');
 

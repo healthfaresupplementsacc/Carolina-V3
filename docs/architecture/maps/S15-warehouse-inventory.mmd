@@ -63,6 +63,14 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_MONTAR -->|box-types + calibrate + count/compute + weights| A_API
   A_DASH2 --> A_MONTAR
   A_LOAD -->|so verbos storeIn e place, nunca SQL cru| SVC
+  A_SIMPLE["S15.47 BUILT 09-04: MODO SIMPLES backend simple-set.js · POST /simple/set = quantidade ABSOLUTA por escopo prateleira, caixa ou a organizar · delta vs sistema aplicado so com verbos do StockService: subir storeIn+place, descer count absoluto, a organizar via adjust branch unplaced novo · prateleira nasce por bin_code, caixa com numero BX do MESMO alocador da aprovacao · 2+ locais = 409 multi_location aponta Modo completo · idempotente por client_ref simpleset · overview ganha simple_progress e home_bin/main_box por linha"]:::verified
+  A_API --> A_SIMPLE
+  A_SIMPLE -->|storeIn place count e adjust unplaced, nunca SQL cru| SVC
+  A_SIMPLE -->|bin novo via bin_code, caixa via alocador BX da aprovacao| T_BINS
+  A_SIMPLEUI["S15.48 BUILT 09-04: MODO SIMPLES frontend · a vista PADRAO do hub #estoque = a pagina do mutirao · uma linha por produto: Veeqo em negrito vs Prateleira, Caixa e A organizar editaveis com o ABSOLUTO contado · chip bate/faltam/sobram vira da resposta · 1o shelf sem bin pede o codigo pre-sugerido A01A1 · impressora da linha abre estoque-etiquetas com home_bin e main_box · popover pesar com calibrar inline e usar N na caixa · 409 multi_location vira toast com pulo de 1 clique pro Modo completo · placar simple_progress + busca numa linha · modo lembrado por conta"]:::verified
+  A_SIMPLEUI -->|POST simple/set com client_ref uuid, unica escrita do modo| A_SIMPLE
+  A_SIMPLEUI -->|labels da linha + count/compute + weights, tudo porta existente| A_API
+  A_HUB -->|abre por padrao nesta vista, o toggle volta pra tabela completa| A_SIMPLEUI
   A_HUB --> A_API
   A_API --> SVC
   A_API --> A_APPROVE

@@ -28,6 +28,7 @@ const { createMobile } = require('./mobile');
 const { suggest } = require('./sku-suggest');
 const { createSkuSync } = require('./sku-sync');
 const { createVeeqoAbsorb } = require('./veeqo-absorb');
+const { createSimpleSet, simpleProgress } = require('./simple-set');
 
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
@@ -449,6 +450,8 @@ function createWarehouseRouter(deps = {}) {
       total: page.total,             // linhas que passaram no filtro (antes da página)
       limit: page.limit, offset: page.offset,
       kpis,
+      // o placar do mutirão (Modo simples): sempre sobre `all`, como os KPIs
+      simple_progress: simpleProgress(all),
       attention: attentionFrom(all).concat(recalItems),
       pending_summary: pending,
       veeqo_checked_at: veeqoCache.checkedAt(),
@@ -993,6 +996,28 @@ function createWarehouseRouter(deps = {}) {
 
   route('get', '/load/progress', 'read', async (req, res) => {
     ok(res, await loadDoor.progress());
+  });
+
+  // ── MODO SIMPLES (Fase 1, mutirão): quantidade ABSOLUTA por escopo ──
+  // Toda a lógica (delta, criação de local, verbos do StockService) em
+  // simple-set.js; aqui só o registro fino da rota, como o resto do hub.
+  const simpleSet = deps.simpleSet || createSimpleSet({ db, stock, locations, rowsWithVeeqo });
+
+  route('post', '/simple/set', 'write', async (req, res) => {
+    const b = req.body || {};
+    try {
+      const out = await simpleSet.set(b, {
+        person_id: (req.login && req.login.person_id) || null,
+        login: (req.login && req.login.name) || null,
+      });
+      await audit(req, 'warehouse.simple_set', intOf(b.product_id) || null, {
+        scope: b.scope || null, qty: intOf(b.qty), client_ref: b.client_ref || null,
+        applied: out.applied, duplicate: out.duplicate });
+      ok(res, out.summary);
+    } catch (e) {
+      if (e && e.code === 'multi_location') return err(res, 'multi_location', e.message, 409);
+      throw e;
+    }
   });
 
   // ── S15 FASE 3 — ETIQUETAS (o dashboard desenha Code128 + QR no cliente) ──

@@ -37,6 +37,12 @@ const PRODUCT = readFix('warehouse-product.json');
 const REQUESTS = readFix('warehouse-requests.json');
 const LOCATIONS = readFix('warehouse-locations.json');
 const SUGGESTIONS = readFix('warehouse-sku-suggestions.json');
+const WEIGHTS = readFix('p3-weights.json');          // modo simples: popover da balança
+const LABELS = readFix('p3-labels.json');            // modo simples: imprimir a linha
+
+/* GETs de /warehouse/labels que a página fez. O botão 🖨 da linha simples tem
+   que pedir as etiquetas do bin e da caixa DAQUELE produto. */
+const labelsGets = [];
 
 /* Query string que a pagina mandou no ultimo GET /overview. A ordenacao e os
    filtros agora sao do SERVIDOR (contrato P2): sem guardar isto, o harness so
@@ -136,6 +142,62 @@ function apiFixture(pathname, search, method, body) {
     const p = pathname.slice('/api/v3/warehouse/'.length);
     if (p === 'overview') return overviewFiltered(search);
     if (p === 'sku-suggestions') return SUGGESTIONS;
+    if (p === 'weights') return WEIGHTS;
+    if (p === 'labels') {
+      labelsGets.push(search || '');
+      const q = new URLSearchParams(search);
+      const ids = (k) => (q.get(k) || '').split(',').filter(Boolean).map(Number);
+      const bins = ids('bins'); const boxes = ids('boxes');
+      const list = LABELS.data.labels.filter((l) =>
+        (l.kind === 'bin' ? bins.includes(l.bin_id) : boxes.includes(l.box_id)));
+      return { data: { labels: list } };
+    }
+    /* Pesar pra contar (contrato D): a MESMA conta do backend, refeita aqui de
+       propósito — se a página mandar tara errada, o número sai errado e a
+       asserção pega. Nada é gravado. */
+    if (p === 'count/compute') {
+      const b = body || {};
+      const w = WEIGHTS.data.products.find((x) => x.product_id === Number(b.product_id));
+      const unit = w && w.unit_weight_g != null ? Number(w.unit_weight_g) : null;
+      if (unit == null) {
+        return { data: { unit_weight_g: null, qty: null, qty_min: null, qty_max: null,
+          residual_g: null, confidence: 'baixa', recount_suggested: true } };
+      }
+      const tare = Number(b.tare_g) || 0;
+      const net = Number(b.gross_g) - tare;
+      const qty = Math.max(0, Math.ceil(net / unit - 0.05));
+      return { data: { unit_weight_g: unit, tare_g: tare, net_g: net,
+        qty, qty_min: Math.max(0, qty - 1), qty_max: qty + 1,
+        residual_g: 0, confidence: 'alta', recount_suggested: false } };
+    }
+    /* MODO SIMPLES (contrato A): o número ABSOLUTO da contagem. O stub faz o
+       que o backend fará: recalcula o escopo, devolve a linha nova com o
+       match, cria bin/box quando o produto não tem. Produto 6 finge ter dois
+       locais → 409 multi_location, que a UI tem que traduzir em caminho. */
+    if (p === 'simple/set') {
+      const b = body || {};
+      if (Number(b.product_id) === 6) {
+        return { __status: 409, __body: { error: { code: 'multi_location',
+          message: 'Esse produto tem mais de um local. Ajuste no Modo completo.' } } };
+      }
+      const row = OVERVIEW.data.products.find((x) => x.product_id === Number(b.product_id)) || {};
+      const shelf = b.scope === 'shelf' ? Number(b.qty) : Number(row.shelf_qty || 0);
+      const box = b.scope === 'box' ? Number(b.qty) : Number(row.box_qty || 0);
+      const unp = b.scope === 'unplaced' ? Number(b.qty) : Number(row.unplaced_qty || 0);
+      const total = shelf + box + unp;
+      const veeqo = row.veeqo && row.veeqo.physical != null ? Number(row.veeqo.physical) : null;
+      const homeBin = (row.bins || [])[0]
+        ? { id: row.bins[0].id, bin_code: row.bins[0].bin_code }
+        : (b.bin_code ? { id: 900, bin_code: b.bin_code } : null);
+      const mainBox = (row.boxes || [])[0]
+        ? { id: row.boxes[0].id, box_number: row.boxes[0].box_number, box_type_id: null }
+        : (b.scope === 'box' ? { id: 901, box_number: 'BX-0007', box_type_id: null } : null);
+      return { data: { product_id: Number(b.product_id), veeqo_total: veeqo,
+        shelf_qty: shelf, box_qty: box, unplaced_qty: unp, total,
+        delta_veeqo: veeqo == null ? null : total - veeqo,
+        match: veeqo != null && total === veeqo,
+        home_bin: homeBin, main_box: mainBox } };
+    }
     /* merge-bulk / unmerge: o backend devolve quantos viraram filho. A linha
        some da tabela na hora e o proximo /overview ja vem sem ela. */
     if (p === 'family/merge-bulk') {
@@ -323,9 +385,17 @@ async function main() {
       if (u.pathname.startsWith('/api/')) {
         let payload = null;
         try { payload = req.postData() ? JSON.parse(req.postData()) : null; } catch (e) { payload = req.postData(); }
+        const out = apiFixture(u.pathname, u.search, req.method(), payload);
+        /* __status: o stub também sabe dizer NÃO (ex: 409 multi_location do
+           simple/set) — o contrato de erro é parte do contrato. */
+        if (out && out.__status) {
+          req.respond({ status: out.__status, contentType: 'application/json',
+            body: JSON.stringify(out.__body || {}) });
+          return;
+        }
         req.respond({
           status: 200, contentType: 'application/json',
-          body: JSON.stringify(apiFixture(u.pathname, u.search, req.method(), payload)),
+          body: JSON.stringify(out),
         });
         return;
       }
@@ -346,6 +416,12 @@ async function main() {
          que e o caminho de verdade. */
       localStorage.removeItem('hf-estoque-view');
       localStorage.removeItem('hf-estoque-view.dirty');
+      /* O modo (simples × completo) também mora na CONTA; o cache local sai
+         pra cada navegação começar do que o stub de prefs disser. O primeiro
+         load abre no padrão (simples); depois que o teste troca pro completo,
+         a conta segura o completo pro resto do harness. */
+      localStorage.removeItem('hf-estoque-modo');
+      localStorage.removeItem('hf-estoque-modo.dirty');
     } catch (e) { /* ignore */ }
   }, LOGIN);
 
@@ -354,6 +430,14 @@ async function main() {
     await page.screenshot({ path: f });
     const kb = Math.round(fs.statSync(f).size / 1024);
     rec('screenshot', name, kb < 1024, kb + ' KB → ' + path.basename(f));
+  };
+  /* screenshots do modo simples têm nome próprio (simple-01..06): são a prova
+     visual da tela do mutirão, pedida com esse nome. */
+  const shotSimple = async (nn) => {
+    const f = path.join(QA, 'simple-' + nn + '.png');
+    await page.screenshot({ path: f });
+    const kb = Math.round(fs.statSync(f).size / 1024);
+    rec('screenshot', 'simple-' + nn, kb > 4 && kb < 2048, kb + ' KB → ' + path.basename(f));
   };
 
   /* Navega pra uma rota. Uma unica carga por rota (about:blank primeiro, senao
@@ -368,7 +452,236 @@ async function main() {
     await sleep(600);      // janela de observacao em regime
   }
 
-  // ══ 1. HUB #estoque ═══════════════════════════════════════════
+  /* ══ 0. MODO SIMPLES — a tela do mutirão de carga (Bruno 09-04) ══
+     O critério, na frase dele: uma página onde dá pra "enter and control the
+     inventory where all the needed buttons and information are on that same
+     page", com o número da Veeqo do lado da contagem real. O hub abre NELA
+     por padrão; a tabela completa fica atrás do toggle. */
+  const simpleTexts = [];   // textos novos do modo simples: nenhum pode ter travessão
+
+  await go('estoque');
+  await page.waitForSelector('[data-table="simples"] tbody tr', { timeout: 10000 }).catch(() => {});
+  rec('simples', 'sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+
+  rec('simples', 'o hub abre no modo simples por padrão (a completa fica atrás do toggle)',
+      !!(await page.$('[data-table="simples"]')) && !(await page.$('[data-table="produtos"]')));
+  const toggleTxt = await page.$eval('[data-act="modo-view"]', (e) => e.textContent.trim()).catch(() => '');
+  rec('simples', 'o toggle oferece o Modo completo', toggleTxt === 'Modo completo', JSON.stringify(toggleTxt));
+
+  // placar do mutirão, direto do overview.simple_progress
+  const SPX = OVERVIEW.data.simple_progress;
+  const scoreTxt = await page.$eval('[data-scoreboard]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  simpleTexts.push(scoreTxt);
+  rec('simples', 'placar: produtos, quantos batem e garrafas contadas vs Veeqo',
+      scoreTxt === SPX.products + ' produtos · ' + SPX.matching + ' batendo com a Veeqo · '
+        + SPX.bottles_counted + ' garrafas contadas de ' + SPX.veeqo_bottles + ' na Veeqo',
+      scoreTxt);
+  rec('simples', 'a busca está na mesma linha do placar', !!(await page.$('[data-scorebar] [data-simple-q]')));
+
+  // a coluna VEEQO: o alvo, em negrito, direto da fixture
+  const veeqoCell1 = await page.$eval('[data-row="1"] [data-veeqo-cell]', (e) => e.textContent.trim()).catch(() => '');
+  rec('simples', 'coluna Veeqo mostra o número da fixture (Benfotiamine 214)', veeqoCell1 === '214', veeqoCell1);
+  const veeqoCell7 = await page.$eval('[data-row="7"] [data-compare="7"]', (e) => e.dataset.match).catch(() => '');
+  rec('simples', 'produto sem SKU Veeqo ganha o chip apagado "sem Veeqo"', veeqoCell7 === 'none', veeqoCell7);
+  // os 8 produtos em ordem de nome (a ordem da prateleira na cabeça de quem conta)
+  const simpleOrder = await page.$$eval('[data-table="simples"] tbody tr[data-row]', (e) => e.map((r) => r.dataset.row));
+  rec('simples', 'todos os 8 produtos, em ordem de nome', simpleOrder.join(',') === '8,1,2,3,4,6,7,5', simpleOrder.join(','));
+  await shotSimple('01');
+
+  /* ── shelf num produto SEM prateleira: o código nasce na célula ──
+     Magnesium (7) tem 0 bins. Antes isso era o 400 do gap 1 do STOCKPAGE;
+     agora a célula pede o código (já sugerido) e UMA tecla Enter salva os
+     dois. O POST é o contrato A: absoluto + bin_code + client_ref. */
+  posted.length = 0;
+  await page.click('[data-simple-cell="7:shelf"]');
+  await sleep(300);
+  rec('simples', 'clicar na prateleira de produto sem bin abre input + campo do código',
+      !!(await page.$('[data-simple-input="7:shelf"]')) && !!(await page.$('[data-simple-bincode]')));
+  const suggested = await page.$eval('[data-simple-bincode]', (e) => e.value).catch(() => '');
+  rec('simples', 'o código vem sugerido do padrão dos que existem (C01 → C02)',
+      suggested === 'C02', JSON.stringify(suggested));
+  await shotSimple('02');
+  await page.keyboard.type('12');           // o valor abre selecionado: digitar substitui
+  await page.keyboard.press('Enter');
+  await sleep(700);
+  const setShelf = posted.find((p) => p.pathname === '/api/v3/warehouse/simple/set');
+  rec('simples', 'Enter manda o ABSOLUTO pro POST /warehouse/simple/set',
+      !!setShelf, JSON.stringify(posted.map((p) => p.pathname)));
+  rec('simples', 'corpo do contrato A: scope shelf, qty 12, bin_code C02, client_ref',
+      !!setShelf && setShelf.body.product_id === 7 && setShelf.body.scope === 'shelf'
+      && setShelf.body.qty === 12 && setShelf.body.bin_code === 'C02'
+      && typeof setShelf.body.client_ref === 'string' && setShelf.body.client_ref.length >= 8,
+      JSON.stringify(setShelf && setShelf.body));
+  const shelf7After = await page.$eval('[data-simple-cell="7:shelf"] .v', (e) => e.textContent.trim()).catch(() => '');
+  rec('simples', 'a célula atualiza da RESPOSTA (12) e ganha o tique',
+      shelf7After === '12' && !!(await page.$('[data-row="7"] [data-inline-saved]')), shelf7After);
+
+  /* ── o chip de conferência vira ao vivo ──────────────────────────
+     Ashwagandha (8): tem 6, a Veeqo diz 9 → "faltam 3". Contou 9 na
+     prateleira → o chip tem que virar "bate ✓" NA MESMA resposta. */
+  const chipBefore = await page.$eval('[data-compare="8"]', (e) => ({ m: e.dataset.match, t: e.textContent.trim() }));
+  simpleTexts.push(chipBefore.t);
+  rec('simples', 'chip antes: "faltam 3" (tem 6, Veeqo quer 9)',
+      chipBefore.m === 'faltam' && chipBefore.t === 'faltam 3', JSON.stringify(chipBefore));
+  posted.length = 0;
+  await page.click('[data-simple-cell="8:shelf"]');
+  await sleep(300);
+  await page.keyboard.type('9');
+  await page.keyboard.press('Enter');
+  await sleep(700);
+  const chipAfter = await page.$eval('[data-compare="8"]', (e) => ({ m: e.dataset.match, t: e.textContent.trim() }));
+  simpleTexts.push(chipAfter.t);
+  rec('simples', 'contou 9 → o chip vira "bate ✓" na hora, da resposta',
+      chipAfter.m === 'ok' && /bate/.test(chipAfter.t), JSON.stringify(chipAfter));
+  await shotSimple('03');
+
+  /* ── "A organizar" SALVA (o bug do gap 2 do STOCKPAGE, morto) ──── */
+  posted.length = 0;
+  await page.click('[data-simple-cell="5:unplaced"]');
+  await sleep(300);
+  await page.keyboard.type('60');
+  await page.keyboard.press('Enter');
+  await sleep(700);
+  const setUnp = posted.find((p) => p.pathname === '/api/v3/warehouse/simple/set');
+  rec('simples', 'editar "A organizar" SALVA (o bug do nunca-salva morreu aqui)',
+      !!setUnp && setUnp.body.scope === 'unplaced' && setUnp.body.qty === 60 && setUnp.body.product_id === 5,
+      JSON.stringify(setUnp && setUnp.body));
+  rec('simples', 'e a célula confirma com o tique',
+      !!(await page.$('[data-row="5"] [data-inline-saved]')));
+
+  /* ── primeira contagem de caixa: o BX nasce no servidor ────────── */
+  posted.length = 0;
+  await page.click('[data-simple-cell="3:box"]');
+  await sleep(300);
+  await page.keyboard.type('40');
+  await page.keyboard.press('Enter');
+  await sleep(500);
+  const setBox = posted.find((p) => p.pathname === '/api/v3/warehouse/simple/set');
+  rec('simples', 'primeira caixa: manda só scope box + qty (o número é do servidor)',
+      !!setBox && setBox.body.scope === 'box' && setBox.body.qty === 40 && !setBox.body.bin_code,
+      JSON.stringify(setBox && setBox.body));
+  const boxToast = await page.$eval('.kit-toast', (e) => e.textContent.trim()).catch(() => '');
+  simpleTexts.push(boxToast);
+  rec('simples', 'o toast diz o BX que o servidor alocou (BX-0007)',
+      /BX-0007/.test(boxToast), boxToast);
+  await shotSimple('04');
+  rec('simples', 'client_ref é NOVO a cada clique salvo (idempotência sem colisão)',
+      !!setShelf && !!setBox && setShelf.body.client_ref !== setBox.body.client_ref);
+
+  /* ── pesar pra contar: calibrar inline quando falta o peso ───────
+     Chlorophyll (3) não tem peso de unidade → o popover abre no calibrar:
+     quantas garrafas na balança / peso total, e segue pro fluxo de pesagem. */
+  await page.click('[data-pesar="3"]');
+  await page.waitForSelector('[data-popover="pesar"]', { timeout: 5000 }).catch(() => {});
+  rec('pesar', 'produto sem peso abre direto no calibrar (2 campos)',
+      !!(await page.$('[data-weigh-calibrate]')) && !!(await page.$('[data-weigh-calib-count]')));
+  await page.click('[data-weigh-calib-count]');
+  await page.keyboard.type('10');
+  await page.click('[data-weigh-calib-gross]');
+  await page.keyboard.type('1290');
+  await sleep(250);
+  const unitPrev = await page.$eval('[data-popover="pesar"] [data-preview="unit"]', (e) => e.textContent.trim()).catch(() => '');
+  rec('pesar', 'a conta aparece antes de salvar (1290 / 10 = 129.00 g)', unitPrev === '129.00 g', unitPrev);
+  posted.length = 0;
+  await page.click('[data-act="pesar-calibrar"]');
+  await sleep(700);
+  const calib = posted.find((p) => p.pathname === '/api/v3/warehouse/weights/product/3');
+  rec('pesar', 'salvar calibra pelo endpoint que já existe (weights/product/3)',
+      !!calib && Number(calib.body.sample_count) === 10 && Number(calib.body.sample_gross_g) === 1290
+      && Number(calib.body.sample_tare_g) === 0,
+      JSON.stringify(calib && calib.body));
+  rec('pesar', 'calibrou e o fluxo de pesagem abre em seguida, sem fechar nada',
+      !!(await page.$('[data-weigh-gross]')));
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('[data-popover="pesar"] button')].find((x) => x.textContent.trim() === 'Fechar');
+    if (b) b.click();
+  });
+  await sleep(300);
+
+  /* ── pesar pra contar: a pesagem completa preenche a Caixa ───────
+     Benfotiamine (1) pesa 128.4 g/garrafa. Bruto 12278 com tara 980 dá
+     87.99 → 88, faixa 87 a 89. O [usar 88 na caixa] grava pelo MESMO
+     simple/set das células. */
+  await page.click('[data-pesar="1"]');
+  await page.waitForSelector('[data-popover="pesar"] [data-weigh-gross]', { timeout: 5000 }).catch(() => {});
+  rec('pesar', 'produto com peso vai direto pro campo do bruto (a balança USB digita nele)',
+      !!(await page.$('[data-weigh-gross]')) && !(await page.$('[data-weigh-calibrate]')));
+  await sleep(300);                     // o autofocus assenta antes da balança "digitar"
+  await page.keyboard.type('12278');    // autofocus: digitar já cai no campo certo
+  posted.length = 0;
+  await page.click('[data-act="pesar-calcular"]');
+  await sleep(700);
+  const comp = posted.find((p) => p.pathname === '/api/v3/warehouse/count/compute');
+  rec('pesar', 'Calcular chama o /count/compute que já existe, com a tara do preset',
+      !!comp && comp.body.product_id === 1 && Number(comp.body.gross_g) === 12278
+      && Number(comp.body.tare_g) === 980,
+      JSON.stringify(comp && comp.body));
+  const resTxt = await page.$eval('[data-weigh-result]', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  simpleTexts.push(resTxt);
+  rec('pesar', 'mostra a faixa e a confiança ("dá 87 a 89 · confiança alta")',
+      resTxt === 'dá 87 a 89 · confiança alta', resTxt);
+  await shotSimple('05');
+  posted.length = 0;
+  await page.click('[data-act="pesar-usar"]');
+  await sleep(700);
+  const useBox = posted.find((p) => p.pathname === '/api/v3/warehouse/simple/set');
+  rec('pesar', '[usar 88 na caixa] grava o 88 pelo MESMO simple/set das células',
+      !!useBox && useBox.body.scope === 'box' && useBox.body.qty === 88 && useBox.body.product_id === 1,
+      JSON.stringify(useBox && useBox.body));
+  const boxCell1 = await page.$eval('[data-simple-cell="1:box"] .v', (e) => e.textContent.trim()).catch(() => '');
+  rec('pesar', 'o popover fecha e a Caixa da linha mostra 88',
+      !(await page.$('[data-popover="pesar"]')) && boxCell1 === '88', boxCell1);
+
+  /* ── imprimir a linha: as etiquetas do local DESTE produto ───────
+     O 🖨 leva pra página de etiquetas que já existe (mesmo Code 128 + QR de
+     sempre), pedindo /labels com o bin e a caixa da linha. */
+  labelsGets.length = 0;
+  await page.click('[data-print="1"]');
+  await sleep(900);
+  const printHash = await page.evaluate(() => location.hash);
+  rec('simples', 'o 🖨 abre a página de etiquetas com o bin e a caixa da linha',
+      printHash === '#estoque-etiquetas?bins=1&boxes=21', printHash);
+  await page.waitForSelector('[data-sheet] [data-label]', { timeout: 8000 }).catch(() => {});
+  rec('simples', 'a página pediu GET /labels?bins=1&boxes=21 (endpoint que já existia)',
+      labelsGets.some((s) => /bins=1\b/.test(s) && /boxes=21\b/.test(s)), JSON.stringify(labelsGets));
+  const printedCodes = await page.$$eval('[data-sheet] [data-label]', (e) => e.map((x) => x.dataset.label)).catch(() => []);
+  rec('simples', 'as etiquetas da prateleira A03B2 e da caixa BX-0004 renderizam',
+      printedCodes.join(',') === 'A03B2,BX-0004', printedCodes.join(','));
+
+  /* ── produto com MAIS de um local: 409 vira caminho, não erro cru ─
+     O stub responde multi_location pro produto 6. A tela tem que dizer a
+     frase e dar o pulo de UM clique pro Modo completo. */
+  await go('estoque');
+  await page.waitForSelector('[data-table="simples"] tbody tr', { timeout: 10000 }).catch(() => {});
+  posted.length = 0;
+  await page.click('[data-simple-cell="6:shelf"]');
+  await sleep(300);
+  await page.keyboard.type('99');
+  await page.keyboard.press('Enter');
+  await sleep(700);
+  const multiToast = await page.$eval('.kit-toast', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => '');
+  simpleTexts.push(multiToast);
+  rec('simples', '409 multi_location vira a frase certa no toast',
+      /Esse produto tem mais de um local\. Ajuste no Modo completo\./.test(multiToast), multiToast);
+  await shotSimple('06');
+  const jumpBtn = await page.$('.kit-toast [data-act="toast-acao"]');
+  rec('simples', 'o toast traz o pulo de UM clique pro Modo completo', !!jumpBtn);
+  prefPuts.length = 0;
+  if (jumpBtn) await jumpBtn.click();
+  await page.waitForSelector('[data-table="produtos"] tbody tr', { timeout: 8000 }).catch(() => {});
+  rec('simples', 'o clique troca pra tabela completa na mesma tela',
+      !!(await page.$('[data-table="produtos"]')) && !(await page.$('[data-table="simples"]')));
+  await sleep(900);   // o debounce do useAccountPref sobe o modo pra conta
+  const modePut = prefPuts.find((p) => p.key === 'estoque.modo');
+  rec('simples', 'a escolha do modo sobe pra CONTA (PUT prefs estoque.modo)',
+      !!modePut && modePut.value === 'completo', JSON.stringify(modePut));
+
+  // texto novo do modo simples: PT-BR sem travessão em NENHUMA frase
+  rec('simples', 'nenhum texto novo do modo simples usa travessão',
+      !simpleTexts.some((t) => String(t).includes('—')),
+      simpleTexts.filter((t) => String(t).includes('—')).join(' | ') || simpleTexts.length + ' textos conferidos');
+
+  // ══ 1. HUB #estoque (Modo completo: tudo que já existia) ═══════
   await go('estoque');
   await page.waitForSelector('[data-table="produtos"] tbody tr', { timeout: 10000 }).catch(() => {});
   await shot('estoque');

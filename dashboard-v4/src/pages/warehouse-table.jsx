@@ -627,4 +627,331 @@ export function MergePanel({ onClose, onDone, onError, writable, adhoc, allRows 
   );
 }
 
-export default { SkuChip, InlineNumber, InlineText, FilterBar, SortableTh, MergePanel, QUICK_FILTERS };
+/* ═══════════════════════════════════════════════════════════════════
+   MODO SIMPLES — as peças do mutirão de carga física (Bruno 09-04).
+
+   A frase que manda: "Berberine, 23 in shelf, 88 in box, then i can adjust
+   these numbers right there". Uma linha por produto com TUDO nela: o número
+   da Veeqo (o alvo), as três contagens editáveis, o chip que diz se bate,
+   a impressora e a balança. Nada de modal pra digitar uma contagem.
+
+   Diferença pro InlineNumber lá de cima: aqui a célula manda o número
+   ABSOLUTO (a contagem que a pessoa acabou de fazer), não um delta com
+   motivo. O backend (POST /simple/set) faz a conta e passa tudo pelo
+   StockService. client_ref (uuid) por clique: repetir não duplica.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Sugestão do próximo código de prateleira, calculada AQUI (texto puro, o
+   backend só recebe o código final). Padrão da casa: A01A1 = área A,
+   prateleira 01, nível A, posição 1. Se o armazém ainda usa códigos curtos
+   (A03), incrementa o número; sem código nenhum, começa do A01A1. */
+export function suggestBinCode(rows) {
+  const codes = [];
+  (rows || []).forEach((r) => {
+    (r.bins || []).forEach((b) => { if (b.bin_code) codes.push(String(b.bin_code).toUpperCase()); });
+    if (r.home_bin && r.home_bin.bin_code) codes.push(String(r.home_bin.bin_code).toUpperCase());
+  });
+  const full = codes.map((c) => /^([A-Z])(\d{2})([A-Z])(\d{1,2})$/.exec(c)).filter(Boolean)
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  if (full.length) {
+    const m = full[full.length - 1];
+    return m[1] + m[2] + m[3] + (Number(m[4]) + 1);
+  }
+  const short = codes.map((c) => /^([A-Z])(\d{2})$/.exec(c)).filter(Boolean)
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  if (short.length) {
+    const m = short[short.length - 1];
+    return m[1] + String(Number(m[2]) + 1).padStart(2, '0');
+  }
+  return 'A01A1';
+}
+
+/* O chip da conferência: total (prateleira + caixa + a organizar) contra o
+   que a Veeqo diz que existe AGORA. Verde quando bate, âmbar dizendo quantas
+   faltam ou sobram, apagado quando o produto nem tem SKU na Veeqo. */
+export function CompareChip({ row }) {
+  const veeqo = row.veeqo_total != null ? Number(row.veeqo_total)
+    : (row.veeqo && row.veeqo.physical != null ? Number(row.veeqo.physical) : null);
+  const total = n(row.total);
+  if (veeqo == null) {
+    return <span className="kit-chip neutral" data-compare={row.product_id} data-match="none">sem Veeqo</span>;
+  }
+  const d = veeqo - total;
+  if (d === 0) {
+    return <span className="kit-chip ok" data-compare={row.product_id} data-match="ok">bate ✓</span>;
+  }
+  return (
+    <span className="kit-chip warn" data-compare={row.product_id} data-match={d > 0 ? 'faltam' : 'sobram'}>
+      {d > 0 ? 'faltam ' + fmt(d) : 'sobram ' + fmt(-d)}
+    </span>
+  );
+}
+
+/* A célula do mutirão: clique → input com o valor JÁ selecionado → digita a
+   contagem → Enter salva o ABSOLUTO. No primeiro shelf de um produto sem
+   prateleira, abre um segundo campo "código da prateleira" já sugerido: um
+   Enter salva os dois (a prateleira nasce junto com a contagem). */
+export function SimpleCell({ value, row, scope, writable, askBinCode, suggestedCode, hint, onCommit }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState('');
+  const [code, setCode] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+  const inputRef = React.useRef(null);
+  const codeRef = React.useRef(null);
+  const closed = React.useRef(false);
+  const t = React.useRef(null);
+  React.useEffect(() => () => { if (t.current) clearTimeout(t.current); }, []);
+  React.useEffect(() => {
+    if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+  }, [editing]);
+
+  const open = () => {
+    if (!writable) return;
+    closed.current = false;
+    setDraft(value == null ? '' : String(n(value)));
+    setCode(askBinCode ? (suggestedCode || '') : '');
+    setEditing(true);
+  };
+  const cancel = () => { closed.current = true; setEditing(false); };
+
+  const commit = async () => {
+    if (closed.current || busy) return;
+    const qty = Number(draft);
+    if (!Number.isFinite(qty) || qty < 0 || Math.floor(qty) !== qty) { cancel(); return; }
+    if (qty === n(value)) { cancel(); return; }
+    if (askBinCode && !code.trim()) {
+      if (codeRef.current) codeRef.current.focus();
+      return;
+    }
+    setBusy(true);
+    try {
+      await onCommit({ row, scope, qty, bin_code: askBinCode ? code.trim().toUpperCase() : undefined });
+      closed.current = true;
+      setEditing(false);
+      setSaved(true);
+      if (t.current) clearTimeout(t.current);
+      t.current = setTimeout(() => setSaved(false), 1800);
+    } catch (e) {
+      // a linha volta sozinha: a página não aplicou nada que o banco recusou
+      closed.current = true;
+      setEditing(false);
+    } finally { setBusy(false); }
+  };
+
+  const keys = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  };
+
+  if (!editing) {
+    return (
+      <span className={'wht-cell' + (writable ? ' editable' : '')}
+            data-simple-cell={row.product_id + ':' + scope}
+            data-simple-scope={scope}
+            tabIndex={writable ? 0 : undefined}
+            role={writable ? 'button' : undefined}
+            title={writable ? (hint || 'Clique, digite a contagem e dê Enter') : undefined}
+            onClick={(e) => { e.stopPropagation(); open(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(); }
+            }}>
+        <span className="v">{fmt(value)}</span>
+        {saved && <span className="wht-tick" data-inline-saved>✓ salvo</span>}
+      </span>
+    );
+  }
+  return (
+    <span className="wht-editing" onClick={(e) => e.stopPropagation()}>
+      <input ref={inputRef} className="kit-input mono wht-input" type="number" min="0" step="1"
+             data-simple-input={row.product_id + ':' + scope}
+             value={draft} disabled={busy}
+             onChange={(e) => setDraft(e.target.value)}
+             onKeyDown={keys}
+             onBlur={() => { if (!askBinCode) commit(); }} />
+      {askBinCode && (
+        <input ref={codeRef} className="kit-input mono wht-bincode" data-simple-bincode
+               value={code} disabled={busy}
+               placeholder="código da prateleira"
+               title="Este produto ainda não tem prateleira: ela é criada com este código"
+               onChange={(e) => setCode(e.target.value)}
+               onKeyDown={keys} />
+      )}
+    </span>
+  );
+}
+
+/* ═══ PESAR PRA CONTAR ══════════════════════════════════════════════
+   O popover da balança. Produto sem peso de unidade calibra ali mesmo
+   (quantas garrafas na balança / peso total) e segue direto pra pesagem:
+   peso bruto (a balança USB digita sozinha no campo focado) + tara (do tipo
+   da caixa quando existe; senão preset ou digitada) → "dá 87 a 89 ·
+   confiança alta" → [usar 88 na caixa]. Nada aqui bloqueia ninguém.
+
+   Só usa portas que já existem: POST /count/compute (calcula, não grava) e
+   POST /weights/product/:id (calibrar). Quem grava a contagem é o
+   [usar N na caixa], que passa pelo MESMO simple/set das células. */
+export function WeighPopover({ row, weight, tares, onClose, onUse, onCompute, onCalibrate }) {
+  const unit0 = weight && weight.unit_weight_g != null ? Number(weight.unit_weight_g) : null;
+  const [unit, setUnit] = React.useState(unit0);
+  const [cCount, setCCount] = React.useState('');
+  const [cGross, setCGross] = React.useState('');
+  const [gross, setGross] = React.useState('');
+  const [calc, setCalc] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  const grossRef = React.useRef(null);
+
+  const boxTypeId = row.main_box && row.main_box.box_type_id ? row.main_box.box_type_id : null;
+  const boxTares = (tares || []).filter((x) => x.kind === 'box' && x.active !== false);
+  const [tareSel, setTareSel] = React.useState(boxTares.length ? String(boxTares[0].tare_g) : 'custom');
+  const [tareCustom, setTareCustom] = React.useState('');
+
+  React.useEffect(() => {
+    if (unit != null && grossRef.current) grossRef.current.focus();
+  }, [unit]);
+
+  const calibUnit = Number(cGross) > 0 && Number(cCount) > 0 ? Number(cGross) / Number(cCount) : null;
+
+  async function saveCalib() {
+    if (!calibUnit) return;
+    setBusy(true); setErr(null);
+    try {
+      await onCalibrate({ sample_gross_g: Number(cGross), sample_count: Number(cCount), sample_tare_g: 0 });
+      setUnit(calibUnit);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  }
+
+  async function compute() {
+    if (!Number(gross)) return;
+    setBusy(true); setErr(null); setCalc(null);
+    try {
+      const body = { product_id: row.product_id, gross_g: Number(gross) };
+      if (boxTypeId) body.box_type_id = boxTypeId;
+      else body.tare_g = tareSel === 'custom' ? (Number(tareCustom) || 0) : Number(tareSel);
+      setCalc(await onCompute(body));
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  }
+
+  const boxName = row.main_box ? row.main_box.box_number
+    : ((row.boxes || [])[0] ? row.boxes[0].box_number : null);
+  const rangeText = calc && calc.qty != null
+    ? (calc.qty_min != null && calc.qty_max != null && calc.qty_min !== calc.qty_max
+        ? 'dá ' + fmt(calc.qty_min) + ' a ' + fmt(calc.qty_max)
+        : 'dá ' + fmt(calc.qty))
+      + ' · confiança ' + (calc.confidence || '?')
+    : null;
+
+  return (
+    <>
+      <div className="wht-popback" onClick={onClose} />
+      <div className="kit-card pad wht-pop" data-popover="pesar" role="dialog" aria-label="Pesar pra contar">
+        <div className="kit-mlabel" style={{ marginBottom: 4 }}>Pesar pra contar</div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, color: 'var(--primary-deep)', lineHeight: 1.15 }}>
+          {row.nickname || row.name}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink-dim)', marginTop: 2 }}>
+          {boxName ? 'caixa ' + boxName : 'ainda sem caixa: a primeira contagem cria uma'}
+        </div>
+
+        {unit == null && (
+          <div data-weigh-calibrate style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--ink-dim)', lineHeight: 1.45 }}>
+              Este produto ainda não tem peso de unidade. Ponha algumas garrafas direto na balança e me diga:
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="kit-mlabel">Quantas garrafas na balança</span>
+                <input className="kit-input mono" type="number" min="1" step="1" style={{ width: 100 }}
+                       data-weigh-calib-count value={cCount} disabled={busy} autoFocus
+                       onChange={(e) => setCCount(e.target.value)} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="kit-mlabel">Peso total (g)</span>
+                <input className="kit-input mono" type="number" min="0" style={{ width: 100 }}
+                       data-weigh-calib-gross value={cGross} disabled={busy}
+                       onChange={(e) => setCGross(e.target.value)}
+                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveCalib(); } }} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+              <span style={{ fontSize: 12.5, color: 'var(--ink-dim)' }}>
+                1 garrafa dá <b data-preview="unit">{calibUnit ? calibUnit.toFixed(2) + ' g' : 'digite os dois números'}</b>
+              </span>
+              <button className="kit-btn sm" data-act="pesar-calibrar" disabled={busy || !calibUnit}
+                      onClick={saveCalib}>{busy ? 'Salvando…' : 'Salvar peso da unidade'}</button>
+            </div>
+          </div>
+        )}
+
+        {unit != null && (
+          <div data-weigh-flow style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--ink-dim)' }}>
+              1 garrafa dá <b>{Number(unit).toFixed(2)} g</b>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="kit-mlabel">Peso bruto (g)</span>
+                <input ref={grossRef} className="kit-input mono" type="number" min="0" style={{ width: 110 }}
+                       data-weigh-gross value={gross} disabled={busy}
+                       onChange={(e) => setGross(e.target.value)}
+                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); compute(); } }} />
+              </label>
+              {boxTypeId ? (
+                <span className="kit-chip neutral" data-weigh-tare-auto
+                      title="A tara média do tipo desta caixa entra sozinha na conta">
+                  tara do tipo da caixa
+                </span>
+              ) : (
+                <>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span className="kit-mlabel">Tara</span>
+                    <select className="kit-input" data-weigh-tare-sel value={tareSel} disabled={busy}
+                            onChange={(e) => setTareSel(e.target.value)}>
+                      {boxTares.map((x) => (
+                        <option key={x.id} value={String(x.tare_g)}>{x.name} ({fmt(x.tare_g)} g)</option>
+                      ))}
+                      <option value="custom">digitar a tara</option>
+                    </select>
+                  </label>
+                  {tareSel === 'custom' && (
+                    <input className="kit-input mono" type="number" min="0" style={{ width: 90 }}
+                           data-weigh-tare placeholder="tara g" value={tareCustom} disabled={busy}
+                           onChange={(e) => setTareCustom(e.target.value)} />
+                  )}
+                </>
+              )}
+              <button className="kit-btn sm" data-act="pesar-calcular" disabled={busy || !Number(gross)}
+                      onClick={compute}>{busy ? 'Calculando…' : 'Calcular'}</button>
+            </div>
+
+            {calc && calc.qty == null && (
+              <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--warn-deep)' }} data-weigh-result>
+                Não deu pra calcular. Confira o peso da unidade e conte na mão se precisar.
+              </div>
+            )}
+            {rangeText && calc.qty != null && (
+              <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 14 }} data-weigh-result>{rangeText}</b>
+                <button className="kit-btn sm primary" data-act="pesar-usar" disabled={busy}
+                        onClick={() => onUse(calc.qty)}>usar {fmt(calc.qty)} na caixa</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {err && (
+          <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--bad-deep)' }}>
+            {String(err.message || err)}
+          </div>
+        )}
+        <div style={{ marginTop: 12, textAlign: 'right' }}>
+          <button className="kit-btn xs sec" onClick={onClose}>Fechar</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default { SkuChip, InlineNumber, InlineText, FilterBar, SortableTh, MergePanel, QUICK_FILTERS,
+  suggestBinCode, CompareChip, SimpleCell, WeighPopover };

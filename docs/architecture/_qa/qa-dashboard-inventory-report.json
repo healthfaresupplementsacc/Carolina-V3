@@ -1,11 +1,11 @@
 {
-  "at": "2026-08-19T22:18:35.049Z",
+  "at": "2026-09-04T12:20:28.939Z",
   "results": [
     {
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "158 KB → theme-B-inventory.png"
+      "detail": "160 KB → theme-B-inventory.png"
     },
     {
       "group": "inventory",
@@ -131,19 +131,19 @@
       "group": "screenshot",
       "name": "inventory-suprimentos",
       "pass": true,
-      "detail": "182 KB → theme-B-inventory-suprimentos.png"
+      "detail": "185 KB → theme-B-inventory-suprimentos.png"
     },
     {
       "group": "screenshot",
       "name": "inventory-planner",
       "pass": true,
-      "detail": "153 KB → theme-B-inventory-planner.png"
+      "detail": "155 KB → theme-B-inventory-planner.png"
     },
     {
       "group": "screenshot",
       "name": "estoque-geral",
       "pass": true,
-      "detail": "162 KB → theme-B-estoque-geral.png"
+      "detail": "164 KB → theme-B-estoque-geral.png"
     },
     {
       "group": "estoque-geral",
@@ -203,13 +203,13 @@
       "group": "screenshot",
       "name": "estoque-geral-modal",
       "pass": true,
-      "detail": "185 KB → theme-B-estoque-geral-modal.png"
+      "detail": "187 KB → theme-B-estoque-geral-modal.png"
     },
     {
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "167 KB → theme-B-produto-setup.png"
+      "detail": "169 KB → theme-B-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -257,13 +257,13 @@
       "group": "produto-setup",
       "name": "produto em hold marcado com chip bad",
       "pass": true,
-      "detail": "hold, não imprimir,11/2026"
+      "detail": "hold, não imprimir,11/2026,02/2027"
     },
     {
       "group": "screenshot",
       "name": "config-estoque",
       "pass": true,
-      "detail": "138 KB → theme-B-config-estoque.png"
+      "detail": "140 KB → theme-B-config-estoque.png"
     },
     {
       "group": "config-estoque",
@@ -293,7 +293,7 @@
       "group": "screenshot",
       "name": "picklist",
       "pass": true,
-      "detail": "115 KB → theme-B-picklist.png"
+      "detail": "118 KB → theme-B-picklist.png"
     },
     {
       "group": "picklist",
@@ -323,7 +323,7 @@
       "group": "screenshot",
       "name": "estoque",
       "pass": true,
-      "detail": "199 KB → theme-B-estoque.png"
+      "detail": "160 KB → theme-B-estoque.png"
     },
     {
       "group": "estoque",
@@ -353,13 +353,13 @@
       "group": "estoque",
       "name": "T4 nenhum ::before com gradiente em .card/.kit-card",
       "pass": true,
-      "detail": "3 card(s)"
+      "detail": "1 card(s)"
     },
     {
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "130 KB → theme-B-estoque-aprovacoes.png"
+      "detail": "132 KB → theme-B-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -395,7 +395,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "181 KB → theme-B-estoque-locais.png"
+      "detail": "183 KB → theme-B-estoque-locais.png"
     },
     {
       "group": "estoque-locais",

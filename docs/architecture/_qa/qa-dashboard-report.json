@@ -1,6 +1,264 @@
 {
-  "at": "2026-08-22T21:46:04.833Z",
+  "at": "2026-09-04T12:25:03.500Z",
   "results": [
+    {
+      "group": "simples",
+      "name": "sem erro de console",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "o hub abre no modo simples por padrão (a completa fica atrás do toggle)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "o toggle oferece o Modo completo",
+      "pass": true,
+      "detail": "\"Modo completo\""
+    },
+    {
+      "group": "simples",
+      "name": "placar: produtos, quantos batem e garrafas contadas vs Veeqo",
+      "pass": true,
+      "detail": "8 produtos · 5 batendo com a Veeqo · 763 garrafas contadas de 754 na Veeqo"
+    },
+    {
+      "group": "simples",
+      "name": "a busca está na mesma linha do placar",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "coluna Veeqo mostra o número da fixture (Benfotiamine 214)",
+      "pass": true,
+      "detail": "214"
+    },
+    {
+      "group": "simples",
+      "name": "produto sem SKU Veeqo ganha o chip apagado \"sem Veeqo\"",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "group": "simples",
+      "name": "todos os 8 produtos, em ordem de nome",
+      "pass": true,
+      "detail": "8,1,2,3,4,6,7,5"
+    },
+    {
+      "group": "screenshot",
+      "name": "simple-01",
+      "pass": true,
+      "detail": "160 KB → simple-01.png"
+    },
+    {
+      "group": "simples",
+      "name": "clicar na prateleira de produto sem bin abre input + campo do código",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "o código vem sugerido do padrão dos que existem (C01 → C02)",
+      "pass": true,
+      "detail": "\"C02\""
+    },
+    {
+      "group": "screenshot",
+      "name": "simple-02",
+      "pass": true,
+      "detail": "162 KB → simple-02.png"
+    },
+    {
+      "group": "simples",
+      "name": "Enter manda o ABSOLUTO pro POST /warehouse/simple/set",
+      "pass": true,
+      "detail": "[\"/api/v3/warehouse/simple/set\"]"
+    },
+    {
+      "group": "simples",
+      "name": "corpo do contrato A: scope shelf, qty 12, bin_code C02, client_ref",
+      "pass": true,
+      "detail": "{\"product_id\":7,\"scope\":\"shelf\",\"qty\":12,\"client_ref\":\"afad4c54-49e2-4103-94aa-ad7e3c6581fe\",\"bin_code\":\"C02\"}"
+    },
+    {
+      "group": "simples",
+      "name": "a célula atualiza da RESPOSTA (12) e ganha o tique",
+      "pass": true,
+      "detail": "12"
+    },
+    {
+      "group": "simples",
+      "name": "chip antes: \"faltam 3\" (tem 6, Veeqo quer 9)",
+      "pass": true,
+      "detail": "{\"m\":\"faltam\",\"t\":\"faltam 3\"}"
+    },
+    {
+      "group": "simples",
+      "name": "contou 9 → o chip vira \"bate ✓\" na hora, da resposta",
+      "pass": true,
+      "detail": "{\"m\":\"ok\",\"t\":\"bate ✓\"}"
+    },
+    {
+      "group": "screenshot",
+      "name": "simple-03",
+      "pass": true,
+      "detail": "167 KB → simple-03.png"
+    },
+    {
+      "group": "simples",
+      "name": "editar \"A organizar\" SALVA (o bug do nunca-salva morreu aqui)",
+      "pass": true,
+      "detail": "{\"product_id\":5,\"scope\":\"unplaced\",\"qty\":60,\"client_ref\":\"88e8d4aa-65a8-471d-9598-4e06210e4da3\"}"
+    },
+    {
+      "group": "simples",
+      "name": "e a célula confirma com o tique",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "primeira caixa: manda só scope box + qty (o número é do servidor)",
+      "pass": true,
+      "detail": "{\"product_id\":3,\"scope\":\"box\",\"qty\":40,\"client_ref\":\"24275705-4ff7-4b26-9cdd-24e7751329f7\"}"
+    },
+    {
+      "group": "simples",
+      "name": "o toast diz o BX que o servidor alocou (BX-0007)",
+      "pass": true,
+      "detail": "Salvo na caixa BX-0007 (criada agora)."
+    },
+    {
+      "group": "screenshot",
+      "name": "simple-04",
+      "pass": true,
+      "detail": "169 KB → simple-04.png"
+    },
+    {
+      "group": "simples",
+      "name": "client_ref é NOVO a cada clique salvo (idempotência sem colisão)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesar",
+      "name": "produto sem peso abre direto no calibrar (2 campos)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesar",
+      "name": "a conta aparece antes de salvar (1290 / 10 = 129.00 g)",
+      "pass": true,
+      "detail": "129.00 g"
+    },
+    {
+      "group": "pesar",
+      "name": "salvar calibra pelo endpoint que já existe (weights/product/3)",
+      "pass": true,
+      "detail": "{\"sample_gross_g\":1290,\"sample_count\":10,\"sample_tare_g\":0}"
+    },
+    {
+      "group": "pesar",
+      "name": "calibrou e o fluxo de pesagem abre em seguida, sem fechar nada",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesar",
+      "name": "produto com peso vai direto pro campo do bruto (a balança USB digita nele)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "pesar",
+      "name": "Calcular chama o /count/compute que já existe, com a tara do preset",
+      "pass": true,
+      "detail": "{\"product_id\":1,\"gross_g\":12278,\"tare_g\":980}"
+    },
+    {
+      "group": "pesar",
+      "name": "mostra a faixa e a confiança (\"dá 87 a 89 · confiança alta\")",
+      "pass": true,
+      "detail": "dá 87 a 89 · confiança alta"
+    },
+    {
+      "group": "screenshot",
+      "name": "simple-05",
+      "pass": true,
+      "detail": "178 KB → simple-05.png"
+    },
+    {
+      "group": "pesar",
+      "name": "[usar 88 na caixa] grava o 88 pelo MESMO simple/set das células",
+      "pass": true,
+      "detail": "{\"product_id\":1,\"scope\":\"box\",\"qty\":88,\"client_ref\":\"df9d025a-e75f-4b1a-af5b-f7a32287b0c8\"}"
+    },
+    {
+      "group": "pesar",
+      "name": "o popover fecha e a Caixa da linha mostra 88",
+      "pass": true,
+      "detail": "88"
+    },
+    {
+      "group": "simples",
+      "name": "o 🖨 abre a página de etiquetas com o bin e a caixa da linha",
+      "pass": true,
+      "detail": "#estoque-etiquetas?bins=1&boxes=21"
+    },
+    {
+      "group": "simples",
+      "name": "a página pediu GET /labels?bins=1&boxes=21 (endpoint que já existia)",
+      "pass": true,
+      "detail": "[\"?bins=1&boxes=21\"]"
+    },
+    {
+      "group": "simples",
+      "name": "as etiquetas da prateleira A03B2 e da caixa BX-0004 renderizam",
+      "pass": true,
+      "detail": "A03B2,BX-0004"
+    },
+    {
+      "group": "simples",
+      "name": "409 multi_location vira a frase certa no toast",
+      "pass": true,
+      "detail": "Esse produto tem mais de um local. Ajuste no Modo completo.Modo completo"
+    },
+    {
+      "group": "screenshot",
+      "name": "simple-06",
+      "pass": true,
+      "detail": "170 KB → simple-06.png"
+    },
+    {
+      "group": "simples",
+      "name": "o toast traz o pulo de UM clique pro Modo completo",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "o clique troca pra tabela completa na mesma tela",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "simples",
+      "name": "a escolha do modo sobe pra CONTA (PUT prefs estoque.modo)",
+      "pass": true,
+      "detail": "{\"key\":\"estoque.modo\",\"value\":\"completo\"}"
+    },
+    {
+      "group": "simples",
+      "name": "nenhum texto novo do modo simples usa travessão",
+      "pass": true,
+      "detail": "6 textos conferidos"
+    },
     {
       "group": "screenshot",
       "name": "estoque",
@@ -173,7 +431,7 @@
       "group": "screenshot",
       "name": "estoque-inline",
       "pass": true,
-      "detail": "187 KB → dash-estoque-inline.png"
+      "detail": "186 KB → dash-estoque-inline.png"
     },
     {
       "group": "filtro",
@@ -203,7 +461,7 @@
       "group": "screenshot",
       "name": "estoque-filtro",
       "pass": true,
-      "detail": "190 KB → dash-estoque-filtro.png"
+      "detail": "195 KB → dash-estoque-filtro.png"
     },
     {
       "group": "filtro",
@@ -317,7 +575,7 @@
       "group": "screenshot",
       "name": "estoque-juntar",
       "pass": true,
-      "detail": "212 KB → dash-estoque-juntar.png"
+      "detail": "215 KB → dash-estoque-juntar.png"
     },
     {
       "group": "juntar",
@@ -335,7 +593,7 @@
       "group": "screenshot",
       "name": "estoque-juntar-confirmar",
       "pass": true,
-      "detail": "228 KB → dash-estoque-juntar-confirmar.png"
+      "detail": "230 KB → dash-estoque-juntar-confirmar.png"
     },
     {
       "group": "juntar",
@@ -467,7 +725,7 @@
       "group": "screenshot",
       "name": "estoque-modal",
       "pass": true,
-      "detail": "215 KB → dash-estoque-modal.png"
+      "detail": "216 KB → dash-estoque-modal.png"
     },
     {
       "group": "nav",
@@ -527,7 +785,7 @@
       "group": "screenshot",
       "name": "estoque-aprovacoes",
       "pass": true,
-      "detail": "132 KB → dash-estoque-aprovacoes.png"
+      "detail": "131 KB → dash-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -545,7 +803,7 @@
       "group": "screenshot",
       "name": "estoque-locais",
       "pass": true,
-      "detail": "184 KB → dash-estoque-locais.png"
+      "detail": "183 KB → dash-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -599,7 +857,7 @@
       "group": "screenshot",
       "name": "inventory",
       "pass": true,
-      "detail": "141 KB → dash-inventory.png"
+      "detail": "140 KB → dash-inventory.png"
     },
     {
       "group": "inventory",
@@ -617,7 +875,7 @@
       "group": "screenshot",
       "name": "produto-setup",
       "pass": true,
-      "detail": "187 KB → dash-produto-setup.png"
+      "detail": "191 KB → dash-produto-setup.png"
     },
     {
       "group": "produto-setup",
@@ -635,7 +893,7 @@
       "group": "screenshot",
       "name": "roadmap",
       "pass": true,
-      "detail": "93 KB → dash-roadmap.png"
+      "detail": "92 KB → dash-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -659,13 +917,13 @@
       "group": "estoque-aprovacoes",
       "name": "cada linha tem chip de espera",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"17d\"},{\"tone\":\"bad\",\"txt\":\"17d\"},{\"tone\":\"bad\",\"txt\":\"17d\"}]"
     },
     {
       "group": "estoque-aprovacoes",
       "name": "espera curta fica neutra, longa fica ambar/vermelha",
       "pass": true,
-      "detail": "[{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"},{\"tone\":\"bad\",\"txt\":\"4d\"}]"
+      "detail": "[{\"tone\":\"bad\",\"txt\":\"17d\"},{\"tone\":\"bad\",\"txt\":\"17d\"},{\"tone\":\"bad\",\"txt\":\"17d\"}]"
     },
     {
       "group": "estoque-locais",
@@ -731,7 +989,7 @@
       "group": "screenshot",
       "name": "estoque-locais-bulk",
       "pass": true,
-      "detail": "188 KB → dash-estoque-locais-bulk.png"
+      "detail": "187 KB → dash-estoque-locais-bulk.png"
     },
     {
       "group": "produto-setup",
@@ -779,7 +1037,7 @@
       "group": "screenshot",
       "name": "produto-setup-familia",
       "pass": true,
-      "detail": "189 KB → dash-produto-setup-familia.png"
+      "detail": "192 KB → dash-produto-setup-familia.png"
     },
     {
       "group": "legado",
@@ -839,7 +1097,7 @@
       "group": "screenshot",
       "name": "legado-inventory",
       "pass": true,
-      "detail": "141 KB → dash-legado-inventory.png"
+      "detail": "140 KB → dash-legado-inventory.png"
     }
   ]
 }

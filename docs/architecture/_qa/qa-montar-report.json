@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-22T21:45:04.525Z",
+  "at": "2026-09-04T12:22:08.214Z",
   "results": [
     {
       "group": "header",
@@ -41,7 +41,7 @@
       "group": "screenshot",
       "name": "01",
       "pass": true,
-      "detail": "128 KB → montar-01.png"
+      "detail": "127 KB → montar-01.png"
     },
     {
       "group": "pesar",
@@ -113,7 +113,7 @@
       "group": "screenshot",
       "name": "03",
       "pass": true,
-      "detail": "179 KB → montar-03.png"
+      "detail": "178 KB → montar-03.png"
     },
     {
       "group": "calibrar",
@@ -143,7 +143,7 @@
       "group": "screenshot",
       "name": "04",
       "pass": true,
-      "detail": "184 KB → montar-04.png"
+      "detail": "183 KB → montar-04.png"
     },
     {
       "group": "calibrar",
@@ -203,13 +203,13 @@
       "group": "passo3",
       "name": "contei na mão → POST load {source:count_manual, dest bin 6, qty 3}",
       "pass": true,
-      "detail": "{\"product_id\":8,\"qty\":3,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"count_manual\",\"client_ref\":\"eccce07f-7e42-43b0-9e8d-3ad9d13bef76\"}"
+      "detail": "{\"product_id\":8,\"qty\":3,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"count_manual\",\"client_ref\":\"a78b317d-fb06-4a0a-bafb-7af7d7d8f318\"}"
     },
     {
       "group": "passo3",
       "name": "client_ref é um uuid (idempotência da porta única)",
       "pass": true,
-      "detail": "eccce07f-7e42-43b0-9e8d-3ad9d13bef76"
+      "detail": "a78b317d-fb06-4a0a-bafb-7af7d7d8f318"
     },
     {
       "group": "passo3",
@@ -257,7 +257,7 @@
       "group": "pesei",
       "name": "pesar carrega com source count_weigh e o peso no meta",
       "pass": true,
-      "detail": "{\"product_id\":1,\"qty\":10,\"dest\":{\"kind\":\"bin\",\"id\":1},\"source\":\"count_weigh\",\"client_ref\":\"29473aa5-54c3-4b9f-bd84-809bcfde29dd\",\"meta\":{\"gross_g\":1704,\"tare_g\":420,\"net_g\":1284,\"u"
+      "detail": "{\"product_id\":1,\"qty\":10,\"dest\":{\"kind\":\"bin\",\"id\":1},\"source\":\"count_weigh\",\"client_ref\":\"c11f4617-1eb9-4f51-a63d-5ac1382d925c\",\"meta\":{\"gross_g\":1704,\"tare_g\":420,\"net_g\":1284,\"u"
     },
     {
       "group": "recontagem",
@@ -281,7 +281,7 @@
       "group": "screenshot",
       "name": "06",
       "pass": true,
-      "detail": "180 KB → montar-06.png"
+      "detail": "179 KB → montar-06.png"
     },
     {
       "group": "recontagem",
@@ -299,7 +299,7 @@
       "group": "atalhos",
       "name": "chegou da produção → source production_direct",
       "pass": true,
-      "detail": "{\"product_id\":8,\"qty\":5,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"production_direct\",\"client_ref\":\"7f74bd9f-3813-4e83-be2d-475e64be92b7\"}"
+      "detail": "{\"product_id\":8,\"qty\":5,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"production_direct\",\"client_ref\":\"98946c07-fbff-47a2-8253-578e2762faf9\"}"
     },
     {
       "group": "atalhos",
@@ -317,7 +317,7 @@
       "group": "atalhos",
       "name": "avulsas com nota → source loose_fixed + meta.note",
       "pass": true,
-      "detail": "{\"product_id\":8,\"qty\":2,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"loose_fixed\",\"client_ref\":\"2531165d-9d48-4998-8e9f-0d0e0a053850\",\"meta\":{\"note\":\"achadas no fundo do palete 2, etique"
+      "detail": "{\"product_id\":8,\"qty\":2,\"dest\":{\"kind\":\"bin\",\"id\":6},\"source\":\"loose_fixed\",\"client_ref\":\"e139e0ec-a940-4db2-a14c-5d1f53226657\",\"meta\":{\"note\":\"achadas no fundo do palete 2, etique"
     },
     {
       "group": "recentes",

@@ -148,7 +148,17 @@
             "veeqo_qty": 107,
             "product_id": 910
           }
-        ]
+        ],
+        "veeqo_total": 214,
+        "home_bin": {
+          "id": 1,
+          "bin_code": "A03"
+        },
+        "main_box": {
+          "id": 21,
+          "box_number": "BOX-004",
+          "box_type_id": null
+        }
       },
       {
         "product_id": 2,
@@ -210,7 +220,17 @@
         "sold_30d": 60,
         "days_of_stock": 48,
         "sku_count": 1,
-        "children": []
+        "children": [],
+        "veeqo_total": 110,
+        "home_bin": {
+          "id": 3,
+          "bin_code": "A05"
+        },
+        "main_box": {
+          "id": 22,
+          "box_number": "BOX-012",
+          "box_type_id": null
+        }
       },
       {
         "product_id": 3,
@@ -265,7 +285,13 @@
         "sold_30d": 0,
         "days_of_stock": null,
         "sku_count": 1,
-        "children": []
+        "children": [],
+        "veeqo_total": 41,
+        "home_bin": {
+          "id": 4,
+          "bin_code": "A07"
+        },
+        "main_box": null
       },
       {
         "product_id": 4,
@@ -321,7 +347,13 @@
         "sold_30d": 150,
         "days_of_stock": -0.8,
         "sku_count": 1,
-        "children": []
+        "children": [],
+        "veeqo_total": 0,
+        "home_bin": {
+          "id": 5,
+          "bin_code": "A09"
+        },
+        "main_box": null
       },
       {
         "product_id": 5,
@@ -376,7 +408,13 @@
         "sold_30d": 240,
         "days_of_stock": 9.3,
         "sku_count": 1,
-        "children": []
+        "children": [],
+        "veeqo_total": 80,
+        "home_bin": {
+          "id": 6,
+          "bin_code": "B01"
+        },
+        "main_box": null
       },
       {
         "product_id": 6,
@@ -487,7 +525,17 @@
             "veeqo_qty": 75,
             "product_id": 962
           }
-        ]
+        ],
+        "veeqo_total": 300,
+        "home_bin": {
+          "id": 7,
+          "bin_code": "B03"
+        },
+        "main_box": {
+          "id": 23,
+          "box_number": "BOX-021",
+          "box_type_id": null
+        }
       },
       {
         "product_id": 7,
@@ -519,7 +567,10 @@
         "sold_30d": 30,
         "days_of_stock": 0,
         "sku_count": 0,
-        "children": []
+        "children": [],
+        "veeqo_total": null,
+        "home_bin": null,
+        "main_box": null
       },
       {
         "product_id": 8,
@@ -576,13 +627,25 @@
         "sold_30d": 4,
         "days_of_stock": null,
         "sku_count": 1,
-        "children": []
+        "children": [],
+        "veeqo_total": 9,
+        "home_bin": {
+          "id": 8,
+          "bin_code": "C01"
+        },
+        "main_box": null
       }
     ],
     "pending_summary": {
       "count": 2,
       "oldest_age_min": 320
     },
-    "total": 8
+    "total": 8,
+    "simple_progress": {
+      "products": 8,
+      "matching": 5,
+      "bottles_counted": 763,
+      "veeqo_bottles": 754
+    }
   }
 }

@@ -1,6 +1,12 @@
 {
-  "at": "2026-08-22T21:46:38.788Z",
+  "at": "2026-09-04T12:25:32.425Z",
   "results": [
+    {
+      "group": "hub",
+      "name": "o hub abre no modo simples (o do mutirão)",
+      "pass": true,
+      "detail": ""
+    },
     {
       "group": "hub",
       "name": "sem erro de console",
@@ -23,7 +29,7 @@
       "group": "screenshot",
       "name": "hub-import-btn",
       "pass": true,
-      "detail": "201 KB → p3-hub-import-btn.png"
+      "detail": "204 KB → p3-hub-import-btn.png"
     },
     {
       "group": "hub-import",
@@ -47,7 +53,7 @@
       "group": "screenshot",
       "name": "hub-import-modal",
       "pass": true,
-      "detail": "232 KB → p3-hub-import-modal.png"
+      "detail": "233 KB → p3-hub-import-modal.png"
     },
     {
       "group": "hub-import",
@@ -95,7 +101,7 @@
       "group": "screenshot",
       "name": "hub-drift",
       "pass": true,
-      "detail": "181 KB → p3-hub-drift.png"
+      "detail": "184 KB → p3-hub-drift.png"
     },
     {
       "group": "hub-drift",
@@ -149,7 +155,7 @@
       "group": "screenshot",
       "name": "locais-tara",
       "pass": true,
-      "detail": "184 KB → p3-locais-tara.png"
+      "detail": "183 KB → p3-locais-tara.png"
     },
     {
       "group": "locais",
@@ -479,7 +485,7 @@
       "group": "screenshot",
       "name": "impressao-fila-celular",
       "pass": true,
-      "detail": "138 KB → p3-impressao-fila-celular.png"
+      "detail": "137 KB → p3-impressao-fila-celular.png"
     },
     {
       "group": "fila-impressao",
@@ -539,13 +545,13 @@
       "group": "envio",
       "name": "Mandar pro computador posta shipping-labels SEM take (vai pra fila)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-22\"}"
+      "detail": "{\"day\":\"2026-09-04\"}"
     },
     {
       "group": "envio",
       "name": "o dia é o de Nova York (fuso da fábrica, não o do navegador)",
       "pass": true,
-      "detail": "2026-08-22"
+      "detail": "2026-09-04"
     },
     {
       "group": "envio",
@@ -557,7 +563,7 @@
       "group": "envio",
       "name": "Abrir PDF aqui posta com take:true (quem abre é quem pegou)",
       "pass": true,
-      "detail": "{\"day\":\"2026-08-22\",\"take\":true}"
+      "detail": "{\"day\":\"2026-09-04\",\"take\":true}"
     },
     {
       "group": "envio",
@@ -569,7 +575,7 @@
       "group": "envio",
       "name": "a aba recebe um blob local (o navegador abre o arquivo, não a rota)",
       "pass": true,
-      "detail": "blob:http://127.0.0.1:54530/8520ce3c-adac-40b4-ac09-f3bde4a39638"
+      "detail": "blob:http://127.0.0.1:55747/78951633-5d62-4540-9a34-6944ad75e228"
     },
     {
       "group": "screenshot",

@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-28T14:54:45.041Z",
+  "at": "2026-09-04T12:21:50.265Z",
   "results": [
     {
       "group": "hoje",
@@ -77,7 +77,7 @@
       "group": "producao",
       "name": "screenshot",
       "pass": true,
-      "detail": "76 KB → theme-producao.png"
+      "detail": "75 KB → theme-producao.png"
     },
     {
       "group": "producao",
@@ -143,7 +143,7 @@
       "group": "metas",
       "name": "screenshot",
       "pass": true,
-      "detail": "74 KB → theme-metas.png"
+      "detail": "73 KB → theme-metas.png"
     },
     {
       "group": "metas",
@@ -407,7 +407,7 @@
       "group": "estoque",
       "name": "screenshot",
       "pass": true,
-      "detail": "201 KB → theme-estoque.png"
+      "detail": "160 KB → theme-estoque.png"
     },
     {
       "group": "estoque",
@@ -473,7 +473,7 @@
       "group": "estoque-aprovacoes",
       "name": "screenshot",
       "pass": true,
-      "detail": "132 KB → theme-estoque-aprovacoes.png"
+      "detail": "131 KB → theme-estoque-aprovacoes.png"
     },
     {
       "group": "estoque-aprovacoes",
@@ -539,7 +539,7 @@
       "group": "estoque-locais",
       "name": "screenshot",
       "pass": true,
-      "detail": "184 KB → theme-estoque-locais.png"
+      "detail": "183 KB → theme-estoque-locais.png"
     },
     {
       "group": "estoque-locais",
@@ -605,7 +605,7 @@
       "group": "estoque-etiquetas",
       "name": "screenshot",
       "pass": true,
-      "detail": "103 KB → theme-estoque-etiquetas.png"
+      "detail": "102 KB → theme-estoque-etiquetas.png"
     },
     {
       "group": "estoque-etiquetas",
@@ -737,7 +737,7 @@
       "group": "inventory",
       "name": "screenshot",
       "pass": true,
-      "detail": "141 KB → theme-inventory.png"
+      "detail": "140 KB → theme-inventory.png"
     },
     {
       "group": "inventory",
@@ -869,7 +869,7 @@
       "group": "config-estoque",
       "name": "screenshot",
       "pass": true,
-      "detail": "157 KB → theme-config-estoque.png"
+      "detail": "156 KB → theme-config-estoque.png"
     },
     {
       "group": "config-estoque",
@@ -1067,7 +1067,7 @@
       "group": "cameras",
       "name": "screenshot",
       "pass": true,
-      "detail": "85 KB → theme-cameras.png"
+      "detail": "84 KB → theme-cameras.png"
     },
     {
       "group": "cameras",
@@ -1133,7 +1133,7 @@
       "group": "roadmap",
       "name": "screenshot",
       "pass": true,
-      "detail": "93 KB → theme-roadmap.png"
+      "detail": "92 KB → theme-roadmap.png"
     },
     {
       "group": "roadmap",
@@ -1199,7 +1199,7 @@
       "group": "admin",
       "name": "screenshot",
       "pass": true,
-      "detail": "82 KB → theme-admin.png"
+      "detail": "81 KB → theme-admin.png"
     },
     {
       "group": "admin",
@@ -1397,7 +1397,7 @@
       "group": "sistema",
       "name": "screenshot",
       "pass": true,
-      "detail": "101 KB → theme-sistema.png"
+      "detail": "100 KB → theme-sistema.png"
     },
     {
       "group": "sistema",
@@ -1727,7 +1727,7 @@
       "group": "planejamento",
       "name": "screenshot",
       "pass": true,
-      "detail": "79 KB → theme-planejamento.png"
+      "detail": "78 KB → theme-planejamento.png"
     },
     {
       "group": "planejamento",
@@ -1793,7 +1793,7 @@
       "group": "carolina",
       "name": "screenshot",
       "pass": true,
-      "detail": "73 KB → theme-carolina.png"
+      "detail": "72 KB → theme-carolina.png"
     },
     {
       "group": "carolina",

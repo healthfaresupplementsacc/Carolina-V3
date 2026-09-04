@@ -110,6 +110,9 @@ function baseRow(over = {}) {
     status: ['ok'],
     bins: [{ id: 1, bin_code: 'A03', shelf_code: 'S2', area: 'A', qty: 46, min_qty: 10, needs_restock: false }],
     boxes: [{ id: 5, box_number: 'BOX-004', area: 'P1', qty: 180 }],
+    // contrato B (Modo simples): o local "de casa" de cada tipo, direto do _buildRow
+    home_bin: { id: 1, bin_code: 'A03' },
+    main_box: { id: 5, box_number: 'BOX-004' },
     ...over,
   };
 }
@@ -236,6 +239,11 @@ describe('Warehouse hub — overview', () => {
     expect(Array.isArray(d.attention)).toBe(true);
     expect(d.generated_at).toBeTruthy();
     expect(d.veeqo_checked_at).toBeTruthy();
+    // contrato B (Modo simples): o placar do mutirão, sempre sobre o armazém inteiro
+    expect(d.simple_progress).toEqual({
+      products: 1, matching: 1, bottles_counted: 226, veeqo_bottles: 226 });
+    expect(d.products[0].home_bin).toEqual({ id: 1, bin_code: 'A03' });
+    expect(d.products[0].main_box).toEqual({ id: 5, box_number: 'BOX-004' });
   });
 
   test('Veeqo batendo com o total → veeqo_match ok, sem drift', async () => {

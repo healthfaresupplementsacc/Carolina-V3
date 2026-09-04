@@ -228,6 +228,7 @@ subgraph S15["S15 · WAREHOUSE INVENTORY — own section (admin + operator; runs
   S15_AUTO["S15.06/07/08 · CURRENT automations: veeqo-order-sync deducts on Veeqo shipped (DRY by default) · stock-alerts · stock-gap · unusual-sku · print-divergence · TikTok CSV · .28 print signal"]:::partial
   S15_PLAN["S15.10-14 · PLANNED (decided 08-18): ONE admin section + P&P subsection (channel pages deferred) · operator page with APPROVAL QUEUE (moves free; add/remove/returns approved) · secondary 'Separadas' bucket for damaged/returns · admin/manager enters warehouse-in · product total = shelf + box · reservation per product from open Veeqo lines · deduction on Veeqo shipped only (shelf→box) · later: two-way Veeqo + reconciliation"]:::planned
   S15_BUILT["S15.17-33 BUILT (Phases 1-3 + finish): Veeqo import · weights/tare · labels · phone scanner · operator warehouse hub + fixed nav · Central always on · drift worker ON · bulk bins · days of stock · /api/v3/warehouse router · StockRequestService · StockService place/move/separate/resolveIssue/overview · dashboard hub #estoque + Aprovações + Locais on STYLE-KIT kit.css · nav restructured"]:::verified
+  S15_LOAD["S15.43-48 BUILT (physical load, 08-22 a 09-04): box types com tara calibrada · POST /load porta da carga · pagina Montar estoque · Contar v2 no /op · MODO SIMPLES = vista padrao do hub #estoque pro mutirao: absoluto por celula via POST /simple/set, Veeqo vs real na mesma linha, imprimir local e pesar na linha"]:::verified
   S15_Q["Open: STOCK_DEDUCT_MODE value in Railway · retire antigo pages after parity · approval aging nag · dias de estoque"]:::partial
 end
 
@@ -406,6 +407,7 @@ S15_AUTO -.-> S04_ORD
 S15_PLAN -.->|planned auto add from batch total U-27| S05_03
 S15_PLAN -.->|deduction = Veeqo shipped mirrored via S04.08| S04_STOCK
 S15_BUILT -->|R160 mount| S01_03
+S15_LOAD -->|R265 e R266 simple/set + contrato B| S15_BUILT
 S15_BUILT -->|R162| S05_08
 S03_01 -->|R161| S15_BUILT
 S15_PLAN -.->|reserve derived from pnp_order_lines| S08_05

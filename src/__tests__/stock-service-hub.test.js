@@ -424,6 +424,9 @@ describe('StockService — overview (os números do hub)', () => {
     expect(r.reserved).toBe(12);            // 8×1 + 2×2, shipped fora, linha sem produto fora
     expect(r.available).toBe(234);
     expect(r.status).toContain('organizar');
+    // contrato B (Modo simples): o local "de casa" de cada tipo sai na Row
+    expect(r.home_bin).toEqual({ id: 1, bin_code: 'A03' });
+    expect(r.main_box).toEqual({ id: 5, box_number: 'BOX-004' });
   });
 
   test('pendente sai do disponível mas nunca do total', async () => {
