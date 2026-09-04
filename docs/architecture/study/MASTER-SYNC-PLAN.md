@@ -1,6 +1,6 @@
 # MASTER SYNC PLAN — Plano mestre de sincronizacao do sistema
 
-Data: 2026-08-21 (probes de producao rodados em 2026-09-03 pelos 5 investigadores, SELECT-only).
+Data: 2026-09-03 (probes de producao rodados em 2026-09-03 pelos 5 investigadores, SELECT-only).
 Fontes: 5 auditorias de cadeia (DEDUCT, REPLENISH, STOCKPAGE, ONECLICK, TIMELINE), cruzadas entre si.
 
 **A verdade central, sem anestesia: a torre esta construida sobre areia. O armazem fisico nunca foi carregado (0 bins, 0 caixas, 0 movimentos, 0 pesos, 0 etiquetas impressas). Quase tudo que depende de estoque fisico esta construido e deployado, mas rodando em cima de zeros. A Fase 1 deste plano e carregar a base. Nada abaixo dela pode ser confiado antes disso.**

@@ -1,5 +1,5 @@
 {
-  "at": "2026-08-20T16:58:27.098Z",
+  "at": "2026-09-04T02:35:52.656Z",
   "results": [
     {
       "group": "grade",
@@ -11,13 +11,43 @@
       "group": "screenshot",
       "name": "01-inicial",
       "pass": true,
-      "detail": "159 KB → hoje-01-inicial.png"
+      "detail": "157 KB → hoje-01-inicial.png"
     },
     {
       "group": "hoje",
       "name": "sem erro de console",
       "pass": true,
       "detail": ""
+    },
+    {
+      "group": "expansao",
+      "name": "achou a linha clicavel do Vitor Silva pra testar o clique",
+      "pass": true,
+      "detail": "linhas clicaveis=3"
+    },
+    {
+      "group": "expansao",
+      "name": "clicar no nome expande o PersonExpansion (não white-screen)",
+      "pass": true,
+      "detail": "{\"present\":true,\"hasTitle\":true,\"hasVitor\":true,\"pageNotBlank\":true,\"errorFallback\":false}"
+    },
+    {
+      "group": "expansao",
+      "name": "nenhum ErrorBoundary disparou (fallback nao apareceu)",
+      "pass": true,
+      "detail": "errorFallback=false"
+    },
+    {
+      "group": "expansao",
+      "name": "zero erro de console ao clicar no nome do operador",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "group": "screenshot",
+      "name": "01b-expansao-vitor",
+      "pass": true,
+      "detail": "157 KB → hoje-01b-expansao-vitor.png"
     },
     {
       "group": "pausa",
@@ -137,7 +167,7 @@
       "group": "screenshot",
       "name": "12-pausa-mesma-linha",
       "pass": true,
-      "detail": "204 KB → hoje-12-pausa-mesma-linha.png"
+      "detail": "203 KB → hoje-12-pausa-mesma-linha.png"
     },
     {
       "group": "topbar",
@@ -245,7 +275,7 @@
       "group": "screenshot",
       "name": "02-grade",
       "pass": true,
-      "detail": "159 KB → hoje-02-grade.png"
+      "detail": "157 KB → hoje-02-grade.png"
     },
     {
       "group": "grade",
@@ -263,7 +293,7 @@
       "group": "screenshot",
       "name": "03-arrastado",
       "pass": true,
-      "detail": "153 KB → hoje-03-arrastado.png"
+      "detail": "151 KB → hoje-03-arrastado.png"
     },
     {
       "group": "grade",
@@ -287,7 +317,7 @@
       "group": "screenshot",
       "name": "04-redimensionado",
       "pass": true,
-      "detail": "153 KB → hoje-04-redimensionado.png"
+      "detail": "151 KB → hoje-04-redimensionado.png"
     },
     {
       "group": "grade",
@@ -317,7 +347,7 @@
       "group": "screenshot",
       "name": "05-popover",
       "pass": true,
-      "detail": "189 KB → hoje-05-popover.png"
+      "detail": "188 KB → hoje-05-popover.png"
     },
     {
       "group": "widgets",
@@ -347,7 +377,7 @@
       "group": "screenshot",
       "name": "06-restaurado",
       "pass": true,
-      "detail": "192 KB → hoje-06-restaurado.png"
+      "detail": "190 KB → hoje-06-restaurado.png"
     },
     {
       "group": "widgets",
@@ -413,7 +443,7 @@
       "group": "screenshot",
       "name": "07-conta",
       "pass": true,
-      "detail": "183 KB → hoje-07-conta.png"
+      "detail": "181 KB → hoje-07-conta.png"
     },
     {
       "group": "conta",
@@ -437,7 +467,7 @@
       "group": "screenshot",
       "name": "08-sem-conta",
       "pass": true,
-      "detail": "193 KB → hoje-08-sem-conta.png"
+      "detail": "191 KB → hoje-08-sem-conta.png"
     },
     {
       "group": "conta",
@@ -473,7 +503,7 @@
       "group": "revisao",
       "name": "o painel já pediu o dia de hoje",
       "pass": true,
-      "detail": "[\"/api/v3/review/day?date=2026-08-20\",\"/api/v3/review/calendar?month=2026-08\",\"/api/v3/review/waiting\"]"
+      "detail": "[\"/api/v3/review/day?date=2026-09-03\",\"/api/v3/review/calendar?month=2026-09\",\"/api/v3/review/waiting\"]"
     },
     {
       "group": "revisao",
@@ -515,7 +545,7 @@
       "group": "revisao",
       "name": "os dias com revisão vêm marcados com ponto",
       "pass": true,
-      "detail": "2026-08-03, 2026-08-05, 2026-08-12, 2026-08-13"
+      "detail": "2026-09-03, 2026-09-05, 2026-09-12, 2026-09-13"
     },
     {
       "group": "revisao",
@@ -539,13 +569,13 @@
       "group": "revisao",
       "name": "seta do teclado anda um dia pra trás e recarrega",
       "pass": true,
-      "detail": "[\"?date=2026-08-19\"]"
+      "detail": "[\"?date=2026-09-02\"]"
     },
     {
       "group": "revisao",
       "name": "escolher um dia dispara o GET /review/day com a data certa",
       "pass": true,
-      "detail": "[\"/api/v3/review/day?date=2026-08-12\"]"
+      "detail": "[\"/api/v3/review/day?date=2026-09-12\"]"
     },
     {
       "group": "revisao",
@@ -557,7 +587,7 @@
       "group": "revisao",
       "name": "o título mostra a data por extenso em PT-BR",
       "pass": true,
-      "detail": "Revisão de quarta-feira, 12 de agosto de 2026"
+      "detail": "Revisão de sábado, 12 de setembro de 2026"
     },
     {
       "group": "revisao",
@@ -611,7 +641,7 @@
       "group": "screenshot",
       "name": "09-revisao-dia",
       "pass": true,
-      "detail": "208 KB → hoje-09-revisao-dia.png"
+      "detail": "206 KB → hoje-09-revisao-dia.png"
     },
     {
       "group": "revisao",
@@ -647,13 +677,13 @@
       "group": "revisao",
       "name": "item já revisado diz quem revisou e quando",
       "pass": true,
-      "detail": "NACBR-2026-0231pronto pra linha500 garrafasencapsulado há 5 diasrevisado por Vitor Silva em 12/08"
+      "detail": "NACBR-2026-0231pronto pra linha500 garrafasencapsulado há 5 diasrevisado por Vitor Silva em 12/09"
     },
     {
       "group": "screenshot",
       "name": "11-revisao-espera",
       "pass": true,
-      "detail": "208 KB → hoje-11-revisao-espera.png"
+      "detail": "206 KB → hoje-11-revisao-espera.png"
     },
     {
       "group": "revisao",
@@ -671,7 +701,7 @@
       "group": "revisao",
       "name": "dia sem revisão mostra o vazio explicando o que fazer",
       "pass": true,
-      "detail": "Nenhuma revisão nesse dia07/08 não tem revisão registrada. Escolha outro dia no calendário"
+      "detail": "Nenhuma revisão nesse dia07/09 não tem revisão registrada. Escolha outro dia no calendário"
     },
     {
       "group": "revisao",

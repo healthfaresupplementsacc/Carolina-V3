@@ -28,7 +28,35 @@ const HOUR_PX_DEFAULT = 140; // px per hour on desktop
 
 function snap(min) { return Math.round(min / 5) * 5; } // 5-min snap during drag
 
-function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHourPx, filterOps, filterFlows,
+/* TimelineErrorBoundary — pega qualquer erro de render dentro da Timeline
+   (ex: uma linha de operador com dado inesperado) e mostra um aviso em vez
+   de estourar white-screen na página inteira. Sem em-dash, PT-BR. */
+class TimelineErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.error('TimelineErrorBoundary capturou um erro:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="tl-error-fallback" style={{ padding: 16, margin: 10, borderRadius: 10,
+               border: '1px solid var(--bad, #dc2626)', background: 'rgba(220,38,38,.06)',
+               color: 'var(--text-2)', fontSize: 13 }}>
+          Algo quebrou nesta linha do tempo. Recarregue a página.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, setHourPx, filterOps, filterFlows,
                     onUpdateEvent, onMergeRequest, onSelectEvent, selectedId,
                     expandedOpIds, onToggleExpand,
                     gaps,
@@ -747,11 +775,13 @@ function Timeline({ operators, events, attMarkers, attState, now, hourPx, setHou
                 </div>
               </div>
               {expanded && (
-                <PersonExpansion op={op} events={opEvents} now={now} gap={personGap}
-                                 fmtClock={fmtClock} fmtDur={fmtDur} fmtCron={fmtCron}
-                                 activities={activities}
-                                 onSelectEvent={onSelectEvent}
-                                 onGapClick={onGapClick}/>
+                <TimelineErrorBoundary>
+                  <PersonExpansion op={op} events={opEvents} now={now} gap={personGap}
+                                   fmtClock={fmtClock} fmtDur={fmtDur} fmtCron={fmtCron}
+                                   activities={activities}
+                                   onSelectEvent={onSelectEvent}
+                                   onGapClick={onGapClick}/>
+                </TimelineErrorBoundary>
               )}
               </React.Fragment>
             );
@@ -858,51 +888,6 @@ function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, acti
             </div>
           ))}
       </div>
-
-      {/* POPOVER do marcador de ponto clicado (Bruno 07-23) */}
-      {punchPop && (() => {
-        const mk = punchPop.mk;
-        const st = MARKER_STYLE[mk.kind] || MARKER_STYLE.checkin;
-        const desc = mk.kind === 'checkin' ? 'Bateu o ponto de ENTRADA no relógio.'
-          : mk.kind === 'checkout' ? 'Bateu o ponto de SAÍDA no relógio (fim do dia).'
-          : mk.kind === 'lunch_out' ? 'Saiu para o almoço.'
-          : mk.kind === 'lunch_in' ? 'Voltou do almoço.'
-          : mk.incomplete ? 'Bateu o ponto mas NÃO registrou a volta (par incompleto — confira).'
-          : mk.kind === 'break_out' ? 'Saiu para um break.'
-          : mk.kind === 'break_in' ? 'Voltou do break.' : '';
-        return (
-          <div className="tl-punch-pop" style={{ position: 'fixed', left: Math.min(punchPop.x, window.innerWidth - 260), top: punchPop.y + 12,
-                 zIndex: 100, width: 240, background: 'var(--surface)', border: '1px solid var(--border)',
-                 borderRadius: 10, boxShadow: 'var(--shadow-lg, 0 10px 40px rgba(0,0,0,.3))', padding: 12 }}
-               onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ width: 24, height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                             background: mk.incomplete ? 'var(--warn)' : (mk.type === 'unjustified' ? 'var(--bad)' : st.bg), color: '#fff', fontSize: 13 }}>
-                {mk.incomplete ? '⚠' : st.icon}
-              </span>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{mk.label}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{punchPop.opName}</div>
-              </div>
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{desc}</div>
-            <div style={{ marginTop: 6, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--text-3)' }}>Horário do relógio</span>
-              <b className="mono">{fmtClock(punchPop.min)}</b>
-            </div>
-            {mk.minutes != null && (mk.kind === 'lunch_in' || mk.kind === 'break_in' || mk.kind === 'lunch_out' || mk.kind === 'break_out') && (
-              <div style={{ marginTop: 2, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-3)' }}>Duração do break</span>
-                <b className="mono">{mk.minutes}min{mk.type === 'lunch' && mk.minutes > 45 ? ` (+${mk.minutes - 45} do almoço)` : ''}</b>
-              </div>
-            )}
-            {mk.type === 'unjustified' && (
-              <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--bad)', fontWeight: 600 }}>⚠ Break extra sem justificativa no sistema.</div>
-            )}
-            <div style={{ marginTop: 8, fontSize: 10.5, color: 'var(--text-3)', fontStyle: 'italic' }}>Horário do relógio de ponto (interno · admin).</div>
-          </div>
-        );
-      })()}
     </div>
   );
 }
@@ -936,6 +921,16 @@ function CopyGapButton({ start, end, dur, fmtClock, fmtDur, personName }) {
             aria-label="Copiar texto do gap">
       {copied ? '✓' : '⎘'}
     </button>
+  );
+}
+
+/* Timeline — wrapper público que envolve o render inteiro num ErrorBoundary,
+   pra uma linha ruim nunca mais derrubar a página inteira (white screen). */
+function Timeline(props) {
+  return (
+    <TimelineErrorBoundary>
+      <TimelineInner {...props} />
+    </TimelineErrorBoundary>
   );
 }
 

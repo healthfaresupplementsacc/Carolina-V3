@@ -488,6 +488,53 @@ async function main() {
   await shot('01-inicial');
   rec('hoje', 'sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 
+  /* ══ 0a2. CLIQUE NO NOME DO OPERADOR EXPANDE O DIA (regressão) ════
+     Bug real: PersonExpansion referenciava punchPop/setPunchPop/MARKER_STYLE
+     do escopo da Timeline (que não existem dentro dela) → ReferenceError →
+     white screen ao clicar no nome pra expandir. O harness antigo nunca
+     clicava aqui, por isso passou 124/124 com o bug vivo. Este bloco clica
+     de verdade no nome do Vitor (tem eventos reais na fixture) e prova que
+     a expansão renderiza sem estourar e sem erro de console. */
+  consoleErrors.length = 0;
+  const clickResult = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.tl-name-clickable')];
+    const row = rows.find((r) => /Vitor Silva/.test(r.textContent));
+    if (!row) return { found: false };
+    row.click();
+    return { found: true, totalRows: rows.length };
+  });
+  await sleep(500);
+  rec('expansao', 'achou a linha clicavel do Vitor Silva pra testar o clique',
+      clickResult.found, 'linhas clicaveis=' + clickResult.totalRows);
+  const expansion = await page.evaluate(() => {
+    const el = document.querySelector('.tl-row-expansion');
+    const appRoot = document.getElementById('root') || document.body;
+    return {
+      present: !!el,
+      hasTitle: !!(el && /Detalhes/.test(el.textContent)),
+      hasVitor: !!(el && /Vitor Silva/.test(el.textContent)),
+      pageNotBlank: !!(appRoot && appRoot.textContent.trim().length > 200),
+      errorFallback: !!document.querySelector('.tl-error-fallback'),
+    };
+  });
+  rec('expansao', 'clicar no nome expande o PersonExpansion (não white-screen)',
+      expansion.present && expansion.hasTitle && expansion.hasVitor && expansion.pageNotBlank,
+      JSON.stringify(expansion));
+  rec('expansao', 'nenhum ErrorBoundary disparou (fallback nao apareceu)',
+      !expansion.errorFallback, 'errorFallback=' + expansion.errorFallback);
+  rec('expansao', 'zero erro de console ao clicar no nome do operador',
+      consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+  await shot('01b-expansao-vitor');
+  // recolhe de novo pra não interferir nos blocos seguintes (pausa etc. usam
+  // coordenadas absolutas dos blocos da timeline).
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.tl-name-clickable')];
+    const row = rows.find((r) => /Vitor Silva/.test(r.textContent));
+    if (row) row.click();
+  });
+  await sleep(400);
+  consoleErrors.length = 0;
+
   /* ══ 0b. PAUSA NA MESMA LINHA DO TEMPO (Bruno 08-20) ══════════════
      "-----linha de producao-----|| PAUSA (Descarregando arroz) ||-----linha-
       tudo numa linha so, e a mesma coisa deveria acontecer pra todos os
