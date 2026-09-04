@@ -24,9 +24,31 @@ function makeDb(state) {
         const hit = state.marks.some((m) => m.action === 'stock_drift_digest' && m.ny_date === params[0]);
         return { rows: hit ? [{}] : [], rowCount: hit ? 1 : 0 };
       }
+      if (/action = 'pnp_typed_drift'/.test(q) && q.startsWith('SELECT')) {
+        const hit = state.marks.some((m) => m.action === 'pnp_typed_drift' && m.ny_date === params[0]);
+        return { rows: hit ? [{}] : [], rowCount: hit ? 1 : 0 };
+      }
+      if (/action = 'deduct_shortfall'/.test(q) && q.startsWith('SELECT')) {
+        return { rows: [state.shortfalls || { lines: 0, missing: 0 }], rowCount: 1 };
+      }
+      if (/FROM v3\.stock_bins WHERE active/.test(q) && /SUM/.test(q)) {
+        // total físico do armazém (modo quieto): número injetável pelo teste
+        return { rows: [{ total: state.warehouseTotal != null ? state.warehouseTotal : 100 }] };
+      }
+      if (/orders_printed/.test(q)) {
+        return { rows: [{ total: state.typed != null ? state.typed : 0 }] };
+      }
+      if (/FROM v3\.shipment_costs/.test(q)) {
+        return { rows: [{ n: state.shippedCosts != null ? state.shippedCosts : 0 }] };
+      }
+      if (/FROM v3\.pnp_order_lines/.test(q)) {
+        return { rows: [{ n: state.shippedLines != null ? state.shippedLines : 0 }] };
+      }
       if (/INSERT INTO v3\.audit_log/.test(q)) {
         const meta = JSON.parse(params[params.length - 1]);
-        state.marks.push({ action: /stock_drift_digest/.test(q) ? 'stock_drift_digest' : 'stock_drift_alert', ...meta });
+        const action = /pnp_typed_drift/.test(q) ? 'pnp_typed_drift'
+          : (/stock_drift_digest/.test(q) ? 'stock_drift_digest' : 'stock_drift_alert');
+        state.marks.push({ action, ...meta });
         return { rows: [] };
       }
       return { rows: [], rowCount: 0 };
@@ -51,8 +73,10 @@ function atNy(dateStr, hour) {
 const alerts = (state) => state.posts.filter((p) => p.text.includes('Estoque divergente'));
 const digests = (state) => state.posts.filter((p) => p.text.includes('Resumo do estoque'));
 
-function boot({ drift = DRIFT, date = '2026-08-18', hour = 10 } = {}) {
-  const state = { queries: [], marks: [], posts: [] };
+function boot({ drift = DRIFT, date = '2026-08-18', hour = 10,
+  warehouseTotal = 100, shortfalls = null, typed = 0, shippedCosts = 0, shippedLines = 0 } = {}) {
+  const state = { queries: [], marks: [], posts: [],
+    warehouseTotal, shortfalls, typed, shippedCosts, shippedLines };
   const worker = new StockDriftAlert({
     db: makeDb(state),
     getDrift: jest.fn(async () => drift),
@@ -167,11 +191,13 @@ describe('garantias', () => {
     expect(worker.getDrift).not.toHaveBeenCalled();
   });
 
-  test('NUNCA escreve estoque: nenhuma query toca movimento, bin ou caixa', async () => {
+  test('NUNCA escreve estoque: nenhum INSERT/UPDATE/DELETE toca movimento, bin ou caixa', async () => {
     const { state, worker } = boot();
     await worker.tick();
+    // o worker LÊ o total do armazém (modo quieto) mas nunca escreve quantidade
     const writes = state.queries.filter((x) =>
-      /stock_movements|stock_bins|stock_boxes|stock_unplaced/i.test(x.q));
+      /^(INSERT|UPDATE|DELETE)/i.test(x.q)
+      && /stock_movements|stock_bins|stock_boxes|stock_unplaced/i.test(x.q));
     expect(writes).toEqual([]);
   });
 
@@ -199,5 +225,128 @@ describe('garantias', () => {
     worker.stop();
     expect(worker._t).toBeNull();
     expect(worker._kick).toBeNull();
+  });
+});
+
+describe('modo quieto (armazem fisico todo zerado, Fase 0)', () => {
+  test('armazem 0: NENHUM aviso por produto, resumo vira 1 linha, 1x por dia', async () => {
+    const { state, worker } = boot({ warehouseTotal: 0 });
+    const out = await worker.tick();
+    expect(out.quiet).toBe(true);
+    expect(out.alerted).toBe(0);
+    expect(alerts(state).length).toBe(0);
+    const quietPosts = state.posts.filter((p) => p.text.includes('Estoque fisico ainda nao carregado'));
+    expect(quietPosts.length).toBe(1);
+    expect(quietPosts[0].text).toContain('(2 produtos difeririam hoje)');
+    expect(quietPosts[0].text).toContain('Volta sozinha quando a carga comecar.');
+    expect(quietPosts[0].channel).toBe('C_ADMIN');
+    // segundo tick: nada repete
+    await worker.tick();
+    expect(state.posts.length).toBe(1);
+  });
+
+  test('armazem 0 antes da hora do resumo: silencio total', async () => {
+    const { state, worker } = boot({ warehouseTotal: 0, hour: 6 });
+    const out = await worker.tick();
+    expect(out.alerted).toBe(0);
+    expect(state.posts.length).toBe(0);
+  });
+
+  test('a primeira garrafa carregada devolve os avisos NO MESMO tick (sem flag)', async () => {
+    const { state, worker } = boot({ warehouseTotal: 0, hour: 6 });
+    await worker.tick();
+    expect(state.posts.length).toBe(0);
+    state.warehouseTotal = 5;                 // o mutirao comecou
+    const out = await worker.tick();
+    expect(out.quiet).toBe(false);
+    expect(out.alerted).toBe(2);              // dedupe nunca foi marcado no silencio
+    expect(alerts(state).length).toBe(1);
+  });
+
+  test('falha na query do total = fail-open (comporta como carregado, alerta normal)', async () => {
+    const { state, worker } = boot({ warehouseTotal: null, hour: 6 });
+    // warehouseTotal null -> mock devolve rows[{total:null}] -> worker trata como carregado
+    const out = await worker.tick();
+    expect(out.quiet).toBe(false);
+    expect(out.alerted).toBe(2);
+  });
+
+  test('estilo da 1 linha: sem em dash, no maximo 1 emoji', async () => {
+    const { state, worker } = boot({ warehouseTotal: 0 });
+    await worker.tick();
+    for (const p of state.posts) {
+      expect(p.text).not.toMatch(/\u2014/);
+      expect((p.text.match(/:[a-z_]+:/g) || []).length).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('furos de deducao no resumo (audit_log deduct_shortfall)', () => {
+  test('houve furo: o resumo ganha 1 linha com linhas e garrafas faltando', async () => {
+    const { state, worker } = boot({ shortfalls: { lines: 3, missing: 41 } });
+    await worker.tick();
+    const digest = digests(state)[0];
+    expect(digest.text).toContain('Deducao incompleta em 3 linhas hoje, faltaram 41 garrafas.');
+  });
+
+  test('sem furo: nenhuma linha extra', async () => {
+    const { state, worker } = boot();
+    await worker.tick();
+    expect(digests(state)[0].text).not.toContain('Deducao incompleta');
+  });
+
+  test('modo quieto tambem carrega o furo (nunca silencioso)', async () => {
+    const { state, worker } = boot({ warehouseTotal: 0, shortfalls: { lines: 1, missing: 4 } });
+    await worker.tick();
+    const quiet = state.posts.find((p) => p.text.includes('Estoque fisico ainda nao carregado'));
+    expect(quiet.text).toContain('Deducao incompleta em 1 linha hoje, faltaram 4 garrafas.');
+  });
+});
+
+describe('comparador P&P digitado vs enviado (17h NY)', () => {
+  test('fora da tolerancia: 1 linha no admin-orin com os numeros do dia real 09-03', async () => {
+    const { state, worker } = boot({ hour: 17, typed: 130, shippedCosts: 219 });
+    const out = await worker.tick();
+    expect(out.pnp).toEqual({ typed: 130, shipped: 219, delta: -89, posted: true });
+    const post = state.posts.find((p) => p.text.startsWith('P&P do dia'));
+    expect(post.text).toBe('P&P do dia: digitado 130, enviado na Veeqo 219, diferenca de 89. Vale conferir os registros de impressao.');
+    expect(post.channel).toBe('C_ADMIN');
+  });
+
+  test('dentro da tolerancia max(10, 15%): nada e postado, mas o dia fica marcado', async () => {
+    const { state, worker } = boot({ hour: 17, typed: 210, shippedCosts: 219 });
+    const out = await worker.tick();
+    expect(out.pnp.posted).toBe(false);
+    expect(state.posts.some((p) => p.text.startsWith('P&P do dia'))).toBe(false);
+    expect(state.marks.some((m) => m.action === 'pnp_typed_drift')).toBe(true);
+  });
+
+  test('dedupe 1x por dia: segundo tick nao recompara nem reposta', async () => {
+    const { state, worker } = boot({ hour: 17, typed: 130, shippedCosts: 219 });
+    await worker.tick();
+    const out = await worker.tick();
+    expect(out.pnp).toBeUndefined();
+    expect(state.posts.filter((p) => p.text.startsWith('P&P do dia')).length).toBe(1);
+  });
+
+  test('antes das 17h NY nao roda', async () => {
+    const { state, worker } = boot({ hour: 16, typed: 130, shippedCosts: 219 });
+    const out = await worker.tick();
+    expect(out.pnp).toBeUndefined();
+    expect(state.posts.some((p) => p.text.startsWith('P&P do dia'))).toBe(false);
+  });
+
+  test('espelho shipment_costs vazio: cai pro espelho de linhas pnp_order_lines', async () => {
+    const { state, worker } = boot({ hour: 17, typed: 130, shippedCosts: 0, shippedLines: 219 });
+    const out = await worker.tick();
+    expect(out.pnp.shipped).toBe(219);
+    expect(out.pnp.posted).toBe(true);
+  });
+
+  test('dia sem nada (fds): 0 digitado, 0 enviado, nenhum post', async () => {
+    const { state, worker } = boot({ hour: 17, drift: [], typed: 0, shippedCosts: 0 });
+    const out = await worker.tick();
+    expect(out.pnp.posted).toBe(false);
+    expect(state.posts.some((p) => p.text.startsWith('P&P do dia'))).toBe(false);
   });
 });

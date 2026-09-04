@@ -12,6 +12,10 @@
  *                      diff diário (shadow mode) compara com o físico.
  *   'live'           → StockService.pick() por linha, idempotente por
  *                      (source='veeqo_ship', source_ref='<order_id>:<line_id>').
+ *                      GUARD (Fase 0): deducted_at é carimbado sempre (sem loop),
+ *                      mas applied < pedido nunca fica mudo: error_note na linha,
+ *                      audit_log 'deduct_shortfall' e resumo diário via digest do
+ *                      stock-drift-alert.
  *
  * Status nunca regride: pending → picklisted → printed → shipped;
  * cancelled só sobrescreve estados não-terminais (shipped não vira cancelled
@@ -35,6 +39,7 @@ class VeeqoOrderSync {
     this.heartbeat = deps.heartbeat || null;
     this.maxPages = deps.maxPages || 15;     // 1500 pedidos/status/tick — folga enorme pro volume real
     this._t = null; this._kick = null; this._ticking = false;
+    this._tickShortfalls = 0;                // deduções parciais/zeradas do tick corrente
   }
 
   start(ms = 5 * 60 * 1000) {
@@ -124,7 +129,7 @@ class VeeqoOrderSync {
           if (mappedStatus === 'shipped' && this.deductMode === 'live' && this.stock
               && row && !row.deducted_at && map) {
             const bottles = l.qty * (map.units_per_pack || 1);   // -C2 = 2 garrafas por unidade
-            await this.stock.pick({
+            const res = await this.stock.pick({
               product_id: map.product_id, qty: bottles,
               source: 'veeqo_ship', source_ref: `${l.order_id}:${l.line_id}`,
               note: `${l.channel || 'veeqo'} pedido ${l.order_number || l.order_id}`,
@@ -132,8 +137,38 @@ class VeeqoOrderSync {
               // armazém de verdade, então o total cai mesmo com a prateleira vazia.
               allow_box: true,
             });
-            await this.db.query(
-              'UPDATE v3.pnp_order_lines SET deducted_at = NOW() WHERE id = $1', [row.id]);
+            // GUARD do deducted_at (Fase 0 do MASTER-SYNC-PLAN, conflito 3).
+            // pick é idempotente por (source, source_ref) e um pick PARCIAL consome
+            // o ref: "deixar deducted_at NULL e tentar de novo" viraria loop
+            // infinito aplicando 0 (todo tick, pra sempre). Por isso o carimbo é
+            // SEMPRE gravado (previne o loop), mas o furo NUNCA é silencioso:
+            // applied < pedido → error_note 'deducao parcial: X de Y' na linha
+            // + 1 row em v3.audit_log (action 'deduct_shortfall') + contador no
+            // retorno do tick. O resumo diário agrupado sai pelo digest do
+            // stock-drift-alert, que lê as rows deduct_shortfall do dia.
+            // res.duplicate = pick de uma tentativa anterior (ex.: crash entre o
+            // pick e o carimbo); o applied real de lá é -movement.qty.
+            const applied = res && res.duplicate
+              ? Math.max(0, -Number((res.movement && res.movement.qty) || 0))
+              : Number((res && res.applied) || 0);
+            if (applied >= bottles) {
+              await this.db.query(
+                'UPDATE v3.pnp_order_lines SET deducted_at = NOW() WHERE id = $1', [row.id]);
+            } else {
+              const note = `deducao parcial: ${applied} de ${bottles}`;
+              await this.db.query(
+                `UPDATE v3.pnp_order_lines SET deducted_at = NOW(), error_note = $2 WHERE id = $1`,
+                [row.id, note]);
+              await this.db.query(
+                `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
+                 VALUES ('system', NULL, 'deduct_shortfall', 'pnp_order_line', $1, $2::jsonb)`,
+                [row.id, JSON.stringify({
+                  product_id: map.product_id, sku: l.sku, order: l.order_number || String(l.order_id),
+                  source_ref: `${l.order_id}:${l.line_id}`, wanted: bottles, applied,
+                  missing: bottles - applied, ny_date: this._nyDate(new Date().toISOString()),
+                })]).catch(() => {});
+              this._tickShortfalls += 1;
+            }
           }
         }
       }
@@ -146,6 +181,7 @@ class VeeqoOrderSync {
     if (this._ticking || !this.enabled) return { skipped: true };
     if (!this.veeqo || !this.veeqo.configured()) return { skipped: true, no_key: true };
     this._ticking = true;
+    this._tickShortfalls = 0;
     try { this.heartbeat && this.heartbeat(); } catch (_) {}
     try {
       const skuMap = await this._skuMap();
@@ -156,7 +192,8 @@ class VeeqoOrderSync {
       let cancelled = 0;
       try { cancelled = await this._syncStatus('cancelled', 'cancelled', since, skuMap); }
       catch (_) { /* nem toda conta expõe esse filtro — o que importa: nunca regride shipped */ }
-      return { open, shipped, cancelled, deduct: this.deductMode };
+      return { open, shipped, cancelled, deduct: this.deductMode,
+        deduct_shortfalls: this._tickShortfalls };
     } finally { this._ticking = false; }
   }
 }

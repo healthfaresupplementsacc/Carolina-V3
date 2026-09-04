@@ -20,6 +20,7 @@
  *       key        — id estável (bate com o heartbeat worker_tick_<key> quando aplicável)
  *       name       — nome humano
  *       where      — 'railway' (nosso backend) | 'dotnet28'/'win28' (PC de impressão .28)
+ *                    | 'win246' (PC da Simone .246) | 'pc-bruno' (PC do Bruno)
  *       short      — 1 linha: o que faz (pra bater o olho)
  *       detail     — explicação completa: o que faz, quando, por quê
  *       tickMs     — intervalo do loop (null = sob demanda / não é loop)
@@ -78,7 +79,7 @@ const PROCESSES = [
     heartbeat: true, staleMin: 20, critical: false, since: '2026-08-01',
     enabledEnv: { var: 'WORKER_VEEQO_ORDERS_ENABLED', onValue: 'true', requires: ['VEEQO_API_KEY'] },
     short: 'Espelha pedidos da Veeqo por linha (pick sheet + dedução de estoque).',
-    detail: 'A cada 5min lê /orders da Veeqo (abertos, enviados, cancelados) e espelha por LINHA em v3.pnp_order_lines — alimenta o pick sheet do dia e a dedução idempotente de estoque (STOCK_DEDUCT_MODE: dry = shadow, live = deduz via StockService). SKU sem mapeamento confirmado (v3.product_skus) fica em quarentena — nunca deduz por palpite. Centro de Estoque Fase A (Bruno 08-01).',
+    detail: 'A cada 5min lê /orders da Veeqo (abertos, enviados, cancelados) e espelha por LINHA em v3.pnp_order_lines — alimenta o pick sheet do dia e a dedução idempotente de estoque (STOCK_DEDUCT_MODE: dry = shadow, live = deduz via StockService). SKU sem mapeamento confirmado (v3.product_skus) fica em quarentena — nunca deduz por palpite. Centro de Estoque Fase A (Bruno 08-01). GUARD Fase 0 (09-04): em modo live o deducted_at continua sendo carimbado sempre (pick parcial consome o slot de idempotência, então re-tentar aplicaria 0 pra sempre), mas dedução parcial/zerada nunca fica muda — error_note "deducao parcial: X de Y" na linha + row audit_log deduct_shortfall + contador no tick; o resumo diário sai no digest do stock-drift-alert.',
   },
   {
     key: 'stock_alerts', name: 'Alertas de estoque (planner)', where: 'railway', tickMs: 1800000,
@@ -92,7 +93,7 @@ const PROCESSES = [
     heartbeat: true, staleMin: 30, critical: false, since: '2026-08-18',
     enabledEnv: { var: 'WORKER_STOCK_DRIFT_ENABLED', onValue: 'true' },
     short: 'A cada 10min compara nosso total com o da Veeqo; divergência nova → admin-orin, e resumo às 8h NY.',
-    detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador).',
+    detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador). Fase 0 (09-04): MODO QUIETO — armazém físico todo zerado (carga nunca feita) suprime os avisos por produto e o resumo vira 1 linha; volta sozinho no mesmo tick em que existir estoque. O resumo também acrescenta 1 linha se houve deduct_shortfall no dia. Às 17h NY roda o comparador P&P digitado (orders_printed das tasks de impressão) vs enviado na Veeqo (shipment_costs, fallback pnp_order_lines); |delta| > max(10, 15%) = 1 linha no admin-orin, dedupe audit_log pnp_typed_drift.',
   },
   {
     key: 'freight_watch', name: 'Vigia de custo de frete', where: 'railway', tickMs: 300000,
@@ -255,7 +256,22 @@ const PROCESSES = [
     tickMs: 5000, heartbeat: false, critical: false, pending: true, since: '2026-08-19',
     signalVia: '/api/v3/print-queue',
     short: 'Fila de impressão do celular: hoje quem puxa é a página /print logada no .28 (e a Central/hub), a cada 30 s no navegador. Agente nativo = futuro.',
-    detail: 'HOJE (08-19): a estação /print (src/print/print.js) e a Central/hub fazem poll de 30 s em GET /api/v3/print-queue com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token, tomam o job, imprimem pelo navegador (HF_LABELS) e fecham com done/error. Um agente NATIVO no .28 (sem navegador aberto) fica pra depois: poll a cada poucos segundos em GET /api/v3/print-queue com x-print-token (o MESMO PRINT_EVENT_TOKEN do /api/print-event, nenhum segredo novo): toma o job (POST /:id/take), desenha Code128 + QR do payload já resolvido, imprime 4x6, e fecha com POST /:id/done (que carimba label_printed_at nas caixas) ou POST /:id/error com o motivo. Enquanto ele não existe, a estação logada (/print ou /op) consegue tomar e concluir pela mesma API com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token.',
+    detail: 'HOJE (08-19): a estação /print (src/print/print.js) e a Central/hub fazem poll de 30 s em GET /api/v3/print-queue com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token, tomam o job, imprimem pelo navegador (HF_LABELS) e fecham com done/error. Um agente NATIVO no .28 (sem navegador aberto) fica pra depois: poll a cada poucos segundos em GET /api/v3/print-queue com x-print-token (o MESMO PRINT_EVENT_TOKEN do /api/print-event, nenhum segredo novo): toma o job (POST /:id/take), desenha Code128 + QR do payload já resolvido, imprime 4x6, e fecha com POST /:id/done (que carimba label_printed_at nas caixas) ou POST /:id/error com o motivo. Enquanto ele não existe, a estação logada (/print ou /op) consegue tomar e concluir pela mesma API com Bearer OPERATOR_PAGE_TOKEN + X-Session-Token. ATUALIZAÇÃO 09-04: pros jobs que JÁ SÃO PDF (etiquetas de envio) o agente nativo agora existe — é o HF-PrintAgent no .246 (entrada print_agent_246 abaixo); este puxador do .28 segue pendente só pros jobs desenhados no navegador (bin/box).',
+  },
+
+  {
+    // HF-PrintAgent (S15.52, 09-04): o agente NATIVO da fila, no PC da Simone
+    // (.246), pros jobs que já são PDF pronto (etiquetas de envio da Rollo).
+    // pending: true até o deploy real no .246 (o código está em src/print-agent/;
+    // instala via Install-HFPrintAgent.ps1 por SSH). Liveness NÃO é heartbeat de
+    // worker: cada poll com x-print-token carimba v3.settings['print_agent_246']
+    // (print-queue/router.js) e o signal-watchdog cobre a ausência (sinal
+    // print_agent_246 no signal-registry, dias úteis 10h-18h NY).
+    key: 'print_agent_246', name: 'HF-PrintAgent (.246)', where: 'win246',
+    tickMs: 15000, heartbeat: false, critical: false, pending: true, since: '2026-09-04',
+    signalVia: '/api/v3/print-queue',
+    short: 'Agente da fila no PC da Simone: poll 15s, baixa o PDF composto e imprime na Rollo (Label Printer 4x6) via SumatraPDF, sem clique nenhum.',
+    detail: 'Roda no .246 como tarefa agendada HFPrintAgent (SYSTEM, boot + repetição 5min, ExecutionTimeLimit PT0S — a lição do MachinePush de 08-25). Poll GET /api/v3/print-queue?status=queued com x-print-token (o MESMO PRINT_EVENT_TOKEN, nenhum segredo novo) + x-agent-id; job com PDF guardado (GET /:id/file) → take → SumatraPDF -print-to "Label Printer 4x6" -silent → done (que carimba printed_at) ou error com o motivo. Job SEM PDF (bin/box do navegador) é pulado e fica pra página /print. Código: src/print-agent/{HF-PrintAgent.ps1,Install-HFPrintAgent.ps1,print-agent.config.example.json}. O servidor nunca alcança o .246: o agente é quem liga, e o poll é o próprio sinal de vida.',
   },
 
   // ── Satélites no PC do Bruno (canal Slack↔Claude) ─────────────────────────
