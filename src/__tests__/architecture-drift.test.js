@@ -85,6 +85,7 @@ describe('drift: route surfaces mounted are documented', () => {
     './health/router',      // Signal health /api/v3/health/* (documented §2 routes + §4 modules)
     './freight/router',     // Freight cost watch /api/v3/freight/* (documented §2 routes + §4 modules)
     './freight/op-copilot-router', // Freight copilot for the operator Central /api/v3/op-freight/* (documented §2 routes)
+    './planning/router',  // Planejamento: funil da producao EMS + plano do dia /api/v3/planning/* (documentado §2 + §3)
   ]);
   const idx = read('src/index.js');
   const wire = read('src/v3/wire.js');

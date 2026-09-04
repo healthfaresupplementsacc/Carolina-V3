@@ -53,9 +53,11 @@ import { RoadmapPage } from './pages/RoadmapPage.jsx';
 import { SystemHealthPage } from './pages/SystemHealthPage.jsx';
 import {
   ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage,
-  ProductPage, FalarPage, PlanPage, ConfigPage,
+  ProductPage, FalarPage, ConfigPage,
   CarolinaPage,    // E0: placeholder Bloco 5
 } from './pages/OtherPages.jsx';
+// Planejamento real (Bruno 09-04): o funil da produção do EMS + plano por dia
+import { PlanejamentoPage } from './pages/PlanejamentoPage.jsx';
 
 // tweaks panel
 import {
@@ -455,7 +457,7 @@ function AuthedApp({ onLogout }) {
     case "suporte":       pageNode = <SupportPage {...pageProps}/>; break;
     case "produto":       pageNode = <ProductPage {...pageProps}/>; break;
     case "falar":         pageNode = <FalarPage ack={ack}/>; break;
-    case "planejamento":  pageNode = <PlanPage/>; break;
+    case "planejamento":  pageNode = <PlanejamentoPage/>; break;
     case "carolina":      pageNode = <CarolinaPage/>; break;
     case "config":        pageNode = <ConfigPage {...pageProps}/>; break;
     case "admin":         pageNode = <AdminPanel/>; break;

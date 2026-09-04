@@ -29,6 +29,9 @@ const { suggest } = require('./sku-suggest');
 const { createSkuSync } = require('./sku-sync');
 const { createVeeqoAbsorb } = require('./veeqo-absorb');
 const { createSimpleSet, simpleProgress } = require('./simple-set');
+// days_of_stock UNIFICADO no interino (Bruno 09-04): armazém vazio → dias sobre
+// o estoque Veeqo com a velocidade 14d do planner; carga física → volta sozinho.
+const { applyInterimDays } = require('../stock/interim-days');
 
 const BASE = '/api/v3/warehouse';
 const EDT = 'America/New_York';
@@ -297,7 +300,8 @@ function createWarehouseRouter(deps = {}) {
   async function rowsWithVeeqo(productId) {
     const bySku = await veeqoCache.bySku();
     const rows = await stock.overview(productId ? { product_id: productId } : {});
-    return rows.map((r) => enrich(r, bySku));
+    // interino (Bruno 09-04): armazém não carregado → dias sobre o Veeqo (rotulado)
+    return applyInterimDays(rows.map((r) => enrich(r, bySku)), db);
   }
 
   /** Row fresca de um produto (toda escrita devolve isso). */
@@ -465,6 +469,7 @@ function createWarehouseRouter(deps = {}) {
     if (!detail) return err(res, 'not_found', 'produto não existe: ' + id, 404);
     const bySku = await veeqoCache.bySku();
     const product = enrich(detail.product, bySku);
+    await applyInterimDays([product], db);   // mesma definição de dias da lista
     const fam = await family.forProduct(id, product.available);
     ok(res, { ...detail, product, family: fam });
   });

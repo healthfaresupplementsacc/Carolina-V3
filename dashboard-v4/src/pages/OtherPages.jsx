@@ -801,11 +801,8 @@ function FalarPage({ ack }) {
     </div>
   );
 }
-function PlanPage() {
-  return <PlaceholderPage icon="plan" eyebrow="PLANEJAMENTO"
-                          before="O que vem pela " em="frente" pt="Planejamento" en="Planning"
-                          subtitle="Tasks futuras, o que vem pela frente, notificação opcional por task. Em construção."/>;
-}
+/* PlanPage saiu daqui (Bruno 09-04): o Planejamento real vive em
+   pages/PlanejamentoPage.jsx — funil da produção do EMS + plano por dia. */
 
 // ============ Config (E7-resto Leva 3) ============
 // CRUD de deadlines (preview · liga no E5). Lista os reais do backend.
@@ -906,6 +903,6 @@ function CarolinaPage() {
                           subtitle="Chat de aprendizado da Carolina (Bloco 5). Placeholder no E0, a UI vem depois."/>;
 }
 
-Object.assign(window, { ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage, ProductPage, FalarPage, PlanPage, ConfigPage, CarolinaPage });
+Object.assign(window, { ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage, ProductPage, FalarPage, ConfigPage, CarolinaPage });
 
-export { ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage, ProductPage, FalarPage, PlanPage, ConfigPage, CarolinaPage, PlaceholderPage };
+export { ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage, ProductPage, FalarPage, ConfigPage, CarolinaPage, PlaceholderPage };

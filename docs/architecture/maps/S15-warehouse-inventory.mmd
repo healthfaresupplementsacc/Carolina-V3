@@ -71,6 +71,9 @@ subgraph S15_ADMIN["S15.03 / S15.10 · ADMIN"]
   A_SIMPLEUI -->|POST simple/set com client_ref uuid, unica escrita do modo| A_SIMPLE
   A_SIMPLEUI -->|labels da linha + count/compute + weights, tudo porta existente| A_API
   A_HUB -->|abre por padrao nesta vista, o toggle volta pra tabela completa| A_SIMPLEUI
+  A_FUNIL["S15.49 BUILT 09-04: PLANEJAMENTO funil da producao · pagina #planejamento + /api/v3/planning · QUADRO com 7 colunas derivadas ao vivo: Formulando, Encapsulando, Esperando revisao, Em revisao, Pronto pra producao, Produzido, Encaixotado · fonte = ultima linha por lote do ems_activity_cache 60d + events review/production_line/encapsulation + production_counts + stock_boxes + fila viva do pipeline · regra critica: finalized do EMS com zero reviews = Esperando revisao · PLANO por dia com drag e itens livres, lista ordenada inteira no PUT · notas por data com autosave · migracao 086 plan_items + planning_notes · flag manual_boxed = unico toque manual do quadro"]:::verified
+  A_FUNIL -->|R268 le stock_boxes pro Encaixotado automatico, nunca escreve quantidade| T_BOXES
+  A_DASH2 -->|R267 pagina Planejamento| A_FUNIL
   A_HUB --> A_API
   A_API --> SVC
   A_API --> A_APPROVE

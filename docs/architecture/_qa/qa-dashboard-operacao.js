@@ -62,8 +62,66 @@ const FREIGHT_OUTLIERS = { outliers: [
     quoted_best_cost: null, quoted_best_service: null, quoted_valid_count: null, quoted_at: null },
 ] };
 
+// ── planejamento (Bruno 09-04): o funil do EMS + plano por dia ─────────
+// Board fixo (7 colunas); plano/notas MUTÁVEIS pra testar o PUT da lista
+// ordenada (drag/+) e o autosave das anotações. planningLog grava cada
+// escrita pra assercao em node land.
+const planningLog = [];
+const PLAN_STATE = { items: [], notes: {} };
+const PLAN_BOARD = { columns: [
+  { id: 'formulating', title: 'Formulando', count: 2, cards: [
+    { batch_number: 'B-1001', product: 'Ashwagandha', product_id: 1, column: 'formulating', ems_stage: 'weighing', days_in_stage: 0.4, who: [], bottles: null, boxed_auto: false, manual_boxed: false, na_fila: false },
+    { batch_number: 'B-1002', product: 'Turmeric', product_id: null, column: 'formulating', ems_stage: null, days_in_stage: null, who: [], bottles: null, boxed_auto: false, manual_boxed: false, na_fila: true },
+  ] },
+  { id: 'encapsulating', title: 'Encapsulando', count: 1, cards: [
+    { batch_number: 'B-1003', product: 'Berberine', product_id: 2, column: 'encapsulating', ems_stage: 'encapsulating', days_in_stage: 0.2, who: [{ name: 'Vitor', slug: 'encapsulation', since: '2026-09-04T12:00:00Z' }], bottles: null, boxed_auto: false, manual_boxed: false, na_fila: false },
+  ] },
+  { id: 'waiting', title: 'Esperando revisão', count: 1, cards: [
+    { batch_number: 'B-1004', product: 'Charcoal', product_id: 3, column: 'waiting', ems_stage: 'finalized', days_in_stage: 4.2, who: [], bottles: null, boxed_auto: false, manual_boxed: false, na_fila: false },
+  ] },
+  { id: 'revising', title: 'Em revisão', count: 1, cards: [
+    { batch_number: 'B-1005', product: 'NAC', product_id: 4, column: 'revising', ems_stage: 'finalized', days_in_stage: 0.1, who: [{ name: 'Simone', slug: 'review', since: '2026-09-04T13:00:00Z' }], bottles: null, boxed_auto: false, manual_boxed: false, na_fila: false },
+  ] },
+  { id: 'ready', title: 'Pronto pra produção', count: 1, cards: [
+    { batch_number: 'B-1006', product: 'Omega', product_id: 5, column: 'ready', ems_stage: 'finalized', days_in_stage: 1.5, who: [], bottles: null, boxed_auto: false, manual_boxed: false, na_fila: false },
+  ] },
+  { id: 'produced', title: 'Produzido', count: 1, cards: [
+    { batch_number: 'B-1007', product: 'Zinc', product_id: 6, column: 'produced', ems_stage: 'finalized', days_in_stage: 2.0, who: [], bottles: 480, boxed_auto: false, manual_boxed: false, na_fila: false },
+  ] },
+  { id: 'boxed', title: 'Encaixotado', count: 1, cards: [
+    { batch_number: 'B-1008', product: 'Magnesium', product_id: 7, column: 'boxed', ems_stage: 'finalized', days_in_stage: 3.0, who: [], bottles: 512, boxed_auto: true, manual_boxed: false, na_fila: false },
+  ] },
+], generated_at: '2026-09-04T15:00:00Z', ems_ok: true };
+
+function planningFixture(pathname, method, body) {
+  if (pathname === '/api/v3/planning/board') return { data: PLAN_BOARD };
+  if (pathname === '/api/v3/planning/plan') {
+    if (method === 'PUT') {
+      planningLog.push({ method, pathname, body });
+      PLAN_STATE.items = (body.items || []).map((it, i) => ({ id: 900 + i, plan_date: '2026-09-05', position: i, ...it }));
+      return { data: { date: '2026-09-05', items: PLAN_STATE.items } };
+    }
+    return { data: { date: '2026-09-05', items: PLAN_STATE.items } };
+  }
+  if (pathname === '/api/v3/planning/notes') {
+    if (method === 'PUT') {
+      planningLog.push({ method, pathname, body });
+      PLAN_STATE.notes = { plan_date: '2026-09-05', body: body.body, updated_at: new Date().toISOString() };
+      return { data: PLAN_STATE.notes };
+    }
+    return { data: PLAN_STATE.notes.body ? PLAN_STATE.notes : { plan_date: '2026-09-05', body: '', updated_at: null } };
+  }
+  if (pathname === '/api/v3/planning/board/boxed') {
+    planningLog.push({ method, pathname, body });
+    return { data: { batch_number: body.batch_number, manual_boxed: body.manual_boxed } };
+  }
+  return null;
+}
+
 /** Resposta pra qualquer /api/**. */
-function apiFixture(pathname) {
+function apiFixture(pathname, method, body) {
+  const pl = planningFixture(pathname, method || 'GET', body || {});
+  if (pl) return pl;
   if (pathname === '/api/v3/data/login') return { data: LOGIN };
   if (pathname === '/api/v3/data/health') return { data: { worker: { alive: true }, queue: 0, mode: 'qa' } };
   if (pathname === '/api/v3/data/timeline') return TIMELINE;
@@ -131,7 +189,7 @@ const ROUTES = [
   ['suporte', '[data-page-op="suporte"]', true],
   ['produto', '[data-page-op="produto"]', true],
   ['falar', '[data-page-op="falar"]', true],
-  ['planejamento', '[data-page-op="placeholder"]', true],
+  ['planejamento', '[data-page-op="planejamento"]', true],
   ['carolina', '[data-page-op="placeholder"]', true],
   ['config', '[data-page-op="config"]', true],
   ['floor', '.fd-shell.opa-fd', false],       // TV: sem h1, header proprio
@@ -175,7 +233,9 @@ async function main() {
     if (url.startsWith(ORIGIN)) {
       const u = new URL(url);
       if (u.pathname.startsWith('/api/')) {
-        req.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(apiFixture(u.pathname)) });
+        let postBody = {};
+        try { postBody = req.postData() ? JSON.parse(req.postData()) : {}; } catch (e) { postBody = {}; }
+        req.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(apiFixture(u.pathname, req.method(), postBody)) });
         return;
       }
       req.continue(); return;
@@ -426,6 +486,86 @@ async function main() {
       fd.timerFont + ' @ ' + fd.timerSize);
   rec('floor', 'relogio NY em DM Serif', /DM Serif Display/i.test(fd.clockFont || ''), fd.clockFont);
   rec('floor', 'rodape com chips do kit', fd.footChips >= 3, 'chips=' + fd.footChips);
+
+  // #planejamento: o funil do EMS (7 colunas) + plano por dia (Bruno 09-04)
+  planningLog.length = 0; PLAN_STATE.items = []; PLAN_STATE.notes = {};
+  await go('planejamento');
+  await page.waitForSelector('[data-pl-board]', { timeout: 9000 }).catch(() => {});
+  const plBoard = await page.evaluate(() => ({
+    cols: [...document.querySelectorAll('[data-pl-col]')].map((c) => c.getAttribute('data-pl-col')),
+    heads: [...document.querySelectorAll('.pl-col-head .kit-mlabel')].map((h) => h.textContent.trim()),
+    cards: document.querySelectorAll('.pl-card').length,
+    naFila: [...document.querySelectorAll('.pl-card .kit-chip')].filter((c) => c.textContent.trim() === 'na fila').length,
+    who: (document.querySelector('[data-pl-col="revising"] .pl-who') || {}).textContent || '',
+    bottles: [...document.querySelectorAll('[data-pl-col="produced"] .kit-chip')].map((c) => c.textContent.trim()).join(','),
+  }));
+  rec('planejamento', '7 colunas na ordem do Bruno', plBoard.cols.join(',') === 'formulating,encapsulating,waiting,revising,ready,produced,boxed', plBoard.cols.join(','));
+  rec('planejamento', 'cabecalhos PT-BR das colunas', plBoard.heads.join('|') === 'Formulando|Encapsulando|Esperando revisão|Em revisão|Pronto pra produção|Produzido|Encaixotado', plBoard.heads.join('|'));
+  rec('planejamento', '8 cartoes da fixture renderizados', plBoard.cards === 8, 'cards=' + plBoard.cards);
+  rec('planejamento', 'lote da fila viva marcado "na fila"', plBoard.naFila === 1, 'na_fila=' + plBoard.naFila);
+  rec('planejamento', 'quem esta no lote agora (Simone em revisao)', /Simone/.test(plBoard.who), plBoard.who.trim());
+  rec('planejamento', 'garrafas do produzido no cartao', /480 garrafas/.test(plBoard.bottles), plBoard.bottles);
+  {
+    const f = path.join(QA, 'planejamento-01.png');
+    await page.screenshot({ path: f, fullPage: true });
+    rec('screenshot', 'planejamento-01', fs.statSync(f).size / 1024 > 4, path.basename(f));
+  }
+
+  // + do cartao (caminho de toque do drag) → item entra em Amanha e PUT leva a lista ordenada
+  await page.click('[data-pl-col="waiting"] .pl-card .pl-add');
+  await sleep(500);
+  const afterAdd = await page.evaluate(() => document.querySelectorAll('.pl-item').length);
+  const putsAfterAdd = planningLog.filter((l) => l.method === 'PUT' && l.pathname === '/api/v3/planning/plan');
+  rec('planejamento', 'clique no + adiciona o lote no plano de Amanha', afterAdd === 1, 'itens=' + afterAdd);
+  rec('planejamento', 'PUT /plan levou a lista ordenada com o lote', putsAfterAdd.length === 1 && putsAfterAdd[0].body.items.length === 1 && putsAfterAdd[0].body.items[0].batch_number === 'B-1004',
+    JSON.stringify((putsAfterAdd[0] || {}).body || {}));
+
+  // drag HTML5 de verdade: dragstart no cartao do quadro → drop na lane
+  const dragOk = await page.evaluate(() => {
+    try {
+      const card = document.querySelector('[data-pl-col="ready"] .pl-card');
+      const lane = document.querySelector('[data-pl-lane]');
+      const dt = new DataTransfer();
+      card.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      lane.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      lane.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      return true;
+    } catch (e) { return 'erro: ' + e.message; }
+  });
+  await sleep(500);
+  const afterDrag = await page.evaluate(() => document.querySelectorAll('.pl-item').length);
+  rec('planejamento', 'drag do quadro pra lane adiciona o 2o item', dragOk === true && afterDrag === 2, 'itens=' + afterDrag + ' drag=' + dragOk);
+  const lastPut = planningLog.filter((l) => l.method === 'PUT' && l.pathname === '/api/v3/planning/plan').pop();
+  rec('planejamento', 'PUT do drag persistiu a ordem (B-1004, B-1006)',
+    !!lastPut && lastPut.body.items.map((i) => i.batch_number).join(',') === 'B-1004,B-1006',
+    lastPut ? lastPut.body.items.map((i) => i.batch_number).join(',') : 'sem PUT');
+
+  // item livre (+ Adicionar) via prompt
+  await page.evaluate(() => { window.prompt = () => 'Trocar bobina da impressora'; });
+  await page.click('[data-pl-addcustom]');
+  await sleep(500);
+  const custom = await page.evaluate(() => [...document.querySelectorAll('.pl-item .t')].map((t) => t.textContent.trim()));
+  rec('planejamento', 'item livre entra no fim do plano', custom.length === 3 && custom[2] === 'Trocar bobina da impressora', custom.join(' | '));
+
+  // estagio AO VIVO re-derivado: item planejado que ja esta Pronto ganha chip
+  const liveChips = await page.evaluate(() => [...document.querySelectorAll('.pl-item .kit-chip')].map((c) => c.textContent.trim()));
+  rec('planejamento', 'itens do plano mostram o estagio ao vivo do quadro',
+    liveChips.some((c) => /Esperando revisão/.test(c)) && liveChips.some((c) => /Pronto pra produção/.test(c)), liveChips.join(' | '));
+
+  // anotacoes: digita e espera o autosave debounced (800ms) virar PUT /notes
+  await page.click('[data-pl-notes] textarea');
+  await page.type('[data-pl-notes] textarea', 'Amanha comecar pelo Charcoal');
+  await sleep(1400);
+  const notePut = planningLog.filter((l) => l.method === 'PUT' && l.pathname === '/api/v3/planning/notes').pop();
+  rec('planejamento', 'anotacao autosalvou (PUT /notes com o texto)',
+    !!notePut && /Charcoal/.test(notePut.body.body), notePut ? notePut.body.body : 'sem PUT');
+  const saved = await page.evaluate(() => (document.querySelector('[data-pl-notes] .pl-empty') || {}).textContent || '');
+  rec('planejamento', 'rodape mostra "Salvo HH:MM"', /Salvo/.test(saved), saved.trim());
+  {
+    const f = path.join(QA, 'planejamento-02.png');
+    await page.screenshot({ path: f, fullPage: true });
+    rec('screenshot', 'planejamento-02', fs.statSync(f).size / 1024 > 4, path.basename(f));
+  }
 
   // #roadmap: verificacao (ja estava no kit)
   await go('roadmap');

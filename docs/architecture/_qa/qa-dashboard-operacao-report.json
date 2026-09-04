@@ -1,5 +1,5 @@
 {
-  "at": "2026-09-01T22:49:24.776Z",
+  "at": "2026-09-04T21:15:14.432Z",
   "results": [
     {
       "group": "screenshot",
@@ -101,7 +101,7 @@
       "group": "screenshot",
       "name": "metas",
       "pass": true,
-      "detail": "110 KB → theme-A-metas.png"
+      "detail": "111 KB → theme-A-metas.png"
     },
     {
       "group": "metas",
@@ -245,7 +245,7 @@
       "group": "screenshot",
       "name": "suporte",
       "pass": true,
-      "detail": "99 KB → theme-A-suporte.png"
+      "detail": "100 KB → theme-A-suporte.png"
     },
     {
       "group": "suporte",
@@ -341,7 +341,7 @@
       "group": "screenshot",
       "name": "falar",
       "pass": true,
-      "detail": "109 KB → theme-A-falar.png"
+      "detail": "110 KB → theme-A-falar.png"
     },
     {
       "group": "falar",
@@ -389,7 +389,7 @@
       "group": "screenshot",
       "name": "planejamento",
       "pass": true,
-      "detail": "79 KB → theme-A-planejamento.png"
+      "detail": "124 KB → theme-A-planejamento.png"
     },
     {
       "group": "planejamento",
@@ -399,7 +399,7 @@
     },
     {
       "group": "planejamento",
-      "name": "renderizou ([data-page-op=\"placeholder\"])",
+      "name": "renderizou ([data-page-op=\"planejamento\"])",
       "pass": true,
       "detail": ""
     },
@@ -407,7 +407,7 @@
       "group": "planejamento",
       "name": "tem h1 de pagina",
       "pass": true,
-      "detail": "O que vem pela frente"
+      "detail": "O funil da produção"
     },
     {
       "group": "planejamento",
@@ -419,7 +419,7 @@
       "group": "planejamento",
       "name": "h1 tem exatamente 1 <em>",
       "pass": true,
-      "detail": "em=1 \"frente\""
+      "detail": "em=1 \"produção\""
     },
     {
       "group": "planejamento",
@@ -533,7 +533,7 @@
       "group": "screenshot",
       "name": "floor",
       "pass": true,
-      "detail": "138 KB → theme-A-floor.png"
+      "detail": "135 KB → theme-A-floor.png"
     },
     {
       "group": "floor",
@@ -810,6 +810,102 @@
       "name": "rodape com chips do kit",
       "pass": true,
       "detail": "chips=4"
+    },
+    {
+      "group": "planejamento",
+      "name": "7 colunas na ordem do Bruno",
+      "pass": true,
+      "detail": "formulating,encapsulating,waiting,revising,ready,produced,boxed"
+    },
+    {
+      "group": "planejamento",
+      "name": "cabecalhos PT-BR das colunas",
+      "pass": true,
+      "detail": "Formulando|Encapsulando|Esperando revisão|Em revisão|Pronto pra produção|Produzido|Encaixotado"
+    },
+    {
+      "group": "planejamento",
+      "name": "8 cartoes da fixture renderizados",
+      "pass": true,
+      "detail": "cards=8"
+    },
+    {
+      "group": "planejamento",
+      "name": "lote da fila viva marcado \"na fila\"",
+      "pass": true,
+      "detail": "na_fila=1"
+    },
+    {
+      "group": "planejamento",
+      "name": "quem esta no lote agora (Simone em revisao)",
+      "pass": true,
+      "detail": "Simone agora"
+    },
+    {
+      "group": "planejamento",
+      "name": "garrafas do produzido no cartao",
+      "pass": true,
+      "detail": "1,finalized,2d,480 garrafas"
+    },
+    {
+      "group": "screenshot",
+      "name": "planejamento-01",
+      "pass": true,
+      "detail": "planejamento-01.png"
+    },
+    {
+      "group": "planejamento",
+      "name": "clique no + adiciona o lote no plano de Amanha",
+      "pass": true,
+      "detail": "itens=1"
+    },
+    {
+      "group": "planejamento",
+      "name": "PUT /plan levou a lista ordenada com o lote",
+      "pass": true,
+      "detail": "{\"items\":[{\"batch_number\":\"B-1004\",\"product_id\":3,\"custom_title\":null,\"note\":null,\"done\":false}]}"
+    },
+    {
+      "group": "planejamento",
+      "name": "drag do quadro pra lane adiciona o 2o item",
+      "pass": true,
+      "detail": "itens=2 drag=true"
+    },
+    {
+      "group": "planejamento",
+      "name": "PUT do drag persistiu a ordem (B-1004, B-1006)",
+      "pass": true,
+      "detail": "B-1004,B-1006"
+    },
+    {
+      "group": "planejamento",
+      "name": "item livre entra no fim do plano",
+      "pass": true,
+      "detail": "Charcoal · B-1004 | Omega · B-1006 | Trocar bobina da impressora"
+    },
+    {
+      "group": "planejamento",
+      "name": "itens do plano mostram o estagio ao vivo do quadro",
+      "pass": true,
+      "detail": "Esperando revisão | Pronto pra produção"
+    },
+    {
+      "group": "planejamento",
+      "name": "anotacao autosalvou (PUT /notes com o texto)",
+      "pass": true,
+      "detail": "Amanha comecar pelo Charcoal"
+    },
+    {
+      "group": "planejamento",
+      "name": "rodape mostra \"Salvo HH:MM\"",
+      "pass": true,
+      "detail": "Salvo 17:15"
+    },
+    {
+      "group": "screenshot",
+      "name": "planejamento-02",
+      "pass": true,
+      "detail": "planejamento-02.png"
     },
     {
       "group": "roadmap",

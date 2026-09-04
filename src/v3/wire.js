@@ -274,6 +274,17 @@ function mount(app) {
   // router próprio porque src/routes/op.js não pode crescer. Só leitura.
   const opCopilotApi = require('./freight/op-copilot-router');
   app.use('/', opCopilotApi.createOpCopilotRouter({ db: _pool }));
+  // PLANEJAMENTO (Bruno 09-04, direção corrigida) — /api/v3/planning/*. A
+  // página Planejamento mostra o FUNIL da produção do EMS em 7 colunas
+  // (Formulando → Encaixotado; planning/model.js deriva do ems_activity_cache
+  // + nossos events + production_counts + stock_boxes) e persiste o PLANO por
+  // dia (drag do quadro) + anotações (migração 086). Router próprio e pequeno
+  // (o data router não pode crescer); auth da família do warehouse
+  // (view_stock lê, manage_stock escreve plano/notas/flag encaixotado).
+  // ems = o cliente read-only do pipeline vivo (enriquece Formulando).
+  const planningApi = require('./planning/router');
+  const { ems: planningEms } = require('./services/ems-api');
+  app.use('/', planningApi.createPlanningRouter({ db: _pool, ems: planningEms }));
   // REVISÃO DO DIA (Bruno 08-19) — /api/v3/review/*. O popup do widget "Revisão"
   // da Hoje: escolher um dia no mini calendário e ver quem revisou o quê,
   // quantas garrafas, quanto tempo, e se o lote já rodou na linha — mais a fila
