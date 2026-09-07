@@ -142,7 +142,7 @@ class PlanningBoard {
   /** Quem está AGORA em cada lote (eventos abertos, com nome). */
   async _whoByBatch() {
     const r = await this.db.query(`
-      SELECT pb.batch_number, at.slug, p.name, e.started_at
+      SELECT pb.batch_number, at.slug, p.display_name AS name, e.started_at
         FROM v3.events e
         JOIN v3.activity_types at ON at.id = e.activity_type_id
              AND at.slug IN ('review', 'production_line', 'encapsulation')
