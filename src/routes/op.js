@@ -1471,9 +1471,11 @@ function createOpRouter(deps = {}) {
       const willReturn = leaveLabel === 'almoço/pausa'; // clock-out não volta hoje
       if (!silentSlack) {
         if (inexperienced) {
-          // TOM SÉRIO (regra Bruno 07-02): substituto NÃO é operador de máquina.
-          const txt = `:rotating_light: ${me.display_name} saiu (${leaveLabel}) e apontou ${ping} pra cuidar de ${slugs.join(', ')}. ${recv.display_name} não é operador de máquina. Gerentes, confirmem se tá certo. ${ping}, qualquer dúvida chama a gestão.`;
-          await machineSlack(txt); await adminSlack(txt);
+          // Bruno 09-08: tira o alarme e o "gerentes confirmem" do canal do
+          // operador — o substituto lia como bronca. Fato + porta aberta pra
+          // perguntar. Os gestores seguem sabendo, mas no canal DELES.
+          await machineSlack(`${me.display_name} saiu (${leaveLabel}) e apontou ${ping} pra cuidar de ${slugs.join(', ')}. ${recv.display_name} não é operador de máquina, mas se tiver qualquer dúvida avisa aqui!`);
+          await adminSlack(`${me.display_name} saiu (${leaveLabel}) e apontou ${recv.display_name} pra cuidar de ${slugs.join(', ')}. ${recv.display_name} não é operador de máquina, confirmem se tá certo.`);
         } else {
           await machineSlack(`${me.display_name} saiu (${leaveLabel}). ${slugs.join(', ')} agora é do ${ping}.${willReturn ? ` Volta pro ${me.display_name} quando ele voltar.` : ''}`);
         }
