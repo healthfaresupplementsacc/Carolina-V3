@@ -4,6 +4,6 @@ REM instancias travava o loop ("file being used by another process").
 REM `ping` no lugar de `timeout` porque timeout /t exige console interativo.
 cd /d "%~dp0"
 :loop
-node "%~dp0slack-watchdog.js"
+node "%~dp0scheduler.js"
 ping -n 6 127.0.0.1 >nul
 goto loop

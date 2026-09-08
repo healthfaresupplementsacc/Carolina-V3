@@ -1,8 +1,9 @@
 @echo off
-REM Wrapper do Socket Mode Listener (push em tempo real do Slack).
-REM Auto-heal: se o node morrer, espera 5s e sobe de novo.
+REM Wrapper com auto-heal (09-08). NAO redireciona log: o disputa do >> entre
+REM instancias travava o loop ("file being used by another process").
+REM `ping` no lugar de `timeout` porque timeout /t exige console interativo.
 cd /d "%~dp0"
 :loop
-node "%~dp0slack-socket-listener.js" >> "%~dp0_watch\listener.log" 2>&1
-timeout /t 5 /nobreak >nul
+node "%~dp0slack-socket-listener.js"
+ping -n 6 127.0.0.1 >nul
 goto loop
