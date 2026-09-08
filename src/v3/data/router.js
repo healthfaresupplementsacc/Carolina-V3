@@ -1763,7 +1763,15 @@ function createDataRouter(deps = {}) {
       const rows = (await deps.db.query(
         `SELECT p.id AS person_id, p.display_name, p.clock_code,
                 s.checkin_at, s.checkout_at, s.state, s.break_started_at, s.last_in_at,
-                s.punches_count, s.noclockin_callout_at, s.updated_at,
+                s.punches_count, s.updated_at,
+                -- "trabalhando SEM ponto" só enquanto a batida REALMENTE não chegou.
+                -- noclockin_callout_at é o carimbo de QUANDO cobramos, e nada nunca o
+                -- limpa: o relógio entrega a batida ~45min atrasada, a cobrança dispara
+                -- nesse vão e a pessoa ficava marcada o dia todo mesmo tendo batido
+                -- (08/09: as 4 bateram 8:13–9:33 e as 4 apareciam "SEM ponto").
+                (s.noclockin_callout_at IS NOT NULL AND NOT EXISTS (
+                   SELECT 1 FROM v3.att_punch ap WHERE ap.person_id = s.person_id
+                    AND ap.att_date = s.att_date)) AS no_clockin,
                 EXTRACT(EPOCH FROM (NOW() - s.break_started_at))::int AS break_sec
            FROM v3.persons p
            LEFT JOIN v3.att_state s ON s.person_id = p.id AND s.att_date = $1::date
@@ -1798,7 +1806,7 @@ function createDataRouter(deps = {}) {
             punches: pu.map((x) => x.punch_time),
             markers: mk.markers,          // [{kind,at,label,type,minutes}] pra timeline
             breaks: mk.breaks.map((b) => ({ out: b.out, in: b.in, minutes: b.minutes, type: b.type, overtime_min: b.overtime_min || 0 })),
-            no_clockin: !!r.noclockin_callout_at,
+            no_clockin: !!r.no_clockin,
             logged_in: loggedInSet.has(r.person_id),   // sessão de kiosk aberta agora
             updated_at: r.updated_at,
           };
