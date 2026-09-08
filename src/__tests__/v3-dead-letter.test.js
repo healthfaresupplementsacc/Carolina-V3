@@ -79,7 +79,7 @@ describe('Fase A — dead-letter no Observer', () => {
     expect(audit.actor).toBe('llm_observer'); // passa no CHECK (não 'observer')
     expect(db.mem.notifications[0]).toMatchObject({ message_id: 42, attempts: 3 });
     const post = slack.postAs.mock.calls[0][0];
-    expect(post.sender).toEqual({ name: 'Carolina' });
+    expect(post.sender).toEqual({ name: 'Carolyn' });
     expect(post.thread_ts).toBeNull();
     expect(post.text).toContain('dead-letter');
     expect(post.text).toContain('1781.42');

@@ -191,9 +191,9 @@ describe('V3 §2.9 — handleEvent', () => {
   });
 });
 
-// Frente 1 (01/jun) — admin-orin é canal de COMANDO: ingere só com @Carolina.
+// Frente 1 (01/jun) — admin-orin é canal de COMANDO: ingere só com @Carolyn.
 describe('V3 §2.9 — escopo admin-orin (Frente 1)', () => {
-  test('admin-orin COM @Carolina → ingere', async () => {
+  test('admin-orin COM @Carolyn → ingere', async () => {
     const db = makeFakeDb();
     const r = await handleEvent({
       type: 'event_callback',
@@ -217,7 +217,7 @@ describe('V3 §2.9 — escopo admin-orin (Frente 1)', () => {
     expect(db.messages).toHaveLength(0);
   });
 
-  test('produção COM @Carolina → ingere (regressão: produção sempre ingere)', async () => {
+  test('produção COM @Carolyn → ingere (regressão: produção sempre ingere)', async () => {
     const db = makeFakeDb();
     const r = await handleEvent({
       type: 'event_callback',
@@ -262,7 +262,7 @@ describe('V3 §2.9 — escopo admin-orin (Frente 1)', () => {
     expect(postAs).toHaveBeenCalledTimes(1);
     expect(postAs.mock.calls[0][0].thread_ts).toBeNull();      // top-level
     expect(postAs.mock.calls[0][0].channel).toBe(ADMIN);       // canal de origem
-    expect(postAs.mock.calls[0][0].sender.name).toBe('Carolina');
+    expect(postAs.mock.calls[0][0].sender.name).toBe('Carolyn');
   });
 
   test('reaction ✅ no admin-orin é ACEITA (não reaction_other_channel) + canal propagado', async () => {

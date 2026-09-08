@@ -74,7 +74,7 @@ describe('Fase A — close_tasks', () => {
     const { handler, calls } = makeHandler(db, {
       command_type: 'close_tasks', params: { person_ids: [4] }, destructive: true, uncertain: false, explanation: 'fechar tasks Vitor',
     });
-    const r = await handler.tryRoute(msg({ raw_text: '@Carolina Finaliza os tasks do vitor que estao ativos' }));
+    const r = await handler.tryRoute(msg({ raw_text: '@Carolyn Finaliza os tasks do vitor que estao ativos' }));
     expect(r.result).toBe('pending');
     expect(db.mem.pendings[0].type).toBe('close_tasks');
     const conf = calls.posts.find((p) => /Vou fechar/.test(p.text));

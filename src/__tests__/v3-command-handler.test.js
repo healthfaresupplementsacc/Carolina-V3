@@ -212,8 +212,11 @@ const msg = (over = {}) => Object.assign({
 describe('CommandHandler — detecção de mention', () => {
   test('hasMention pega <@U0B3EQLPEPL> + texto livre', () => {
     expect(CommandHandler.hasMention('<@U0B3EQLPEPL> oi')).toBe(true);
-    expect(CommandHandler.hasMention('@Carolina apaga ev280')).toBe(true);
-    expect(CommandHandler.hasMention('@carolina algo')).toBe(true);
+    expect(CommandHandler.hasMention('@Carolyn apaga ev280')).toBe(true);
+    // Bruno 09-08: nome antigo saiu de proposito (confundia com a Caroline Braga)
+    expect(CommandHandler.hasMention('@Carolina apaga ev280')).toBe(false);
+    expect(CommandHandler.hasMention('@carol apaga ev280')).toBe(false);
+    expect(CommandHandler.hasMention('@carolyn algo')).toBe(true);
     expect(CommandHandler.hasMention('S: linha de producao')).toBe(false);
     expect(CommandHandler.hasMention('')).toBe(false);
     expect(CommandHandler.hasMention(null)).toBe(false);
@@ -330,7 +333,7 @@ describe('CommandHandler — não-destrutivo (executa direto)', () => {
       destructive: true, uncertain: false, explanation: 'soft-delete ev999',
     };
     const { handler, slack, db } = makeHandler({ llmJson });
-    const r = await handler.tryRoute(msg({ raw_text: '@Carolina apaga ev999' }));
+    const r = await handler.tryRoute(msg({ raw_text: '@Carolyn apaga ev999' }));
     expect(r.result).toBe('pending');
     expect(db.pendings).toHaveLength(1);
     expect(slack.calls.posts[0].thread_ts).toBeNull();  // pedido de confirmação top-level
@@ -373,7 +376,7 @@ describe('CommandHandler — não-destrutivo (executa direto)', () => {
       destructive: false, uncertain: false,
     };
     const { handler, eventService, slack } = makeHandler({ llmJson });
-    const r = await handler.tryRoute(msg({ raw_text: '@Carolina como tá o Potassium?' }));
+    const r = await handler.tryRoute(msg({ raw_text: '@Carolyn como tá o Potassium?' }));
     expect(r.result).toBe('executed');
     expect(eventService.upsert).not.toHaveBeenCalled();
     expect(slack.calls.posts.length).toBeGreaterThan(0);  // posta resposta
@@ -478,7 +481,7 @@ describe('CommandHandler — destrutivo (pending até ✅)', () => {
       explanation: 'soft-delete ev999',
     };
     const { handler, db, slack, eventService } = makeHandler({ llmJson });
-    const r = await handler.tryRoute(msg({ raw_text: '@Carolina apaga ev999' }));
+    const r = await handler.tryRoute(msg({ raw_text: '@Carolyn apaga ev999' }));
     expect(r.result).toBe('pending');
     expect(db.pendings).toHaveLength(1);
     expect(db.pendings[0].command_type).toBe('delete_event');
@@ -594,7 +597,7 @@ describe('CommandHandler — unknown', () => {
       explanation: 'não entendi',
     };
     const { handler, db, eventService, slack } = makeHandler({ llmJson });
-    const r = await handler.tryRoute(msg({ raw_text: '@Carolina lalalala?' }));
+    const r = await handler.tryRoute(msg({ raw_text: '@Carolyn lalalala?' }));
     expect(r.result).toBe('unknown');
     expect(eventService.upsert).not.toHaveBeenCalled();
     expect(db.pendings).toHaveLength(0);
