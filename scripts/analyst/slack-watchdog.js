@@ -34,7 +34,7 @@ const PRIMARY = 'C0BUKK6EH98';               // supplements-dashboard (PRINCIPAL
 const CAROL_DM = 'D045L79UMME';              // DM Bruno↔Carol — só a sessão da Carol vê (listener NUNCA cobre)
 // orders-and-inventory entra na vigia: operadoras respondem contagens pra Carol lá
 const CHANNELS = (process.env.WATCH_CHANNELS || PRIMARY + ',C0B36DR5MP1,C09UNBXFRKK,' + CAROL_DM).split(',').map((s) => s.trim()).filter(Boolean);
-const QRE = /\?|\bqual\b|\bquant|\bcomo\b|\bpor que|\bmeta|\bgoal|\bme (diz|fala|mostra|manda)\b|\bpreciso\b|@claude|@carol|@bruno|\b\d{3,4}\b|conte[im]|recontei|confirm|frasco|batch|carol/i;
+const QRE = /\?|\bqual\b|\bquant|\bcomo\b|\bpor que|\bmeta|\bgoal|\bme (diz|fala|mostra|manda)\b|\bpreciso\b|@claude|@carolyn|@bruno|\b\d{3,4}\b|conte[im]|recontei|confirm|frasco|batch|carolyn/i;
 
 let seen = new Set();
 try { seen = new Set(JSON.parse(fs.readFileSync(SEEN, 'utf8'))); } catch (_) {}
@@ -155,12 +155,12 @@ async function tick() {
         const key = chan + ':' + m.ts + ':' + m.text.slice(0, 24);
         if (!m.ts || seen.has(key)) continue;
         // ignora o que o próprio Claude/Carol/bots da casa postaram (qualquer "HealthFare *")
-        if (/^(carol|carolina|healthfare )/i.test(m.sender)) { seen.add(key); continue; }
+        if (/^(carolyn|carol|carolina|healthfare )/i.test(m.sender)) { seen.add(key); continue; } // eu (nome novo e antigos) + bots da casa
         // ignora avisos de sistema do Slack (entrou/saiu do canal, etc.)
         if (/\b(joined|left|has joined|has left|set the channel|pinned a message|added an integration|renamed the channel)\b/i.test(m.text)) { seen.add(key); continue; }
         // no canal PRINCIPAL (supplements-dashboard) TUDO é pra mim.
         // nos outros canais: só se marca o Claude, marca o Bruno, vem do Bruno, ou parece pergunta.
-        const tagsMe = m.text.includes(CLAUDE_ID) || /@claude|@carol/i.test(m.text);
+        const tagsMe = m.text.includes(CLAUDE_ID) || /@claude|@carolyn/i.test(m.text);
         const fromBruno = /bruno/i.test(m.sender);
         const looksQ = QRE.test(m.text) || m.text.includes(BRUNO);
         if (!isPrimary && !tagsMe && !fromBruno && !looksQ) { seen.add(key); continue; }
@@ -222,10 +222,12 @@ function processAutoAck() {
   const age = Date.now() - new Date(newest.at).getTime();
   if (age < 60 * 1000 || age > 15 * 60 * 1000) return;    // nova demais (Claude pega) ou velha demais (ack tardio e pior)
   if (!/^[CD]/.test(newest.channel || '')) return;
-  // sinal de vida SÓ pra gente de verdade: nunca pra alerta de bot/sistema (4am no
-  // canal vazio fica bizarro) e nunca no admin-orin (lá é só relatório)
-  if (!newest.sender || /^(carol|carolina|healthfare )/i.test(newest.sender)) return;
-  if (newest.channel === 'C0B36DR5MP1') return;
+  // sinal de vida SÓ onde falam COMIGO: supplements-dashboard e DMs. NUNCA no
+  // orders-and-inventory (operadores falando entre si; 09-07 a Carol "respondeu"
+  // o Henrique falando com a Simone e pareceu resposta ao bot de Totais) e NUNCA
+  // no admin-orin. E nunca pra bot/sistema.
+  if (!newest.sender || /^(carolyn|carol|carolina|healthfare )/i.test(newest.sender)) return;
+  if (newest.channel !== PRIMARY && !newest.channel.startsWith('D')) return;
   const phrase = ACK_PHRASES[(st.idx || 0) % ACK_PHRASES.length];
   const r = require('child_process').spawnSync('node', [path.join(__dirname, 'carolina-say.js'), 'channel', '--ch', newest.channel, '--text', phrase], { timeout: 180000 });
   if (r.status === 0) {

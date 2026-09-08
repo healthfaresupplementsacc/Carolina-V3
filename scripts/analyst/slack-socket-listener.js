@@ -29,7 +29,7 @@ const WATCHED = new Set([PRIMARY, 'C0B36DR5MP1']); // admin-orin: só se me marc
 const BRUNO = 'U03URLL1D4L';
 const CLAUDE_ID = 'D045L79UMME';
 const CAROL = 'U044WG04UMQ';                 // eu postando como Carol — ignorar
-const QRE = /\?|\bqual\b|\bquant|\bcomo\b|\bpor que|\bmeta|\bgoal|\bme (diz|fala|mostra|manda)\b|\bpreciso\b|@claude|@carol/i;
+const QRE = /\?|\bqual\b|\bquant|\bcomo\b|\bpor que|\bmeta|\bgoal|\bme (diz|fala|mostra|manda)\b|\bpreciso\b|@claude|@carolyn/i;
 const SKIP_SUBTYPES = new Set(['channel_join', 'channel_leave', 'channel_topic', 'channel_purpose', 'channel_name', 'message_deleted', 'message_changed', 'bot_add', 'pinned_item']);
 
 let seen = new Set();
@@ -63,7 +63,7 @@ function wanted(ev) {
   if (ev.subtype && SKIP_SUBTYPES.has(ev.subtype)) return false;
   if (user === CAROL) return false;                       // eu mesma (Carol)
   // menção crua em evento = <@Uxxxx>; cubro Claude/Carol por ID e por nome
-  const tagsMe = text.includes(CLAUDE_ID) || text.includes(CAROL) || /@claude|@carol/i.test(text);
+  const tagsMe = text.includes(CLAUDE_ID) || text.includes(CAROL) || /@claude|@carolyn/i.test(text);
   if (ev.bot_id && !tagsMe) return false;                 // bots só se me marcarem
   if (chan.startsWith('D')) return true;                  // DM com o claude_listener: tudo é pra mim
   if (chan === PRIMARY) return true;                      // canal principal: tudo

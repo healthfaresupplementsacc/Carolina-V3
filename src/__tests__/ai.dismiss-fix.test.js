@@ -19,17 +19,17 @@ describe('bugfix — every required dismiss keyword (bare + vocative)', () => {
   test.each(KW)('"%s" → dismiss intent', (kw) => {
     expect(at.detectDismissIntent(kw)).toBe(true);
   });
-  test.each(KW)('"Carolina, %s" (vocative) → dismiss intent', (kw) => {
-    expect(at.detectDismissIntent('Carolina, ' + kw)).toBe(true);
+  test.each(KW)('"Carolyn, %s" (vocative) → dismiss intent', (kw) => {
+    expect(at.detectDismissIntent('Carolyn, ' + kw)).toBe(true);
   });
-  test.each(['ó Carol, ignora', 'Carolina ignora isso', 'carol fecha essa', 'ei carolina, esquece'])(
+  test.each(['ó Carolyn, ignora', 'Carolyn ignora isso', 'carolyn fecha essa', 'ei carolyn, esquece'])(
     'natural phrasing "%s" → dismiss', (s) => { expect(at.detectDismissIntent(s)).toBe(true); });
 });
 
 describe('bugfix — real orders / questions are NOT dismiss', () => {
   test.each([
-    'fecha a fase #5', 'Carolina, fecha a fase #5', 'renomeia tarefa #10 pra Limpeza',
-    'qual é o estado das fases abertas agora?', 'Carolina, qual é o estado das fases agora?',
+    'fecha a fase #5', 'Carolyn, fecha a fase #5', 'renomeia tarefa #10 pra Limpeza',
+    'qual é o estado das fases abertas agora?', 'Carolyn, qual é o estado das fases agora?',
     'mostra timeline da Ana hoje', 'sim', 'parabéns', 'paralelo', 'aprova essa tarefa',
   ])('"%s" → NOT dismiss', (s) => { expect(at.detectDismissIntent(s)).toBe(false); });
 });
@@ -38,7 +38,7 @@ describe('bugfix — looksLikeTimeReply gates the retro-break handler', () => {
   test.each(['14:30', '14h30', '1430', '14h', '2pm', 'às 9:05', '08:00'])(
     'time "%s" → true', (s) => { expect(btr.looksLikeTimeReply(s)).toBe(true); });
   test.each([
-    'fecha a fase #5', 'Carolina, qual é o estado das fases agora?', 'ignora',
+    'fecha a fase #5', 'Carolyn, qual é o estado das fases agora?', 'ignora',
     'fecha essa', 'esquece', 'renomeia #10 pra X', '5',
   ])('non-time "%s" → false', (s) => { expect(btr.looksLikeTimeReply(s)).toBe(false); });
 });
@@ -52,7 +52,7 @@ describe('bugfix — interpretDirectOrder with a pending retro-break question', 
     });
   }
 
-  test.each(['ignora', 'fecha essa', 'esquece', 'deleta', 'para com isso', 'cancela', 'deixa', 'Carolina, fecha essa'])(
+  test.each(['ignora', 'fecha essa', 'esquece', 'deleta', 'para com isso', 'cancela', 'deixa', 'Carolyn, fecha essa'])(
     '"%s" → dismisses the pending break question', async (s) => {
       retroPending();
       const r = await at.interpretDirectOrder(s, { auditAction: jest.fn() });
@@ -91,4 +91,13 @@ describe('bugfix — coexistence: loop runs + reminds about the pending question
     // the pending context was passed into the prompt
     expect(sys).toMatch(/PEND[ÊE]NCIAS: pergunta de hor[áa]rio de break/);
   });
+});
+
+// Bruno 09-08: o sistema so responde a "Carolyn". "Carol"/"Carolina" sairam de
+// proposito pra nunca confundir com a Caroline Braga (funcionaria de verdade).
+describe('nome antigo nao e mais vocativo', () => {
+  test.each(['Carolina, ignora', 'ó Carol, ignora', 'carol fecha essa', 'Caroline, ignora'])(
+    '%s → NAO e tratado como vocativo da Carolyn', (t) => {
+      expect(at.detectDismissIntent(t)).toBe(false);
+    });
 });

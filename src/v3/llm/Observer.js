@@ -258,7 +258,7 @@ class Observer {
     if (this.reviewToAdmin && this.slack && this.slack.postAs && (created.length || updated.length || (decision.actions && decision.actions.length))) {
       try {
         await this.slack.postAs({
-          channel: this.alertAdminChannelId, sender: { name: 'Carolina (revisão)' }, thread_ts: null,
+          channel: this.alertAdminChannelId, sender: { name: 'Carolyn (revisão)' }, thread_ts: null,
           unfurl_links: false, unfurl_media: false,
           text: `:eyes: *Revisão* — interpretei do Slack:\n_"${(message.raw_text || '').slice(0, 160)}"_\n→ ${decision.interpretation || '(sem interpretação)'}\n`
             + (created.length ? `• criou ${created.length} event(s)\n` : '')
@@ -672,7 +672,7 @@ class Observer {
       if (this.enableWorkerAlerts && this.slack && this.slack.postAs) {
         try {
           await this.slack.postAs({
-            channel: this.alertAdminChannelId, sender: { name: 'Carolina' }, thread_ts: null,
+            channel: this.alertAdminChannelId, sender: { name: 'Carolyn' }, thread_ts: null,
             text: `⚠️ Mensagem entrou em *dead-letter* após ${attempts} tentativas.\n`
               + `ts: ${message.slack_ts}\n`
               + `texto: ${(message.raw_text || '').slice(0, 100)}\n`

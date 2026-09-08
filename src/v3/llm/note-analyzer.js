@@ -52,7 +52,7 @@ class NoteAnalyzer {
     if (j.precisa_admin && this.slack && this.slack.postAs) {
       try {
         await this.slack.postAs({
-          channel: this.adminChannel, sender: { name: 'Carolina' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
+          channel: this.adminChannel, sender: { name: 'Carolyn' }, thread_ts: null, unfurl_links: false, unfurl_media: false,
           text: `Nota de ${input.personName || 'operador'} (${input.slug || '?'}): _"${text.slice(0, 220)}"_\n→ ${j.motivo_admin || j.resumo || 'merece atenção'}`,
         });
       } catch (e) { console.error('[note-llm] admin post:', e.message); }

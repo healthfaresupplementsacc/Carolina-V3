@@ -165,7 +165,7 @@ async function handleEvent(payload, deps) {
         try {
           await commandHandler.slack.postAs({
             // reply top-level (thread_ts=null) — decisão Bruno 01/jun.
-            channel: item.channel, sender: { name: 'Carolina' },
+            channel: item.channel, sender: { name: 'Carolyn' },
             thread_ts: null, text: '🛑 Comando cancelado pelo admin.',
           });
         } catch (_) { /* não derruba */ }

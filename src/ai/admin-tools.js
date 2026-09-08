@@ -762,7 +762,9 @@ function stripVocative(text) {
   let t = String(text || '').trim().toLowerCase();
   t = t.replace(/^[\s,.:!¡-]+/, '');
   t = t.replace(/^(?:[óôoái]+|ei|oi|opa|hey|e?a[ií])\s+/i, '');
-  t = t.replace(/^(?:carol(?:ina)?|caro|bot|ô?\s*carol)[\s,.:!-]*/i, '');
+  // Bruno 09-08: SO Carolyn. Carol/Carolina saíram de proposito pra nao confundir
+  // com a Caroline Braga (funcionaria de verdade).
+  t = t.replace(/^(?:carolyn|bot|ô?\s*carolyn)[\s,.:!-]*/i, '');
   t = t.replace(/^(?:por\s+favor|pf|faz\s+favor|pfv)[\s,]*/i, '');
   return t.trim();
 }

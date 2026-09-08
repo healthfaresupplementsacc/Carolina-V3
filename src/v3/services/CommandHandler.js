@@ -29,9 +29,10 @@
  */
 
 const ADMIN_ROLES = ['owner', 'manager'];
-// Bruno 08-03: ID da Carolina env-overridable (era hardcoded). @carolina textual continua.
+// Bruno 08-03: ID env-overridable (era hardcoded). Bruno 09-08: nome textual agora e
+// SO @carolyn — @carol/@carolina sairam pra nao confundir com a Caroline Braga (funcionaria).
 const _CAROLINA_ID = process.env.CAROLINA_ADMIN_USER_ID || 'U0B3EQLPEPL';
-const CAROLINA_MENTION_REGEX = new RegExp('<@' + _CAROLINA_ID + '>|@carolina|@Carolina');
+const CAROLINA_MENTION_REGEX = new RegExp('<@' + _CAROLINA_ID + '>|@carolyn', 'i');
 const DEFAULT_TTL_MIN = 10;
 const { setPlan } = require('../workday'); // plano do dia sob demanda (fds) — Bruno 07-11
 
