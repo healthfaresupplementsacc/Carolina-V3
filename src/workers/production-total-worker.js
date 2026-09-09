@@ -149,7 +149,7 @@ class ProductionTotalWorker {
       (lastText ? `Última resposta: "${String(lastText).slice(0, 150)}". ` : `Sem resposta. `) +
       `Alguém precisa ir atrás e registrar (linha #${f.event_id}).`);
     // avisa na thread do operador que passei pro pessoal resolver (sem cobrar mais)
-    await this._thread(f.thread_ts, `Sem problema, vou pedir pra gestão te ajudar a fechar esse total. Valeu!`);
+    await this._thread(f.thread_ts, `Sem problema, depois a gente fecha esse total. Valeu!`);
   }
 
   async _close(f, { via, bottles, silent }) {

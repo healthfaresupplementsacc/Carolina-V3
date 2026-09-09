@@ -1446,10 +1446,10 @@
       var name = arg && S.overlay && (S.overlay.candidates || []).filter(function (c) { return String(c.id) === String(arg); }).map(function (c) { return c.display_name; })[0];
       var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
       if (fn) fn(parseInt(arg, 10));
-      toast((name || 'Colega') + ' vai ficar de olho na máquina — gerentes avisados');
+      toast((name || 'Colega') + ' vai ficar de olho na máquina');
     },
     appointNone: function () {
-      showAlert({ title: 'Ninguém pra cuidar da máquina?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pros funcionários e pros gerentes pra alguém assumir o mais rápido possível. Confirma que não tem ninguém disponível agora?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
+      showAlert({ title: 'Ninguém pra cuidar da máquina?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pra alguém assumir o mais rápido possível. Confirma que não tem ninguém disponível agora?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
         .then(function (ok) {
           if (!ok) return;
           var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
@@ -1481,7 +1481,7 @@
     },
     emNobody: function () {
       var o = S.overlay; if (!o) return;
-      showAlert({ title: 'Ninguém disponível?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pros funcionários e gerentes pra alguém assumir. Confirma?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
+      showAlert({ title: 'Ninguém disponível?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pra alguém assumir. Confirma?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
         .then(function (ok) { if (ok) doClockOut(Object.assign({}, o, { appointee: 'none' })); });
     },
     note: function () { S.overlay = { type: 'note', note: '' }; S._focus = 'ovNote'; render(); },
@@ -1834,7 +1834,7 @@
       // VALIDAÇÃO CONTRA O ALVO (Bruno 07-08): o total do lote passaria MUITO do
       // alvo do EMS → o número parece errado. Confirma; se confirmar, grita no Slack.
       if (res && res.bottle_over_target) {
-        var m2 = 'ATENÇÃO — O NÚMERO PARECE ERRADO.\n\nEste lote tem alvo de ' + res.target + ' bottles' + (res.already > 0 ? (' e JÁ foram contados ' + res.already) : '') + '. Adicionar ' + res.attempted + ' daria ' + res.would_total + ' no total (' + res.pct + '% do alvo).' + (res.remaining_estimate > 0 ? ('\n\nO esperado pra fechar era ~' + res.remaining_estimate + ' bottles.') : '') + '\n\nO número está certo mesmo? (Se confirmar, os gerentes serão avisados pra conferir.)';
+        var m2 = 'ATENÇÃO — O NÚMERO PARECE ERRADO.\n\nEste lote tem alvo de ' + res.target + ' bottles' + (res.already > 0 ? (' e JÁ foram contados ' + res.already) : '') + '. Adicionar ' + res.attempted + ' daria ' + res.would_total + ' no total (' + res.pct + '% do alvo).' + (res.remaining_estimate > 0 ? ('\n\nO esperado pra fechar era ~' + res.remaining_estimate + ' bottles.') : '') + '\n\nO número está certo mesmo?';
         if (window.confirm(m2)) { postFinish(Object.assign({}, o, { _overAck: true })); }
         return;
       }
