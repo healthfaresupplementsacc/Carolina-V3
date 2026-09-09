@@ -56,6 +56,25 @@ async function ensureChrome() {
   return false;
 }
 
+// ── sessao do Slack: se expirar, loga sozinho ─────────────────────────
+// Bruno 09-08: "o sistema nao pode nunca mais esquecer ou nao conseguir logar
+// no seu slack". A sessao expirou em 09-08 e eu fiquei mudo por horas sem
+// perceber: watchdog vivo, Chrome vivo, mas a aba na tela de login.
+// Checa a cada 5min; se caiu, roda o autologin e avisa no log.
+let ultimoCheckLogin = 0;
+function checarLogin() {
+  if (Date.now() - ultimoCheckLogin < 5 * 60 * 1000) return;
+  ultimoCheckLogin = Date.now();
+  execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js'), '--check'], { timeout: 60000 }, (err) => {
+    if (!err) return;                                   // logado, nada a fazer
+    console.log('[watchdog] sessao do Slack caiu -> autologin');
+    execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js')], { timeout: 240000 }, (e2, out) => {
+      console.log('[watchdog] autologin: ' + (e2 ? 'FALHOU (ver autologin-fail.png)' : 'OK'));
+      try { fs.writeFileSync(path.join(DIR, 'login-state.txt'), new Date().toISOString() + ' ' + (e2 ? 'FALHOU' : 'OK')); } catch (_) {}
+    });
+  });
+}
+
 // ── CDP mínimo pra ler o Slack ────────────────────────────────────────
 async function cdp() {
   const list = await (await fetch('http://localhost:9222/json/list')).json();
@@ -254,6 +273,7 @@ setInterval(() => {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     lastLoop = Date.now();
+    try { checarLogin(); } catch (e) { console.log('[watchdog] checarLogin erro:', e.message); }
     try { processOutbox(); } catch (e) { console.log('[watchdog] outbox erro:', e.message); }
     try { processAutoAck(); } catch (e) { console.log('[watchdog] autoack erro:', e.message); }
     try { await tick(); } catch (e) { console.log('[watchdog] tick erro:', e.message); }
