@@ -185,8 +185,12 @@ async function tick() {
       try { rows = await readChannel(c, chan); } catch (_) { continue; }
       const isPrimary = chan === PRIMARY || chan.startsWith('D'); // DM da Carol = tudo é pra mim
       for (const m of rows) {
-        const key = chan + ':' + m.ts + ':' + m.text.slice(0, 24);
-        if (!m.ts || seen.has(key)) continue;
+        // Chave ESTAVEL: o id do DOM muda quando o Slack re-renderiza a lista
+        // (09-09: o canal inteiro de ontem voltou pro inbox em rajada, e uma
+        // recaptura podia fazer a Carolyn "responder" conversa velha). Canal +
+        // remetente + texto inteiro nao muda entre renders.
+        const key = chan + '|' + (m.sender || '') + '|' + m.text;
+        if (!m.text || seen.has(key)) continue;
         // ignora o que o próprio Claude/Carol/bots da casa postaram (qualquer "HealthFare *")
         if (/^(carolyn|carol|carolina|healthfare )/i.test(m.sender)) { seen.add(key); continue; } // eu (nome novo e antigos) + bots da casa
         // ignora avisos de sistema do Slack (entrou/saiu do canal, etc.)
@@ -254,6 +258,12 @@ function processAutoAck() {
   let newest; try { newest = JSON.parse(lines[lines.length - 1]); } catch (_) { return; }
   const age = Date.now() - new Date(newest.at).getTime();
   if (age < 60 * 1000 || age > 15 * 60 * 1000) return;    // nova demais (Claude pega) ou velha demais (ack tardio e pior)
+  // 09-09: recaptura de historico chega com `at` de AGORA mas ts do Slack antigo.
+  // Se o ts real tem mais de 30min, e conversa velha relida: nunca responder.
+  if (newest.ts) {
+    const idadeReal = Date.now() - (parseFloat(newest.ts) * 1000);
+    if (idadeReal > 30 * 60 * 1000) return;
+  }
   if (!/^[CD]/.test(newest.channel || '')) return;
   // sinal de vida SÓ onde falam COMIGO: supplements-dashboard e DMs. NUNCA no
   // orders-and-inventory (operadores falando entre si; 09-07 a Carol "respondeu"
