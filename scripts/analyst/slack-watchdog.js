@@ -75,6 +75,20 @@ function checarLogin() {
   });
 }
 
+// Obsidian no Google Drive (G:) as vezes desmonta. O que nao deu pra escrever
+// fica em _watch/obsidian-pendente/ e entra sozinho quando o drive volta.
+let ultimoObsidian = 0;
+function aplicarObsidianPendente() {
+  if (Date.now() - ultimoObsidian < 10 * 60 * 1000) return;
+  ultimoObsidian = Date.now();
+  const script = path.join(DIR, 'aplicar-obsidian-pendente.js');
+  if (!fs.existsSync(script)) return;
+  execFile(process.execPath, [script], { timeout: 60000 }, (e, out) => {
+    const t = String(out || '').trim();
+    if (t && !/ainda fora|nada pendente/.test(t)) console.log('[watchdog] obsidian: ' + t);
+  });
+}
+
 // ── CDP mínimo pra ler o Slack ────────────────────────────────────────
 async function cdp() {
   const list = await (await fetch('http://localhost:9222/json/list')).json();
@@ -274,6 +288,7 @@ setInterval(() => {
   while (true) {
     lastLoop = Date.now();
     try { checarLogin(); } catch (e) { console.log('[watchdog] checarLogin erro:', e.message); }
+    try { aplicarObsidianPendente(); } catch (e) { console.log('[watchdog] obsidian pendente erro:', e.message); }
     try { processOutbox(); } catch (e) { console.log('[watchdog] outbox erro:', e.message); }
     try { processAutoAck(); } catch (e) { console.log('[watchdog] autoack erro:', e.message); }
     try { await tick(); } catch (e) { console.log('[watchdog] tick erro:', e.message); }
