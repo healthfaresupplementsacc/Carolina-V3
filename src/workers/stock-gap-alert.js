@@ -113,8 +113,17 @@ class StockGapAlert {
           if (gaps && (gaps.items || []).length) {
             const text = this._format(gaps, ':package: *Falta de estoque pro P&P de hoje* (impressão começou há ' + Math.round(ago) + ' min):');
             await this._post(this.adminChannel, text);
-            const muted = await isMuted(this.db, new Date()).catch(() => false);
-            if (!muted) await this._post(this.opsChannel, text);
+            // Bruno 09-09: o canal dos operadores so recebe o que FALTA DE VERDADE
+            // pra fechar hoje (zerado, ou menos do que a picklist precisa). Item
+            // com estoque de sobra ("precisa 1, tem 21") e planejamento, nao falta:
+            // no canal deles isso e spam e ensina a ignorar o alerta verdadeiro.
+            const urgentes = (gaps.items || []).filter((i) => i.status === 'out' || i.stock < i.needed);
+            if (urgentes.length) {
+              const muted = await isMuted(this.db, new Date()).catch(() => false);
+              const textoOps = this._format({ ...gaps, items: urgentes },
+                ':package: *Falta de estoque pro P&P de hoje* (impressão começou há ' + Math.round(ago) + ' min):');
+              if (!muted) await this._post(this.opsChannel, textoOps);
+            }
             await this._mark('after_printing', date, { items: gaps.items.length, critical: gaps.critical_count });
             out.after_printing = gaps.items.length;
           } else {
