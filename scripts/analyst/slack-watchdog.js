@@ -15,6 +15,9 @@
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
+require('./tee-log')('watchdog.log');                       // 09-09: log de verdade de novo
+require('./single-instance')('watchdog', 'heartbeat.txt');  // 09-09: nunca dois watchdogs
+require('./self-reload')(['slack-watchdog.js', 'single-instance.js', 'tee-log.js', 'self-reload.js'], { busy: () => autologinRodando });  // 09-09: atualiza sem UAC
 
 const DIR = path.join(__dirname, '_watch');
 try { fs.mkdirSync(DIR, { recursive: true }); } catch (_) {}
@@ -62,14 +65,22 @@ async function ensureChrome() {
 // perceber: watchdog vivo, Chrome vivo, mas a aba na tela de login.
 // Checa a cada 5min; se caiu, roda o autologin e avisa no log.
 let ultimoCheckLogin = 0;
+let ultimaFalhaLogin = 0;       // 09-09: backoff: tentar a cada 5min foi o que virou CAPTCHA no Google
+let autologinRodando = false;   // 09-09: nao reciclar a aba no meio do login
+const HUMANO = path.join(DIR, 'login-needs-human.txt');
 function checarLogin() {
   if (Date.now() - ultimoCheckLogin < 5 * 60 * 1000) return;
   ultimoCheckLogin = Date.now();
   execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js'), '--check'], { timeout: 60000 }, (err) => {
-    if (!err) return;                                   // logado, nada a fazer
+    if (!err) { try { if (fs.existsSync(HUMANO)) { fs.unlinkSync(HUMANO); console.log('[watchdog] login de volta (humano resolveu); flag apagada'); } } catch (_) {} return; }
+    if (fs.existsSync(HUMANO)) { console.log('[watchdog] sessao caida, mas esperando HUMANO (login-needs-human.txt); nao tento'); return; }
+    if (Date.now() - ultimaFalhaLogin < 30 * 60 * 1000) { console.log('[watchdog] sessao caida; backoff de 30min depois da ultima falha'); return; }
     console.log('[watchdog] sessao do Slack caiu -> autologin');
+    autologinRodando = true;
     execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js')], { timeout: 240000 }, (e2, out) => {
-      console.log('[watchdog] autologin: ' + (e2 ? 'FALHOU (ver autologin-fail.png)' : 'OK'));
+      autologinRodando = false;
+      if (e2) ultimaFalhaLogin = Date.now();
+      console.log('[watchdog] autologin: ' + (e2 ? 'FALHOU (ver autologin-fail.png)' : 'OK') + ' :: ' + String(out || '').trim().split('\n').slice(-3).join(' | '));
       try { fs.writeFileSync(path.join(DIR, 'login-state.txt'), new Date().toISOString() + ' ' + (e2 ? 'FALHOU' : 'OK')); } catch (_) {}
     });
   });
@@ -157,6 +168,19 @@ function listenerAlive() {
   } catch (_) { return false; }
 }
 
+let cdpFalhas = 0;
+async function reciclarAbaSlack() {
+  try {
+    const list = await (await fetch('http://localhost:9222/json/list')).json();
+    const abas = list.filter((x) => x.type === 'page' && /slack\.com/.test(x.url || ''));
+    console.log('[watchdog] reciclando aba do Slack pendurada (' + abas.length + ' aba(s))');
+    for (const a of abas) { try { await fetch('http://localhost:9222/json/close/' + a.id); } catch (_) {} }
+    await sleep(1500);
+    await fetch('http://localhost:9222/json/new?url=' + encodeURIComponent('https://app.slack.com/client/' + TEAM), { method: 'PUT' });
+    await sleep(8000);
+  } catch (e) { console.log('[watchdog] reciclar aba falhou:', e.message); }
+}
+
 async function tick() {
   if (!(await ensureChrome())) { console.log('[watchdog] Chrome não subiu; tentando no próximo tick'); return; }
   fs.writeFileSync(HB, new Date().toISOString()); // batida no INÍCIO (tick longo não parece morte)
@@ -176,7 +200,15 @@ async function tick() {
     if (!toScrape.length) { fs.writeFileSync(HB, new Date().toISOString()); return; } // tudo coberto; só keep-alive
   }
   let c;
-  try { c = await cdp(); } catch (e) { console.log('[watchdog] cdp falhou:', e.message); return; }
+  try { c = await cdp(); cdpFalhas = 0; } catch (e) {
+    cdpFalhas++;
+    console.log('[watchdog] cdp falhou:', e.message, '(' + cdpFalhas + 'x seguidas)');
+    // 09-09: Chrome respondia no /json/version mas a aba do Slack nao respondia
+    // Runtime.enable por horas (dezenas de "cdp timeout" no log) = mudo sem
+    // aviso. Aba pendurada se fecha e abre outra; nunca no meio de um login.
+    if (cdpFalhas >= 6 && !autologinRodando) { await reciclarAbaSlack(); cdpFalhas = 0; }
+    return;
+  }
   const SCRAPE_LOCK = path.join(DIR, 'scrape.lock');
   try { fs.writeFileSync(SCRAPE_LOCK, String(Date.now())); } catch (_) {}
   try {

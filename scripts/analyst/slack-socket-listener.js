@@ -16,6 +16,9 @@
  */
 const fs = require('fs');
 const path = require('path');
+require('./tee-log')('listener.log');                            // 09-09
+require('./single-instance')('listener', 'listener-alive.txt');  // 09-09
+require('./self-reload')(['slack-socket-listener.js', 'single-instance.js', 'tee-log.js', 'self-reload.js']);  // 09-09: sem UAC pra atualizar
 
 const DIR = path.join(__dirname, '_watch');
 try { fs.mkdirSync(DIR, { recursive: true }); } catch (_) {}
