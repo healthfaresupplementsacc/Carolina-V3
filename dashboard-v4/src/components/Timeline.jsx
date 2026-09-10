@@ -243,7 +243,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
             const hasLunchEv = lay.neutral.some((e) => e.activity === 'lunch' && lo != null && li != null && e.started_min < li && effEndOf(e) > lo);
             let lastOutRight = -1e9;
 
-            const totalsMeta = <div className="meta" style={{ color: 'var(--text-3)' }}>{lay.real.filter((e) => !L.isNeutral(e)).length} reg. · {L.fmtDurShort(total)}{clockedOut ? ' · saiu ' + fmt(checkoutMin) : ''}</div>;
+            const totalsMeta = <div className="meta" style={{ color: 'var(--text-3)' }} title={clockedOut ? 'saiu ' + fmt(checkoutMin) : ''}>{lay.real.filter((e) => !L.isNeutral(e)).length} reg. · {L.fmtDurShort(total)}{clockedOut ? ' · ' + fmt(checkoutMin).replace(' ', '') + ' ↗' : ''}</div>;
             const status = !isToday
               ? totalsMeta
               : clockedOut
