@@ -29,14 +29,21 @@ const LAUNCHER = path.join(__dirname, 'carolina-chrome.ps1');
 const POLL_MS = parseInt(process.env.POLL_MS || '10000', 10);
 const TEAM = process.env.SLACK_TEAM || 'T020AHKP5D5';
 const BRUNO = 'U03URLL1D4L';                 // Bruno Camp
-const CLAUDE_ID = process.env.CLAUDE_ID || 'D045L79UMME'; // "eu" (Claude) — mensagens que me marcam
+const CLAUDE_ID = process.env.CLAUDE_ID || 'D045L79UMME'; // id da CONVERSA (DM), nao serve pra mencao
+// BUG achado 09-10: mencao no Slack chega como <@U044WG04UMQ> (USER id). Usar o
+// id da DM aqui deixava o filtro de @carolyn SEMPRE falso.
+const CAROLYN_USER = 'U044WG04UMQ';          // @carolyn de verdade
 // Canal principal = supplements-dashboard. Também vigio admin-orin (onde tags/menções aparecem).
 // Regra do Bruno: qualquer msg que (a) esteja no supplements-dashboard, OU (b) marque o Claude, OU
 // (c) marque o Bruno, OU (d) pareça pergunta → vai pro inbox.
 const PRIMARY = 'C0BUKK6EH98';               // supplements-dashboard (PRINCIPAL)
 const CAROL_DM = 'D045L79UMME';              // DM Bruno↔Carol — só a sessão da Carol vê (listener NUNCA cobre)
 // orders-and-inventory entra na vigia: operadoras respondem contagens pra Carol lá
-const CHANNELS = (process.env.WATCH_CHANNELS || PRIMARY + ',C0B36DR5MP1,C09UNBXFRKK,' + CAROL_DM).split(',').map((s) => s.trim()).filter(Boolean);
+// Bruno 09-10: admin-orin SAIU da vigia (e canal de relatorio de bot; eu tenho
+// acesso e leio quando ele pedir). orders-and-inventory fica, mas SO pra @carolyn:
+// e canal dos operadores falando entre si, vigiar tudo la so gastava contexto.
+const ONLY_MENTION = new Set(['C09UNBXFRKK']);   // orders-and-inventory: so se me chamarem
+const CHANNELS = (process.env.WATCH_CHANNELS || PRIMARY + ',C09UNBXFRKK,' + CAROL_DM).split(',').map((s) => s.trim()).filter(Boolean);
 const QRE = /\?|\bqual\b|\bquant|\bcomo\b|\bpor que|\bmeta|\bgoal|\bme (diz|fala|mostra|manda)\b|\bpreciso\b|@claude|@carolyn|@bruno|\b\d{3,4}\b|conte[im]|recontei|confirm|frasco|batch|carolyn/i;
 
 let seen = new Set();
@@ -229,10 +236,15 @@ async function tick() {
         if (/\b(joined|left|has joined|has left|set the channel|pinned a message|added an integration|renamed the channel)\b/i.test(m.text)) { seen.add(key); continue; }
         // no canal PRINCIPAL (supplements-dashboard) TUDO é pra mim.
         // nos outros canais: só se marca o Claude, marca o Bruno, vem do Bruno, ou parece pergunta.
-        const tagsMe = m.text.includes(CLAUDE_ID) || /@claude|@carolyn/i.test(m.text);
-        const fromBruno = /bruno/i.test(m.sender);
-        const looksQ = QRE.test(m.text) || m.text.includes(BRUNO);
-        if (!isPrimary && !tagsMe && !fromBruno && !looksQ) { seen.add(key); continue; }
+        const tagsMe = m.text.includes(CAROLYN_USER) || /@carolyn/i.test(m.text);
+        // canal de MENCAO (orders-and-inventory): entra SO com @carolyn. Nem
+        // pergunta solta, nem numero, nem msg do Bruno pros operadores.
+        if (ONLY_MENTION.has(chan)) { if (!tagsMe) { seen.add(key); continue; } }
+        else {
+          const fromBruno = /bruno/i.test(m.sender);
+          const looksQ = QRE.test(m.text) || m.text.includes(BRUNO);
+          if (!isPrimary && !tagsMe && !fromBruno && !looksQ) { seen.add(key); continue; }
+        }
         seen.add(key);
         const rec = { at: new Date().toISOString(), channel: chan, sender: m.sender, text: m.text };
         fs.appendFileSync(INBOX, JSON.stringify(rec) + '\n');

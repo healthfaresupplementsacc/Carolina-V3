@@ -28,7 +28,10 @@ const SEEN = path.join(DIR, 'seen-socket.json');
 const ALIVE = path.join(DIR, 'listener-alive.txt');
 
 const PRIMARY = 'C0BUKK6EH98';               // supplements-dashboard: TUDO é pra mim
-const WATCHED = new Set([PRIMARY, 'C0B36DR5MP1']); // admin-orin: só se me marcar/pergunta
+// Bruno 09-10: admin-orin saiu (leio quando ele pedir). orders-and-inventory
+// entra SO com @carolyn — la os operadores falam entre si.
+const ONLY_MENTION = new Set(['C09UNBXFRKK']);   // orders-and-inventory
+const WATCHED = new Set([PRIMARY, ...ONLY_MENTION]);
 const BRUNO = 'U03URLL1D4L';
 const CLAUDE_ID = 'D045L79UMME';
 const CAROL = 'U044WG04UMQ';                 // eu postando como Carol — ignorar
@@ -66,10 +69,11 @@ function wanted(ev) {
   if (ev.subtype && SKIP_SUBTYPES.has(ev.subtype)) return false;
   if (user === CAROL) return false;                       // eu mesma (Carol)
   // menção crua em evento = <@Uxxxx>; cubro Claude/Carol por ID e por nome
-  const tagsMe = text.includes(CLAUDE_ID) || text.includes(CAROL) || /@claude|@carolyn/i.test(text);
+  const tagsMe = text.includes(CAROL) || /@carolyn/i.test(text);   // CAROL = U044WG04UMQ (user id da mencao)
   if (ev.bot_id && !tagsMe) return false;                 // bots só se me marcarem
   if (chan.startsWith('D')) return true;                  // DM com o claude_listener: tudo é pra mim
   if (chan === PRIMARY) return true;                      // canal principal: tudo
+  if (ONLY_MENTION.has(chan)) return tagsMe;              // orders: SO @carolyn
   if (tagsMe) return true;                                // qualquer canal vigiado: tag
   if (!WATCHED.has(chan)) return false;
   return user === BRUNO || QRE.test(text) || text.includes(BRUNO);
