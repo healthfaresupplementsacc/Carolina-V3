@@ -54,7 +54,7 @@ Li o dia inteiro no banco (`timeline?date=2026-09-09`). Os problemas que o Bruno
 
 **R2 · Processo paralelo = trilho fino (rail), não bloco.** Grafana "State timeline" e traces (Datadog/Honeycomb) desenham estados longos como faixas de 6–10 px com o rótulo **fora** ou só no hover. Encapsulação/pesagem/impressão de labels são estados de máquina que a pessoa acompanha: viram um rail de 8 px em cima da lane, com o nome só quando a faixa tem > 90 px.
 
-**R3 · Label só quando cabe, senão nada.** Regra do Google Calendar e de todo Gantt sério (dhtmlx, Bryntum, Frappe): abaixo de 28 px o bloco fica **mudo** (só cor + borda); 28–60 px um código de 3 letras; 60–110 px o nome curto; acima, nome + produto e duração. O texto nunca é cortado no meio da palavra com "…" em 3 linhas; o hover/painel carrega o resto.
+**R3 · Nome e tempo sempre legíveis; o rótulo sai do bloco quando não cabe.** (Revisto 09-10 v2 depois do feedback do Bruno: "não tem um jeito da letra ficar menor e caber?", "o tempo total não aparece de relance".) Escada: nome completo em 11,5 px → 10,5 → 9,5 (quebra em 2 linhas se o bloco tem altura) → nome curto → **rótulo fora do bloco**, numa calha de 15 px acima da faixa, com a duração ao lado (é o "label outside" do MS Project/Bryntum e a regra de barras da data.europa.eu). A duração aparece em TODO registro: na 2ª linha quando o bloco tem ≥ 44 px, inline com o nome quando o bloco é baixo (faixa dividida), ou no rótulo de fora. Nunca "…". Trilho de máquina/lote = aba de 18 px com nome · lote · duração dentro (o formato que o Bruno disse que funcionava na encapsulação); estreita demais → rótulo à direita se houver espaço, senão hover.
 
 **R4 · Blocos baixos, densidade alta.** Toggl/Clockify: 24–32 px por entrada; Google Calendar: 24 px por 30 min. Nossos 54 px + 6 de gap + 20 de tab + 28 de topo = 114 px por pessoa *antes* de qualquer sobreposição. Alvo: row de 56 px (rail 8 + lane 36 + folgas), expandível.
 
@@ -120,7 +120,15 @@ Fontes principais: support.google.com/calendar/answer/15619910 e /72143 · suppo
 
 ## 8. Protótipo e plano de execução
 
-**Protótipo interativo** (dia real 09-09, 56 registros, sem gravar nada): https://claude.ai/code/artifact/090c0cea-0168-4828-a0c3-b83ef747c1e7 — fonte em `docs/architecture/study/img/linha-do-tempo-proto.html`. Ele aplica R1–R14: faixa única por pessoa, trilho pra máquina/lote, 3 cores, escada de rótulo, batidas como envelope, tiques pra < 2 min, "×N" pra duplicados, correio fora, popover de registro no clique/"+" da faixa, barra de correção no bloco, hover de grupo, compacto/confortável, simulação de "agora".
+**Protótipo interativo v2** (dia real 09-09, 56 registros + lotes + P&P reais, sem gravar nada): https://claude.ai/code/artifact/090c0cea-0168-4828-a0c3-b83ef747c1e7 — fonte em `docs/architecture/study/img/linha-do-tempo-proto.html`.
+
+**v2 (09-10, depois do feedback do Bruno sobre a v1):**
+- Nome e tempo em todo registro (R3 revisto): letra encolhe até 9,5 px e quebra em 2 linhas; se não cabe, rótulo + duração sobem pra calha acima do bloco. Trilho vira aba de 18 px com nome · lote · duração.
+- Clique no vazio = **menu curto** (Registrar aqui · Finalizou às HH:MM? · Ajustar horário de … · Estender até o próximo), cada um abrindo só o que precisa (2 campos de hora, ou 1 confirmação). A tela de registrar (tipo kiosk) só abre em "Registrar aqui".
+- **Jornada do lote** (drawer): clique no nome do lote dentro do bloco ou em "Lote ›" na barra: fases na ordem real, tempo de gente × tempo de parede, quem, espera entre fases, dias do início até aqui, cada fase expande nos registros. Dados reais: `v3.events` por `product_batch_id` (ex.: Rhodiola BR-2026-0381: separação e encapsulação 09-08, revisão/linha/labels 09-09).
+- **Cartões de fluxo com histórico** acima da timeline: Produção (lotes tocados, tempo de gente, máquina, lotes na linha → lista de lotes → jornada), P&P (ordens, tempo, s/ordem, pessoas → quem imprimiu e quando, empacotamento por pessoa, rodadas de labels), Suporte (tempo, limpeza, estoque → por atividade e pessoa). Fonte: `/timeline`, `/pp`, `/production` + eventos por lote.
+
+A v1 aplicava R1–R14: faixa única por pessoa, trilho pra máquina/lote, 3 cores, escada de rótulo, batidas como envelope, tiques pra < 2 min, "×N" pra duplicados, correio fora, popover de registro no clique/"+" da faixa, barra de correção no bloco, hover de grupo, compacto/confortável, simulação de "agora".
 
 **Decisões que dependem do Bruno antes de codar:**
 1. `label_printing` (Impressão de Labels) passa a `is_background=true` (trilho)? O protótipo assume que sim. Mesma pergunta pra `order_printing` (hoje fica como tarefa de mão; a impressora de ordens é rápida, então provavelmente fica).
@@ -128,8 +136,9 @@ Fontes principais: support.google.com/calendar/answer/15619910 e /72143 · suppo
 3. "Outra pessoa…" no registro rápido cria pessoa com nome + cargo (sem PIN/relógio) — ok?
 
 **Fases (depois do OK):**
-- **T1 · Desenho** (só `Timeline.jsx` + `timeline.css`, sem tocar API): camadas trilho/tarefa, escada de rótulo, cores, envelope do ponto, tiques, colapso de duplicados, correio fora, compacto/confortável. Testes de layout puros (funções `layoutRow`, `labelLevel`, `collapseDupes` em `.cjs` testável como `timeline-pause.cjs`).
-- **T2 · Registrar e corrigir no lugar:** popover de registro (clique no vazio, "+" da faixa, botão no cabeçalho da timeline; o do topbar sai), barra de ações no bloco (mover pessoa, juntar, dividir, duplicado, apagar), Delete/N/Esc. Reusa `POST/PATCH/merge/split` que já existem.
+- **T1 · Desenho** (só `Timeline.jsx` + `timeline.css`, sem tocar API): camadas aba/tarefa, escada de legibilidade com medição de texto (canvas `measureText`) e rótulo fora, cores, envelope do ponto, tiques, colapso de duplicados, correio fora, compacto/confortável. Testes de layout puros (funções `layoutRow`, `fitLabel`, `collapseDupes` em `.cjs` testável como `timeline-pause.cjs`).
+- **T2 · Registrar e corrigir no lugar:** menu curto no vazio (registrar · finalizou? · ajustar horário · estender), popover de registro ("+" da faixa, botão no cabeçalho da timeline; o do topbar sai), barra de ações no bloco (ajustar horário, finalizou às, mover pessoa, juntar, dividir, duplicado, apagar, lote), Delete/N/Esc. Reusa `POST/PATCH/merge/split` que já existem.
+- **T2b · Histórico:** drawer da jornada do lote (novo endpoint pequeno `GET /api/v3/data/batch/:id/journey` = eventos do lote em todos os dias, agrupados por fase; router pequeno, o data router não cresce) + cartões de fluxo com histórico do dia (dados que `/pp`, `/production` e `/timeline` já dão).
 - **T3 · Dados:** migration com `short_name` + `label_printing` background; cadastro rápido de pessoa (`POST /api/adminpanel/persons` já existe; só o atalho).
 - Kiosk `/op` não muda.
 
