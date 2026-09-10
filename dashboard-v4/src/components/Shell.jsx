@@ -275,11 +275,8 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
         <Icon name={theme === "dark" ? "sun" : "moon"} size={17}/>
       </button>
       <DatePicker date={date} onDate={onDate}/>
-      {pageId === "hoje" && (
-        <button className="btn primary" onClick={onNewEvent}>
-          <Icon name="plus" size={15}/> Novo registro
-        </button>
-      )}
+      {/* 09-10: "Novo registro" desceu pro cabeçalho da linha do tempo (Timeline.jsx),
+          onde o registro acontece; onNewEvent segue disponível pra quem precisar. */}
       {/* 🔧 gear → Painel Admin (nova aba). ANTES o gear estava no botão de
           logout (Icon config) e deslogava — bug. Agora gear = admin. */}
       <a className="icon-btn hide-mobile" href="/admin/" target="_blank" rel="noreferrer"

@@ -87,6 +87,7 @@ describe('drift: route surfaces mounted are documented', () => {
     './freight/op-copilot-router', // Freight copilot for the operator Central /api/v3/op-freight/* (documented §2 routes)
     './planning/router',  // Planejamento: funil da producao EMS + plano do dia /api/v3/planning/* (documentado §2 + §3)
     './rbac/router',      // RBAC por pessoa /api/v3/rbac/* (Fase C 09-10; documentado §2 routes + §9 Admin)
+    './journey/router',   // jornada do lote /api/v3/journey/* (09-10; documentado §2 routes)
   ]);
   const idx = read('src/index.js');
   const wire = read('src/v3/wire.js');

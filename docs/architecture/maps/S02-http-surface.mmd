@@ -34,6 +34,7 @@ subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
   S02_19["S02.19 · /api/v3/freight ×3 (freight/router.js) — PIN + view_stock; summary, outliers, bands + quoted_*; so leitura"]:::verified
   S02_20["S02.20 · /api/v3/op-freight ×1 (freight/op-copilot-router.js) — page token + sessao do /op; copilotSummary do dia; so leitura, Fase A"]:::verified
   S02_21["S02.21 · /api/v3/rbac ×4 (rbac/router.js) — PIN; me · login-functions · login-function (manage_users) · inbox; funcoes por PESSOA (Fase C 09-10)"]:::verified
+  S02_22["S02.22 · /api/v3/journey ×1 (journey/router.js) — PIN; batch/:id = registros do lote em todos os dias + contagens; so leitura (09-10)"]:::verified
   S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
 end
 S01_02 --> MOUNT
@@ -132,6 +133,10 @@ LOGINFN[("S08.05.14 · v3.login_functions")]:::verified
 S02_21 ==>|R197 grant/revoke/inherit (manage_users, audit rbac.login_function)| LOGINFN
 V4USERS["S03.01.21 · UsersPage 'Controle de estoque por pessoa' (rbac-api.js)"]:::verified
 V4USERS -->|R198 GET login-functions · POST login-function| S02_21
+
+%% S02.22 — jornada do lote (09-10). Le v3.events/product_batches/production_counts; nada de escrita.
+V4JOURNEY["S03.01.22 · BatchJourney.jsx (gaveta da jornada do lote)"]:::verified
+V4JOURNEY -->|R199 GET batch/:id| S02_22
 
 %% S02.18 — revisao do dia (08-19). Dia e calendario saem dos NOSSOS eventos; a
 %% fila NASCE no EMS, porque lote esquecido nao tem evento nenhum aqui.

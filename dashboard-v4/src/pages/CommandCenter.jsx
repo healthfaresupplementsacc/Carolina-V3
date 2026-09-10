@@ -9,6 +9,8 @@ import React from 'react';
 import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
+import { FlowHistory } from '../components/FlowHistory.jsx';
+import { BatchJourney } from '../components/BatchJourney.jsx';
 import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
@@ -313,7 +315,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   // ── State local ──────────────────────────────────────────
   const [filterOps, setFilterOps] = React.useState(new Set());
   const [filterFlows, setFilterFlows] = React.useState(new Set());
-  const [hourPx, setHourPx] = React.useState(140); // FASE 4 — zoom da timeline
+  const [hourPx, setHourPx] = React.useState(110); // 09-10: Compacto (110) · Confortável (160)
   const [expandedOpIds, setExpandedOpIds] = React.useState(new Set());
   const toggleExpand = (id) => setExpandedOpIds((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
@@ -631,6 +633,62 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     if (!onMerge) return;
     onMerge([idA, idB]);
   };
+
+  // ── REDESENHO 09-10: registrar e corrigir NO LUGAR (Timeline → aqui → API) ──
+  // Tudo auditado via PIN (actor admin). Sem writes ligados = preview com aviso.
+  const [journeyKey, setJourneyKey] = React.useState(null);   // 'b<batch_id>' do lote aberto
+  const isoAt = (min) => (min == null ? null : nyTime.minutesToNyIso(date, min));
+  const quickCreate = async (d) => {
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
+    const act = (HFD.activities || {})[d.activity];
+    if (!d.op || !d.op._person_id || !act || act._id == null) { ack('Escolha a pessoa e o que ela fez'); return; }
+    // UM registro por participante (invariante do cowork): quem estava junto ganha o mesmo registro
+    const members = [d.op, ...(d.cowork || []).map((id) => operators.find((o) => o.id === id)).filter(Boolean)];
+    let okN = 0, lastId = null;
+    for (const m of members) {
+      const others = members.filter((x) => x.id !== m.id).map((x) => x._person_id);
+      const res = await writes.createEvent({ person_id: m._person_id, activity_type_id: act._id, started_at: isoAt(d.started_min), ended_at: isoAt(d.ended_min), cowork_with: others, confidence: 'high' });
+      if (res.ok) { okN++; lastId = res.data && res.data.id; } else ack(`Erro ao registrar pra ${m.name}: ${res.error.message || res.error}`);
+    }
+    if (okN) { if (refresh) refresh(); ack(`Salvo ✓ ${act.name} pra ${members.map((m) => m.name.split(' ')[0]).join(', ')}${lastId ? ' (ev' + lastId + ')' : ''}`); }
+  };
+  const quickPatch = async (id, patch) => {
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
+    const changes = {};
+    if ('started_min' in patch) changes.started_at = isoAt(patch.started_min);
+    if ('ended_min' in patch) changes.ended_at = isoAt(patch.ended_min);
+    const res = await writes.patchEvent(id, changes, 'ajuste rápido na linha do tempo');
+    if (!res.ok) { ack(`Erro ao ajustar ev${id}: ${res.error.message || res.error}`); return; }
+    if (refresh) refresh(); ack(`Horário ajustado ✓ ev${id}`);
+  };
+  const moveEvent = async (id, opId) => {
+    const op = operators.find((o) => o.id === opId); if (!op || !op._person_id) return;
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
+    if (!window.confirm(`Mover este registro pra ${op.name}?`)) return;
+    const res = await writes.patchEvent(id, { person_id: op._person_id }, 'movido pra outra pessoa na linha do tempo');
+    if (!res.ok) { ack(`Erro ao mover: ${res.error.message || res.error}`); return; }
+    if (refresh) refresh(); ack(`Movido ✓ pra ${op.name}`);
+  };
+  const deleteEventQuick = async (ev) => {
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
+    if (!window.confirm(`Apagar ev${ev.id}? (dá pra desfazer no aviso que aparece)`)) return;
+    const res = await writes.deleteEvent(ev.id, 'apagado pelo admin na linha do tempo', null);
+    if (!res.ok) { ack(`Erro ao apagar: ${res.error.message || res.error}`); return; }
+    if (refresh) refresh();
+    ack({ message: `Apagado ev${ev.id}`, ttlMs: 6000, undo: async () => { const r = await writes.restoreEvent(ev.id, null); if (r.ok) { if (refresh) refresh(); ack(`Restaurado ev${ev.id} ✓`); } else ack(`Erro ao restaurar: ${r.error.message || r.error}`); } });
+  };
+  const dedupeEvents = async (keepId, removeIds) => {
+    if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
+    if (!window.confirm(`Manter ev${keepId} e apagar ${removeIds.length} registro(s) igual(is) [${removeIds.join(', ')}]?`)) return;
+    let n = 0; for (const id of removeIds) { const r = await writes.deleteEvent(id, 'duplicado (mesma atividade, mesmo horário) apagado na linha do tempo', null); if (r.ok) n++; else ack(`Erro em ev${id}: ${r.error.message || r.error}`); }
+    if (refresh) refresh(); ack(`${n} duplicado(s) apagado(s) ✓ (restauráveis pelo audit)`);
+  };
+  const splitRequest = (id, minute) => { if (onSplit) onSplit(id, isoAt(minute)); };
+  const openFullForm = (d) => {
+    openPanel({ id: 'new-' + Date.now(), _new: true, op: d.op ? d.op.id : (operators[0] || {}).id, activity: d.activity || 'unknown', product: null,
+      started_min: d.started_min, ended_min: d.ended_min == null ? null : d.ended_min, cowork: d.cowork || [], qty: null, unit: null, description: '', confidence: 'high' }, null);
+  };
+  const openBatch = (productKey) => { const p = (HFD.products || {})[productKey]; if (!p || p._batch_id == null) { ack('Este registro não tem lote'); return; } setJourneyKey(productKey); };
 
   // ── Loading / erro fatal ─────────────────────────────────
   if (loading) {
@@ -1245,6 +1303,11 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
       {/* ── Timeline ────────────────────────────────────────── */}
       {wOn('timeline') && (<section style={{ order: wOrder('timeline') }}>
       <div style={{ marginTop: 12 }}>
+        {operators.length > 0 && (
+          <FlowHistory events={state.events} operators={operators} activities={HFD.activities || {}} products={HFD.products || {}} now={now}
+                       pp={raw && raw.pp} lotes={(raw && raw.production && raw.production.lotes) || []} onOpenBatch={openBatch} fmtClock={fmtClock}/>
+        )}
+        {journeyKey && <BatchJourney batchId={(HFD.products || {})[journeyKey] && (HFD.products || {})[journeyKey]._batch_id} onClose={() => setJourneyKey(null)}/>}
         {operators.length === 0 ? (
           <div className="opa-empty">
             Sem operadores postando hoje · (admins filtrados, sem eventos em {date})
@@ -1267,14 +1330,20 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             expandedOpIds={expandedOpIds}
             onToggleExpand={toggleExpand}
             gaps={_gaps}
-            correio={correioNotif ? { minutes: correioNotif._minutes, label: correioNotif._label } : null}
-            onCorreioClick={onCorreioClick}
             onGapClick={onGapClick}
             pendingDrags={pendingDrags}
             onConfirmDrags={confirmDrags}
             onCancelDrags={cancelDrags}
             fmtClock={fmtClock}
             invalidIds={invalidEventIds}
+            onQuickCreate={quickCreate}
+            onQuickPatch={quickPatch}
+            onMoveEvent={moveEvent}
+            onDeleteEvent={deleteEventQuick}
+            onDedupe={dedupeEvents}
+            onSplitRequest={onSplit ? splitRequest : null}
+            onOpenBatch={openBatch}
+            onOpenFullForm={openFullForm}
           />
         )}
       </div>

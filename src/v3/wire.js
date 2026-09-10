@@ -261,6 +261,9 @@ function mount(app) {
   // Router próprio: o data router (dono do /rbac antigo) não pode crescer.
   const rbacApi = require('./rbac/router');
   app.use('/', rbacApi.createRbacRouter({ db: _pool }));
+  // JORNADA DO LOTE (Bruno 09-10): so leitura, /api/v3/journey/*; o data router nao cresce
+  const journeyApi = require('./journey/router');
+  app.use('/', journeyApi.createJourneyRouter({ db: _pool }));
   // SAÚDE DOS SINAIS (Bruno 08-25) — /api/v3/health/signals. Estado ao vivo de
   // todo sinal externo que tem que continuar chegando (câmera do .28, impressão,
   // EMS, Veeqo, relógio) + incidentes abertos. Router próprio e pequeno porque

@@ -47,12 +47,6 @@
 }
 @keyframes tl-bg-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
-/* Quando há bg tabs, empurra os blocos fg pra baixo pra não sobreporem.
-   Estratégia simples: aumenta padding-top da .tl-track. */
-.tl-row .tl-track > .tl-block {
-  /* Mantém o block centrado verticalmente — bg tab fica acima sem colisão
-     porque tl-block já tem altura/top próprios. */
-}
 
 /* Nome clicável (E7 #5) — vira botão expand */
 .tl-name.tl-name-clickable { cursor: pointer; transition: background 0.12s ease; }
