@@ -123,7 +123,7 @@
 @media (prefers-reduced-motion: reduce) { .tl-rail.live::after { animation: none; } }
 
 /* MENU curto, mini-forms, barra de ações */
-.tl-menu { position: absolute; z-index: 30; min-width: 250px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.18)); padding: 6px; font-size: 12.5px; font-weight: 500; }
+.tl-menu { position: fixed; z-index: 340; min-width: 250px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.18)); padding: 6px; font-size: 12.5px; font-weight: 500; }
 .tl-menu .mh { padding: 6px 10px; font: 600 10.5px "JetBrains Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .tl-mi { display: flex; align-items: center; gap: 9px; width: 100%; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .tl-mi:hover { background: var(--surface-2); }
@@ -131,7 +131,7 @@
 .tl-mi small { display: block; font: 500 11px "JetBrains Mono", monospace; color: var(--text-3); }
 .tl-mi.danger { color: var(--bad); }
 .tl-mi.sub { padding-left: 22px; font-weight: 500; }
-.tl-mini { position: absolute; z-index: 30; width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.18)); padding: 14px; }
+.tl-mini { position: fixed; z-index: 340; max-height: calc(100vh - 24px); overflow: auto; width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.18)); padding: 14px; }
 .tl-mini.wide { width: 400px; }
 .tl-mini h3 { margin: 0 0 2px; font-size: 13.5px; font-weight: 700; }
 .tl-mini .hint { font-size: 11.5px; color: var(--text-3); margin-bottom: 8px; }
@@ -147,7 +147,7 @@
 .tl-mini .chip { border: 1px solid var(--border-strong, var(--border)); background: var(--surface); color: var(--text); font: 600 12px inherit; font-family: inherit; padding: 5px 10px; border-radius: 999px; cursor: pointer; text-decoration: none; }
 .tl-mini .chip.on { background: var(--hf-navy-600); border-color: var(--hf-navy-600); color: #fff; }
 .tl-mini .chip.ghost { border-style: dashed; color: var(--text-2); }
-.tl-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; max-height: 176px; overflow: auto; padding-right: 2px; }
+.tl-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; max-height: 200px; overflow: auto; padding-right: 2px; }
 .tl-acts .grp { grid-column: 1 / -1; font: 600 10px "JetBrains Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); margin-top: 4px; }
 .tl-act { border: 1px solid var(--border); border-left: 3px solid var(--c); background: var(--t); color: var(--text); font: 600 11.5px inherit; font-family: inherit; padding: 6px 8px; border-radius: 6px; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-act.flow-production { --c: var(--flow-prod); --t: var(--tl-prod-tint); } .tl-act.flow-pnp { --c: var(--flow-pnp); --t: var(--tl-pnp-tint); } .tl-act.flow-support { --c: var(--flow-support); --t: var(--tl-sup-tint); }

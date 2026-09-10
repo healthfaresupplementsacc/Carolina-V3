@@ -122,10 +122,9 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
     document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, []);
-  const localPos = (clientX, clientY) => {
-    const r = wrapRef.current ? wrapRef.current.getBoundingClientRect() : { left: 0, top: 0, width: 1200 };
-    return { x: clientX - r.left, y: clientY - r.top, w: r.width };
-  };
+  // Popovers sao position:fixed (Bruno 09-10: "a aba de registrar corta e se esconde
+  // atras das outras"): coordenadas da janela, por cima de tudo, sempre cabendo na tela.
+  const localPos = (clientX, clientY) => ({ x: clientX, y: clientY, w: window.innerWidth || 1200, h: window.innerHeight || 800 });
 
   // ── Drag (horário) — mesma disciplina de antes: acumula em pendingDrags ──
   const [drag, setDrag] = React.useState(null);
@@ -166,14 +165,14 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   };
 
   // ── ações ──
-  const openBar = (clientX, clientY, ev, op) => { const p = localPos(clientX, clientY); setMenu(null); setMini(null); setMoveOpen(false); setBar({ ev, op, x: Math.max(8, Math.min(p.w - 250, p.x + 8)), y: Math.max(44, p.y - 8) }); };
+  const openBar = (clientX, clientY, ev, op) => { const p = localPos(clientX, clientY); setMenu(null); setMini(null); setMoveOpen(false); setBar({ ev, op, x: Math.max(8, Math.min(p.w - 270, p.x + 8)), y: Math.max(8, Math.min(p.h - 420, p.y - 8)) }); };
   const openMenu = (clientX, clientY, op, m, real) => {
     const p = localPos(clientX, clientY);
     const prev = real.filter((e) => e.started_min <= m).sort((a, b) => b.started_min - a.started_min)[0] || null;
     const next = real.filter((e) => e.started_min > m).sort((a, b) => a.started_min - b.started_min)[0] || null;
-    setBar(null); setMini(null); setMenu({ op, m, prev, next, x: Math.max(8, Math.min(p.w - 270, p.x - 30)), y: Math.max(44, p.y - 10) });
+    setBar(null); setMini(null); setMenu({ op, m, prev, next, x: Math.max(8, Math.min(p.w - 270, p.x - 30)), y: Math.max(8, Math.min(p.h - 300, p.y - 10)) });
   };
-  const openMini = (kind, extra, at) => { const p = at ? localPos(at.x, at.y) : { x: (menu || bar || {}).x || 40, y: (menu || bar || {}).y || 60, w: 1200 }; setMenu(null); setBar(null); setMini({ kind, ...extra, x: Math.max(8, Math.min(p.w - 400, p.x)), y: Math.max(44, p.y) }); };
+  const openMini = (kind, extra, at) => { const p = at ? localPos(at.x, at.y) : { x: (menu || bar || {}).x || 40, y: (menu || bar || {}).y || 60, w: window.innerWidth || 1200, h: window.innerHeight || 800 }; const hh = kind === 'quick' ? 520 : 240; setMenu(null); setBar(null); setMini({ kind, ...extra, x: Math.max(8, Math.min(p.w - 420, p.x)), y: Math.max(8, Math.min(p.h - hh, p.y - 10)) }); };
   const effEndOf = (e) => (e.ended_min == null ? Math.min(nowMin, DAY_END) : e.ended_min);
 
   const hoursMarks = []; for (let h = DAY_START; h <= DAY_END; h += 60) hoursMarks.push(h);
