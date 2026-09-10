@@ -17,6 +17,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 require('./tee-log')('watchdog.log');                       // 09-09: log de verdade de novo
 require('./single-instance')('watchdog', 'heartbeat.txt');  // 09-09: nunca dois watchdogs
+const compartilhado = require('./dedupe-compartilhado');
 require('./self-reload')(['slack-watchdog.js', 'single-instance.js', 'tee-log.js', 'self-reload.js'], { busy: () => autologinRodando });  // 09-09: atualiza sem UAC
 
 const DIR = path.join(__dirname, '_watch');
@@ -229,7 +230,9 @@ async function tick() {
         // recaptura podia fazer a Carolyn "responder" conversa velha). Canal +
         // remetente + texto inteiro nao muda entre renders.
         const key = chan + '|' + (m.sender || '') + '|' + m.text;
-        if (!m.text || seen.has(key)) continue;
+        // 09-10: dedupe COMPARTILHADO com o listener (a mesma msg entrava 2x:
+        // socket com ts, DOM sem ts, cada um com seu arquivo e sua chave).
+        if (!m.text || seen.has(key) || compartilhado.jaVisto(chan, m.sender, m.text)) continue;
         // ignora o que o próprio Claude/Carol/bots da casa postaram (qualquer "HealthFare *")
         if (/^(carolyn|carol|carolina|healthfare )/i.test(m.sender)) { seen.add(key); continue; } // eu (nome novo e antigos) + bots da casa
         // ignora avisos de sistema do Slack (entrou/saiu do canal, etc.)
@@ -248,6 +251,7 @@ async function tick() {
         seen.add(key);
         const rec = { at: new Date().toISOString(), channel: chan, sender: m.sender, text: m.text };
         fs.appendFileSync(INBOX, JSON.stringify(rec) + '\n');
+        compartilhado.marcar(chan, m.sender, m.text);
         console.log('[watchdog] NOVA pergunta:', m.sender, '::', m.text.slice(0, 80));
       }
     }

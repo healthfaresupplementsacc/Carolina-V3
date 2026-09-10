@@ -15,6 +15,7 @@
  * watchdog saber que pode pular a captura por DOM (fica só de keep-alive do Chrome).
  */
 const fs = require('fs');
+const compartilhado = require('./dedupe-compartilhado');
 const path = require('path');
 require('./tee-log')('listener.log');                            // 09-09
 require('./single-instance')('listener', 'listener-alive.txt');  // 09-09
@@ -98,12 +99,16 @@ async function probeCoverage(bot) {
 }
 
 async function capture(bot, ev) {
+  const sender0 = ev.user || ev.bot_id || '';
   const key = (ev.channel || '?') + ':' + (ev.ts || ev.event_ts || '');
+  if (compartilhado.jaVisto(ev.channel, sender0, ev.text)) return;   // ja veio pelo DOM
   if (seen.has(key)) return;
   seen.add(key); saveSeen();
   const sender = await userName(bot, ev.user);
   const rec = { at: new Date().toISOString(), channel: ev.channel, sender, text: (ev.text || '').slice(0, 2000), ts: ev.ts, via: 'socket' };
   fs.appendFileSync(INBOX, JSON.stringify(rec) + '\n');
+  compartilhado.marcar(ev.channel, sender, ev.text);
+  compartilhado.marcar(ev.channel, sender0, ev.text);   // DOM ve o nome, socket ve o id
   log('CAPTUROU:', sender, '::', rec.text.slice(0, 80));
 }
 
