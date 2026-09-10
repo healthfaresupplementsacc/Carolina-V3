@@ -62,7 +62,7 @@ function PersonStockLevels({ ro }) {
           <tbody>
             {logins.map((l) => (
               <tr key={l.id}>
-                <td><b>{l.name}</b> <span style={{ font: '500 11px var(--font-mono)', color: 'var(--ink-faint)' }}>{l.role}</span></td>
+                <td><b>{l.name}</b></td>
                 {STOCK_FUNCTIONS.map(([k]) => {
                   const ov = (l.overrides || {})[k];
                   const inherited = (l.role_functions || []).includes(k) || l.role === 'admin';
