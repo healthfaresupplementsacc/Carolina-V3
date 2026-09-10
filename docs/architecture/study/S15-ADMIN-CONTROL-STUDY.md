@@ -264,3 +264,7 @@ Menu resultante: **Estoque · Pendências · Produtos · Prateleiras e caixas** 
 | 7 | Dedução ao vivo | S |
 
 Cópia narrativa no Obsidian: "Estoque — Controle pelo admin (estudo 09-09)".
+
+## Execução: Fase C no ar (2026-09-10, commit 262aef8)
+
+Permissões por PESSOA (migration 089 + `src/v3/rbac/router.js`): níveis Ver / Organizar / Propor / Mudar o total / Aprovar / Receber a produção / Configurar ajustados por login na página Usuários & Acessos, por cima do perfil. Quem só propõe: entrada, saída, transferência e contagem viram proposta (`{proposed:true}`), nada muda; quem aprova é avisado por notificação com destinatário; ninguém aprova a própria (403 `self_approval`). Nenhum rótulo de manager/supervisor/gestão. Kiosk intocado; zero movimentos. Faltam D · mutirão · E · F · G.
