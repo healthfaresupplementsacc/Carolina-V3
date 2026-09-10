@@ -218,6 +218,12 @@ function createAdminRouter(deps = {}) {
   router.use('/api/adminpanel/operators', requireAdmin);
   router.use('/api/adminpanel/notifications', requireAdmin, makeRateLimit({ limit: 30 }));
   router.use('/api/adminpanel/admins', requireAdmin, requireRole('owner'));
+  // CARGOS + pessoas com Slack (09-09). O gate aqui é POR PREFIXO: rota nova
+  // com prefixo novo nasce PÚBLICA se ninguém lembrar desta linha — foi o que
+  // aconteceu no deploy 54df6478 (PUT /roles aberto por ~10min). O teste
+  // admin.routes-gated.test.js trava isso pra qualquer prefixo futuro.
+  router.use('/api/adminpanel/roles', requireAdmin);
+  router.use('/api/adminpanel/persons', requireAdmin);
 
   // ── gerenciar admins (OWNER ONLY) ─────────────────────────────────────
   router.get('/api/adminpanel/admins', h(async (req, res) => {
