@@ -34,7 +34,6 @@ Start-Process $chrome -ArgumentList `
   "--remote-debugging-port=$port", `
   "--user-data-dir=`"$profile`"", `
   "--no-first-run", "--no-default-browser-check", `
-  "--restore-last-session", `
   "https://app.slack.com/client"
 
 Start-Sleep -Seconds 3

@@ -22,15 +22,19 @@ import {
 // ── RBAC ──────────────────────────────────────────────────────────
 // Escrita = manage_stock (ou '*'). Login sem lista de funções: libera (os logins
 // de hoje têm '*'; nenhum operador chega aqui, a seção é gated no Shell).
+/* Fase C (Bruno 09-10): níveis por pessoa. Escrever na tela = qualquer nível que
+   mexe (organizar, propor, mudar o total, configurar); o BACKEND decide se aplica
+   ou vira proposta (quem só propõe recebe { proposed: true }). */
+const STOCK_WRITE_FNS = ['manage_stock', 'stock_organize', 'stock_propose', 'stock_change', 'stock_setup'];
 export function canWrite() {
   const l = getLogin();
   if (!l || !Array.isArray(l.functions)) return true;
-  return can('manage_stock');
+  return STOCK_WRITE_FNS.some((f) => can(f));
 }
 export function canRead() {
   const l = getLogin();
   if (!l || !Array.isArray(l.functions)) return true;
-  return can('view_stock') || can('manage_stock');
+  return can('view_stock') || can('manage_stock') || ['stock_organize', 'stock_propose', 'stock_change', 'stock_approve', 'stock_receive_production', 'stock_setup'].some((f) => can(f));
 }
 
 // ── helpers ───────────────────────────────────────────────────────
@@ -401,7 +405,14 @@ function ActionModal({ action: rawAction, row, onClose, onDone, onError }) {
           qty: q, reason: 'return', order_number: orderNumber || undefined, note: note || undefined,
         });
       }
-      onDone(res && res.data && res.data.product, DONE[action] || 'Pronto. Os números já mudaram.');
+      const d = (res && res.data) || {};
+      if (d.proposed) {
+        onDone(d.product, 'Proposta enviada. Nada mudou ainda: quem tem "Aprovar" vai ver em Aprovações.');
+      } else if (d.unchanged) {
+        onDone(d.product, 'Sem diferença: o local já tinha esse número.');
+      } else {
+        onDone(d.product, DONE[action] || 'Pronto. Os números já mudaram.');
+      }
     } catch (e) {
       // guarda de tamanho (Fase A): acima do alvo da Veeqo, confirma com os numeros na frente
       if (e && e.code === 'over_target' && !force && window.confirm(e.message)) { setBusy(false); return confirm(true); }

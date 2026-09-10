@@ -21,7 +21,9 @@
  *  - Toda decisão auditada em v3.audit_log ('stock_request.propose|approve|reject').
  */
 
-const KINDS = ['take', 'entrada', 'count', 'return_in', 'issue_release', 'adjust'];
+// 'transfer' (Fase C 09-10): quem so PROPOE pode propor transferencia (FBA/WFS/DC);
+// aplica via StockService.takeOut kind transfer na aprovacao.
+const KINDS = ['take', 'entrada', 'count', 'return_in', 'issue_release', 'adjust', 'transfer'];
 const DIRECTIONS = ['out', 'in'];
 
 class StockRequestService {
@@ -100,8 +102,20 @@ class StockRequestService {
       await this._audit(c, {
         actorPersonId: p.person_id, action: 'stock_request.propose', targetId: row.id,
         after: { product_id: p.product_id, kind: p.kind, direction: p.direction, qty: p.qty },
-        metadata: { login: p.login || null, reason: p.reason || null },
+        metadata: { login: p.login || null, login_id: p.login_id || null, reason: p.reason || null },
       });
+      // NOTIFICACAO DIRIGIDA (Fase C, mig 089): quem tem "Aprovar" e avisado; o
+      // clique cai na proposta. Best-effort: nao derruba a proposta se falhar.
+      try {
+        const prod = (await c.query('SELECT COALESCE(nickname, canonical_name) AS name FROM v3.products WHERE id = $1', [p.product_id])).rows[0];
+        await c.query(
+          `INSERT INTO v3.notifications (type, payload, status, audience, link)
+           VALUES ('stock_request', $1::jsonb, 'pending', $2::jsonb, $3)`,
+          [JSON.stringify({ request_id: row.id, product_id: p.product_id, product: prod ? prod.name : null,
+            kind: p.kind, direction: p.direction, qty: p.qty, proposed_by: p.login || null, reason: p.reason || null }),
+          JSON.stringify({ functions: ['stock_approve', 'manage_stock'] }),
+          '#estoque-aprovacoes?req=' + row.id]);
+      } catch (e) { console.error('[stock-request] notificação:', e.message); }
       return row;
     });
   }
@@ -173,6 +187,11 @@ class StockRequestService {
       return row;
     });
     if (claimed.status !== 'pending') return claimed;   // idempotente
+    // Fase C (Bruno 09-10): "Aprovar: nunca a propria". Quem propos nao aprova.
+    if (claimed.proposed_by_login && p.login && String(claimed.proposed_by_login) === String(p.login) && !p.force) {
+      const e = new Error('quem propôs não aprova a própria proposta: peça a outra pessoa com "Aprovar"');
+      e.status = 403; e.code = 'self_approval'; throw e;
+    }
 
     // 2) aplica pela porta única. source_ref 'request:<id>' = a mesma proposta
     //    nunca deduz/entra duas vezes, mesmo com dois cliques simultâneos.
@@ -250,9 +269,21 @@ class StockRequestService {
       note: (p.login ? `[${p.login}] ` : '') + (req.reason || req.note || 'aprovado'),
       is_test: !!req.is_test,
     };
+    // Fase C: proposta vinda do DASHBOARD carrega motivo/referencia no meta e
+    // aplica pelos verbos de fabrica (takeOut). A do kiosk (sem motivo) segue o pick.
+    const ref = { reason_code: meta.reason_code || null, ref_type: meta.ref_type || null, ref_id: meta.ref_id || null };
     switch (req.kind) {
       case 'take':
+        if (meta.reason_code) {
+          return this.stock.takeOut({ ...common, ...ref, qty: req.qty, kind: 'take',
+            bin_id: req.bin_id || null, box_id: req.box_id || null });
+        }
         return this.stock.pick({ ...common, qty: req.qty, bin_id: req.bin_id || null, allow_box: true });
+      case 'transfer':
+        return this.stock.takeOut({ ...common, ...ref, reason_code: 'transferencia', qty: req.qty, kind: 'transfer',
+          ref_type: 'shipment', ref_id: meta.shipment_ref || meta.destination || null,
+          bin_id: req.bin_id || null, box_id: req.box_id || null,
+          note: (common.note || '') + (meta.destination ? ' · para ' + meta.destination : '') });
       case 'entrada': {
         // CAIXA NOVA (S15 F3): o operador propôs "chegou uma caixa"; o número é
         // alocado agora, na aprovação, e a entrada vai direto pra essa caixa.
@@ -276,14 +307,14 @@ class StockRequestService {
           // linha do "Registrado hoje". Gravado no meta.result da própria proposta.
           await this._recordResult(req.id, meta, created);
         }
-        return this.stock.storeIn({ ...common, qty: req.qty,
+        return this.stock.storeIn({ ...common, ...ref, qty: req.qty,
           bin_id: req.bin_id || null, box_id: boxId });
       }
       case 'count': {
         // o found REAL mora no meta (contagem-no-zero: qty da fila é > 0 por CHECK,
         // mas "está vazio" tem que aplicar 0 mesmo).
         const found = Number.isInteger(meta.computed_qty) ? meta.computed_qty : req.qty;
-        return this.stock.count({ ...common, found,
+        return this.stock.count({ ...common, found, reason_code: meta.reason_code || 'contagem',
           bin_id: req.bin_id || null, box_id: req.box_id || null });
       }
       case 'return_in':

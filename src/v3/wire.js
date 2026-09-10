@@ -256,6 +256,11 @@ function mount(app) {
   // salva o que é DELE; login de emergência (sem id) segue no localStorage.
   const prefsApi = require('./prefs/router');
   app.use('/', prefsApi.createPrefsRouter({ db: _pool }));
+  // RBAC POR PESSOA (Fase C, Bruno 09-10) — /api/v3/rbac/*: funções por login por
+  // cima do perfil (Controle de estoque em níveis), quem sou, inbox por função.
+  // Router próprio: o data router (dono do /rbac antigo) não pode crescer.
+  const rbacApi = require('./rbac/router');
+  app.use('/', rbacApi.createRbacRouter({ db: _pool }));
   // SAÚDE DOS SINAIS (Bruno 08-25) — /api/v3/health/signals. Estado ao vivo de
   // todo sinal externo que tem que continuar chegando (câmera do .28, impressão,
   // EMS, Veeqo, relógio) + incidentes abertos. Router próprio e pequeno porque

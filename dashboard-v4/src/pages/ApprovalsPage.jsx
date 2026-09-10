@@ -9,8 +9,9 @@ import { canRead, canWrite, friendlyError } from './WarehousePage.jsx';
 const fmt = (v) => (v == null ? '—' : Number(v).toLocaleString('pt-BR'));
 
 const KIND_LABEL = {
-  take: 'pegou do estoque', entrada: 'caixa nova', count: 'contagem',
+  take: 'saída do estoque', entrada: 'entrada', count: 'contagem',
   return_in: 'devolução', issue_release: 'voltou de Separadas', adjust: 'ajuste',
+  transfer: 'transferência (FBA / WFS / DC)',   // Fase C: proposta de quem só propõe
 };
 
 const CONF_LABEL = { high: 'confiança alta', medium: 'confiança média', low: 'confiança baixa' };

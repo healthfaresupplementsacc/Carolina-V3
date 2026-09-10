@@ -11,9 +11,84 @@
 import React from 'react';
 import { usePoll, apiPost } from '../adapters/from-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
+import { getLoginFunctions, setLoginFunction, STOCK_FUNCTIONS } from '../adapters/rbac-api.js';
 import './pages-admin.css';
 
 const CAT_LABEL = { admin: 'Admin', operacao: 'Operação', estoque: 'Estoque & Produtos', fabrica: 'Fábrica', assistente: 'Assistente' };
+
+
+/* ── CONTROLE DE ESTOQUE POR PESSOA (Fase C, Bruno 09-10) ───────────────
+   "Ajusta aqui e a gente define como quiser; níveis diferentes; o sistema nunca
+   chama ninguém de manager ou supervisor." Cada pessoa × cada nível: herda do
+   perfil (cinza), dado por cima (verde), tirado por cima (vermelho). O perfil é
+   só o modelo inicial. */
+function PersonStockLevels({ ro }) {
+  const [data, setData] = React.useState(null);
+  const [busy, setBusy] = React.useState(null);
+  const [err, setErr] = React.useState('');
+  const load = React.useCallback(() => {
+    getLoginFunctions().then((r) => { setData((r && r.data) || null); setErr(''); }).catch((e) => setErr(e.message || String(e)));
+  }, []);
+  React.useEffect(load, [load]);
+  if (err) return <div className="kit-card pad bad" style={{ marginBottom: 22 }}>Controle de estoque por pessoa: {err}</div>;
+  if (!data) return null;
+  const logins = (data.logins || []).filter((l) => l.active);
+  const cycle = async (l, key) => {
+    const ov = (l.overrides || {})[key];
+    const inherited = (l.role_functions || []).includes(key);
+    // herdado → (tirar se tinha | dar se não tinha) → voltar a herdar
+    const next = ov == null ? (inherited ? 'revoke' : 'grant') : 'inherit';
+    setBusy(l.id + ':' + key);
+    try { await setLoginFunction(l.id, key, next); load(); }
+    catch (e) { setErr(e.message || String(e)); }
+    finally { setBusy(null); }
+  };
+  return (
+    <div className="kit-card pad" style={{ marginBottom: 22 }} data-section="estoque-por-pessoa">
+      <div className="adm-sec">
+        <span className="kit-mlabel">Controle de estoque por pessoa</span>
+        <span className="rule"/>
+        <span className="kit-chip neutral">clique pra dar, tirar ou voltar ao perfil</span>
+      </div>
+      <p style={{ fontSize: 12.5, color: 'var(--ink-dim)', margin: '6px 0 12px' }}>
+        Cada nível diz o que a pessoa <b>faz</b> no estoque. Cinza = herda do perfil; verde = dado a esta pessoa; vermelho riscado = tirado desta pessoa.
+        Quem tem só <b>Propor</b> não muda número: entrada, saída e contagem viram proposta pra quem tem <b>Aprovar</b> (nunca a própria).
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="kit-table" data-table="estoque-por-pessoa">
+          <thead>
+            <tr><th style={{ minWidth: 150 }}>Pessoa</th>{STOCK_FUNCTIONS.map(([k, t]) => <th key={k} style={{ textAlign: 'center', fontSize: 11 }} title={k}>{t.split(' (')[0]}</th>)}</tr>
+          </thead>
+          <tbody>
+            {logins.map((l) => (
+              <tr key={l.id}>
+                <td><b>{l.name}</b> <span style={{ font: '500 11px var(--font-mono)', color: 'var(--ink-faint)' }}>{l.role}</span></td>
+                {STOCK_FUNCTIONS.map(([k]) => {
+                  const ov = (l.overrides || {})[k];
+                  const inherited = (l.role_functions || []).includes(k) || l.role === 'admin';
+                  const on = ov == null ? inherited : !!ov;
+                  const tone = ov === true ? 'ok' : (ov === false ? 'bad' : (on ? 'neutral' : 'neutral'));
+                  const label = ov === true ? 'dado' : (ov === false ? 'tirado' : (on ? 'perfil' : '—'));
+                  return (
+                    <td key={k} style={{ textAlign: 'center' }}>
+                      <button type="button" className={'kit-chip ' + tone} disabled={ro || l.role === 'admin' || busy === l.id + ':' + k}
+                              data-level={l.id + ':' + k} data-on={on ? '1' : '0'}
+                              title={l.role === 'admin' ? 'Admin sempre tem tudo' : (ov == null ? 'clique: ' + (inherited ? 'tirar desta pessoa' : 'dar a esta pessoa') : 'clique: voltar a seguir o perfil')}
+                              onClick={() => cycle(l, k)}
+                              style={{ cursor: (ro || l.role === 'admin') ? 'default' : 'pointer', textDecoration: ov === false ? 'line-through' : 'none', opacity: on ? 1 : 0.45 }}>
+                        {on ? '✓ ' : ''}{label}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 export function UsersPage() {
   const rbac = usePoll('/rbac', [], 0);
@@ -155,6 +230,8 @@ export function UsersPage() {
       </div>
 
       {/* MATRIZ DE PERMISSÕES */}
+      <PersonStockLevels ro={ro} />
+
       <div className="kit-card pad">
         <div className="adm-sec">
           <span className="kit-mlabel">Permissões por cargo</span>

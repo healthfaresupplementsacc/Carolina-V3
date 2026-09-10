@@ -18,7 +18,7 @@
  */
 
 const express = require('express');
-const { makeAuthMiddleware, hasFunction } = require('../data/auth');
+const { makeAuthMiddleware, hasFunction, stockLevel, canViewStock } = require('../data/auth');
 const { createVeeqoCache } = require('./veeqo-cache');
 const { LocationsRepo } = require('./locations-repo');
 const { FamilyRepo } = require('./family-repo');
@@ -254,8 +254,30 @@ function createWarehouseRouter(deps = {}) {
   router.use(BASE, express.json({ limit: '256kb' }));
   router.use(BASE, makeAuthMiddleware({ db }));
 
-  const canRead = (req) => hasFunction(req.login, 'view_stock') || hasFunction(req.login, 'manage_stock');
-  const canWrite = (req) => hasFunction(req.login, 'manage_stock');
+  /* ── NÍVEIS (Fase C, Bruno 09-10): Ver · Organizar · Propor · Mudar o total ·
+     Aprovar · Configurar. `manage_stock` (antigo) = todos. Quem só PROPÕE não
+     aplica: entrada/saída/transferência/contagem viram proposta (req.proposeOnly). */
+  const lvl = (req, l) => stockLevel(req.login, l);
+  const canRead = (req) => canViewStock(req.login);
+  const canWrite = (req) => lvl(req, 'change');
+  const MODES = {
+    read: canRead,
+    write: canWrite,
+    organize: (req) => lvl(req, 'organize') || lvl(req, 'change'),
+    propose: (req) => lvl(req, 'propose') || lvl(req, 'change'),
+    'propose-or-write': (req) => lvl(req, 'change') || lvl(req, 'propose'),
+    approve: (req) => lvl(req, 'approve'),
+    setup: (req) => lvl(req, 'setup') || lvl(req, 'change'),
+  };
+  const MODE_MSG = {
+    read: 'Este login não pode ver estoque.',
+    write: 'Este login não muda o total do estoque (nível "Mudar o total").',
+    organize: 'Este login não organiza estoque (nível "Organizar").',
+    propose: 'Este login não propõe mudanças de estoque (nível "Propor").',
+    'propose-or-write': 'Este login não propõe nem muda estoque.',
+    approve: 'Este login não aprova propostas (nível "Aprovar").',
+    setup: 'Este login não configura estoque (nível "Configurar").',
+  };
 
   /** Contexto padrão de toda chamada ao StockService a partir do hub.
    *  Fase A (09-10): o livro passa a guardar QUEM do dashboard fez a ação
@@ -275,6 +297,23 @@ function createWarehouseRouter(deps = {}) {
      garrafas) só passa com `confirm: true`: a tela mostra os dois números e a
      pessoa confirma que contou de novo. Sem alvo (Veeqo desconhecida) não há
      guarda — nunca bloqueia quem está carregando do zero. */
+
+  /* ── PROPOR EM VEZ DE APLICAR (Fase C) ────────────────────────────────
+     Quem tem so o nivel "Propor" chega aqui: a rota grava uma proposta na fila
+     (StockRequestService) com motivo/referencia no meta, avisa quem "Aprova" e
+     devolve { proposed: true }. Nada de quantidade muda ate alguem aprovar. */
+  async function proposeInstead(res, req, spec) {
+    const row = await requests.propose({
+      product_id: spec.product_id, kind: spec.kind, direction: spec.direction, qty: spec.qty,
+      bin_id: spec.bin_id || null, box_id: spec.box_id || null, reason: spec.reason || null,
+      note: spec.note || null, meta: spec.meta || null,
+      person_id: (req.login && req.login.person_id) || null,
+      login: (req.login && req.login.name) || null, login_id: (req.login && req.login.id) || null,
+    });
+    await audit(req, 'warehouse.propose', spec.product_id, { kind: spec.kind, qty: spec.qty, request_id: row.id });
+    return ok(res, { ok: true, proposed: true, request: row, product: await freshRow(spec.product_id) });
+  }
+
   async function assertNotOverTarget({ productId, totalAfter, confirm, label }) {
     if (confirm) return;
     const row = (await rowsWithVeeqo(productId))[0];
@@ -418,11 +457,10 @@ function createWarehouseRouter(deps = {}) {
   /** Envolve um handler com o gate de permissão + tradução de erro. */
   function route(method, path, mode, handler) {
     router[method](BASE + path, async (req, res) => {
-      const allowed = mode === 'write' ? canWrite(req) : canRead(req);
-      if (!allowed) {
-        return err(res, 'forbidden',
-          mode === 'write' ? 'Este login não pode editar estoque.' : 'Este login não pode ver estoque.', 403);
-      }
+      const allowed = (MODES[mode] || canRead)(req);
+      if (!allowed) return err(res, 'forbidden', MODE_MSG[mode] || MODE_MSG.read, 403);
+      // quem só propõe: a rota grava uma PROPOSTA em vez de aplicar
+      req.proposeOnly = mode === 'propose-or-write' && !lvl(req, 'change');
       try {
         await handler(req, res);
       } catch (e) {
@@ -510,7 +548,7 @@ function createWarehouseRouter(deps = {}) {
   // ── ESCRITA de estoque ─────────────────────────────────────
 
   // ENTRADA: sem bin e sem caixa → "a organizar" (Bruno 08-18).
-  route('post', '/product/:id/entrada', 'write', async (req, res) => {
+  route('post', '/product/:id/entrada', 'propose-or-write', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const qty = intOf(b.qty);
@@ -518,6 +556,12 @@ function createWarehouseRouter(deps = {}) {
     // Fase B: de ONDE veio (producao/lote, devolucao usavel, voltou de transferencia,
     // erro de registro). Opcional por compatibilidade; a tela sempre manda.
     const reason = b.reason_code ? await movements.requireReason(b.reason_code, ['in', 'count']) : null;
+    if (req.proposeOnly) {
+      return proposeInstead(res, req, { product_id: id, kind: 'entrada', direction: 'in', qty,
+        bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null, reason: reason ? reason.label_pt : null, note: b.note,
+        meta: { reason_code: reason ? reason.code : null, ref_type: b.ref_type || (b.batch_number ? 'batch' : (b.order_number ? 'order' : null)),
+          ref_id: b.ref_id || b.batch_number || b.order_number || null } });
+    }
     // guarda de tamanho ANTES de criar caixa ou mexer em quantidade
     const before = (await rowsWithVeeqo(id))[0];
     await assertNotOverTarget({ productId: id, totalAfter: (Number(before && before.total) || 0) + qty,
@@ -541,7 +585,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // ORGANIZAR: "a organizar" → prateleira/caixa.
-  route('post', '/product/:id/place', 'write', async (req, res) => {
+  route('post', '/product/:id/place', 'organize', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const qty = intOf(b.qty);
@@ -555,7 +599,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // MOVER: bin ↔ caixa (total não muda).
-  route('post', '/product/:id/move', 'write', async (req, res) => {
+  route('post', '/product/:id/move', 'organize', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const qty = intOf(b.qty);
@@ -587,7 +631,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // SEPARAR: label/seal/other deduzem a prateleira; return NÃO deduz nada.
-  route('post', '/product/:id/separate', 'write', async (req, res) => {
+  route('post', '/product/:id/separate', 'organize', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const qty = intOf(b.qty);
@@ -602,7 +646,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // RESOLVER uma Separada (volta pro estoque / relabel / descarte).
-  route('post', '/issues/:id/resolve', 'write', async (req, res) => {
+  route('post', '/issues/:id/resolve', 'organize', async (req, res) => {
     const issueId = intOf(req.params.id);
     if (!issueId) throw new Error('issue_id inválido');
     const b = req.body || {};
@@ -625,7 +669,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { requests: rows });
   });
 
-  route('post', '/requests', 'write', async (req, res) => {
+  route('post', '/requests', 'propose', async (req, res) => {
     const b = req.body || {};
     const row = await requests.propose({
       product_id: intOf(b.product_id), kind: b.kind, direction: b.direction,
@@ -637,7 +681,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, request: row, product: await freshRow(row.product_id) });
   });
 
-  route('post', '/requests/:id/approve', 'write', async (req, res) => {
+  route('post', '/requests/:id/approve', 'approve', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('id inválido');
     const row = await requests.approve({
@@ -648,7 +692,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, request: row, product: await freshRow(row.product_id) });
   });
 
-  route('post', '/requests/:id/reject', 'write', async (req, res) => {
+  route('post', '/requests/:id/reject', 'approve', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('id inválido');
     const row = await requests.reject({
@@ -665,7 +709,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, await locations.list());
   });
 
-  route('post', '/locations/bin', 'write', async (req, res) => {
+  route('post', '/locations/bin', 'setup', async (req, res) => {
     const b = req.body || {};
     const bin = await locations.upsertBin({
       bin_code: b.bin_code, shelf_code: b.shelf_code, area: b.area,
@@ -685,7 +729,7 @@ function createWarehouseRouter(deps = {}) {
    * `shelf` e `shelf_code` valem os dois (a tela manda `shelf`, a coluna é
    * `shelf_code`; recusar por causa do nome do campo seria burocracia).
    */
-  route('post', '/locations/bins/bulk', 'write', async (req, res) => {
+  route('post', '/locations/bins/bulk', 'setup', async (req, res) => {
     const list = Array.isArray(req.body && req.body.bins) ? req.body.bins : null;
     if (!list || !list.length) throw new Error('bins obrigatório (lista com pelo menos um código)');
     if (list.length > BULK_BINS_CAP) {
@@ -708,7 +752,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { created: out.created, skipped });
   });
 
-  route('post', '/locations/box', 'write', async (req, res) => {
+  route('post', '/locations/box', 'setup', async (req, res) => {
     const b = req.body || {};
     const box = await locations.upsertBox({
       box_number: b.box_number, area: b.area, product_id: intOf(b.product_id) || null,
@@ -726,7 +770,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, box, product: box.product_id ? await freshRow(box.product_id) : null });
   });
 
-  route('post', '/locations/bin/:id/deactivate', 'write', async (req, res) => {
+  route('post', '/locations/bin/:id/deactivate', 'setup', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('id inválido');
     const bin = await locations.deactivateBin(id);
@@ -743,7 +787,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, await family.forProduct(id, row ? row.available : null));
   });
 
-  route('post', '/family/:productId/attach', 'write', async (req, res) => {
+  route('post', '/family/:productId/attach', 'setup', async (req, res) => {
     const id = intOf(req.params.productId);
     if (!id) throw new Error('product_id inválido');
     const b = req.body || {};
@@ -756,7 +800,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, sku, product: await freshRow(id) });
   });
 
-  route('post', '/family/detach', 'write', async (req, res) => {
+  route('post', '/family/detach', 'setup', async (req, res) => {
     const b = req.body || {};
     const skuId = intOf(b.sku_id);
     if (!skuId) throw new Error('sku_id inválido');
@@ -770,7 +814,7 @@ function createWarehouseRouter(deps = {}) {
    * Move SKUs + estoque, RETIRA o fantasma e devolve o resultado completo. O
    * audit guarda os sku_ids porque é deles que o unmerge sabe o que devolver.
    */
-  route('post', '/family/merge', 'write', async (req, res) => {
+  route('post', '/family/merge', 'setup', async (req, res) => {
     const b = req.body || {};
     const from = intOf(b.from_product_id); const into = intOf(b.into_product_id);
     if (!from || !into) throw new Error('from_product_id e into_product_id obrigatórios');
@@ -789,7 +833,7 @@ function createWarehouseRouter(deps = {}) {
    * derruba os outros — cada um volta com seu próprio ok/erro, senão o operador
    * perde o lote inteiro por causa de um id errado.
    */
-  route('post', '/family/merge-bulk', 'write', async (req, res) => {
+  route('post', '/family/merge-bulk', 'setup', async (req, res) => {
     const groups = Array.isArray(req.body && req.body.groups) ? req.body.groups : null;
     if (!groups || !groups.length) throw new Error('groups obrigatório (lista com pelo menos um grupo)');
     if (groups.length > MERGE_BULK_CAP) {
@@ -831,7 +875,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   /** DESFAZER: o produto volta pro hub e os SKUs daquele merge voltam com ele. */
-  route('post', '/family/unmerge', 'write', async (req, res) => {
+  route('post', '/family/unmerge', 'setup', async (req, res) => {
     const id = intOf(req.body && req.body.product_id);
     if (!id) throw new Error('product_id obrigatório');
     const out = await family.unmerge({ product_id: id,
@@ -903,7 +947,7 @@ function createWarehouseRouter(deps = {}) {
    * NUNCA junta dois produtos (isso é o "Juntar SKUs", com gente na frente) e
    * NUNCA escreve quantidade.
    */
-  route('post', '/sku-sync/apply', 'write', async (req, res) => {
+  route('post', '/sku-sync/apply', 'setup', async (req, res) => {
     const b = req.body || {};
     const createMissing = b.create_missing === true;
     const planOut = await skuSync.preview();
@@ -949,7 +993,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // peso por garrafa: direto OU calibrado de uma amostra pesada
-  route('post', '/weights/product/:id', 'write', async (req, res) => {
+  route('post', '/weights/product/:id', 'setup', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const row = await weights.setUnitWeight({ product_id: id, ...b });
@@ -957,13 +1001,13 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, product: row });
   });
 
-  route('post', '/weights/tare', 'write', async (req, res) => {
+  route('post', '/weights/tare', 'setup', async (req, res) => {
     const row = await weights.upsertTare(req.body || {});
     await audit(req, 'warehouse.tare_preset', row.id, { name: row.name, kind: row.kind, tare_g: row.tare_g });
     ok(res, { ok: true, tare: row });
   });
 
-  route('post', '/weights/bin/:id', 'write', async (req, res) => {
+  route('post', '/weights/bin/:id', 'setup', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('bin_id inválido');
     const row = await weights.setBin(id, req.body || {});
@@ -971,7 +1015,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { ok: true, bin: row });
   });
 
-  route('post', '/weights/box/:id', 'write', async (req, res) => {
+  route('post', '/weights/box/:id', 'setup', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('box_id inválido');
     const row = await weights.setBox(id, req.body || {});
@@ -1002,7 +1046,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { types: await boxTypes.list() });
   });
 
-  route('post', '/box-types', 'write', async (req, res) => {
+  route('post', '/box-types', 'setup', async (req, res) => {
     const type = await boxTypes.create(req.body || {});
     await audit(req, 'warehouse.box_type_create', type.id, { name: type.name });
     ok(res, { type });
@@ -1010,7 +1054,7 @@ function createWarehouseRouter(deps = {}) {
 
   // pesar ~10 caixas vazias (uma a uma OU todas juntas ÷ contagem) substitui a
   // estatística e carimba last_calibrated_at — o aviso de re-pesagem zera aqui
-  route('post', '/box-types/:id/calibrate', 'write', async (req, res) => {
+  route('post', '/box-types/:id/calibrate', 'setup', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('box_type_id inválido');
     const type = await boxTypes.calibrate(id, req.body || {});
@@ -1019,7 +1063,7 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { type, spread_g: type.spread_g });
   });
 
-  route('post', '/box-types/:id', 'write', async (req, res) => {
+  route('post', '/box-types/:id', 'setup', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('box_type_id inválido');
     const type = await boxTypes.update(id, req.body || {});
@@ -1042,7 +1086,7 @@ function createWarehouseRouter(deps = {}) {
   // body: { bin_id | box_id, found (int >= 0), confirm?, note?, client_ref? }
   // "Nesta prateleira/caixa tem N agora." O StockService.count grava o delta
   // como movimento 'count' e deixa qty = found. Repetir é inofensivo.
-  route('post', '/product/:id/count', 'write', async (req, res) => {
+  route('post', '/product/:id/count', 'propose-or-write', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const found = intOf(b.found);
@@ -1057,6 +1101,14 @@ function createWarehouseRouter(deps = {}) {
     const before = (await rowsWithVeeqo(id))[0];
     const totalAfter = (Number(before && before.total) || 0) - (Number(loc.qty) || 0) + found;
     await assertNotOverTarget({ productId: id, totalAfter, confirm: !!b.confirm, label: 'Esta contagem' });
+    if (req.proposeOnly) {
+      const delta = found - (Number(loc.qty) || 0);
+      if (delta === 0) return ok(res, { ok: true, proposed: false, unchanged: true, product: await freshRow(id) });
+      const reasonC = b.reason_code ? await movements.requireReason(b.reason_code, ['count']) : null;
+      return proposeInstead(res, req, { product_id: id, kind: 'count', direction: delta > 0 ? 'in' : 'out', qty: Math.abs(delta),
+        bin_id: binId, box_id: boxId, reason: reasonC ? reasonC.label_pt : 'contagem', note: b.note,
+        meta: { computed_qty: found, method: 'manual', reason_code: reasonC ? reasonC.code : 'contagem' } });
+    }
     const ref = b.client_ref ? 'count:' + String(b.client_ref).toLowerCase() : null;
     const reason = b.reason_code ? await movements.requireReason(b.reason_code, ['count']) : null;
     const out = await stock.count({
@@ -1074,13 +1126,18 @@ function createWarehouseRouter(deps = {}) {
 
   // SAÍDA sem venda: amostra, uso interno, extra num pedido, descarte.
   // body: { qty, reason_code (out, ≠ venda/transferencia), bin_id|box_id?, ref_type?, ref_id?, order_number?, note? }
-  route('post', '/product/:id/take', 'write', async (req, res) => {
+  route('post', '/product/:id/take', 'propose-or-write', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const qty = intOf(b.qty);
     if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
     const reason = await movements.requireReason(b.reason_code, ['out']);
     if (['venda', 'transferencia'].includes(reason.code)) throw new Error('motivo inválido pra Saída: venda é automática e transferência tem o verbo Transferir');
+    if (req.proposeOnly) {
+      return proposeInstead(res, req, { product_id: id, kind: 'take', direction: 'out', qty,
+        bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null, reason: reason.label_pt, note: b.note,
+        meta: { reason_code: reason.code, ref_type: b.ref_type || (b.order_number ? 'order' : null), ref_id: b.ref_id || b.order_number || null } });
+    }
     const out = await stock.takeOut({
       ...actor(req, b.note || ''), product_id: id, qty, kind: 'take', reason_code: reason.code,
       bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null,
@@ -1094,13 +1151,18 @@ function createWarehouseRouter(deps = {}) {
   // TRANSFERÊNCIA pra fora do armazém: FBA, WFS, DC, outro. A remessa é a referência.
   // body: { qty, destination ('fba'|'wfs'|'dc'|'other'), shipment_ref?, bin_id|box_id?, note? }
   const DESTINATIONS = { fba: 'FBA (Amazon)', wfs: 'WFS (Walmart)', dc: 'DC / distribuidor', other: 'outro' };
-  route('post', '/product/:id/transfer', 'write', async (req, res) => {
+  route('post', '/product/:id/transfer', 'propose-or-write', async (req, res) => {
     const id = productIdOf(req);
     const b = req.body || {};
     const qty = intOf(b.qty);
     if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
     const dest = String(b.destination || '').toLowerCase();
     if (!DESTINATIONS[dest]) throw new Error('destination inválido (fba, wfs, dc ou other)');
+    if (req.proposeOnly) {
+      return proposeInstead(res, req, { product_id: id, kind: 'transfer', direction: 'out', qty,
+        bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null, reason: 'Transferência para ' + DESTINATIONS[dest], note: b.note,
+        meta: { reason_code: 'transferencia', destination: DESTINATIONS[dest], shipment_ref: b.shipment_ref || null } });
+    }
     const out = await stock.takeOut({
       ...actor(req, `para ${DESTINATIONS[dest]}${b.shipment_ref ? ' · remessa ' + b.shipment_ref : ''}${b.note ? ' · ' + b.note : ''}`),
       product_id: id, qty, kind: 'transfer', reason_code: 'transferencia',
@@ -1207,7 +1269,7 @@ function createWarehouseRouter(deps = {}) {
   });
 
   // etiqueta saiu da impressora → carimba (a caixa sem etiqueta é caixa perdida)
-  route('post', '/locations/box/:id/label-printed', 'write', async (req, res) => {
+  route('post', '/locations/box/:id/label-printed', 'setup', async (req, res) => {
     const id = intOf(req.params.id);
     if (!id) throw new Error('box_id inválido');
     const r = await db.query(
@@ -1221,7 +1283,7 @@ function createWarehouseRouter(deps = {}) {
   // ── S15 FASE 3 — UPC da Veeqo → product_skus.barcode ───────
   // Sem isso o operador escaneia a garrafa e o sistema não sabe o que é. O UPC
   // já está na Veeqo; só falta copiar pros SKUs que a gente mapeou.
-  route('post', '/skus/import-upc', 'write', async (req, res) => {
+  route('post', '/skus/import-upc', 'setup', async (req, res) => {
     await veeqoCache.warm();
     const bySku = await veeqoCache.bySku();
     const rows = (await db.query(

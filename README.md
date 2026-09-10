@@ -47,3 +47,20 @@ Migrations: `src/v3/schema/migrations/*.sql` (UP+DOWN) + script idempotente.
 Env vars principais: `DATABASE_URL, SLACK_BOT_TOKEN, GEMINI_API_KEY,
 ANTHROPIC_API_KEY, LLM_PROVIDER, ARCHITECT_API_TOKEN, OPERATOR_PAGE_TOKEN,
 ADMIN_PASSWORD, WORKER_DEDUPE_ENABLED, V2_DISABLED=1`.
+
+## Watchdog da Carolina no Slack
+
+O watchdog inicia no logon pela tarefa `HealthFare Claude Autostart` e mantém o
+Chrome da Carolina, o listener Slack e o agendador ativos. Quando a sessão do
+Slack expira, ele usa o workspace `usgsteamworkspace`, escolhe login com Google
+e reutiliza a sessão Google; se o Google pedir senha, lê a credencial local.
+O launcher abre somente a página atual do Slack; não restaura sessões antigas de
+abas, pois telas de login acumuladas podem deixar a automação sem resposta.
+
+As credenciais ficam somente em `scripts/analyst/_watch/slack-creds.json`, que
+é ignorado pelo Git. Nunca coloque e-mail, senha, tokens ou cookies neste README
+nem em arquivos versionados. Para checar a sessão sem abrir o fluxo de login:
+
+```bash
+node scripts/analyst/slack-autologin.js --check
+```

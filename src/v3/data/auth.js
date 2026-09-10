@@ -20,9 +20,14 @@ async function resolveLogin(db, pin) {
   if (hit && Date.now() - hit.at < 10000) return hit.login;
   let login = null;
   try {
+    // Fase C (Bruno 09-10, mig 089): funcoes = as do PERFIL + as dadas POR PESSOA
+    // (login_functions.granted=true) − as tiradas por pessoa (granted=false).
+    // O perfil e o modelo inicial; a pessoa e a unidade.
     const r = await db.query(
       `SELECT l.id, l.name, r.key AS role, r.rank,
-              COALESCE(array_agg(rf.function_key) FILTER (WHERE rf.function_key IS NOT NULL), '{}') AS functions
+              COALESCE(array_agg(DISTINCT rf.function_key) FILTER (WHERE rf.function_key IS NOT NULL), '{}') AS functions,
+              COALESCE((SELECT array_agg(lf.function_key) FROM v3.login_functions lf WHERE lf.login_id = l.id AND lf.granted), '{}') AS granted,
+              COALESCE((SELECT array_agg(lf.function_key) FROM v3.login_functions lf WHERE lf.login_id = l.id AND NOT lf.granted), '{}') AS revoked
          FROM v3.app_logins l
          JOIN v3.app_roles r ON r.id = l.role_id
          LEFT JOIN v3.role_functions rf ON rf.role_id = r.id
@@ -30,7 +35,11 @@ async function resolveLogin(db, pin) {
         GROUP BY l.id, r.key, r.rank
         LIMIT 1`, [p]);
     if (r.rows[0]) {
-      login = { id: r.rows[0].id, name: r.rows[0].name, role: r.rows[0].role, rank: r.rows[0].rank, functions: r.rows[0].functions || [] };
+      const row = r.rows[0];
+      const revoked = new Set(row.revoked || []);
+      const functions = [...new Set([...(row.functions || []), ...(row.granted || [])])].filter((f) => !revoked.has(f));
+      login = { id: row.id, name: row.name, role: row.role, rank: row.rank, functions,
+        overrides: { granted: row.granted || [], revoked: row.revoked || [] } };
     }
   } catch (_) { login = null; }
   // fallback de emergência: ADMIN_PIN env (default 510510) → admin de emergência
@@ -46,6 +55,28 @@ function hasFunction(login, fn) {
   if (!login) return false;
   if (login.functions && login.functions.includes('*')) return true;
   return !!login.functions && login.functions.includes(fn);
+}
+
+/* ── NIVEIS do "Controle de estoque" (Fase C, Bruno 09-10) ──────────────────
+   organize · propose · change · approve · receive_production · setup.
+   `manage_stock` (o interruptor antigo) vale como TODOS os niveis: quem ja
+   editava estoque nao perde nada. `view_stock` ou qualquer nivel = ve. */
+const STOCK_LEVELS = ['organize', 'propose', 'change', 'approve', 'receive_production', 'setup'];
+function stockLevel(login, level) {
+  if (!login) return false;
+  if (hasFunction(login, 'manage_stock')) return true;
+  return hasFunction(login, 'stock_' + level);
+}
+function canViewStock(login) {
+  if (!login) return false;
+  if (hasFunction(login, 'view_stock') || hasFunction(login, 'manage_stock')) return true;
+  return STOCK_LEVELS.some((l) => hasFunction(login, 'stock_' + l));
+}
+function stockLevelsOf(login) {
+  const out = {};
+  for (const l of STOCK_LEVELS) out[l] = stockLevel(login, l);
+  out.view = canViewStock(login);
+  return out;
 }
 
 /**
@@ -72,4 +103,4 @@ function makeAuthMiddleware(opts = {}) {
   };
 }
 
-module.exports = { makeAuthMiddleware, resolveLogin, hasFunction };
+module.exports = { makeAuthMiddleware, resolveLogin, hasFunction, stockLevel, canViewStock, stockLevelsOf, STOCK_LEVELS };
