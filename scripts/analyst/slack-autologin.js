@@ -196,7 +196,15 @@ async function fluxo(c, cfg) {
   const cfg = creds();
   const soChecar = process.argv.includes('--check');
   let c = await attach(await tab(/slack\.com|accounts\.google/));
-  if (await logado(c)) { log('ja logado'); c.close(); process.exit(0); }
+  // 3 tentativas em ~10s: no meio de uma troca de canal do watchdog o
+  // message_input some por um instante e o check dava falso "nao logado"
+  // (visto 09-09, disparava autologin a toa e interrompia a raspagem).
+  for (let i = 0; i < 3; i++) {
+    if (await logado(c)) { log('ja logado'); c.close(); process.exit(0); }
+    const emLogin = await c.ev("/signin|workspace-signin|accounts\.google/.test(location.href)").catch(() => false);
+    if (emLogin) break;
+    await sleep(5000);
+  }
   if (soChecar) { log('NAO LOGADO'); c.close(); process.exit(1); }
 
   log('sessao caiu, logando...');
