@@ -1,0 +1,481 @@
+<title>Linha do Tempo, nova</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#f4f8fc; --surface:#ffffff; --surface-2:#f7fafd; --ink:#1c2b3a; --ink-dim:#54687c; --ink-faint:#6b7f92;
+  --line:#d4e2f0; --line-strong:#b9cbe2; --primary:#1a3a6b; --green:#2e8b3c; --green-soft:#e8f7ea;
+  --prod:#1a3a6b; --prod-tint:#e6edf8; --prod-tint-2:#d5e1f3;
+  --pnp:#1a7a7a; --pnp-tint:#e1f1f1; --pnp-tint-2:#cfe7e7;
+  --sup:#5b4a9e; --sup-tint:#ebe7f6; --sup-tint-2:#dcd5ef;
+  --neutral:#8194a6; --neutral-tint:#eef2f6; --hatch:rgba(129,148,166,.28);
+  --off:#e9eef4; --off-ink:#9aabbb;
+  --bad:#c0392b; --bad-bg:#fdeeec; --warn:#c77d12; --warn-bg:#fdf3e3;
+  --shadow:0 10px 30px -18px rgba(26,58,107,.35), 0 1px 2px rgba(26,58,107,.08);
+  --font:'DM Sans',system-ui,'Segoe UI',sans-serif; --font-display:'DM Serif Display',Georgia,serif; --font-mono:'DM Mono',ui-monospace,Menlo,monospace;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#0f1720; --surface:#16202b; --surface-2:#1b2733; --ink:#e6edf5; --ink-dim:#a9b8c8; --ink-faint:#8397ab;
+  --line:#26343f; --line-strong:#38495a; --primary:#9cb9e6; --green:#5cc973; --green-soft:#183523;
+  --prod:#9cb9e6; --prod-tint:#1e2f47; --prod-tint-2:#28395a;
+  --pnp:#6fd0d0; --pnp-tint:#163636; --pnp-tint-2:#1d4747;
+  --sup:#b8a8ea; --sup-tint:#2a2545; --sup-tint-2:#37305a;
+  --neutral:#8ea0b2; --neutral-tint:#212c37; --hatch:rgba(142,160,178,.28);
+  --off:#111922; --off-ink:#55687a;
+  --bad:#ff7b6b; --bad-bg:#3a1e1a; --warn:#f0b25a; --warn-bg:#3a2d15;
+  --shadow:0 10px 30px -18px rgba(0,0,0,.7), 0 1px 2px rgba(0,0,0,.4);
+}}
+:root[data-theme="dark"]{
+  --ground:#0f1720; --surface:#16202b; --surface-2:#1b2733; --ink:#e6edf5; --ink-dim:#a9b8c8; --ink-faint:#8397ab;
+  --line:#26343f; --line-strong:#38495a; --primary:#9cb9e6; --green:#5cc973; --green-soft:#183523;
+  --prod:#9cb9e6; --prod-tint:#1e2f47; --prod-tint-2:#28395a;
+  --pnp:#6fd0d0; --pnp-tint:#163636; --pnp-tint-2:#1d4747;
+  --sup:#b8a8ea; --sup-tint:#2a2545; --sup-tint-2:#37305a;
+  --neutral:#8ea0b2; --neutral-tint:#212c37; --hatch:rgba(142,160,178,.28);
+  --off:#111922; --off-ink:#55687a;
+  --bad:#ff7b6b; --bad-bg:#3a1e1a; --warn:#f0b25a; --warn-bg:#3a2d15;
+  --shadow:0 10px 30px -18px rgba(0,0,0,.7), 0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:14px/1.45 var(--font);-webkit-font-smoothing:antialiased}
+.page{max-width:1480px;margin:0 auto;padding:28px 24px 60px}
+.eyebrow{font:500 11px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--green)}
+h1{font:400 34px/1.1 var(--font-display);margin:6px 0 6px;letter-spacing:-.01em;text-wrap:balance}
+h1 em{font-style:italic;color:var(--green)}
+.lead{color:var(--ink-dim);max-width:70ch;margin:0 0 18px}
+.lead b{color:var(--ink);font-weight:600}
+
+/* ── widget ─────────────────────────────────────────── */
+.tl{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;position:relative}
+.tl-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tl-head h2{margin:0;font:600 14px var(--font);letter-spacing:-.01em}
+.tl-head .sub{font:400 12px var(--font);color:var(--ink-faint)}
+.legend{display:flex;gap:14px;align-items:center;margin-left:8px;flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-dim)}
+.sw{display:inline-block;width:14px;height:10px;border-radius:3px;border-left:3px solid var(--c);background:var(--t)}
+.sw.rail{height:5px;border-left:0;background:var(--c);opacity:.7;border-radius:2px}
+.sw.hatch{background:repeating-linear-gradient(135deg,var(--hatch) 0 2px,transparent 2px 6px);border-left:0;border:1px solid var(--line-strong)}
+.spacer{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink-dim);font:500 12px var(--font);padding:5px 11px;cursor:pointer}
+.seg button.on{background:var(--primary);color:#fff}
+:root[data-theme="dark"] .seg button.on{color:#0f1720}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .seg button.on{color:#0f1720} }
+.btn{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font:600 12.5px var(--font);padding:7px 12px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#0f1720}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .btn.primary{color:#0f1720} }
+.btn:focus-visible,.seg button:focus-visible,.chip:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+
+.tl-scroll{overflow-x:auto;overflow-y:hidden;position:relative}
+.grid{position:relative;display:grid;grid-template-columns:var(--name-w) 1fr;min-width:max-content}
+.axis{display:contents}
+.axis .name{position:sticky;left:0;z-index:5;background:var(--surface);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 14px;height:34px;display:flex;align-items:center;font:500 11px var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint)}
+.axis .hours{position:relative;height:34px;border-bottom:1px solid var(--line);width:var(--track-w)}
+.tick{position:absolute;top:0;bottom:0;padding:9px 0 0 6px;font:500 11px var(--font-mono);color:var(--ink-faint)}
+.tick::before{content:"";position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--line-strong)}
+.now-tag{position:absolute;top:6px;transform:translateX(-50%);background:var(--green);color:#fff;font:600 10.5px var(--font-mono);padding:2px 7px;border-radius:999px;white-space:nowrap;z-index:6}
+
+.row{display:contents}
+.row .name{position:sticky;left:0;z-index:4;background:var(--surface);border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 14px;display:flex;align-items:center;gap:10px;height:var(--row-h);cursor:default}
+.row.dim .name,.row.dim .track{opacity:.35}
+.avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:600 11px var(--font);color:#fff;background:var(--primary);flex:none}
+:root[data-theme="dark"] .avatar{color:#0f1720}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .avatar{color:#0f1720} }
+.who{min-width:0;flex:1}
+.who .nm{font-weight:600;font-size:13.5px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who .st{font-size:11px;color:var(--ink-faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono)}
+.who .st.bad{color:var(--bad)}
+.who .st.live{color:var(--green)}
+.track{position:relative;height:var(--row-h);border-bottom:1px solid var(--line);width:var(--track-w);background:
+  repeating-linear-gradient(90deg,transparent 0 calc(var(--hpx) - 1px),var(--line) calc(var(--hpx) - 1px) var(--hpx))}
+.track .half{position:absolute;top:0;bottom:0;width:1px;background:var(--line);opacity:.55}
+.off{position:absolute;top:0;bottom:0;background:var(--off);z-index:0}
+.off::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(0,0,0,.025) 6px 7px)}
+.punch{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid var(--ink-faint);transform:translateX(-50%);z-index:3;cursor:pointer}
+.punch.in{border-top-color:var(--green)}
+.punch:hover::after{content:attr(data-tip);position:absolute;top:8px;left:-4px;background:var(--ink);color:var(--surface);font:500 10.5px var(--font-mono);padding:3px 7px;border-radius:6px;white-space:nowrap}
+.band{position:absolute;top:var(--lane-top);height:var(--lane-h);background:repeating-linear-gradient(135deg,var(--hatch) 0 2px,transparent 2px 6px);border:1px dashed var(--line-strong);border-radius:6px;z-index:1;display:flex;align-items:center;padding:0 8px;font:500 11px var(--font-mono);color:var(--ink-faint);overflow:hidden;white-space:nowrap}
+.gap{position:absolute;top:var(--lane-top);height:var(--lane-h);z-index:1;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;font:500 10.5px var(--font-mono);color:var(--ink-faint);background:transparent;border:1px dashed transparent}
+.gap:hover{border-color:var(--line-strong);background:var(--surface-2)}
+.gap.long{color:var(--warn)}
+
+.rail{position:absolute;height:7px;border-radius:4px;background:var(--c);opacity:.75;z-index:2;cursor:pointer;overflow:visible}
+.rail:hover{opacity:1}
+.rail .rl{position:absolute;left:0;top:-14px;font:500 10px var(--font-mono);color:var(--c);white-space:nowrap;letter-spacing:.02em}
+.rail.live::after{content:"";position:absolute;right:-3px;top:-1px;width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px var(--surface)}
+
+.blk{position:absolute;top:var(--lane-top);height:var(--lane-h);background:var(--t);border-left:3px solid var(--c);border-radius:4px 7px 7px 4px;z-index:2;color:var(--ink);padding:3px 7px 3px 7px;overflow:hidden;cursor:grab;user-select:none;display:flex;flex-direction:column;justify-content:center;gap:1px;transition:box-shadow .12s, transform .12s}
+.blk:hover,.blk.hl{background:var(--t2);box-shadow:0 4px 14px -6px rgba(26,58,107,.5);z-index:3}
+.blk.sel{box-shadow:0 0 0 2px var(--primary), 0 6px 16px -6px rgba(26,58,107,.5);z-index:4}
+.blk.mute{padding:0}
+.blk .l1{font:600 11.5px/1.15 var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blk .l2{font:400 10.5px/1.15 var(--font-mono);color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blk.live{border-radius:4px 0 0 4px;border-right:0}
+.blk.live::after{content:"";position:absolute;right:6px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--green);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(46,139,60,.5)}50%{box-shadow:0 0 0 5px rgba(46,139,60,0)}}
+@media (prefers-reduced-motion: reduce){.blk.live::after{animation:none}}
+.blk .cwd{position:absolute;right:5px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--c);opacity:.8}
+.blk.stack{--lane-h:calc(var(--lane-h-base) / 2 - 1px)}
+.dup{position:absolute;right:5px;top:3px;font:600 9.5px var(--font-mono);color:var(--warn);background:var(--warn-bg);padding:0 5px;border-radius:999px}
+.tickmark{position:absolute;top:calc(var(--lane-top) + 6px);height:calc(var(--lane-h) - 12px);width:3px;background:var(--c);border-radius:2px;z-index:2;cursor:pointer;opacity:.8}
+.tickmark:hover{opacity:1;box-shadow:0 0 0 3px var(--t)}
+.pause{position:absolute;top:var(--lane-top);height:var(--lane-h);background:var(--neutral-tint);border:1px dashed var(--neutral);border-radius:6px;z-index:2;display:flex;align-items:center;padding:0 6px;font:500 10.5px var(--font-mono);color:var(--ink-dim);white-space:nowrap;overflow:hidden}
+.cowlink{position:absolute;width:2px;background:var(--c);opacity:0;z-index:6;pointer-events:none;transition:opacity .12s}
+.cowlink.on{opacity:.6}
+.rowplus{position:sticky;left:calc(100% - 34px);top:8px;width:24px;height:24px;border-radius:50%;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-dim);font:600 15px/1 var(--font);cursor:pointer;opacity:0;z-index:7;transition:opacity .12s;float:right;margin:8px 8px 0 0}
+.track:hover .rowplus{opacity:1}
+.rowplus:hover{background:var(--primary);color:#fff;border-color:var(--primary)}
+.nowline{position:absolute;top:0;bottom:0;width:2px;background:var(--green);z-index:5;pointer-events:none}
+
+/* action bar */
+.abar{position:absolute;z-index:20;display:flex;gap:2px;background:var(--ink);color:var(--surface);border-radius:10px;padding:4px;box-shadow:0 12px 30px -10px rgba(0,0,0,.5);font:500 12px var(--font)}
+.abar button{border:0;background:transparent;color:inherit;font:inherit;padding:6px 9px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.abar button:hover{background:rgba(255,255,255,.14)}
+.abar .div{width:1px;background:rgba(255,255,255,.2);margin:4px 2px}
+.abar .t{padding:6px 9px 6px 6px;color:rgba(255,255,255,.7);font-family:var(--font-mono);font-size:11px}
+
+/* quick add popover */
+.pop{position:absolute;z-index:30;width:380px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px -20px rgba(26,58,107,.5), 0 2px 8px rgba(26,58,107,.08);padding:14px}
+.pop h3{margin:0 0 2px;font:600 13.5px var(--font)}
+.pop .hint{font:400 11.5px var(--font);color:var(--ink-faint);margin-bottom:10px}
+.lbl{font:500 10.5px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin:10px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font:500 12px var(--font);padding:5px 10px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.chip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+:root[data-theme="dark"] .chip.on{color:#0f1720}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .chip.on{color:#0f1720} }
+.chip .d{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.chip.ghost{border-style:dashed;color:var(--ink-dim)}
+.acts{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;max-height:172px;overflow:auto;padding-right:2px}
+.act{border:1px solid var(--line);border-left:3px solid var(--c);background:var(--t);color:var(--ink);font:500 11.5px var(--font);padding:6px 8px;border-radius:6px;cursor:pointer;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act.on{outline:2px solid var(--primary);outline-offset:-1px}
+.grp{grid-column:1/-1;font:500 10px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin-top:4px}
+.times{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.times label{display:block;font:500 10.5px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:4px}
+.times input{width:100%;border:1px solid var(--line-strong);border-radius:8px;padding:7px 9px;font:500 13px var(--font-mono);color:var(--ink);background:var(--surface)}
+.times .inl{display:flex;gap:6px;align-items:center}
+.pop .foot{display:flex;gap:8px;align-items:center;margin-top:12px}
+.link{background:none;border:0;color:var(--primary);font:500 12px var(--font);cursor:pointer;padding:0}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:9px 14px;border-radius:999px;font:500 12.5px var(--font);box-shadow:0 12px 30px -10px rgba(0,0,0,.5);opacity:0;transition:opacity .2s;pointer-events:none;z-index:50}
+.toast.on{opacity:1}
+
+/* notes below */
+.notes{display:grid;grid-template-columns:1.3fr 1fr;gap:22px;margin-top:26px}
+@media (max-width:900px){.notes{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.card h3{margin:0 0 10px;font:600 13px var(--font);letter-spacing:.02em}
+.card ol,.card ul{margin:0;padding-left:18px;color:var(--ink-dim)}
+.card li{margin:0 0 7px}
+.card li b{color:var(--ink);font-weight:600}
+.k{font:500 11px var(--font-mono);color:var(--primary);background:var(--prod-tint);padding:1px 6px;border-radius:5px}
+.before{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.before .old{display:inline-block;width:110px;height:34px;border-radius:8px;background:linear-gradient(180deg,#db2777,#f472b6);color:#fff;font:700 11px var(--font);padding:5px 8px;overflow:hidden;white-space:nowrap}
+.before .arr{color:var(--ink-faint)}
+.before .new{display:inline-block;width:110px;height:34px;border-radius:4px 7px 7px 4px;background:var(--prod-tint);border-left:3px solid var(--prod);font:600 11.5px var(--font);padding:4px 7px;color:var(--ink);white-space:nowrap;overflow:hidden}
+.before .new small{display:block;font:400 10.5px var(--font-mono);color:var(--ink-dim)}
+</style>
+
+<div class="page">
+  <div class="eyebrow">HealthFare · Hoje · proposta de redesenho</div>
+  <h1>A linha do tempo <em>que se lê</em></h1>
+  <p class="lead">Dia real de <b>terça, 9 de setembro</b> (56 registros, 4 pessoas) desenhado com as regras do estudo. Uma faixa por pessoa; máquina e lote viram um trilho fino em cima; a cor só diz o fluxo; texto só quando cabe. <b>Clique num espaço vazio</b> pra registrar algo esquecido, <b>clique num bloco</b> pra corrigir, passe o mouse num trabalho em grupo pra ver quem estava junto. Nada aqui grava no banco.</p>
+
+  <div class="tl" id="tl">
+    <div class="tl-head">
+      <h2>Linha do tempo</h2><span class="sub" id="daylabel">ter, 9 set · 4 pessoas</span>
+      <div class="legend">
+        <span><i class="sw" style="--c:var(--prod);--t:var(--prod-tint)"></i>Produção</span>
+        <span><i class="sw" style="--c:var(--pnp);--t:var(--pnp-tint)"></i>P&amp;P</span>
+        <span><i class="sw" style="--c:var(--sup);--t:var(--sup-tint)"></i>Suporte</span>
+        <span><i class="sw rail" style="--c:var(--prod)"></i>máquina / lote acompanhado</span>
+        <span><i class="sw hatch"></i>almoço · pausa · fora do turno</span>
+      </div>
+      <span class="spacer"></span>
+      <div class="seg" id="density"><button data-v="110" class="on">Compacto</button><button data-v="160">Confortável</button></div>
+      <div class="seg" id="nowsim"><button data-v="0" class="on">Dia inteiro</button><button data-v="926">Simular 3:26 PM</button></div>
+      <button class="btn primary" id="newbtn">+ Novo registro</button>
+    </div>
+    <div class="tl-scroll" id="scroll"><div class="grid" id="grid"></div></div>
+  </div>
+
+  <div class="notes">
+    <div class="card">
+      <h3>O que mudou, e por quê</h3>
+      <ol>
+        <li><b>Uma faixa por pessoa.</b> Antes, cada sobreposição abria uma sub-faixa de 54 px e a pessoa virava três andares. Agora a tarefa que a pessoa faz com a mão tem altura cheia; se duas tarefas de mão se cruzam de verdade, dividem a faixa ao meio (como o Google Agenda faz com dois compromissos).</li>
+        <li><b>Máquina e lote são um trilho, não um bloco.</b> Encapsulação, pesagem, mix, separação e <b>impressão de labels</b> rodam sozinhos enquanto a pessoa faz outra coisa. Em 09-09, 9 dos 11 blocos rosa "SIMULTÂNEO" eram exatamente isso: Linha de Produção + Impressão de Labels. O rosa some porque a pergunta errada some.</li>
+        <li><b>Três cores, e só três.</b> Produção, P&amp;P e Suporte, sempre como borda esquerda e fundo claro, texto escuro. Almoço, pausa e fora do turno são neutros e hachurados. Vermelho fica só pra "precisa de ação".</li>
+        <li><b>Texto só quando cabe.</b> Abaixo de 28 px o bloco fica mudo (só a cor); até 60 px um código de 3 letras; até 110 px o nome curto; acima disso, nome + produto e duração (é a escada do Grafana e dos flame graphs). Nunca mais "Re…" cortado em três linhas. O resto mora no hover e no painel.</li>
+        <li><b>O ponto vira limite, não evento.</b> Antes do check-in e depois do check-out a faixa fica cinza. A batida é um triângulo no topo; o almoço do relógio é a faixa hachurada. Nada disso disputa espaço com as tarefas.</li>
+        <li><b>Ruído colapsado.</b> Registros de 0 a 2 minutos (reinícios do kiosk) viram um tique de 3 px; dois registros iguais no mesmo horário viram um bloco com <span class="k">×2</span> em âmbar, pra quem edita decidir.</li>
+        <li><b>Corte do correio saiu daqui.</b> Ele já vive no card P&amp;P do dia e é o mesmo todo dia. A linha "Notif." inteira desaparece.</li>
+        <li><b>Registrar onde aconteceu.</b> Clique no vazio da faixa da pessoa: a hora do clique já é o início, o fim é o próximo registro (ou "agora"), a atividade vem numa grade por fluxo com as recentes primeiro, e "quem estava junto" são as pessoas do dia. Três toques, como no kiosk. O <b>+</b> que aparece na ponta da faixa faz o caso mais comum em um clique: começa onde o último registro acabou. "Mais opções" abre o painel completo de sempre.</li>
+        <li><b>Corrigir a um clique.</b> Selecionar um bloco mostra a barra: mover pra outra pessoa, juntar com o vizinho, dividir aqui, marcar duplicado, apagar. Arrastar continua servindo pra horário.</li>
+      </ol>
+      <div class="before">
+        <span class="old">Revisão<br>⚡ SIMULTÂNEO ×2</span><span class="arr">→</span><span class="new">Revisão<small>Rhodiola · 49m</small></span>
+        <span style="font-size:11.5px;color:var(--ink-faint)">mesmo registro, dois desenhos</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>O que este protótipo não decide</h3>
+      <ul>
+        <li><b>Impressão de labels vira "acompanhado"?</b> Aqui eu tratei como trilho. No banco ela ainda é tarefa de mão. É uma linha de configuração, mas é decisão sua.</li>
+        <li><b>Nome curto por atividade.</b> Usei apelidos (Linha, Encaps., Labels, Setup, Estoque). Podem virar um campo no cadastro de atividades pra não depender de código.</li>
+        <li><b>Cadastro rápido de pessoa.</b> "Outra pessoa…" no Novo registro cria alguém só com nome e cargo; PIN e relógio ficam pra depois em Pessoas.</li>
+        <li><b>Altura da faixa.</b> Compacto (56 px por pessoa, dia inteiro em ~1100 px) é o padrão proposto; Confortável fica a um clique.</li>
+      </ul>
+      <h3 style="margin-top:16px">Como testar aqui</h3>
+      <ul>
+        <li>Passe o mouse na <b>Linha de Produção</b> da Caroline às 12:01: a da Larissa acende junto (mesmo grupo).</li>
+        <li>Clique no vazio da faixa do <b>Vitor</b> entre 15:02 e 15:49: o popover já vem com 3:05 PM → 3:49 PM.</li>
+        <li>Clique no bloco <b>Encapsulação ×2</b> do Vitor às 14:42 pra ver a barra de correção.</li>
+        <li>Troque pra <b>Simular 3:26 PM</b> pra ver o dia como ele aparece ao vivo.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const DATA = {"date":"2026-09-09","people":[{"id":7,"name":"Bruno Sarmento","role":"operator","markers":[{"kind":"checkin","at":685},{"kind":"lunch_out","at":881},{"kind":"lunch_in","at":927},{"kind":"checkout","at":1217}],"events":[{"id":4317,"slug":"weighing","name":"Pesagem (weighing)","flow":"support","bg":true,"s":688,"e":735,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4325,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":736,"e":882,"cw":[],"grp":null,"prod":{"name":"Chromium Picolinate","batch":"BR-2026-0292"},"paused":0},{"id":4326,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":736,"e":773,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4327,"slug":"review","name":"Revisão","flow":"production","bg":false,"s":737,"e":786,"cw":[],"grp":null,"prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4329,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":742,"e":882,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4331,"slug":"review","name":"Revisão","flow":"production","bg":false,"s":787,"e":819,"cw":[],"grp":null,"prod":{"name":"Berberine","batch":"BR-2026-0385"},"paused":0},{"id":4334,"slug":"review","name":"Revisão","flow":"production","bg":false,"s":830,"e":882,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4337,"slug":"weighing","name":"Pesagem (weighing)","flow":"support","bg":true,"s":852,"e":879,"cw":[],"grp":null,"prod":{"name":"Bilberry","batch":"BR-2026-0386"},"paused":0},{"id":4338,"slug":"lunch","name":"Almoço","flow":"support","bg":false,"s":882,"e":926,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4344,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":927,"e":927,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4345,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":927,"e":1115,"cw":[],"grp":null,"prod":{"name":"Chromium Picolinate","batch":"BR-2026-0292"},"paused":0},{"id":4351,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":967,"e":967,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4352,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":970,"e":1115,"cw":[],"grp":null,"prod":{"name":"Bilberry","batch":"BR-2026-0386"},"paused":0},{"id":4353,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":983,"e":1048,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4356,"slug":"review","name":"Revisão","flow":"production","bg":false,"s":1049,"e":1049,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4357,"slug":"line_changeover","name":"Troca de Linha (Setup)","flow":"production","bg":false,"s":1049,"e":1165,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4359,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":1141,"e":1175,"cw":[],"grp":null,"prod":{"name":"Bilberry","batch":"BR-2026-0386"},"paused":0},{"id":4360,"slug":"cleaning","name":"Limpeza","flow":"support","bg":false,"s":1176,"e":1215,"cw":[],"grp":null,"prod":null,"paused":0}]},{"id":9,"name":"Caroline Braga","role":"operator","markers":[{"kind":"checkin","at":565},{"kind":"lunch_out","at":804},{"kind":"lunch_in","at":848},{"kind":"checkout","at":1162}],"events":[{"id":4307,"slug":"packaging","name":"Empacotamento","flow":"pnp","bg":false,"s":568,"e":662,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4312,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":640,"e":662,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4314,"slug":"order_printing","name":"Impressão de Ordens","flow":"pnp","bg":false,"s":663,"e":691,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4318,"slug":"packaging","name":"Empacotamento","flow":"pnp","bg":false,"s":691,"e":706,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4320,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":721,"e":804,"cw":[10],"grp":"68840261-9cd8-4467-a453-5f877f7136a4","prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4323,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":727,"e":804,"cw":[],"grp":null,"prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4332,"slug":"lunch","name":"Almoço","flow":"support","bg":false,"s":804,"e":848,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4333,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":808,"e":849,"cw":[],"grp":null,"prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4335,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":849,"e":930,"cw":[],"grp":null,"prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4341,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":890,"e":929,"cw":[],"grp":null,"prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4346,"slug":"cleaning","name":"Limpeza","flow":"support","bg":false,"s":930,"e":954,"cw":[10],"grp":"fcc463f9-c294-4065-a642-2efb8e912651","prod":null,"paused":0},{"id":4347,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":934,"e":954,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4349,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":955,"e":1064,"cw":[],"grp":null,"prod":{"name":"Berberine","batch":"BR-2026-0385"},"paused":0},{"id":4354,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":1005,"e":1064,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4358,"slug":"cleaning","name":"Limpeza","flow":"support","bg":false,"s":1064,"e":1162,"cw":[],"grp":null,"prod":null,"paused":0}]},{"id":10,"name":"Larissa Barbosa","role":"operator","markers":[{"kind":"checkin","at":564},{"kind":"lunch_out","at":851},{"kind":"lunch_in","at":894},{"kind":"checkout","at":1130}],"events":[{"id":4308,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":571,"e":576,"cw":[],"grp":null,"prod":{"name":"Rutin","batch":"BR-2026-0374"},"paused":0},{"id":4309,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":576,"e":717,"cw":[],"grp":null,"prod":{"name":"Rhodiola Rosea 1000mg","batch":"BR-2026-0382"},"paused":0},{"id":4316,"slug":"label_printing","name":"Impressão de Labels","flow":"production","bg":false,"s":682,"e":717,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4322,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":724,"e":852,"cw":[9],"grp":"638f5abc-49ed-4042-88f7-bd98944b652f","prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4336,"slug":"lunch","name":"Almoço","flow":"support","bg":false,"s":852,"e":895,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4342,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":895,"e":915,"cw":[9],"grp":"2b16e343-0a9a-4383-b51e-6f70c78c5d14","prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4343,"slug":"cleaning","name":"Limpeza","flow":"support","bg":false,"s":915,"e":955,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4350,"slug":"production_line","name":"Linha de Produção","flow":"production","bg":false,"s":955,"e":1045,"cw":[],"grp":null,"prod":{"name":"Berberine","batch":"BR-2026-0385"},"paused":0},{"id":4355,"slug":"cleaning","name":"Limpeza","flow":"support","bg":false,"s":1046,"e":1127,"cw":[9],"grp":"33e6bf86-f505-4134-b079-37d802c6ef31","prod":null,"paused":0}]},{"id":4,"name":"Vitor","role":"operator","markers":[{"kind":"checkin","at":497},{"kind":"lunch_out","at":743},{"kind":"lunch_in","at":785},{"kind":"checkout","at":1133}],"events":[{"id":4305,"slug":"cleaning","name":"Limpeza","flow":"support","bg":false,"s":498,"e":633,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4306,"slug":"weighing","name":"Pesagem (weighing)","flow":"support","bg":true,"s":536,"e":569,"cw":[],"grp":null,"prod":{"name":"Berberine","batch":"BR-2026-0385"},"paused":0},{"id":4310,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":585,"e":649,"cw":[],"grp":null,"prod":{"name":"Berberine","batch":"BR-2026-0385"},"paused":0},{"id":4311,"slug":"packaging","name":"Empacotamento","flow":"pnp","bg":false,"s":590,"e":630,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4313,"slug":"formulation_other","name":"Outro (Formulação)","flow":"production","bg":false,"s":649,"e":671,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4315,"slug":"separating","name":"Separando ingredientes","flow":"support","bg":true,"s":671,"e":691,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4319,"slug":"review","name":"Revisão","flow":"production","bg":false,"s":692,"e":741,"cw":[],"grp":null,"prod":{"name":"Rhodiola","batch":"BR-2026-0381"},"paused":0},{"id":4321,"slug":"mixing","name":"Mix","flow":"production","bg":true,"s":723,"e":730,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4324,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":729,"e":742,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4328,"slug":"lunch","name":"Almoço","flow":"support","bg":false,"s":742,"e":785,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4330,"slug":"stock_organization","name":"Organização de Stock (Inventário)","flow":"support","bg":false,"s":786,"e":902,"cw":[],"grp":null,"prod":null,"paused":0},{"id":4339,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":882,"e":927,"cw":[],"grp":null,"prod":{"name":"Mullein Leaf","batch":"BR-2026-0384"},"paused":0},{"id":4340,"slug":"encapsulation","name":"Encapsulação","flow":"production","bg":true,"s":882,"e":927,"cw":[],"grp":null,"prod":{"name":"Chromium Picolinate","batch":"BR-2026-0292"},"paused":0},{"id":4348,"slug":"stock_organization","name":"Organização de Stock (Inventário)","flow":"support","bg":false,"s":949,"e":1133,"cw":[],"grp":null,"prod":null,"paused":0}]}]};
+
+</script>
+<script>
+(function(){
+  const DAY_START = 8*60, DAY_END_BASE = 18*60;
+  const SHORT = { production_line:'Linha', encapsulation:'Encaps.', label_printing:'Labels', order_printing:'Ordens', order_printing_2:'2ª Ordens', packaging:'Empacot.', stock_organization:'Estoque', line_changeover:'Setup', formulation_other:'Outro (form.)', cleaning:'Limpeza', review:'Revisão', weighing:'Pesagem', separating:'Separando', mixing:'Mix', lunch:'Almoço', break:'Pausa', counting:'Contagem', shipping:'Envio', clinic_shipment:'Envio clínica', box_closing:'Caixas', fnsku_labeling:'FNSKU', special_task:'Especial', formulation:'Formulação', labeling:'Etiquet.', repair:'Conserto', organization:'Organiz.', training:'Treino', meeting:'Reunião', marketplace_prep:'Prep. mkt', dc_shipment:'Envio DC', shipping_walmart:'Envio Walmart', shipping_amazon:'Envio Amazon', label_change:'Troca label', label_repair:'Cons. label', facility_maintenance:'Manutenção', machine_downtime:'Downtime', material_handling:'Carga/desc.', stock_organization_x:'' };
+  // Proposta: impressão de labels é processo acompanhado (trilho), como encapsulação.
+  const RAIL_SLUGS = new Set(['encapsulation','weighing','mixing','separating','formulation','label_printing']);
+  const NEUTRAL = new Set(['lunch','break','end_of_day']);
+  const CATALOG = [
+    ['production','Produção',[['production_line','Linha de Produção'],['review','Revisão'],['counting','Contagem'],['box_closing','Fechar Caixas'],['line_changeover','Troca de Linha (Setup)'],['fnsku_labeling','FNSKU / Código de Barras'],['encapsulation','Encapsulação'],['weighing','Pesagem'],['mixing','Mix'],['label_printing','Impressão de Labels']]],
+    ['pnp','P&P',[['order_printing','Impressão de Ordens'],['packaging','Empacotamento'],['shipping','Envio Pedidos (cliente)']]],
+    ['support','Suporte',[['cleaning','Limpeza'],['stock_organization','Organização de Stock'],['repair','Conserto'],['organization','Organização'],['training','Treinamento'],['meeting','Reunião'],['special_task','Especial / Outros'],['lunch','Almoço'],['break','Pausa']]],
+  ];
+  const FLOWC = { production:['var(--prod)','var(--prod-tint)','var(--prod-tint-2)'], pnp:['var(--pnp)','var(--pnp-tint)','var(--pnp-tint-2)'], support:['var(--sup)','var(--sup-tint)','var(--sup-tint-2)'] };
+  const flowOf = (e) => (e.flow === 'production' || e.flow === 'pnp') ? e.flow : (e.slug === 'label_printing' ? 'production' : 'support');
+  const $ = (s, r) => (r||document).querySelector(s);
+  const el = (tag, cls, css) => { const d = document.createElement(tag); if (cls) d.className = cls; if (css) Object.assign(d.style, css); return d; };
+  const pad = (n) => String(n).padStart(2,'0');
+  const clock = (m) => { const h = Math.floor(m/60), mm = m%60; const ap = h >= 12 ? 'PM' : 'AM'; const hh = ((h+11)%12)+1; return hh + ':' + pad(mm) + ' ' + ap; };
+  const inputT = (m) => pad(Math.floor(m/60)) + ':' + pad(m%60);
+  const dur = (m) => m >= 60 ? Math.floor(m/60) + 'h' + (m%60 ? pad(m%60) : '') : m + 'm';
+  const initials = (n) => n.split(' ').slice(0,2).map(x => x[0]).join('').toUpperCase();
+
+  let hpx = 110, nowSim = 0, sel = null;
+  const people = DATA.people.map(p => ({ ...p, events: p.events.map(e => ({ ...e })) }));
+  let seq = 90000;
+
+  function build() {
+    const grid = $('#grid'); grid.innerHTML = '';
+    const now = nowSim || null;
+    const effEnd = (e) => e.e == null ? (now || DAY_END_BASE) : e.e;
+    // dia estica pra caber saída de noite
+    let latest = DAY_END_BASE;
+    for (const p of people) { for (const m of p.markers) latest = Math.max(latest, m.at + 10); for (const e of p.events) latest = Math.max(latest, effEnd(e) + 5); }
+    const DAY_END = now ? Math.max(DAY_END_BASE, Math.ceil((now + 30)/60)*60) : Math.ceil(latest/60)*60;
+    const trackW = (DAY_END - DAY_START)/60 * hpx;
+    const X = (m) => (Math.max(DAY_START, Math.min(DAY_END, m)) - DAY_START)/60 * hpx;
+    const LANE_H = hpx >= 150 ? 40 : 34, RAIL_TOP = 14, LANE_TOP = hpx >= 150 ? 30 : 26, ROW_H = LANE_TOP + LANE_H + 8;
+    grid.style.setProperty('--name-w', '224px'); grid.style.setProperty('--track-w', trackW + 'px'); grid.style.setProperty('--hpx', hpx + 'px');
+    grid.style.setProperty('--row-h', ROW_H + 'px'); grid.style.setProperty('--lane-top', LANE_TOP + 'px'); grid.style.setProperty('--lane-h', LANE_H + 'px'); grid.style.setProperty('--lane-h-base', LANE_H + 'px');
+
+    // axis
+    const ax = el('div','axis'); const an = el('div','name'); an.textContent = people.length + ' pessoas'; const ah = el('div','hours');
+    for (let h = DAY_START; h <= DAY_END; h += 60) { const t = el('div','tick'); t.style.left = X(h) + 'px'; t.textContent = clock(h).replace(':00',''); ah.appendChild(t); }
+    if (now) { const nt = el('div','now-tag'); nt.style.left = X(now) + 'px'; nt.textContent = 'AGORA · ' + clock(now); ah.appendChild(nt); }
+    ax.append(an, ah); grid.appendChild(ax);
+
+    const blockEls = {};
+    for (const p of people) {
+      const row = el('div','row'); row.dataset.pid = p.id;
+      const name = el('div','name');
+      const av = el('div','avatar'); av.textContent = initials(p.name);
+      const who = el('div','who'); const nm = el('div','nm'); nm.textContent = p.name; const st = el('div','st');
+      // estado da pessoa
+      const cin = p.markers.find(m => m.kind === 'checkin'), cout = p.markers.filter(m => m.kind === 'checkout').pop();
+      const evs = p.events.filter(e => now ? e.s <= now : true).map(e => now && (e.e == null || e.e > now) ? { ...e, e: null, _live: true } : e);
+      const live = evs.filter(e => e._live && !e.bg && !RAIL_SLUGS.has(e.slug));
+      const total = evs.filter(e => !e.bg && !RAIL_SLUGS.has(e.slug) && !NEUTRAL.has(e.slug)).reduce((a, e) => a + (effEnd(e) - e.s), 0);
+      if (now && cout && cout.at <= now) { st.textContent = 'saiu ' + clock(cout.at); }
+      else if (now && live.length) { st.className = 'st live'; st.textContent = '● ' + (SHORT[live[0].slug] || live[0].name) + ' · ' + dur(now - live[0].s); }
+      else if (now && cin && cin.at <= now && !live.length) { const last = evs.filter(e => !e.bg && !RAIL_SLUGS.has(e.slug)).sort((a,b) => effEnd(b) - effEnd(a))[0]; const since = last ? now - effEnd(last) : now - cin.at; st.className = 'st' + (since > 30 ? ' bad' : ''); st.textContent = 'sem registro há ' + dur(since); }
+      else if (now && (!cin || cin.at > now)) { st.textContent = 'ainda não chegou'; }
+      else { st.textContent = evs.filter(e => !e.bg && !RAIL_SLUGS.has(e.slug)).length + ' reg. · ' + dur(total) + ' trabalhados'; }
+      who.append(nm, st); name.append(av, who); row.appendChild(name);
+
+      const tr = el('div','track');
+      for (let h = DAY_START; h < DAY_END; h += 60) { const hh = el('div','half'); hh.style.left = X(h + 30) + 'px'; tr.appendChild(hh); }
+      // fora do turno
+      if (cin) { const o = el('div','off'); o.style.left = 0; o.style.width = X(cin.at) + 'px'; tr.appendChild(o); }
+      if (cout && (!now || cout.at <= now)) { const o = el('div','off'); o.style.left = X(cout.at) + 'px'; o.style.width = (trackW - X(cout.at)) + 'px'; tr.appendChild(o); }
+      // batidas como triângulos
+      for (const m of p.markers) { if (now && m.at > now) continue; const pk = el('div','punch' + (m.kind === 'checkin' || m.kind === 'lunch_in' ? ' in' : '')); pk.style.left = X(m.at) + 'px'; pk.dataset.tip = ({checkin:'Chegou',checkout:'Saiu',lunch_out:'Saiu p/ almoço',lunch_in:'Voltou',break_out:'Pausa',break_in:'Voltou'})[m.kind] + ' ' + clock(m.at); tr.appendChild(pk); }
+      // almoço do relógio = faixa neutra
+      const lo = p.markers.find(m => m.kind === 'lunch_out'), li = p.markers.find(m => m.kind === 'lunch_in');
+      const hasLunchEv = evs.some(e => e.slug === 'lunch' && lo && li && e.s < li.at && effEnd(e) > lo.at);
+      if (lo && li && !hasLunchEv && (!now || lo.at <= now)) { const b = el('div','band'); b.style.left = X(lo.at) + 'px'; b.style.width = Math.max(4, X(Math.min(li.at, now || li.at)) - X(lo.at)) + 'px'; b.textContent = 'almoço ' + dur(li.at - lo.at); tr.appendChild(b); }
+      if (now) { const nl = el('div','nowline'); nl.style.left = X(now) + 'px'; tr.appendChild(nl); }
+
+      // ── camadas ──
+      const rails = evs.filter(e => e.bg || RAIL_SLUGS.has(e.slug));
+      const hands = evs.filter(e => !(e.bg || RAIL_SLUGS.has(e.slug)));
+      // colapsa idênticos (mesmo slug, sobreposição >= 90%) e marca duplicado
+      const collapse = (list) => {
+        const out = []; const sorted = list.slice().sort((a,b) => a.s - b.s);
+        for (const e of sorted) {
+          const prev = out.find(o => o.slug === e.slug && Math.min(effEnd(o), effEnd(e)) - Math.max(o.s, e.s) >= 0.9 * Math.min(effEnd(o) - o.s, effEnd(e) - e.s) && (effEnd(e) - e.s) > 0);
+          if (prev) { prev.dupes = (prev.dupes || 1) + 1; prev.s = Math.min(prev.s, e.s); if (prev.e != null && e.e != null) prev.e = Math.max(prev.e, e.e); else prev.e = null; continue; }
+          out.push({ ...e });
+        }
+        return out;
+      };
+      // trilhos: lanes finas (até 2)
+      const railList = collapse(rails).filter(e => effEnd(e) - e.s >= 2);
+      const laneEnds = [];
+      for (const e of railList.sort((a,b) => a.s - b.s)) {
+        let ln = laneEnds.findIndex(x => x <= e.s); if (ln < 0) { ln = laneEnds.length; laneEnds.push(effEnd(e)); } else laneEnds[ln] = effEnd(e);
+        const [c] = FLOWC[flowOf(e)]; const r = el('div','rail' + (e.e == null ? ' live' : '')); r.style.setProperty('--c', c);
+        r.style.left = X(e.s) + 'px'; r.style.width = Math.max(6, X(effEnd(e)) - X(e.s)) + 'px'; r.style.top = (RAIL_TOP - Math.min(ln,1) * 9) + 'px';
+        const w = X(effEnd(e)) - X(e.s);
+        if (w >= 90 && ln === 0) { const l = el('span','rl'); l.textContent = (SHORT[e.slug] || e.name) + (e.prod ? ' · ' + e.prod.name : '') + (e.dupes ? ' ×' + e.dupes : ''); r.appendChild(l); }
+        r.title = e.name + (e.prod ? ' · ' + e.prod.name + ' (' + e.prod.batch + ')' : '') + '\n' + clock(e.s) + ' → ' + (e.e == null ? 'agora' : clock(e.e)) + ' · ' + dur(effEnd(e) - e.s) + (e.dupes ? '\n' + e.dupes + ' registros iguais (juntar?)' : '');
+        r.addEventListener('click', (ev) => { ev.stopPropagation(); openBar(ev, e, p, r); });
+        tr.appendChild(r);
+      }
+      // tarefas de mão
+      const handList = collapse(hands);
+      const ticks = handList.filter(e => effEnd(e) - e.s < 2 && e.e != null);
+      const real = handList.filter(e => !(effEnd(e) - e.s < 2 && e.e != null));
+      // clusters de sobreposição real → dividem a faixa
+      real.sort((a,b) => a.s - b.s);
+      const clusters = []; let cur = null;
+      for (const e of real) { if (cur && e.s < cur.end) { cur.items.push(e); cur.end = Math.max(cur.end, effEnd(e)); } else { cur = { items:[e], end: effEnd(e) }; clusters.push(cur); } }
+      for (const cl of clusters) {
+        const lanesE = []; const laneOf = {};
+        for (const e of cl.items) { let ln = lanesE.findIndex(x => x <= e.s); if (ln < 0) { ln = lanesE.length; lanesE.push(effEnd(e)); } else lanesE[ln] = effEnd(e); laneOf[e.id] = ln; }
+        const n = Math.max(1, lanesE.length);
+        for (const e of cl.items) {
+          const neutral = NEUTRAL.has(e.slug);
+          const [c, t, t2] = neutral ? ['var(--neutral)','var(--neutral-tint)','var(--neutral-tint)'] : FLOWC[flowOf(e)];
+          const w = Math.max(10, X(effEnd(e)) - X(e.s));
+          const b = el('div', (neutral ? 'pause' : 'blk') + (e.e == null && !neutral ? ' live' : '') + (n > 1 ? ' stack' : ''));
+          b.style.setProperty('--c', c); b.style.setProperty('--t', t); b.style.setProperty('--t2', t2);
+          b.style.left = X(e.s) + 'px'; b.style.width = w + 'px';
+          if (n > 1) { const h = (LANE_H - 2) / n; b.style.height = h + 'px'; b.style.top = (LANE_TOP + laneOf[e.id] * (h + 2)) + 'px'; }
+          const nameFull = e.name; const nameShort = SHORT[e.slug] || e.name;
+          if (neutral) { b.textContent = w >= 60 ? (nameShort + ' ' + dur(effEnd(e) - e.s)) : ''; }
+          else if (w < 28) { b.classList.add('mute'); }
+          else if (w < 60) { const l1 = el('div','l1'); l1.textContent = (SHORT[e.slug] || e.name).slice(0,3).toUpperCase(); b.appendChild(l1); }
+          else if (w < 110 || n > 1) { const l1 = el('div','l1'); l1.textContent = nameShort; b.appendChild(l1); }
+          else { const l1 = el('div','l1'); l1.textContent = nameFull; const l2 = el('div','l2'); l2.textContent = (e.prod ? e.prod.name + ' · ' : '') + (e.e == null ? '● ' + dur((now || DAY_END_BASE) - e.s) : dur(effEnd(e) - e.s)); b.append(l1, l2); }
+          if (e.cw && e.cw.length && !neutral) { const d = el('span','cwd'); b.appendChild(d); }
+          if (e.dupes) { const d = el('span','dup'); d.textContent = '×' + e.dupes; b.appendChild(d); }
+          b.title = nameFull + (e.prod ? ' · ' + e.prod.name + ' (' + e.prod.batch + ')' : '') + '\n' + clock(e.s) + ' → ' + (e.e == null ? 'agora' : clock(e.e)) + ' · ' + dur(effEnd(e) - e.s) + (e.cw && e.cw.length ? '\ncom ' + e.cw.map(id => (people.find(x => x.id === id) || {name:'?'}).name).join(', ') : '') + (e.dupes ? '\n' + e.dupes + ' registros iguais no mesmo horário' : '') + (e.paused ? '\npausa descontada: ' + Math.round(e.paused/60) + 'm' : '');
+          b.dataset.eid = e.id; b.dataset.pid = p.id;
+          b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+          b.addEventListener('click', (ev) => { ev.stopPropagation(); openBar(ev, e, p, b); });
+          if (e.cw && e.cw.length) { b.addEventListener('mouseenter', () => hlGroup(e, p, true)); b.addEventListener('mouseleave', () => hlGroup(e, p, false)); }
+          tr.appendChild(b); blockEls[e.id] = b;
+        }
+      }
+      for (const e of ticks) { const [c, t] = NEUTRAL.has(e.slug) ? ['var(--neutral)','var(--neutral-tint)'] : FLOWC[flowOf(e)]; const k = el('div','tickmark'); k.style.setProperty('--c', c); k.style.setProperty('--t', t); k.style.left = X(e.s) + 'px'; k.title = e.name + ' · ' + clock(e.s) + ' · registro de ' + (effEnd(e) - e.s) + ' min (provável reinício no kiosk)'; k.addEventListener('click', (ev) => { ev.stopPropagation(); openBar(ev, e, p, k); }); tr.appendChild(k); }
+      // gaps entre tarefas de mão (>= 15 min), dentro do turno
+      const seq2 = real.slice().sort((a,b) => a.s - b.s);
+      for (let i = 0; i < seq2.length - 1; i++) { const g = seq2[i+1].s - effEnd(seq2[i]); if (g < 15) continue; if (lo && li && lo.at <= effEnd(seq2[i]) + 2 && li.at >= seq2[i+1].s - 2) continue; const z = el('div','gap' + (g >= 45 ? ' long' : '')); z.style.left = X(effEnd(seq2[i])) + 'px'; z.style.width = (X(seq2[i+1].s) - X(effEnd(seq2[i]))) + 'px'; z.textContent = g >= 30 ? dur(g) + ' sem registro' : ''; z.title = 'Sem registro ' + clock(effEnd(seq2[i])) + ' → ' + clock(seq2[i+1].s) + ' · clique pra preencher'; z.addEventListener('click', (ev) => { ev.stopPropagation(); openQuick(ev, p, effEnd(seq2[i]), seq2[i+1].s); }); tr.appendChild(z); }
+      // clique no vazio = novo registro ali
+      tr.addEventListener('click', (ev) => { const rect = tr.getBoundingClientRect(); const m = Math.round(((ev.clientX - rect.left) / hpx * 60 + DAY_START) / 5) * 5; const next = real.filter(e => e.s > m).sort((a,b) => a.s - b.s)[0]; openQuick(ev, p, m, next ? next.s : (now || null)); });
+      const plus = el('button','rowplus'); plus.textContent = '+'; plus.title = 'Esqueci de marcar: começa onde o último registro acabou';
+      plus.addEventListener('click', (ev) => { ev.stopPropagation(); const last = real.slice().sort((a,b) => effEnd(b) - effEnd(a))[0]; const s0 = last ? effEnd(last) : (cin ? cin.at : DAY_START); openQuick(ev, p, s0, now || null); });
+      tr.appendChild(plus);
+      row.appendChild(tr); grid.appendChild(row);
+    }
+    window._blockEls = blockEls;
+  }
+
+  function hlGroup(e, p, on) {
+    const ids = [e.id];
+    for (const q of people) if (q.id !== p.id && e.cw.includes(q.id)) for (const o of q.events) if (o.slug === e.slug && Math.min(o.e == null ? 9999 : o.e, e.e == null ? 9999 : e.e) - Math.max(o.s, e.s) > 0) ids.push(o.id);
+    for (const id of ids) { const b = window._blockEls[id]; if (b) b.classList.toggle('hl', on); }
+  }
+
+  // ── barra de ações ──
+  let bar = null;
+  function closeBar() { if (bar) { bar.remove(); bar = null; } document.querySelectorAll('.blk.sel').forEach(x => x.classList.remove('sel')); }
+  function openBar(ev, e, p, anchor) {
+    closeBar(); closePop(); anchor.classList && anchor.classList.add('sel');
+    bar = el('div','abar');
+    const t = el('span','t'); t.textContent = clock(e.s) + '→' + (e.e == null ? 'agora' : clock(e.e)); bar.appendChild(t);
+    const others = people.filter(x => x.id !== p.id);
+    const mk = (txt, fn) => { const b = el('button'); b.textContent = txt; b.addEventListener('click', (x) => { x.stopPropagation(); fn(); }); bar.appendChild(b); };
+    mk('Mover para ▾', () => { const sel = el('div','abar'); sel.style.top = (parseFloat(bar.style.top) + 40) + 'px'; sel.style.left = bar.style.left; others.forEach(o => { const b = el('button'); b.textContent = o.name; b.addEventListener('click', (x) => { x.stopPropagation(); moveEvent(e, p, o); sel.remove(); }); sel.appendChild(b); }); $('#tl').appendChild(sel); setTimeout(() => document.addEventListener('click', () => sel.remove(), { once: true }), 0); });
+    mk('Juntar ←', () => toast('Junta com o registro anterior (PATCH merge, já existe na API)'));
+    mk('Dividir aqui', () => toast('Divide no ponto clicado (split, já existe na API)'));
+    if (e.dupes) mk('Duplicado ×' + e.dupes + ': manter 1', () => { for (const q of people) q.events = dedupe(q.events); build(); toast('Duplicatas removidas (só aqui no protótipo)'); });
+    mk('Apagar', () => { p.events = p.events.filter(x => x.id !== e.id); build(); closeBar(); toast('Apagado só neste protótipo · desfazer ficaria no toast'); });
+    const d = el('span','div'); bar.appendChild(d);
+    mk('Detalhes…', () => toast('Abre o painel completo de sempre (produto, quantidade, descrição, auditoria)'));
+    const wrap = $('#tl'); const r = wrap.getBoundingClientRect(); const a = anchor.getBoundingClientRect();
+    bar.style.left = Math.max(8, Math.min(r.width - 560, a.left - r.left)) + 'px'; bar.style.top = (a.top - r.top - 44 + wrap.scrollTop) + 'px';
+    wrap.appendChild(bar);
+  }
+  function dedupe(list) { const out = []; for (const e of list.slice().sort((a,b) => a.s - b.s)) { if (out.some(o => o.slug === e.slug && Math.abs(o.s - e.s) <= 6 && Math.abs((o.e||0) - (e.e||0)) <= 6)) continue; out.push(e); } return out; }
+  function moveEvent(e, from, to) { from.events = from.events.filter(x => x.id !== e.id); to.events.push({ ...e, cw: [] }); build(); closeBar(); toast('Movido pra ' + to.name + ' (só neste protótipo)'); }
+
+  // ── novo registro rápido ──
+  let pop = null;
+  function closePop() { if (pop) { pop.remove(); pop = null; } }
+  function openQuick(ev, person, start, end, needPerson) {
+    closeBar(); closePop();
+    const st = { person, start, end, slug: null, cw: [] };
+    pop = el('div','pop');
+    const wrap = $('#tl'); const r = wrap.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(r.width - 396, ev.clientX - r.left - 60)) + 'px';
+    pop.style.top = Math.max(50, ev.clientY - r.top - 20 + wrap.scrollTop) + 'px';
+    const render = () => {
+      pop.innerHTML = '';
+      const h = el('h3'); h.textContent = st.person ? 'Registrar pra ' + st.person.name.split(' ')[0] : 'Registrar pra quem?'; pop.appendChild(h);
+      const hint = el('div','hint'); hint.textContent = st.person ? 'Como no kiosk: o que, quando, com quem. O resto fica em "mais opções".' : 'Só as pessoas de hoje. Quem não está na lista entra com nome e cargo.'; pop.appendChild(hint);
+      if (!st.person) {
+        const lb = el('div','lbl'); lb.textContent = 'Quem'; pop.appendChild(lb);
+        const ch = el('div','chips');
+        people.forEach(p => { const c = el('button','chip'); c.textContent = p.name; c.addEventListener('click', () => { st.person = p; render(); }); ch.appendChild(c); });
+        const g = el('button','chip ghost'); g.textContent = '+ outra pessoa…'; g.addEventListener('click', () => { const n = prompt('Nome da pessoa (cadastro rápido: nome e cargo; PIN e relógio ficam pra depois em Pessoas)'); if (n) { const np = { id: ++seq, name: n, role: 'operator', markers: [], events: [] }; people.push(np); st.person = np; render(); } }); ch.appendChild(g);
+        pop.appendChild(ch); return;
+      }
+      const lb = el('div','lbl'); lb.textContent = 'O que'; pop.appendChild(lb);
+      const acts = el('div','acts');
+      const recent = [...new Set(st.person.events.slice().sort((a,b) => b.s - a.s).map(e => e.slug))].slice(0, 3);
+      if (recent.length) { const g = el('div','grp'); g.textContent = 'recentes de ' + st.person.name.split(' ')[0]; acts.appendChild(g); recent.forEach(s => acts.appendChild(actBtn(s))); }
+      for (const [flow, label, items] of CATALOG) { const g = el('div','grp'); g.textContent = label; acts.appendChild(g); for (const [s] of items) if (!recent.includes(s)) acts.appendChild(actBtn(s, flow)); }
+      pop.appendChild(acts);
+      const lt = el('div','lbl'); lt.textContent = 'Quando'; pop.appendChild(lt);
+      const times = el('div','times');
+      const a = el('div'); a.innerHTML = '<label>Início</label>'; const ia = el('input'); ia.type = 'time'; ia.value = inputT(st.start); ia.addEventListener('change', () => { const [hh, mm] = ia.value.split(':').map(Number); st.start = hh*60 + mm; }); a.appendChild(ia);
+      const b = el('div'); b.innerHTML = '<label>Fim</label>'; const inl = el('div','inl'); const ib = el('input'); ib.type = 'time'; ib.value = st.end == null ? '' : inputT(st.end); ib.placeholder = 'em andamento'; ib.addEventListener('change', () => { if (!ib.value) { st.end = null; return; } const [hh, mm] = ib.value.split(':').map(Number); st.end = hh*60 + mm; }); inl.appendChild(ib);
+      const lk = el('button','link'); lk.textContent = st.end == null ? 'em andamento' : 'até agora'; lk.title = 'Alterna entre "ainda está fazendo" e "terminou agora"'; lk.addEventListener('click', () => { st.end = st.end == null ? (nowSim || DAY_END_BASE) : null; render(); }); inl.appendChild(lk); b.appendChild(inl);
+      times.append(a, b); pop.appendChild(times);
+      const lw = el('div','lbl'); lw.textContent = 'Quem estava junto'; pop.appendChild(lw);
+      const ch = el('div','chips'); people.filter(p => p.id !== st.person.id).forEach(p => { const c = el('button','chip' + (st.cw.includes(p.id) ? ' on' : '')); c.textContent = p.name.split(' ')[0]; c.addEventListener('click', () => { st.cw = st.cw.includes(p.id) ? st.cw.filter(x => x !== p.id) : [...st.cw, p.id]; render(); }); ch.appendChild(c); }); pop.appendChild(ch);
+      const foot = el('div','foot'); const ok = el('button','btn primary'); ok.textContent = 'Registrar'; ok.addEventListener('click', () => { if (!st.slug) { toast('Escolha o que a pessoa fez'); return; } const nm = (CATALOG.flatMap(x => x[2]).find(x => x[0] === st.slug) || [st.slug, st.slug])[1]; const flow = (CATALOG.find(x => x[2].some(y => y[0] === st.slug)) || ['support'])[0]; const nev = { id: ++seq, slug: st.slug, name: nm, flow, bg: RAIL_SLUGS.has(st.slug), s: st.start, e: st.end, cw: st.cw, prod: null, paused: 0 }; st.person.events.push(nev); for (const id of st.cw) { const q = people.find(x => x.id === id); if (q) q.events.push({ ...nev, id: ++seq, cw: [st.person.id] }); } build(); closePop(); toast('Registrado ' + nm + ' pra ' + st.person.name.split(' ')[0] + (st.cw.length ? ' e mais ' + st.cw.length : '') + ' (só neste protótipo)'); });
+      const more = el('button','btn'); more.textContent = 'Mais opções…'; more.title = 'Produto/lote, quantidade, descrição'; more.addEventListener('click', () => toast('Abre o painel completo já com o que você preencheu'));
+      const cancel = el('button','link'); cancel.textContent = 'Cancelar'; cancel.addEventListener('click', closePop);
+      foot.append(ok, more, el('span','spacer'), cancel); pop.appendChild(foot);
+    };
+    const actBtn = (slug, flow) => { const item = CATALOG.flatMap(x => x[2].map(y => [x[0], y[0], y[1]])).find(x => x[1] === slug); const f = flow || (item ? item[0] : 'support'); const [c, t] = NEUTRAL.has(slug) ? ['var(--neutral)','var(--neutral-tint)'] : FLOWC[f]; const b = el('button','act' + (st.slug === slug ? ' on' : '')); b.style.setProperty('--c', c); b.style.setProperty('--t', t); b.textContent = item ? item[2] : slug; b.title = item ? item[2] : slug; b.addEventListener('click', () => { st.slug = slug; pop.querySelectorAll('.act').forEach(x => x.classList.remove('on')); b.classList.add('on'); }); return b; };
+    if (needPerson) st.person = null;
+    render(); $('#tl').appendChild(pop);
+  }
+
+  // ── toast / controles ──
+  let tt = null; function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2600); }
+  document.addEventListener('click', (ev) => { if (!ev.target.closest('.abar') && !ev.target.closest('.pop')) { closeBar(); if (!ev.target.closest('.track')) closePop(); } });
+  document.addEventListener('keydown', (ev) => { if (ev.target.matches('input,textarea')) return; if (ev.key === 'Escape') { closeBar(); closePop(); } if (ev.key === 'n' || ev.key === 'N') { $('#newbtn').click(); } });
+  $('#density').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (!b) return; hpx = +b.dataset.v; $('#density').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); build(); });
+  $('#nowsim').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (!b) return; nowSim = +b.dataset.v; $('#nowsim').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); build(); });
+  $('#newbtn').addEventListener('click', (ev) => { ev.stopPropagation(); openQuick(ev, null, nowSim ? nowSim - 60 : 14*60, nowSim || 15*60, true); });
+  build();
+})();
+</script>
