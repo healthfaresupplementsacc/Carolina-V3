@@ -43,13 +43,13 @@ function positionAboveCursor(initialPos) {
   if (!initialPos || initialPos.x == null) {
     return clampPos(vw - PANEL_W - DEFAULT_W_PAD, 80);
   }
-  // y: bottom do painel imediatamente acima do clique (gap 12px)
+  // 09-10 (Bruno: "o painel vai pro outro lado da tela"): abre AO LADO do mouse,
+  // cabeçalho na altura do clique; se não cabe embaixo, sobe só o necessário.
   const desiredH = Math.min(PANEL_ESTIMATED_H, vh - 24);
-  let y = initialPos.y - desiredH - 12;
-  if (y < 12) y = 12;                       // não cabe acima → encosta no topo
-  // x: encosta ligeiramente à direita do cursor; se passar do limite, à esquerda
-  let x = initialPos.x + 16;
-  if (x + PANEL_W > vw - 12) x = initialPos.x - PANEL_W - 16;
+  let y = initialPos.y - 28;
+  if (y + desiredH > vh - 12) y = Math.max(12, vh - 12 - desiredH);
+  let x = initialPos.x + 18;
+  if (x + PANEL_W > vw - 12) x = initialPos.x - PANEL_W - 18;
   return clampPos(x, y);
 }
 

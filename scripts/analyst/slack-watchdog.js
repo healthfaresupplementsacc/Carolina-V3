@@ -59,8 +59,10 @@ function relaunchChrome() {
     execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', LAUNCHER], { windowsHide: true }, () => res());
   });
 }
+let chromeOkAgora = false;
 async function ensureChrome() {
-  if (await chromeUp()) return true;
+  if (await chromeUp()) { chromeOkAgora = true; return true; }
+  chromeOkAgora = false;
   console.log('[watchdog] Chrome caiu → relançando');
   await relaunchChrome();
   for (let i = 0; i < 20; i++) { if (await chromeUp()) return true; await sleep(1500); }
@@ -76,13 +78,26 @@ let ultimoCheckLogin = 0;
 let ultimaFalhaLogin = 0;       // 09-09: backoff: tentar a cada 5min foi o que virou CAPTCHA no Google
 let autologinRodando = false;   // 09-09: nao reciclar a aba no meio do login
 const HUMANO = path.join(DIR, 'login-needs-human.txt');
+// 09-10 (reboot do Bruno): o autologin disparava ~0.5s depois do boot, antes do
+// Chrome abrir a aba, falhava na hora e o backoff de 30min deixava a Carolyn
+// muda a manha toda. Agora so tenta com o Chrome de pe E depois de uma carencia
+// desde o inicio do processo (o Chrome do S4U demora pra restaurar a sessao).
+const NASCI_EM = Date.now();
+const CARENCIA_BOOT_MS = 3 * 60 * 1000;
 function checarLogin() {
+  if (Date.now() - NASCI_EM < CARENCIA_BOOT_MS) return;   // deixa o Chrome acordar
+  if (!chromeOkAgora) return;                             // sem Chrome nao da pra logar
   if (Date.now() - ultimoCheckLogin < 5 * 60 * 1000) return;
   ultimoCheckLogin = Date.now();
   execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js'), '--check'], { timeout: 60000 }, (err) => {
     if (!err) { try { fs.writeFileSync(path.join(DIR, 'login-state.txt'), new Date().toISOString() + ' OK'); if (fs.existsSync(HUMANO)) { fs.unlinkSync(HUMANO); console.log('[watchdog] login de volta (humano resolveu); flag apagada'); } } catch (_) {} return; }
     if (fs.existsSync(HUMANO)) { console.log('[watchdog] sessao caida, mas esperando HUMANO (login-needs-human.txt); nao tento'); return; }
-    if (Date.now() - ultimaFalhaLogin < 30 * 60 * 1000) { console.log('[watchdog] sessao caida; backoff de 30min depois da ultima falha'); return; }
+    // backoff normal de 30min; mas nos primeiros 15min de vida do processo
+    // (tipico pos-reboot) tenta de novo em 3min: ali a falha costuma ser corrida
+    // de inicializacao, nao captcha.
+    const recemNascido = Date.now() - NASCI_EM < 15 * 60 * 1000;
+    const espera = recemNascido ? 3 * 60 * 1000 : 30 * 60 * 1000;
+    if (Date.now() - ultimaFalhaLogin < espera) { console.log('[watchdog] sessao caida; backoff de ' + Math.round(espera / 60000) + 'min depois da ultima falha'); return; }
     console.log('[watchdog] sessao do Slack caiu -> autologin');
     autologinRodando = true;
     execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js')], { timeout: 240000 }, (e2, out) => {

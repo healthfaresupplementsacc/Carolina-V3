@@ -62,7 +62,7 @@
 .tl-band { position: absolute; top: var(--lane-top); height: var(--lane-h); background: repeating-linear-gradient(135deg, var(--tl-hatch) 0 2px, transparent 2px 6px); border: 1px dashed var(--border-strong, var(--border)); border-radius: 6px; z-index: 1; display: flex; align-items: center; padding: 0 8px; font: 600 11px "JetBrains Mono", monospace; color: var(--text-3); overflow: hidden; white-space: nowrap; pointer-events: none; }
 
 /* ABA: máquina / lote acompanhado */
-.tl-rail { position: absolute; border-radius: 5px; background: var(--t); border: 1px solid var(--c); color: var(--text); z-index: 2; cursor: grab; overflow: hidden; white-space: nowrap; padding: 0 6px; font: 500 10.5px/16px "JetBrains Mono", monospace; display: flex; align-items: center; gap: 6px; box-sizing: border-box; user-select: none; touch-action: none; }
+.tl-rail { position: absolute; border-radius: 5px; background: var(--t); border: 1px solid var(--c); color: var(--text); z-index: 2; cursor: pointer; overflow: hidden; white-space: nowrap; padding: 0 6px; font: 500 10.5px/16px "JetBrains Mono", monospace; display: flex; align-items: center; gap: 6px; box-sizing: border-box; user-select: none; touch-action: none; }
 .tl-rail b { font: 700 10.5px "Plus Jakarta Sans", system-ui, sans-serif; color: var(--c); }
 .tl-rail:hover, .tl-rail.selected { background: var(--t2); }
 .tl-rail.selected { box-shadow: 0 0 0 2px var(--hf-navy-500); }
@@ -73,7 +73,7 @@
 .tl-rail.flow-support, .tl-rlbl.flow-support { --c: var(--flow-support); --t: var(--tl-sup-tint); --t2: var(--tl-sup-tint-2); }
 
 /* BLOCO: tarefa de mão */
-.tl-block { position: absolute; background: var(--t); border-left: 3px solid var(--c); border-radius: 4px 7px 7px 4px; z-index: 2; color: var(--text); padding: 3px 6px; overflow: hidden; cursor: grab; user-select: none; touch-action: none; display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; transition: box-shadow .12s; min-width: 6px; }
+.tl-block { position: absolute; background: var(--t); border-left: 3px solid var(--c); border-radius: 4px 7px 7px 4px; z-index: 2; color: var(--text); padding: 3px 6px; overflow: hidden; cursor: pointer; user-select: none; touch-action: none; display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; transition: box-shadow .12s; min-width: 6px; }
 .tl-block.flow-production { --c: var(--flow-prod); --t: var(--tl-prod-tint); --t2: var(--tl-prod-tint-2); }
 .tl-block.flow-pnp { --c: var(--flow-pnp); --t: var(--tl-pnp-tint); --t2: var(--tl-pnp-tint-2); }
 .tl-block.flow-support { --c: var(--flow-support); --t: var(--tl-sup-tint); --t2: var(--tl-sup-tint-2); }
@@ -104,8 +104,10 @@
 .tl-tick:hover { opacity: 1; box-shadow: 0 0 0 3px rgba(26,58,107,.15); }
 .tl-handle { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 5; }
 .tl-handle.left { left: 0; } .tl-handle.right { right: 0; }
-.tl-block:hover .tl-handle::before { content: ""; position: absolute; top: 25%; bottom: 25%; width: 2px; background: var(--c); opacity: .5; left: 3px; border-radius: 2px; }
-.tl-pause-inline { position: absolute; z-index: 2; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 0 6px; border-radius: 6px; background: var(--tl-neutral-tint); border: 1px dashed var(--tl-neutral); color: var(--text-2); font-size: 10.5px; white-space: nowrap; overflow: hidden; cursor: grab; user-select: none; touch-action: none; }
+.tl-handle::before { content: ""; position: absolute; top: 20%; bottom: 20%; width: 3px; background: var(--c); opacity: .9; left: 2px; border-radius: 2px; }
+.tl-block.armed, .tl-rail.armed, .tl-pause-inline.armed { cursor: grab; box-shadow: 0 0 0 2px var(--hf-leaf-500), 0 6px 16px -6px rgba(26,58,107,.5); z-index: 6; }
+.tl-block.armed:active, .tl-rail.armed:active { cursor: grabbing; }
+.tl-pause-inline { position: absolute; z-index: 2; box-sizing: border-box; display: flex; align-items: center; gap: 5px; padding: 0 6px; border-radius: 6px; background: var(--tl-neutral-tint); border: 1px dashed var(--tl-neutral); color: var(--text-2); font-size: 10.5px; white-space: nowrap; overflow: hidden; cursor: pointer; user-select: none; touch-action: none; }
 .tl-pause-inline.selected { box-shadow: 0 0 0 2px var(--hf-navy-500); }
 .tl-pause-inline .tl-pause-txt b { font-weight: 700; }
 .tl-pause-inline .tl-pause-note { color: var(--text-3); }
@@ -128,6 +130,7 @@
 .tl-mi .ic { width: 20px; text-align: center; color: var(--hf-navy-600); font-weight: 800; flex: none; }
 .tl-mi small { display: block; font: 500 11px "JetBrains Mono", monospace; color: var(--text-3); }
 .tl-mi.danger { color: var(--bad); }
+.tl-mi.sub { padding-left: 22px; font-weight: 500; }
 .tl-mini { position: absolute; z-index: 30; width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,.18)); padding: 14px; }
 .tl-mini.wide { width: 400px; }
 .tl-mini h3 { margin: 0 0 2px; font-size: 13.5px; font-weight: 700; }

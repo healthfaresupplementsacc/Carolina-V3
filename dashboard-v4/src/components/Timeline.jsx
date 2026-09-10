@@ -20,9 +20,11 @@ import L from './timeline-layout.cjs';
      check-out; triângulo no topo), não um bloco brigando com as tarefas.
    - Correio saiu daqui (vive no card P&P).
    - Clique no VAZIO = menu curto: Registrar aqui · Finalizou às…? · Ajustar
-     horário de … · Estender até o próximo. Clique no BLOCO = barra de ações
-     (ajustar, finalizou, mover pra outra pessoa, juntar, dividir, duplicado,
-     apagar, lote, detalhes). "+ Novo registro" fica AQUI, no cabeçalho.
+     horário de … · Estender até o próximo. No BLOCO (Bruno 09-10, 2ª rodada):
+     1 clique = detalhes perto do mouse · 2 cliques = menu compacto (ajustar,
+     finalizou, arrastar, mover, juntar, dividir, duplicado, lote, apagar) ·
+     3 cliques = libera arrastar/esticar (bordas aparecem; Esc sai). Hover =
+     resumo. "+ Novo registro" fica AQUI, no cabeçalho.
    - Lote clicável dentro do bloco → jornada do lote (BatchJourney).
 
    O QUE FICOU: pausa na mesma faixa (08-20, timeline-pause.cjs); drag pra
@@ -99,7 +101,21 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const [mini, setMini] = React.useState(null);   // {kind:'adjust'|'finish'|'quick', ...}
   const [bar, setBar] = React.useState(null);     // {ev, op, x, y}
   const [moveOpen, setMoveOpen] = React.useState(false);
-  const closeAll = () => { setMenu(null); setMini(null); setBar(null); setMoveOpen(false); };
+  // ARMADO (Bruno 09-10): arrastar/esticar só depois de 3 cliques no bloco (ou pelo menu).
+  // 1 clique = detalhes perto do mouse · 2 cliques = menu compacto · hover = resumo.
+  const [armed, setArmed] = React.useState(null);
+  const clickTimer = React.useRef(null);
+  const closeAll = () => { setMenu(null); setMini(null); setBar(null); setMoveOpen(false); setArmed(null); };
+  const handleBlockClick = (ev, e, op) => {
+    ev.stopPropagation();
+    const at = { x: ev.clientX, y: ev.clientY };
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
+    if (ev.detail >= 3) { setMenu(null); setBar(null); setArmed(e.id); return; }
+    if (ev.detail === 2) { setArmed(null); openBar(at.x, at.y, e, op); return; }
+    clickTimer.current = setTimeout(() => { clickTimer.current = null; if (armed !== e.id) { setBar(null); onSelectEvent && onSelectEvent(e.id, at); } }, 230);
+  };
+  // pointerdown no bloco: só arrasta se estiver armado; senão não deixa o clique virar "vazio"
+  const blockDown = (ev, e, mode) => { if (armed === e.id) startDrag(ev, e, mode); else ev.stopPropagation(); };
   React.useEffect(() => {
     const onDoc = (e) => { if (!e.target.closest('.tl-menu, .tl-mini, .tl-abar, .tl-block, .tl-rail, .tl-tick, .tl-pause-inline')) closeAll(); };
     const onKey = (e) => { if (e.key === 'Escape') closeAll(); };
@@ -132,7 +148,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
       const d = dragRef.current; if (!d) { setDrag(null); return; }
       const moved = Math.abs(e.clientX - d.startX) > 4 || Math.abs(e.clientY - d.startY) > 4;
       setDrag(null);
-      if (!moved) { d.onClick && d.onClick(e); return; }
+      if (!moved) return;
       if (d.mode === 'body' && d.hoveredEventId != null) { onMergeRequest && onMergeRequest(d.id, d.hoveredEventId); return; }
       let patch;
       if (d.live) patch = { started_min: d.newStart };
@@ -150,7 +166,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   };
 
   // ── ações ──
-  const openBar = (clientX, clientY, ev, op) => { const p = localPos(clientX, clientY); setMenu(null); setMini(null); setMoveOpen(false); setBar({ ev, op, x: Math.max(8, Math.min(p.w - 660, p.x - 20)), y: Math.max(44, p.y - 52) }); };
+  const openBar = (clientX, clientY, ev, op) => { const p = localPos(clientX, clientY); setMenu(null); setMini(null); setMoveOpen(false); setBar({ ev, op, x: Math.max(8, Math.min(p.w - 250, p.x + 8)), y: Math.max(44, p.y - 8) }); };
   const openMenu = (clientX, clientY, op, m, real) => {
     const p = localPos(clientX, clientY);
     const prev = real.filter((e) => e.started_min <= m).sort((a, b) => b.started_min - a.started_min)[0] || null;
@@ -270,12 +286,12 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const top = M.laneTop + (laneCount > 1 ? laneIdx * (h + 2) : 0);
               const productName = e.product ? products[e.product]?.name : null;
               const durTxt = isLiveEv ? (isToday ? '● ' + L.fmtDurShort(now - e.started_min) : 'sem fim') : L.fmtDurShort(end - start);
-              const isSelected = selectedId === e.id || (bar && bar.ev.id === e.id);
+              const isSelected = selectedId === e.id || (bar && bar.ev.id === e.id) || armed === e.id;
               const isMergeTarget = drag && drag.hoveredEventId === e.id;
               const isInvalid = invalidIds && invalidIds.has(e.id);
               const flowDimmed = filterFlows && filterFlows.size > 0 && !filterFlows.has(flow);
               const totalW = X(end) - X(start);
-              const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + '\nclique: corrigir · arraste: horário';
+              const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
               const out = [];
               pieces.forEach((seg) => {
                 const left = X(seg.start); const w = Math.max(6, X(seg.end) - X(seg.start));
@@ -290,12 +306,12 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                 }
                 out.push(
                   <div key={`${e.id}-s${seg.index}`} data-block-id={e.id} data-seg-index={seg.index}
-                       className={`tl-block flow-${flow} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''}`}
+                       className={`tl-block flow-${flow} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
                        style={{ left, width: w, top, height: h }}
-                       onPointerDown={(ev) => startDrag(ev, e, 'body', (up) => openBar(up.clientX, up.clientY, e, op))}
+                       onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}
                        title={tip}>
-                    {!isLiveEv && !seg.is_continuation && <div className="tl-handle left" onPointerDown={(ev) => startDrag(ev, e, 'left')}/>}
-                    {!isLiveEv && seg.is_last && <div className="tl-handle right" onPointerDown={(ev) => startDrag(ev, e, 'right')}/>}
+                    {armed === e.id && !isLiveEv && !seg.is_continuation && <div className="tl-handle left" onPointerDown={(ev) => startDrag(ev, e, 'left')}/>}
+                    {armed === e.id && !isLiveEv && seg.is_last && <div className="tl-handle right" onPointerDown={(ev) => startDrag(ev, e, 'right')}/>}
                     {neutral
                       ? <div className="l1" style={{ fontSize: 10.5 }}>{w >= 64 ? `${L.shortName(e.activity, act.name)} ${durTxt}` : (w >= 30 ? durTxt : '')}</div>
                       : (head && fitRes.inside ? (
@@ -351,12 +367,12 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     const room = (nxt ? X(nxt.started_min) : trackW) - (X(e.started_min) + w);
                     const lbl = L.railLabel({ name: act.name, short: L.shortName(e.activity, act.name), w, durTxt, prodName: productName, room, measure });
                     const top = M.railsTop + e._lane * (M.RAIL_H + M.RAIL_GAP);
-                    const tip = `${act.name}${productName ? ' · ' + productName + ' (' + (products[e.product]?.batch || '') + ')' : ''}\n${fmt(e.started_min)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - e.started_min)}${e.dupes ? `\n${e.dupes} registros iguais (juntar?)` : ''}\nclique: corrigir · lote`;
+                    const tip = `${act.name}${productName ? ' · ' + productName + ' (' + (products[e.product]?.batch || '') + ')' : ''}\n${fmt(e.started_min)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - e.started_min)}${e.dupes ? `\n${e.dupes} registros iguais (juntar?)` : ''}\n1 clique: detalhes · 2: ações · 3: arrastar`;
                     return (
                       <React.Fragment key={'rail-' + e.id}>
-                        <div className={`tl-rail flow-${flow} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''}`} data-block-id={e.id}
+                        <div className={`tl-rail flow-${flow} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
                              style={{ left: X(e.started_min), width: w, top, height: M.RAIL_H }} title={tip}
-                             onPointerDown={(ev) => startDrag(ev, e, 'body', (up) => openBar(up.clientX, up.clientY, e, op))}>
+                             onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}>
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur' || lbl.mode === 'short') && <b>{lbl.name}</b>}
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur') && <span className="mono">{lbl.extra}</span>}
                         </div>
@@ -378,7 +394,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                       <div key={`pause-${p.event_id}`} data-pause-id={p.event_id} data-block-id={p.event_id}
                            className={`tl-pause-inline ${p.live ? 'live' : ''} ${selectedId === p.event_id ? 'selected' : ''}`}
                            style={{ left, width, top: M.laneTop, height: M.LANE_H }}
-                           onPointerDown={(e) => { if (pauseEv) startDrag(e, pauseEv, 'body', (up) => openBar(up.clientX, up.clientY, pauseEv, op)); }}
+                           onPointerDown={(e) => { if (pauseEv) blockDown(e, pauseEv, 'body'); else e.stopPropagation(); }} onClick={(e) => { if (pauseEv) handleBlockClick(e, pauseEv, op); }}
                            title={`PAUSA · ${fmt(p.start)} → ${p.live ? 'agora' : fmt(p.end)} (${L.fmtDurShort(mins)})${p.note ? '\n' + p.note : ''}\nA tarefa continua depois.`}>
                         <span className="tl-pause-ico" aria-hidden="true">⏸</span>
                         {width >= 60 && <span className="tl-pause-txt"><b>Pausa</b>{noteShort && <span className="tl-pause-note"> {noteShort}</span>}</span>}
@@ -388,7 +404,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                   })}
 
                   {/* TIQUES: registros de < 2 min (reinício no kiosk) */}
-                  {lay.ticks.map((e) => { const act = activities[e.activity]; const flow = act ? (act.flow || 'support') : 'support'; return (<div key={'tk-' + e.id} data-block-id={e.id} className={`tl-tick flow-${flow}`} style={{ left: X(e.started_min), top: M.laneTop + 8, height: M.LANE_H - 16 }} title={`${act ? act.name : e.activity} · ${fmt(e.started_min)} · registro de ${Math.max(0, effEndOf(e) - e.started_min)} min (provável reinício no kiosk)\nclique: apagar ou juntar`} onPointerDown={(ev) => { ev.stopPropagation(); openBar(ev.clientX, ev.clientY, e, op); }}/>); })}
+                  {lay.ticks.map((e) => { const act = activities[e.activity]; const flow = act ? (act.flow || 'support') : 'support'; return (<div key={'tk-' + e.id} data-block-id={e.id} className={`tl-tick flow-${flow}`} style={{ left: X(e.started_min), top: M.laneTop + 8, height: M.LANE_H - 16 }} title={`${act ? act.name : e.activity} · ${fmt(e.started_min)} · registro de ${Math.max(0, effEndOf(e) - e.started_min)} min (provável reinício no kiosk)\nclique: apagar ou juntar`} onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); openBar(ev.clientX, ev.clientY, e, op); }}/>); })}
 
                   {/* BURACOS entre tarefas de mão (≥ 15 min, fora do almoço do relógio) */}
                   {lay.gaps.filter((z) => !(lo != null && li != null && lo <= z.start + 2 && li >= z.end - 2) && !split.pauses.some((p) => p.start <= z.start + 1 && p.end >= z.end - 1)).map((z) => (
@@ -441,28 +457,25 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
       {mini && mini.kind === 'quick' && <QuickAdd mini={mini} fmt={fmt} operators={operators} activities={activities} events={events} nowMin={nowMin} DAY_END_BASE={DAY_END_BASE} onClose={closeAll}
                                                   onSave={(d) => { closeAll(); onQuickCreate && onQuickCreate(d); }} onMore={(d) => { closeAll(); onOpenFullForm && onOpenFullForm(d); }}/>}
 
-      {/* ── BARRA DE AÇÕES do bloco ── */}
+      {/* ── MENU COMPACTO do bloco (2 cliques) — mesmo desenho do menu do vazio, perto do mouse ── */}
       {bar && (() => {
         const { ev, op } = bar; const act = activities[ev.activity];
         const end = effEndOf(ev);
-        const B = ({ txt, onClick, danger }) => (<button className={danger ? 'danger' : ''} onClick={(e) => { e.stopPropagation(); onClick(e); }}>{txt}</button>);
+        const Item = ({ ic, txt, sub, onClick, danger }) => (<button className={`tl-mi ${danger ? 'danger' : ''}`} onClick={(e) => { e.stopPropagation(); onClick(e); }}><span className="ic">{ic}</span><span>{txt}{sub && <small>{sub}</small>}</span></button>);
         return (
-          <div className="tl-abar" style={{ left: bar.x, top: bar.y }} onMouseDown={(e) => e.stopPropagation()}>
-            <span className="t">{act ? L.shortName(ev.activity, act.name) : ev.activity} · {fmt(ev.started_min)}→{ev.ended_min == null ? 'agora' : fmt(ev.ended_min)} · {L.fmtDurShort(end - ev.started_min)}</span>
-            <B txt="Ajustar horário" onClick={(e) => openMini('adjust', { op, ev }, { x: e.clientX, y: e.clientY })}/>
-            {ev.ended_min == null && <B txt="Finalizou às…" onClick={(e) => openMini('finish', { op, ev, at: snap(nowMin) }, { x: e.clientX, y: e.clientY })}/>}
-            {onMoveEvent && <B txt={moveOpen ? 'Mover para ▴' : 'Mover para ▾'} onClick={() => setMoveOpen((v) => !v)}/>}
-            {onMergeRequest && <B txt="Juntar ←" onClick={() => { const prevE = events.filter((x) => x.op === op.id && x.id !== ev.id && x.started_min <= ev.started_min).sort((a, b) => b.started_min - a.started_min)[0]; closeAll(); if (prevE) onMergeRequest(prevE.id, ev.id); }}/>}
-            {onSplitRequest && ev.ended_min != null && <B txt="Dividir" onClick={() => { closeAll(); onSplitRequest(ev.id, snap((ev.started_min + end) / 2)); }}/>}
-            {ev.dupes && onDedupe && <B txt={`Duplicado ×${ev.dupes}: manter 1`} onClick={() => { closeAll(); onDedupe(ev.dupe_ids[0], ev.dupe_ids.slice(1)); }}/>}
-            {onDeleteEvent && <B txt="Apagar" danger onClick={() => { closeAll(); onDeleteEvent(ev); }}/>}
-            {ev.product && onOpenBatch && <B txt={`Lote ${products[ev.product]?.name || ''} ›`} onClick={() => { closeAll(); onOpenBatch(ev.product); }}/>}
-            <B txt="Detalhes…" onClick={(e) => { closeAll(); onSelectEvent && onSelectEvent(ev.id, { x: e.clientX, y: e.clientY }); }}/>
-            {moveOpen && (
-              <div className="tl-abar sub">
-                {operators.filter((o) => o.id !== op.id).map((o) => (<button key={o.id} onClick={(e) => { e.stopPropagation(); closeAll(); onMoveEvent(ev.id, o.id); }}>{o.name}</button>))}
-              </div>
-            )}
+          <div className="tl-menu" style={{ left: bar.x, top: bar.y }} onMouseDown={(e) => e.stopPropagation()}>
+            <div className="mh">{act ? L.shortName(ev.activity, act.name) : ev.activity} · {fmt(ev.started_min)}→{ev.ended_min == null ? 'agora' : fmt(ev.ended_min)} · {L.fmtDurShort(end - ev.started_min)}</div>
+            <Item ic="i" txt="Detalhes" sub="ou 1 clique no bloco" onClick={(e) => { closeAll(); onSelectEvent && onSelectEvent(ev.id, { x: e.clientX, y: e.clientY }); }}/>
+            <Item ic="⏱" txt="Ajustar horário" onClick={(e) => openMini('adjust', { op, ev }, { x: e.clientX, y: e.clientY })}/>
+            {ev.ended_min == null && <Item ic="✓" txt="Finalizou às…" onClick={(e) => openMini('finish', { op, ev, at: snap(nowMin) }, { x: e.clientX, y: e.clientY })}/>}
+            <Item ic="↔" txt="Arrastar / esticar" sub="ou 3 cliques no bloco · Esc sai" onClick={() => { setBar(null); setArmed(ev.id); }}/>
+            {onMoveEvent && <Item ic="→" txt={moveOpen ? 'Mover para ▴' : 'Mover para ▾'} onClick={() => setMoveOpen((v) => !v)}/>}
+            {moveOpen && onMoveEvent && operators.filter((o) => o.id !== op.id).map((o) => (<button key={o.id} className="tl-mi sub" onClick={(e) => { e.stopPropagation(); closeAll(); onMoveEvent(ev.id, o.id); }}><span className="ic"/><span>{o.name}</span></button>))}
+            {onMergeRequest && <Item ic="⇤" txt="Juntar com o anterior" onClick={() => { const prevE = events.filter((x) => x.op === op.id && x.id !== ev.id && x.started_min <= ev.started_min).sort((a, b) => b.started_min - a.started_min)[0]; closeAll(); if (prevE) onMergeRequest(prevE.id, ev.id); }}/>}
+            {onSplitRequest && ev.ended_min != null && <Item ic="÷" txt="Dividir no meio" onClick={() => { closeAll(); onSplitRequest(ev.id, snap((ev.started_min + end) / 2)); }}/>}
+            {ev.dupes && onDedupe && <Item ic="×" txt={`Duplicado ×${ev.dupes}: manter 1`} onClick={() => { closeAll(); onDedupe(ev.dupe_ids[0], ev.dupe_ids.slice(1)); }}/>}
+            {ev.product && onOpenBatch && <Item ic="▣" txt={`Lote ${products[ev.product]?.name || ''}`} sub="jornada inteira" onClick={() => { closeAll(); onOpenBatch(ev.product); }}/>}
+            {onDeleteEvent && <Item ic="🗑" txt="Apagar" danger onClick={() => { closeAll(); onDeleteEvent(ev); }}/>}
           </div>
         );
       })()}
