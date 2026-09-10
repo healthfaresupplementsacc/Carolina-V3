@@ -222,7 +222,97 @@ Depois: mutirão (2 pessoas × 2 tardes), recebimento da produção, dedução a
 
 ---
 
-## 5. O que eu não consegui verificar
+## 6. Respostas do Bruno (09-10) e o modelo de FABRICANTE
+
+> "A gente não compra, a gente é uma fábrica: a gente produz, a gente transfere, a gente recebe
+> retornos usáveis e faz restock. Toda ação tem que ficar anotada no log e salva. Tem que proteger o
+> sistema pra nunca duplicar na entrada. Os 309 a gente já limpou. PIN mestre = 150000. O que
+> fabricantes como nós fazem que a gente não faz? Organizar as páginas sem função."
+
+### 6.1 Os fatos verificados
+- **309 = a tabela inteira** (`v3.products`): 222 garrafa (112 mescladas, 25 filhas), 62 planos, 19
+  medicamentos, 4 insumos, 1 serviço, 1 outro. A limpeza FOI feita (última mesclagem 08/09). O
+  Product Setup só não aplica o filtro. Sobras de dado: **5 casepacks raiz** (FOTI-1000-C2,
+  PANT-500-C2, POTA-130-C3, STIN-7500-C2, VTB2-180-C2-WFS) e **2 com tipo errado** (Ice Pack, Test
+  Strips). Universo certo: **110**.
+- **Transferência não existe como verbo.** `StockService` só tem `move` entre locais. Enviar
+  garrafas do armazém para FBA/WFS/DC não desconta nada. Para uma fábrica isso é a segunda saída
+  mais importante depois da venda.
+- **Lote existe em caixa e em lote de produção** (`stock_boxes.batch_number`,
+  `product_batches.batch_number`); **validade só no catálogo** (rótulo), não por lote.
+- ADMIN_PIN definido no Railway = 150000 (o PIN do login Admin). 510510 volta a ser só o Henrique.
+
+### 6.2 Como o estoque duplicaria hoje, e como tornar isso impossível
+Onde duplica: `POST /load` (Montar, passo 3) **soma** o que foi contado ao local. Contar a mesma
+caixa duas vezes, ou repetir o clique com outro uuid, entra duas vezes. `simple/set` **define** o
+absoluto do escopo ("na prateleira A03 tem 23"): repetir é inofensivo.
+
+Regras para nunca duplicar (todas, não uma):
+1. **Contagem é sempre absoluta.** "O que está neste lugar agora é N." Nunca "adicione N". O
+   caminho "pesar" vira um jeito de descobrir o N, não uma segunda porta. `/load` some.
+2. **Entrada só nasce de um evento com identidade**: recebimento de produção (1 por lote;
+   `source_ref = batch:<id>`), devolução (por pedido), transferência de volta (por remessa). O
+   livro recusa o mesmo evento duas vezes (índice único que já existe).
+3. **Guarda de tamanho**: qualquer movimento que leve o total do produto acima do alvo da Veeqo +
+   20 %, ou acima da capacidade do local, pede confirmação mostrando os dois números.
+4. **Alarme vermelho para "nosso > Veeqo"** (vender o que não existe é o dano gigante), separado do
+   amarelo "nosso < Veeqo". O drift de 10 min já roda; hoje trata os dois iguais.
+5. **Desfazer** em 24 h gera o movimento inverso ligado ao original (nunca apaga; o log fica inteiro).
+6. **Todo movimento com ator, motivo codificado e referência**, inclusive do admin.
+
+### 6.3 O que fabricantes de suplemento fazem que a gente não faz
+Referência: prática de finished-goods de fabricante D2C + FBA, e as exigências de rastreabilidade de
+suplemento (21 CFR 111: registro de lote e distribuição para recall).
+
+| Prática | Aqui hoje | Falta |
+|---|---|---|
+| **Recebimento de produção é o único nascimento de estoque**, 1 por lote, com quantidade produzida, lote e validade | Entrada manual sem origem | Receber a produção (pendência) com lote + validade; sem "compra" |
+| **QC / liberação**: lote fica em quarentena até liberado (revisão) | Revisão existe na linha; estoque não sabe | Estado "aguardando liberação" entre produção e vendável |
+| **Rastreabilidade por lote de ponta a ponta** (qual lote foi em qual pedido; recall) | lote na caixa; pedido não guarda lote | Lote por local, lote no pick, relatório "onde foi o lote X" |
+| **FEFO** (primeiro a vencer, primeiro a sair) | validade só do rótulo | Validade por lote; sugestão de pick pelo lote mais velho |
+| **Transferência para FBA / WFS / DC** com documento (shipment ID) e trânsito | não existe | Verbo Transferência (destino, remessa, qtd) que desconta; "em trânsito" até confirmar |
+| **Devolução com triagem**: usável → restock; danificada → baixa; sempre por pedido | Separadas → restocked/discarded | Existe; falta o motivo codificado e o pedido obrigatório |
+| **Amostras / marketing / uso interno** com conta própria | não existe (cabe em "Ajustar −N") | Saída codificada |
+| **Contagem cíclica ABC** + contagem no zero + variância → aprovação | kiosk conta; sem ciclo | Rodízio automático, variância vira pendência |
+| **Ponto de reposição → ordem de produção** (make-to-stock) | planner lê Veeqo; metas existem | Ligar "dias de estoque" ao planejamento de produção |
+| **Planejado × produzido** (rendimento do lote) | metas + contagens existem | Já há base; mostrar no recebimento |
+| **Reconciliação com canal, alerta sem sobrescrever** | drift 10 min | ✅ (separar as duas direções) |
+| **Livro auditável**: ator, motivo, referência, reversão | ator do admin ausente, sem motivo, sem reversão | Fase B |
+| **Segregação de funções** por pessoa | perfil × função | Funções por pessoa (decidido) |
+
+### 6.4 Códigos de motivo de uma fábrica (o vocabulário do livro)
+Entrada: `producao` (lote) · `devolucao_usavel` (pedido) · `transferencia_volta` (remessa) · `correcao_contagem`.
+Saída: `venda` (Veeqo, automático) · `transferencia` (FBA / WFS / DC / outro armazém; remessa) ·
+`amostra` · `uso_interno` · `extra_no_pedido` (pedido) · `descarte` · `correcao_contagem`.
+Interno (total não muda): `organizar` · `mover` · `separar` (rótulo, lacre, dano, devolução) ·
+`liberar` (quarentena → vendável).
+Uma tabela, usada por hub, kiosk, Montar e workers. Sem "compra".
+
+### 6.5 As páginas, cada uma com uma função (versão fabricante)
+
+| Página | Função única | Vem de |
+|---|---|---|
+| **Estoque** | O mapa de agora: por produto, prateleira · caixa · a organizar · aguardando liberação · reservado · disponível · Veeqo (com idade). Verbos: Receber · Contar · Saída · Transferir (+ "mais": Organizar, Mover, Separar) | hub |
+| **Pendências** | Tudo que espera decisão: recebimentos de produção, propostas de quem só propõe, variâncias de contagem, liberações de quarentena; e o histórico de decisões e desfazeres | Aprovações |
+| **Movimentos** | O livro inteiro, filtrável por produto / lote / pessoa / motivo / período, exportável. "Toda ação anotada e salva", visível | aba do painel → página |
+| **Produtos** | O catálogo único: 110 raiz por padrão (filtros: filhos, planos, insumos), tipo, título limpo, apelido, cor, pai/filhos, peso, validade do rótulo, mínimo | Product Setup + Config "inventário" |
+| **Prateleiras e caixas** | Os lugares: código, área, capacidade, tara, lote da caixa, etiquetas (Imprimir aqui) | Locais + Etiquetas |
+| *(depois)* **Lotes** | Cada lote: quantidade, validade, onde está, para onde foi (recall) | novo |
+
+Somem do menu: Montar estoque (vira assistente dentro de Estoque enquanto a carga não terminou),
+Etiquetas (ação de Prateleiras e caixas), Configurações (embalagem/envelopes → Impressão/P&P), Ver
+estoque e Estoque detalhado (antigos).
+
+### 6.6 Ordem revisada
+Fase A (integridade, sem quantidade): alvo Veeqo · catálogo (5 casepacks + 2 tipos; Product Setup
+filtra 110) · Juntar SKUs por nome · ator do admin no livro · **uma porta de carga (absoluta) e
+`/load` some** · guarda de tamanho + alarme "nosso > Veeqo".
+Fase B (primitivos): códigos de motivo · Contar (esperado × contado) · Receber a produção com lote ·
+Transferir · Saída · Desfazer · funções por pessoa · notificação por função · Movimentos como página.
+Fase C (uma porta): menu 7 → 5 · Montar dentro do hub · Produtos unificado · estado "não carregado".
+Depois: mutirão · quarentena/liberação · lote por local + FEFO · contagem cíclica · dedução ao vivo.
+
+## 7. O que eu não consegui verificar
 - Fluxos com dados reais (não há estoque carregado; não mexi em quantidade). A auditoria é de código
   + navegação até a confirmação; o comportamento com 17 mil garrafas dentro (paginação, lentidão do
   overview, drift em massa) só se vê depois da carga.
