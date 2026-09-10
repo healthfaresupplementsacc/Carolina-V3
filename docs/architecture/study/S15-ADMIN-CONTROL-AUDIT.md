@@ -152,8 +152,12 @@ Faz uma coisa e faz bem (Code128 + QR, 4x6, carimbo de impressão). Não precisa
 "Inventário e estoque" diz "não construído". Está no menu de Estoque sem ser de estoque.
 
 ### 2.12 Usuários & Acessos · nota 2 (para o que o Bruno pediu)
-Matriz **perfil × função**; login herda perfil; sem função por pessoa. D32: o PIN de emergência abre o
-dashboard mas a página mostra "Sem acesso" (p17) — o `can()` do cliente não trata `*` como o servidor.
+Matriz **perfil × função**; login herda perfil; sem função por pessoa. D32 (SEGURANÇA, fora do
+estoque): a página mostrou "Sem acesso" (p17) porque o PIN `510510` que eu usei **é o PIN do login
+Henrique (manager)** — e `510510` é também o PIN mestre de emergência padrão do código
+(`ADMIN_PIN` não está definido no Railway). Quem tem o PIN do Henrique tem, nas rotas que usam o
+padrão (`op.js` adminPin, legado `checkPin`, emergência do `/api/v3/data`), acesso de dono. Corrigir
+fora deste plano: definir `ADMIN_PIN` no Railway com valor próprio e trocar o PIN do Henrique.
 
 ### 2.13 Transversal
 - D33 Sem códigos de motivo (exceto Separar). D34 Sem desfazer. D35 Notificações globais (todo
