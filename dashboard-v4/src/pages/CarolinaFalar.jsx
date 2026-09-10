@@ -22,19 +22,34 @@ import React from 'react';
 import { Icon } from '../components/Icons.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../adapters/from-api.js';
+import { adminGet } from '../adapters/admin-api.js';
 
 const CH_OPTIONS = [
   { value: 'production', label: 'Produção · #orders-and-inventory' },
   { value: 'admin',      label: 'Admin · #admin-orin' },
 ];
 
-// Mentions hardcoded (mesma fonte do /dashboard atual). TODO E5+: pull do catálogo.
-const MENTION_LIST = [
+// Menções vêm do CADASTRO (pessoas ativas com Slack) — Bruno 09-09: a lista era
+// fixa aqui e a Simone continuou aparecendo depois de sair. Fallback só se a
+// API falhar (sem ninguém que já saiu).
+const MENTION_FALLBACK = [
   { id: 'U08JC85HMNE', name: 'Vitor' },
-  { id: 'U07FG34TMPF', name: 'Simone' },
-  { id: 'U0AU8N8FA00', name: 'Ana' },
   { id: 'U085SDY3F4Z', name: 'Henrique' },
 ];
+function useMentionList() {
+  const [list, setList] = React.useState(MENTION_FALLBACK);
+  React.useEffect(() => {
+    let alive = true;
+    adminGet('/persons/slack')
+      .then((d) => {
+        const ps = ((d && d.persons) || []).map((p) => ({ id: p.slack_user_id, name: String(p.name || '').trim().split(/\s+/)[0] || p.name }));
+        if (alive && ps.length) setList(ps);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return list;
+}
 
 const MRKDWN_BTNS = [
   { label: 'B', wrap: '*', title: 'negrito *texto*' },
@@ -70,6 +85,7 @@ function useFalarState(ack) {
  *  inteira (FalarPage) ou dentro de FloatingPopover via FalarCarolinaButton. */
 function FalarCarolina({ ack, compact = false }) {
   const { profiles, history, loadingP, loadingH, refresh } = useFalarState(ack);
+  const mentionList = useMentionList();
   const [text, setText]       = React.useState('');
   const [channel, setChannel] = React.useState('production');
   const [senderId, setSenderId] = React.useState('');
@@ -207,7 +223,7 @@ function FalarCarolina({ ack, compact = false }) {
               </button>
             ))}
             <span style={{ alignSelf: 'center', color: 'var(--text-3)', fontSize: 11, margin: '0 4px' }}>@:</span>
-            {MENTION_LIST.map((u) => (
+            {mentionList.map((u) => (
               <button key={u.id} type="button" className="btn sm ghost"
                       title={'menciona ' + u.name + ' (insere <@' + u.id + '>)'}
                       onClick={() => insertAtCursor('<@' + u.id + '> ')}

@@ -14,6 +14,7 @@
  * OPT-IN: WORKER_PRINT_DIVERGENCE_ENABLED=true. Canal: #orders-and-inventory.
  */
 const { isMuted } = require('../v3/alert-gate');
+const { addressRole } = require('../v3/roles');   // cargo packing_operator (Bruno 09-09)
 const EDT = 'America/New_York';
 
 class PrintDivergenceWatchdog {
@@ -59,11 +60,19 @@ class PrintDivergenceWatchdog {
     return { operator_total, veeqo_total: v.total_orders || 0 };
   }
 
-  _question(diff) {
+  async _question(diff) {
     const abs = Math.abs(diff);
+    // Quem recebe a pergunta = o CARGO packing_operator (Bruno 09-09: cargo, não
+    // nome — o texto dizia "Simone" e ela saiu). Designado no dashboard → menção
+    // <@slack>; ninguém designado → "Pessoal do packing".
+    // Se a leitura do cargo falhar, a pergunta SAI mesmo assim com o genérico —
+    // um erro de lookup nunca pode engolir a pergunta do dia.
+    const who = await addressRole(this.db, 'packing_operator', { mention: true, capitalize: true })
+      .catch((e) => { console.error('[print-div] cargo packing_operator:', e.message); return 'Pessoal do packing'; });
+    const voce = who.startsWith('<@') ? 'você colocou' : 'vocês colocaram';
     // SÓ a diferença — nunca os totais (decisão do Bruno 08-06).
-    return 'Simone, hoje deu *' + abs + ' ' + (abs === 1 ? 'ordem' : 'ordens') + '* de diferença '
-      + 'entre o que você colocou no sistema (1ª + 2ª impressão) e o que o Veeqo registrou. '
+    return who + ', hoje deu *' + abs + ' ' + (abs === 1 ? 'ordem' : 'ordens') + '* de diferença '
+      + 'entre o que ' + voce + ' no sistema (1ª + 2ª impressão) e o que o Veeqo registrou. '
       + 'Sabe o porquê? Me fala aqui na thread.';
   }
 
@@ -100,7 +109,7 @@ class PrintDivergenceWatchdog {
             channel: this.channelId,
             sender: { name: 'HealthFare Tracker', icon: ':printer:' },
             thread_ts: null, unfurl_links: false, unfurl_media: false,
-            text: this._question(diff),
+            text: await this._question(diff),
           });
           question_ts = (r && (r.ts || (r.message && r.message.ts))) || null;
           asked = true;

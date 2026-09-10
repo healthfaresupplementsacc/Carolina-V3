@@ -16,6 +16,7 @@ import { ReviewPanel } from '../components/ReviewPanel.jsx';
 import { WidgetGrid, compact } from '../components/WidgetGrid.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import { apiGet, usePoll } from '../adapters/from-api.js';
+import { useRoleHolder, holderShort } from '../adapters/roles-api.js';
 import { useAccountPref, prefStatusText } from '../hooks/useAccountPref.js';
 import nyTime from '../utils/ny-time.cjs';
 import dayStats from '../utils/day-stats.cjs';
@@ -295,6 +296,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const attPoll = usePoll('/attendance', [], 30000);
   // Veeqo do dia (Bruno 08-06): mostrar no card P&P o digitado vs Veeqo + diferença
   const vqToday = usePoll('/veeqo-today', [], 180000);
+  const packingRole = useRoleHolder('packing_operator');   // responsável pelo P&P (cargo, não nome — 09-09)
   const attData = attPoll.data;
   // markers + estado por person_id pra a Timeline (ícones + "saiu" em vez de idle)
   const attMarkersByPerson = React.useMemo(() => {
@@ -819,6 +821,12 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                    );
                  })()}
                  <div><div className="kit-mlabel">seg/ordem</div><b className="mono">{pp.seconds_per_order ? pp.seconds_per_order + 's' : '—'}</b></div>
+                 {!packingRole.loading && (
+                   <div title={packingRole.holder ? 'responsável pelo P&P (definido na página P&P)' : 'ninguém designado — as mensagens falam com o pessoal do packing'}>
+                     <div className="kit-mlabel">responsável</div>
+                     <b style={{ color: packingRole.holder ? 'var(--ink)' : 'var(--ink-faint)', fontWeight: packingRole.holder ? 600 : 500 }}>{holderShort(packingRole)}</b>
+                   </div>
+                 )}
                  {correioNotif && (
                    <div><div className="kit-mlabel">corte</div>
                         <b className="mono" style={{ color: (correioNotif._minutes != null && window.HFH.liveNowMin() > correioNotif._minutes) ? 'var(--bad-deep)' : 'var(--ok-deep)' }}>

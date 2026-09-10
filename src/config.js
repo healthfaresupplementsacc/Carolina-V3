@@ -64,6 +64,9 @@ module.exports = {
   // legacy parser regex; FASE 1 resolve-operator derives the real matcher
   // from the operators table (name + aliases) — this is only the fallback
   // token list. Bruno→Bruno Sarmento, Vitor→Vitor Leite (the floor people).
+  // 09-09: Simone SAIU, mas fica nesta lista e nos mapas abaixo de propósito: são
+  // RECONHECIMENTO de nomes em mensagens (inclusive as antigas, "Simone - F: …"),
+  // não a lista do time atual. Quem está no time é v3.persons (active=true).
   operators: ['Ana', 'Bruno Sarmento', 'Bruno', 'Vitor Leite', 'Vitor', 'Simone', 'Henrique'],
   // FASE 1 Passo 3 — account → default owner (Bruno's documented rule,
   // doc 10.3 / spec 2.2). The account→operator NAME mapping is the rule;

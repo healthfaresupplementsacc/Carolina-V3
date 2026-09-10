@@ -3,6 +3,7 @@ import { Icon, Leaf } from '../components/Icons.jsx';
 import { KPI, CapBar, CountdownCard, OperatorAvatar } from '../components/Primitives.jsx';
 import { FalarCarolina } from './CarolinaFalar.jsx';
 import { useFreight } from '../adapters/freight-api.js';
+import { useRoleHolder, setRoleHolder, useActiveOperators } from '../adapters/roles-api.js';
 import './pages-operacao.css';
 
 /* Production, Goals, People + light placeholders for the rest.
@@ -471,6 +472,39 @@ function FreightCard() {
   );
 }
 
+/* RESPONSÁVEL PELO P&P (Bruno 09-09): o cargo packing_operator. Quem está aqui
+   é quem as mensagens automáticas chamam pelo nome (divergência de impressão,
+   vigia do packing, placar de sexta). Vazio = "pessoal do packing". Nasceu
+   quando a Simone saiu e o nome dela estava fixo em texto de sistema. */
+function PackingResponsible() {
+  const r = useRoleHolder('packing_operator');
+  const ops = useActiveOperators();
+  const [busy, setBusy] = React.useState(false);
+  const onChange = async (e) => {
+    const v = e.target.value;
+    setBusy(true);
+    try { await setRoleHolder('packing_operator', v ? parseInt(v, 10) : null); r.refresh(); }
+    catch (err) { window.alert('Não salvou o responsável: ' + ((err && err.message) || err)); }
+    finally { setBusy(false); }
+  };
+  const first = r.holder && r.holder.name ? r.holder.name.trim().split(/\s+/)[0] : null;
+  return (
+    <div className="card" style={{ padding: '12px 14px', minWidth: 260 }} data-role="packing_operator">
+      <div className="kit-mlabel" style={{ marginBottom: 6 }}>Responsável pelo P&amp;P · Packing Operator</div>
+      <select className="kit-input" value={r.holder ? r.holder.person_id : ''} onChange={onChange}
+              disabled={busy || r.loading} title="quem as mensagens automáticas de P&P chamam pelo nome">
+        <option value="">Ninguém · tratar como "{r.fallback || 'pessoal do packing'}"</option>
+        {ops.map((o) => <option key={o.id} value={o.id}>{o.display_name}</option>)}
+      </select>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 6 }}>
+        {r.error ? 'Não consegui ler o cargo.'
+          : first ? <>As mensagens automáticas falam com <b>{first}</b>.</>
+          : 'Sem ninguém designado, as mensagens falam com o pessoal do packing.'}
+      </div>
+    </div>
+  );
+}
+
 function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
   // E7-resto Leva 1: ligada em hfdata real.
   // Sub-passos reais do /api/v3/data/pp:
@@ -502,7 +536,8 @@ function PickPackPage({ state, hfdata, raw, openPanel, loading, error, date }) {
   return (
     <div data-page-op="pp">
       <PageHead eyebrow="PICK &amp; PACK" before="O bloco de " em="P&amp;P" after=" do dia"
-                sub="Tempo de parede (sem contar duas vezes quando tem gente junto), ordens fechadas e o corte do correio."/>
+                sub="Tempo de parede (sem contar duas vezes quando tem gente junto), ordens fechadas e o corte do correio."
+                side={<PackingResponsible/>}/>
       <div className="card" style={{ padding: 22 }}>
         {correioMin != null && (
           <CountdownCard deadlineMin={correioMin} now={now}

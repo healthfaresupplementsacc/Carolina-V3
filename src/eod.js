@@ -253,7 +253,7 @@ const MORNING_GUIDE_MSG =
   'Se demorou ou aconteceu algo, coloca o N separado:\n' +
   'F: Graviola 0124\n' +
   'N: demorei pq tive que fazer manutencao na maquina\n\n' +
-  '*Sobre o nome:* sempre que voce nao for o dono da conta que ta usando, coloca seu nome antes de tudo -- seja no computador do Production Line, no do Vitor ou no da Simone.\n' +
+  '*Sobre o nome:* sempre que voce nao for o dono da conta que ta usando, coloca seu nome antes de tudo -- seja no computador do Production Line, no do Vitor ou no PC de packing.\n' +
   'Exemplo: Ana - S: Graviola 0124\n\n' +
   'qualquer duvida me chama aqui! \u{1F60A}';
 

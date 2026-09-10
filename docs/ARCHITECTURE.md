@@ -424,6 +424,8 @@ View-only PIN-gated proxy to the camera-PC gateway + machine-motion signal.
 - admin.js also manages `v3.persons`, `v3.operator_sessions`, `v3.notifications` per endpoint.
 - WRITE `v3.persons.clock_code` — clock-link NGTeco (08-21): auto-link no create-operator (`admin.js` POST `/api/adminpanel/operators`, match único nome+sobrenome via `src/v3/services/clock-link.js`) + vínculo manual `PUT /api/adminpanel/operators/:id/clock-code`; candidatos em `GET /api/adminpanel/operators/:id/clock-candidates`. Sem clock_code a pessoa não entra no `/attendance` nem no attendance-sync.
 
+- WRITE `v3.settings` key `role:<cargo>` — CARGOS do sistema (09-09, "por cargo, não por nome"): `GET/PUT /api/adminpanel/roles/:role` → `src/v3/roles.js` (`getRoleHolder` re-lê `v3.persons`: pessoa inativa = cargo vazio; `addressFor` = nome / `<@slack>` / genérico). Único cargo: `packing_operator` (Responsável pelo P&P; genérico "pessoal do packing"). Consumido por `src/workers/print-divergence-watchdog.js` (`_question`), pelo agendador do PC do Bruno (`scripts/analyst/_watch/q-packing.js`) e pela UI (card na página P&P do dashboard-v4 + chip no widget Hoje via `dashboard-v4/src/adapters/roles-api.js`). `GET /api/adminpanel/persons/slack` = pessoas ativas com Slack (menções do "Falar como Carolyn", antes lista fixa).
+
 **Receives from**
 - Slack sender: `createAdminRouter` receives `{ postAs, updateMessage }` `admin.js:59`.
 - Shared read layer: admin-v3 uses same repos as data API (`admin-v3/routes.js:397`).

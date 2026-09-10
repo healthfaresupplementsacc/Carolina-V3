@@ -135,7 +135,7 @@ class CommandHandler {
     if (isUnknown) {
       await this._reply(message.slack_ts,
         `Não entendi o comando. Exemplos:\n`
-        + `• "anota lunch da Simone 1pm"\n`
+        + `• "anota lunch do Vitor 1pm"\n`
         + `• "maquinario parou 4:18-4:52"\n`
         + `• "apaga ev280"\n`
         + `• "como tá o Potassium?"`, channel);
@@ -270,6 +270,10 @@ class CommandHandler {
   // ─── LLM parser ─────────────────────────────────────────────
 
   async _parseCommand(rawText, adminPerson, context) {
+    // CATÁLOGO DE PESSOAS dinâmico (Bruno 09-09: cargo, não nome). Vinha
+    // hardcoded no prompt e já estava errado: sem Caroline/Larissa, e a Simone
+    // continuava listada depois de sair. Agora: pessoas ATIVAS do banco, sempre.
+    const catalogLines = await this._personCatalogLines();
     const sys = [
       'Você é o intérprete de comandos do admin pra Carolina (sistema de tracking',
       'da HealthFare). O admin escreveu uma mensagem mencionando @Carolina.',
@@ -312,13 +316,7 @@ class CommandHandler {
       ' → uncertain=true + explanation.',
       '',
       'CATÁLOGO DE PESSOAS (id → nome / role):',
-      '  1 = Bruno Camp (owner)',
-      '  2 = Thassio (owner)',
-      '  3 = Henrique (manager)',
-      '  4 = Vitor (operator)',
-      '  5 = Simone (operator)',
-      '  6 = Ana (operator)',
-      '  7 = Bruno Sarmento (operator)',
+      ...catalogLines,
       'Quando admin fala "Bruno" em contexto operacional, é Bruno Sarmento (7).',
       '',
       'TIMESTAMPS: NY timezone (EDT/EST). Devolva ISO UTC com Z. Hoje é',
@@ -336,13 +334,13 @@ class CommandHandler {
       '',
       'EXEMPLOS:',
       '',
-      'msg: "@Carolina anota que Simone saiu pro almoco às 1:01pm"',
+      'msg: "@Carolina anota que Vitor saiu pro almoco às 1:01pm"',
       '→ { "command_type": "create_event", "target": null,',
-      '    "params": { "person_id": 5, "slug": "lunch",',
+      '    "params": { "person_id": 4, "slug": "lunch",',
       '                "started_at": "...T17:01:00Z" (1:01 PM NY EDT → 17:01 UTC),',
-      '                "ended_at": null, "description": "Almoço Simone (criado retroativo)" },',
+      '                "ended_at": null, "description": "Almoço Vitor (criado retroativo)" },',
       '    "destructive": false, "uncertain": false,',
-      '    "explanation": "Criar lunch da Simone começando 1:01 PM" }',
+      '    "explanation": "Criar lunch do Vitor começando 1:01 PM" }',
       '',
       'msg: "@Carolina Vitor está na limpeza junto com Bruno Sarmento"',
       '→ { "command_type": "create_event", "target": null,',
@@ -407,6 +405,18 @@ class CommandHandler {
       throw new Error('LLM retornou JSON inválido');
     }
     return parsed;
+  }
+
+  /** Pessoas ativas do banco, no formato do prompt ("  4 = Vitor (operator)"). */
+  async _personCatalogLines() {
+    try {
+      const r = await this.db.query(
+        `SELECT id, display_name, role FROM v3.persons
+          WHERE active = true AND deleted_at IS NULL AND COALESCE(is_sandbox, false) = false
+          ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END, id`);
+      if (r.rows.length) return r.rows.map((p) => `  ${p.id} = ${p.display_name} (${p.role})`);
+    } catch (e) { console.error('[CommandHandler] catálogo de pessoas:', e.message); }
+    return ['  (catálogo indisponível — resolva a pessoa pelo nome e marque uncertain=true)'];
   }
 
   _todayNyDate() {

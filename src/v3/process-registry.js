@@ -141,8 +141,8 @@ const PROCESSES = [
     key: 'print_divergence', name: 'Divergência de impressão (Veeqo)', where: 'railway', tickMs: 900000,
     heartbeat: true, staleMin: 60, critical: false, since: '2026-08-06',
     enabledEnv: { var: 'WORKER_PRINT_DIVERGENCE_ENABLED', onValue: 'true', requires: ['VEEQO_API_KEY'] },
-    short: '12pm NY: digitado (1ª+2ª impressão) vs Veeqo; divergiu → pergunta pra Simone (só a diferença) e grava a resposta.',
-    detail: 'Diário às 12pm NY (Simone já imprimiu tudo): soma orders_printed de order_printing+order_printing_2 (não-teste) e compara com veeqo.shippedByDay. Divergiu → pergunta no #orders-and-inventory citando SÓ a diferença (nunca os totais — decisão do Bruno pra capturar o motivo real). Resposta da thread gravada em v3.print_divergence_log todo dia → histórico pra investigar. Respeita o mute do alert-gate.',
+    short: '12pm NY: digitado (1ª+2ª impressão) vs Veeqo; divergiu → pergunta pra quem está no packing (cargo packing_operator; sem ninguém = "pessoal do packing"), só a diferença, e grava a resposta.',
+    detail: 'Diário às 12pm NY (a impressão do dia já acabou): soma orders_printed de order_printing+order_printing_2 (não-teste) e compara com veeqo.shippedByDay. Divergiu → pergunta no #orders-and-inventory citando SÓ a diferença (nunca os totais — decisão do Bruno pra capturar o motivo real). Resposta da thread gravada em v3.print_divergence_log todo dia → histórico pra investigar. Respeita o mute do alert-gate.',
   },
   {
     key: 'dup_shipment', name: 'Duplicatas de envio (Veeqo)', where: 'railway', tickMs: 3600000,
@@ -260,7 +260,7 @@ const PROCESSES = [
   },
 
   {
-    // HF-PrintAgent (S15.52, 09-04): o agente NATIVO da fila, no PC da Simone
+    // HF-PrintAgent (S15.52, 09-04): o agente NATIVO da fila, no PC de packing
     // (.246), pros jobs que já são PDF pronto (etiquetas de envio da Rollo).
     // pending: true até o deploy real no .246 (o código está em src/print-agent/;
     // instala via Install-HFPrintAgent.ps1 por SSH). Liveness NÃO é heartbeat de
@@ -270,7 +270,7 @@ const PROCESSES = [
     key: 'print_agent_246', name: 'HF-PrintAgent (.246)', where: 'win246',
     tickMs: 15000, heartbeat: false, critical: false, pending: true, since: '2026-09-04',
     signalVia: '/api/v3/print-queue',
-    short: 'Agente da fila no PC da Simone: poll 15s, baixa o PDF composto e imprime na Rollo (Label Printer 4x6) via SumatraPDF, sem clique nenhum.',
+    short: 'Agente da fila no PC de packing (.246): poll 15s, baixa o PDF composto e imprime na Rollo (Label Printer 4x6) via SumatraPDF, sem clique nenhum.',
     detail: 'Roda no .246 como tarefa agendada HFPrintAgent (SYSTEM, boot + repetição 5min, ExecutionTimeLimit PT0S — a lição do MachinePush de 08-25). Poll GET /api/v3/print-queue?status=queued com x-print-token (o MESMO PRINT_EVENT_TOKEN, nenhum segredo novo) + x-agent-id; job com PDF guardado (GET /:id/file) → take → SumatraPDF -print-to "Label Printer 4x6" -silent → done (que carimba printed_at) ou error com o motivo. Job SEM PDF (bin/box do navegador) é pulado e fica pra página /print. Código: src/print-agent/{HF-PrintAgent.ps1,Install-HFPrintAgent.ps1,print-agent.config.example.json}. O servidor nunca alcança o .246: o agente é quem liga, e o poll é o próprio sinal de vida.',
   },
 
@@ -290,8 +290,8 @@ const PROCESSES = [
   {
     key: 'claude_scheduler', name: 'Agendador de tarefas do Claude (PC Bruno)', where: 'pc-bruno',
     tickMs: 60000, heartbeat: false, critical: false, since: '2026-09-08',
-    short: 'Dispara as checagens da Simone e o placar de sexta chamando o Claude headless, sem depender de sessao aberta.',
-    detail: '09-09: prompt vai por STDIN (antes ia como argumento com shell:true e o cmd.exe picava o texto: "unknown option --ch", nenhum toque saiu em 09-09) e usa o claude NATIVO ~/.local/bin/claude.exe (npm global preso em 2.1.142, npm quebrado). Timeout 25min/tarefa. node scheduler.js --test prova o caminho; --run <id> dispara na mao. single-instance + self-reload. Roda no PC do Bruno (scripts/analyst/scheduler.js via run-scheduler.cmd, subindo junto do watchdog pela Scheduled Task "HealthFare Claude Autostart"). Le scripts/analyst/_watch/tasks.json (id, at HH:MM hora de NY, days, prompt) e no horario roda `claude -p <prompt> --permission-mode bypassPermissions` no repo. Estado em _watch/scheduler-state.json (1 execucao por tarefa por dia NY), log em _watch/scheduler.log, batida em _watch/scheduler-alive.txt. A PROVA DE REBOOT: ao subir faz catch-up e dispara tarefa do dia que ficou pra tras ate 3h de atraso (Bruno 09-08: "make sure next time all automations start on its own... even after reboot"). Tarefas atuais: simone-manha 08:33, simone-meiodia 12:21 (seg-sex), placar-sexta 17:27, foto-sexta 10:00 (troca a foto de perfil da Carolyn pela imagem mais recente de G:/My Drive/Clinic/Work From Home/Carol via set-carol-photo.js). Substitui os crons de sessao, que morriam junto com o Claude.',
+    short: 'Dispara as checagens do packing (cargo packing_operator) e o placar de sexta chamando o Claude headless, sem depender de sessao aberta.',
+    detail: '09-09: prompt vai por STDIN (antes ia como argumento com shell:true e o cmd.exe picava o texto: "unknown option --ch", nenhum toque saiu em 09-09) e usa o claude NATIVO ~/.local/bin/claude.exe (npm global preso em 2.1.142, npm quebrado). Timeout 25min/tarefa. node scheduler.js --test prova o caminho; --run <id> dispara na mao. single-instance + self-reload. Roda no PC do Bruno (scripts/analyst/scheduler.js via run-scheduler.cmd, subindo junto do watchdog pela Scheduled Task "HealthFare Claude Autostart"). Le scripts/analyst/_watch/tasks.json (id, at HH:MM hora de NY, days, prompt) e no horario roda `claude -p <prompt> --permission-mode bypassPermissions` no repo. Estado em _watch/scheduler-state.json (1 execucao por tarefa por dia NY), log em _watch/scheduler.log, batida em _watch/scheduler-alive.txt. A PROVA DE REBOOT: ao subir faz catch-up e dispara tarefa do dia que ficou pra tras ate 3h de atraso (Bruno 09-08: "make sure next time all automations start on its own... even after reboot"). Tarefas atuais: packing-manha 08:33, packing-meiodia 12:21 (seg-sex), placar-sexta 17:27 (as tres olham o cargo packing_operator via _watch/q-packing.js: designado = pelo nome, vazio = quem fez P&P no dia / "pessoal do packing"), foto-sexta 10:00 (troca a foto de perfil da Carolyn pela imagem mais recente de G:/My Drive/Clinic/Work From Home/Carol via set-carol-photo.js). Substitui os crons de sessao, que morriam junto com o Claude.',
   },
   {
     key: 'claude_socket_listener', name: 'Slack Socket Mode Listener (PC Bruno)', where: 'pc-bruno',

@@ -731,7 +731,7 @@ function generateDashboard() {
       <div>
         <div class="modal-field">
           <label class="modal-label">Operador</label>
-          <input id="co-operator" class="modal-input" type="text" placeholder="ex: Simone">
+          <input id="co-operator" class="modal-input" type="text" placeholder="nome de quem está no packing">
         </div>
         <div class="modal-field">
           <label class="modal-label">Qtd de Ordens</label>
@@ -1788,7 +1788,7 @@ async function submitCreateTask() {
 // ===== CREATE ORDER MODAL =====
 function openCreateOrder() {
   const nowEt = new Date().toLocaleString('sv-SE', { timeZone: 'America/New_York' }).slice(0, 16);
-  document.getElementById('co-operator').value = 'Simone';
+  document.getElementById('co-operator').value = '';   // 09-09: sem nome fixo (cargo, não pessoa)
   document.getElementById('co-count').value = '';
   document.getElementById('co-batch').value = 'afternoon';
   document.getElementById('co-start').value = nowEt;

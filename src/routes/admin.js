@@ -28,6 +28,7 @@ const express = require('express');
 const crypto = require('crypto');
 const opAuth = require('../lib/op-auth');
 const clockLink = require('../v3/services/clock-link');
+const roles = require('../v3/roles');   // cargos do sistema (packing_operator…) — Bruno 09-09
 const { makeRateLimit } = require('../middleware/security');
 
 const SESSION_HOURS = 8;
@@ -280,7 +281,7 @@ function createAdminRouter(deps = {}) {
   router.get('/api/adminpanel/operators', h(async (req, res) => {
     const r = await db.query(`
       SELECT p.id, p.display_name, (p.pin_hash IS NOT NULL) AS has_pin,
-             p.clock_code,
+             p.clock_code, p.slack_user_id,
              p.auto_logoff_seconds, p.count_exempt, p.active AS is_active,
              p.last_page_login_at,
              (SELECT COUNT(*)::int FROM v3.operator_sessions s
@@ -442,6 +443,47 @@ function createAdminRouter(deps = {}) {
     if (!active) closed = await forceLogout(id);
     await audit('operator.active_set', 'person', id, { active, sessions_closed: closed });
     res.json({ id, active, sessions_closed: closed });
+  }));
+
+  // ── CARGOS (Bruno 09-09: "por cargo, não por nome") ─────────────────────
+  // Quem ocupa um cargo do sistema (hoje: packing_operator = responsável pelo
+  // P&P). Vazio = as mensagens automáticas usam o genérico ("pessoal do packing").
+  // Fonte única: src/v3/roles.js (v3.settings 'role:<cargo>').
+  router.get('/api/adminpanel/roles/:role', h(async (req, res) => {
+    const role = String(req.params.role || '');
+    if (!roles.ROLES[role]) return res.status(404).json({ error: 'unknown_role' });
+    const holder = await roles.getRoleHolder(db, role);
+    const def = roles.ROLES[role];
+    res.json({ role, label_pt: def.label_pt, label_en: def.label_en, fallback: def.fallback, holder });
+  }));
+  router.put('/api/adminpanel/roles/:role', h(async (req, res) => {
+    const role = String(req.params.role || '');
+    if (!roles.ROLES[role]) return res.status(404).json({ error: 'unknown_role' });
+    const pid = req.body && req.body.person_id;
+    const before = await roles.getRoleHolder(db, role);
+    let holder;
+    try {
+      holder = await roles.setRoleHolder(db, role, pid == null || pid === '' ? null : pid,
+        { by: (req.admin && req.admin.name) || 'admin' });
+    } catch (e) {
+      if (e.code === 'person_not_found') return res.status(400).json({ error: 'person_not_found', detail: 'Só operador ativo pode ocupar o cargo.' });
+      throw e;
+    }
+    await audit('role.set', 'role', null, { role, before: before && before.person_id, after: holder && holder.person_id, name: holder && holder.name }, req);
+    res.json({ role, holder });
+  }));
+
+  // Pessoas ATIVAS com conta no Slack (todos os cargos) — pros botões de menção
+  // do "Falar como Carolyn" (antes era lista fixa no frontend; Simone ficou lá
+  // depois de sair). Sem PIN/segredo: só id, nome, role e slack id.
+  router.get('/api/adminpanel/persons/slack', h(async (req, res) => {
+    const r = await db.query(
+      `SELECT id, display_name AS name, role, slack_user_id
+         FROM v3.persons
+        WHERE active = true AND deleted_at IS NULL AND COALESCE(is_sandbox, false) = false
+          AND slack_user_id IS NOT NULL AND slack_user_id <> ''
+        ORDER BY CASE role WHEN 'operator' THEN 0 WHEN 'manager' THEN 1 ELSE 2 END, display_name`);
+    res.json({ persons: r.rows });
   }));
 
   router.post('/api/adminpanel/operators/:id/force-logout', h(async (req, res) => {
