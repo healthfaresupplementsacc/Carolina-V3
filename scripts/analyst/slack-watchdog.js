@@ -72,7 +72,7 @@ function checarLogin() {
   if (Date.now() - ultimoCheckLogin < 5 * 60 * 1000) return;
   ultimoCheckLogin = Date.now();
   execFile(process.execPath, [path.join(__dirname, 'slack-autologin.js'), '--check'], { timeout: 60000 }, (err) => {
-    if (!err) { try { if (fs.existsSync(HUMANO)) { fs.unlinkSync(HUMANO); console.log('[watchdog] login de volta (humano resolveu); flag apagada'); } } catch (_) {} return; }
+    if (!err) { try { fs.writeFileSync(path.join(DIR, 'login-state.txt'), new Date().toISOString() + ' OK'); if (fs.existsSync(HUMANO)) { fs.unlinkSync(HUMANO); console.log('[watchdog] login de volta (humano resolveu); flag apagada'); } } catch (_) {} return; }
     if (fs.existsSync(HUMANO)) { console.log('[watchdog] sessao caida, mas esperando HUMANO (login-needs-human.txt); nao tento'); return; }
     if (Date.now() - ultimaFalhaLogin < 30 * 60 * 1000) { console.log('[watchdog] sessao caida; backoff de 30min depois da ultima falha'); return; }
     console.log('[watchdog] sessao do Slack caiu -> autologin');

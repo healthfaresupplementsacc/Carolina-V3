@@ -119,79 +119,104 @@ async function enter(c) {
   }
 }
 
+// FLUXO REAL, gravado passo a passo em 09-09 (dirigido com screenshot em cada
+// tela via cdp-do.js). O que enganava a versao cega:
+//   - o campo de email do Google e <input type=text id=identifierId>, NAO type=email;
+//   - a pagina do Google tem "/signin" no path e um input de texto, entao a
+//     heuristica "tela de workspace" digitava o workspace no campo do email;
+//   - com duas abas (Slack + Google) o attach caia na aba errada; agora e UMA
+//     aba: clica Google e o Google abre NA MESMA aba;
+//   - aba/dsh velho do Google devolve "Something went wrong" -> sempre recomeca
+//     do zero na URL do workspace;
+//   - depois da senha vem o consentimento "You're signing back in to Slack"
+//     (botao Continue) e depois /ssb/redirect ("Launching...") -> navegar pro
+//     client resolve.
+// Sequencia: workspace URL -> Google -> #identifierId + Next -> Passwd + Next
+//            -> Continue -> app.slack.com/client/TEAM -> message_input.
+async function fluxo(c, cfg) {
+  const TEAM = cfg.team_id || 'T020AHKP5D5';
+  const CLIENT = 'https://app.slack.com/client/' + TEAM;
+  const url = () => c.ev('location.href').catch(() => '');
+  const texto = () => c.ev("(document.body&&document.body.innerText||'').replace(/\\s+/g,' ').slice(0,400)").catch(() => '');
+  const visivel = (sel) => c.ev(`!!(function(){var i=document.querySelector(${JSON.stringify(sel)});return i&&i.getBoundingClientRect().width>0})()`).catch(() => false);
+  const espera = async (pred, ms) => { for (let t = 0; t < ms; t += 1000) { if (await pred()) return true; await sleep(1000); } return false; };
+
+  // 0) sessao ainda vale? (cookie vivo, so precisava do client)
+  await c.raw('Page.navigate', { url: CLIENT }); await sleep(8000);
+  if (await logado(c)) return 'ja logado (client)';
+
+  // 1) pagina de login do workspace (SEMPRE fresca)
+  const wsUrl = /^https:\/\/[^\s]+\.slack\.com\//.test(String(cfg.workspace_url || '')) ? cfg.workspace_url : 'https://' + cfg.workspace + '.slack.com/';
+  await c.raw('Page.navigate', { url: wsUrl }); await sleep(7000);
+  if (await logado(c)) return 'ja logado (workspace)';
+  // se caiu na tela "Find your workspace", digita e segue
+  if (await tratarWorkspaceSignin(c, cfg)) { await sleep(3000); }
+
+  // 2) Google (abre na mesma aba)
+  if (!await clicar(c, 'Google')) throw new Error('botao Google nao apareceu em ' + (await url()).slice(0, 80) + ' :: ' + (await texto()).slice(0, 120));
+  log('clicou em Google');
+  await espera(async () => /accounts\.google\.com/.test(await url()) || await logado(c), 20000);
+  if (await logado(c)) return 'logado direto (google lembrou)';
+
+  // 3) conta lembrada? (lista de contas) ou pede email
+  if (await visivel('#identifierId')) {
+    await digitar(c, '#identifierId', cfg.google_email);
+    log('email digitado');
+    if (!await clicar(c, 'Next')) await enter(c);
+  } else if (await clicar(c, cfg.google_email)) {
+    log('escolheu a conta na lista');
+  }
+  await espera(async () => await visivel('input[name=Passwd]') || /oauth\/id|slack\.com/.test(await url()) || /characters you see|text you hear|verify it.s you|verification code|2-step/i.test(await texto()), 20000);
+
+  // 4) senha
+  if (await visivel('input[name=Passwd]')) {
+    await digitar(c, 'input[name=Passwd]', cfg.google_password);
+    log('senha digitada');
+    if (!await clicar(c, 'Next')) await enter(c);
+    await espera(async () => /oauth\/id|slack\.com/.test(await url()) || /characters you see|text you hear|verify it.s you|verification code|2-step|wrong password/i.test(await texto()), 25000);
+  }
+
+  // 5) consentimento "You're signing back in to Slack"
+  if (/oauth\/id/.test(await url()) || /signing back in to Slack/i.test(await texto())) {
+    if (await clicar(c, 'Continue')) log('consentimento: Continue');
+    await espera(async () => /slack\.com/.test(await url()), 20000);
+  }
+
+  // 6) /ssb/redirect ("Launching...") -> client
+  await sleep(3000);
+  await c.raw('Page.navigate', { url: CLIENT }); await sleep(10000);
+  if (await logado(c)) return 'LOGIN OK';
+  // as vezes o client demora a montar
+  if (await espera(() => logado(c), 20000)) return 'LOGIN OK';
+  const dica = (await url()).slice(0, 120) + ' :: ' + (await texto()).slice(0, 300);
+  throw new Error('nao logou; parado em: ' + dica);
+}
+
 (async () => {
   const cfg = creds();
   const soChecar = process.argv.includes('--check');
-  let c = await attach(await tab(/slack\.com/));
+  let c = await attach(await tab(/slack\.com|accounts\.google/));
   if (await logado(c)) { log('ja logado'); c.close(); process.exit(0); }
   if (soChecar) { log('NAO LOGADO'); c.close(); process.exit(1); }
 
   log('sessao caiu, logando...');
-  const workspaceUrl = String(cfg.workspace_url || '').trim();
-  await c.raw('Page.navigate', { url: /^https:\/\/[^\s]+\.slack\.com\//.test(workspaceUrl) ? workspaceUrl : 'https://slack.com/workspace-signin' });
-  await sleep(9000);
-  if (!workspaceUrl && await digitar(c, 'input[type=text]', cfg.workspace)) {
-    log('workspace digitado: ' + cfg.workspace);
-    // O formulário atual do Slack nem sempre submete com Enter injetado pelo
-    // CDP. Preferir o clique real no botão e manter Enter como contingência.
-    await sleep(1000);
-    if (!await clicar(c, 'Continue')) await enter(c);
-    await sleep(12000);
-  }
-  c.close(); c = await attach(await tab(/slack\.com|accounts\.google/));
-  if (await logado(c)) { log('LOGADO (sessao do google reaproveitada)'); c.close(); process.exit(0); }
-
-  if (await clicar(c, 'Google')) { log('clicou em Google'); await sleep(12000); }
-  c.close(); c = await attach(await tab(/accounts\.google|slack\.com/));
-  if (await tratarWorkspaceSignin(c, cfg)) { c.close(); c = await attach(await tab(/accounts\.google|slack\.com/)); }
-  if (await clicar(c, cfg.google_email)) { log('escolheu a conta ' + cfg.google_email); await sleep(12000); }
-  c.close(); c = await attach(await tab(/accounts\.google|slack\.com/));
-
-  // 09-09: depois do reboot o Google nao lembrava a conta e abria a pagina
-  // "Sign in" pedindo o EMAIL (input[type=email]) — nao existia clique de
-  // conta pra dar, e o script desistia. Agora digita o email e segue.
-  const temEmail = await c.ev("!!(function(){var i=document.querySelector('input[type=email]');return i&&i.getBoundingClientRect().width>0})()");
-  if (temEmail) {
-    log('pedindo email, preenchendo ' + cfg.google_email);
-    await digitar(c, 'input[type=email]', cfg.google_email);
-    await sleep(800);
-    if (!await clicar(c, 'Next')) if (!await clicar(c, 'Próxima')) await enter(c);
-    await sleep(12000);
-    c.close(); c = await attach(await tab(/accounts\.google|slack\.com/));
-  }
-
-  // se pedir senha
-  const temSenha = await c.ev("!!document.querySelector('input[type=password]')");
-  if (temSenha) {
-    log('pedindo senha, preenchendo');
-    await digitar(c, 'input[type=password]', cfg.google_password);
-    await sleep(800);
-    if (!await clicar(c, 'Next')) await enter(c);
-    await sleep(15000);
-    c.close(); c = await attach(await tab(/slack\.com|accounts\.google/));
-  }
-
-  for (let i = 0; i < 10; i++) {
-    if (await logado(c)) { log('LOGIN OK'); c.close(); process.exit(0); }
-    if (await tratarWorkspaceSignin(c, cfg)) { c.close(); c = await attach(await tab(/accounts\.google|slack\.com/)); continue; }
-    if (await clicar(c, 'Google')) { log('clicou em Google (de novo)'); await sleep(12000); c.close(); c = await attach(await tab(/accounts\.google|slack\.com/)); continue; }
-    if (await clicar(c, cfg.google_email)) { log('escolheu a conta (de novo)'); await sleep(12000); c.close(); c = await attach(await tab(/accounts\.google|slack\.com/)); continue; }
-    await sleep(5000);
-    c.close(); c = await attach(await tab(/slack\.com/));
-  }
-  // diagnostico: o que a pagina esta pedindo (2FA? captcha? senha errada?)
   try {
-    const dica = await c.ev("(function(){var t=(document.body&&document.body.innerText||'').replace(/\\s+/g,' ').slice(0,300);return location.href.slice(0,120)+' :: '+t})()");
+    const r = await fluxo(c, cfg);
+    log(r); c.close(); process.exit(0);
+  } catch (e) {
+    const dica = e.message || String(e);
     log('parado em: ' + dica);
     // CAPTCHA / verificacao do Google: robo nao passa. Marca pra humano e o
     // watchdog para de tentar (tentativa repetida e o que ESCALA pro captcha).
     if (/characters you see|text you hear|captcha|verify it.s you|unusual activity|2-step|verification code/i.test(dica)) {
       fs.writeFileSync(path.join(DIR, 'login-needs-human.txt'), new Date().toISOString() + ' ' + dica.slice(0, 400));
       log('PRECISA DE HUMANO (captcha/verificacao do Google). Gravei _watch/login-needs-human.txt e parei de tentar.');
-      c.close(); process.exit(3);
+      try { c.close(); } catch (_) {}
+      process.exit(3);
     }
-  } catch (_) {}
-  log('NAO CONSEGUI LOGAR (pode ser 2FA ou captcha; avisar o Bruno)');
-  try { const s = await c.raw('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(DIR, 'autologin-fail.png'), Buffer.from(s.result.data, 'base64')); } catch (_) {}
-  c.close(); process.exit(1);
+    log('NAO CONSEGUI LOGAR (ver autologin-fail.png)');
+    try { const sh = await c.raw('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(DIR, 'autologin-fail.png'), Buffer.from(sh.result.data, 'base64')); } catch (_) {}
+    try { c.close(); } catch (_) {}
+    process.exit(1);
+  }
 })().catch((e) => { console.error('[autologin] ERRO: ' + e.message); process.exit(1); });
