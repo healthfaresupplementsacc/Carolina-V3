@@ -115,48 +115,7 @@
    E7-bloco 27/mai — gaps clicáveis (timeline + expand) + copy
    ============================================================ */
 
-/* Gap zone na timeline principal — botão tracejado sutil entre eventos
-   foreground com gap >= 15min. Click abre o detalhe. */
-.tl-gap-zone {
-  position: absolute;
-  top: 28px; bottom: 8px;          /* alinhado com .tl-block */
-  border: 1.5px dashed var(--border);
-  border-radius: 8px;
-  background: repeating-linear-gradient(
-    45deg,
-    transparent 0 4px,
-    rgba(120, 120, 120, 0.06) 4px 8px);
-  color: var(--text-3);
-  cursor: pointer;
-  font-size: 10px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  z-index: 2;       /* fica abaixo do .tl-block (z=3) — não cobre eventos */
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-}
-.tl-gap-zone:hover {
-  border-color: var(--hf-leaf-500, #22b35d);
-  background: repeating-linear-gradient(
-    45deg,
-    rgba(34, 179, 93, 0.04) 0 4px,
-    rgba(34, 179, 93, 0.12) 4px 8px);
-  color: var(--hf-leaf-700, #18934c);
-}
-.tl-gap-zone-label {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10.5px;
-  opacity: 0.85;
-  pointer-events: none;
-}
-.tl-gap-zone:hover .tl-gap-zone-label::before {
-  content: '+ ';
-}
+/* (09-10) .tl-gap-zone agora vive em timeline.css (redesenho); o bloco antigo saiu daqui. */
 
 /* Botão copy ao lado de cada gap row no expand */
 .exp-row-gap {

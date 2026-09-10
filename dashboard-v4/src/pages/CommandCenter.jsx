@@ -17,7 +17,7 @@ import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { ReviewPanel } from '../components/ReviewPanel.jsx';
 import { WidgetGrid, compact } from '../components/WidgetGrid.jsx';
 import { V4_ALLOW_WRITES } from '../flags.js';
-import { apiGet, usePoll } from '../adapters/from-api.js';
+import { apiGet, usePoll, nyToday } from '../adapters/from-api.js';
 import { useRoleHolder, holderShort } from '../adapters/roles-api.js';
 import { useAccountPref, prefStatusText } from '../hooks/useAccountPref.js';
 import nyTime from '../utils/ny-time.cjs';
@@ -295,7 +295,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const { fmtClock, fmtDur } = window.HFH;
 
   // PONTO (relógio) — busca uma vez, alimenta a faixa E os ícones da timeline (Bruno 07-23)
-  const attPoll = usePoll('/attendance', [], 30000);
+  // 09-10: o ponto do DIA VISTO (antes era sempre o de hoje, e num dia passado a timeline
+  // desenhava as batidas de hoje e chamava a pessoa de 'idle').
+  const attPoll = usePoll('/attendance?date=' + date, [date], 30000);
+  const isToday = date === nyToday();
   // Veeqo do dia (Bruno 08-06): mostrar no card P&P o digitado vs Veeqo + diferença
   const vqToday = usePoll('/veeqo-today', [], 180000);
   const packingRole = useRoleHolder('packing_operator');   // responsável pelo P&P (cargo, não nome — 09-09)
@@ -1344,6 +1347,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             onSplitRequest={onSplit ? splitRequest : null}
             onOpenBatch={openBatch}
             onOpenFullForm={openFullForm}
+            isToday={isToday}
           />
         )}
       </div>

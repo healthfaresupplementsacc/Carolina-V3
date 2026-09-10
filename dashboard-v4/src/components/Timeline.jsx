@@ -69,6 +69,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     onOpenFullForm,     // (draft) => void  ("Mais opções…" → painel completo)
                     onDedupe,           // (keepId, removeIds) => void
                     onSplitRequest,     // (id, minute) => void
+                    isToday = true,     // dia passado: sem AGORA, sem 'ao vivo', sem 'sem registro há'
 }) {
   const { DAY_START, DAY_END: DAY_END_BASE, activities, products } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
@@ -89,6 +90,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const trackW = ((DAY_END - DAY_START) / 60) * hourPx;
   const X = (m) => ((Math.max(DAY_START, Math.min(DAY_END, m)) - DAY_START) / 60) * hourPx;
   const nowMin = Math.floor(now);
+  const showNow = isToday && now >= DAY_START && now <= DAY_END;
   const NAME_W = 224;
 
   // ── UI flutuante local: menu do vazio, mini-forms, barra do bloco, registro rápido ──
@@ -208,7 +210,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
             <div className="tl-axis-name"><Icon name="clock" size={13}/>{operators.length} pessoas</div>
             <div className="tl-axis-hours" style={{ width: trackW }}>
               {hoursMarks.map((h) => (<div key={h} className="tl-axis-tick" style={{ left: X(h) }}>{fmt(h).replace(':00 ', ' ')}</div>))}
-              {now >= DAY_START && now <= DAY_END && <div className="tl-now-tag" style={{ left: nowX }}>AGORA · {fmt(now)}</div>}
+              {showNow && <div className="tl-now-tag" style={{ left: nowX }}>AGORA · {fmt(now)}</div>}
             </div>
           </div>
 
@@ -241,7 +243,10 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
             const hasLunchEv = lay.neutral.some((e) => e.activity === 'lunch' && lo != null && li != null && e.started_min < li && effEndOf(e) > lo);
             let lastOutRight = -1e9;
 
-            const status = clockedOut
+            const totalsMeta = <div className="meta" style={{ color: 'var(--text-3)' }}>{lay.real.filter((e) => !L.isNeutral(e)).length} reg. · {L.fmtDurShort(total)}{clockedOut ? ' · saiu ' + fmt(checkoutMin) : ''}</div>;
+            const status = !isToday
+              ? totalsMeta
+              : clockedOut
               ? <div className="meta" style={{ color: 'var(--text-3)' }}>saiu {fmt(checkoutMin)}</div>
               : liveEv
                 ? <div className="meta" style={{ color: 'var(--hf-leaf-600)' }}>● {L.shortName(liveEv.activity, activities[liveEv.activity]?.name)} · {fmtCron(now - liveEv.started_min)}</div>
@@ -264,7 +269,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const h = laneCount > 1 ? (M.LANE_H - 2) / laneCount : M.LANE_H;
               const top = M.laneTop + (laneCount > 1 ? laneIdx * (h + 2) : 0);
               const productName = e.product ? products[e.product]?.name : null;
-              const durTxt = isLiveEv ? '● ' + L.fmtDurShort(now - e.started_min) : L.fmtDurShort(end - start);
+              const durTxt = isLiveEv ? (isToday ? '● ' + L.fmtDurShort(now - e.started_min) : 'sem fim') : L.fmtDurShort(end - start);
               const isSelected = selectedId === e.id || (bar && bar.ev.id === e.id);
               const isMergeTarget = drag && drag.hoveredEventId === e.id;
               const isInvalid = invalidIds && invalidIds.has(e.id);
@@ -332,7 +337,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                   {/* batidas = triângulos no topo, texto no hover */}
                   {markers.map((m, mi) => { const min = isoToDayMin(m.at); if (min == null) return null; const bad = m.type === 'unjustified' || m.incomplete; return (<div key={'mk' + mi} className={`tl-punch ${m.kind === 'checkin' || m.kind === 'lunch_in' || m.kind === 'break_in' ? 'in' : ''} ${bad ? 'bad' : ''}`} style={{ left: X(min) }} data-tip={`${PUNCH_TIP[m.kind] || m.label} ${fmt(min)}${m.incomplete ? ' · sem volta registrada' : ''}`}/>); })}
                   {lo != null && li != null && !hasLunchEv && <div className="tl-band" style={{ left: X(lo), width: Math.max(4, X(li) - X(lo)) }}>almoço {L.fmtDurShort(li - lo)}</div>}
-                  {now >= DAY_START && now <= DAY_END && <div className="tl-now" style={{ left: nowX }}/>}
+                  {showNow && <div className="tl-now" style={{ left: nowX }}/>}
 
                   {/* ABAS: máquina / lote acompanhado */}
                   {lay.rails.map((e) => {
@@ -425,7 +430,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
             {prev && prevOpen && <Item ic="✓" txt={`Finalizou ${pn(prev)} às ${fmt(m)}?`} sub={`aberto desde ${fmt(prev.started_min)}`} onClick={(e) => openMini('finish', { op, ev: prev, at: m }, { x: e.clientX, y: e.clientY })}/>}
             {prev && !prevOpen && prevEnd > m && <Item ic="✓" txt={`Terminou às ${fmt(m)}, não ${fmt(prev.ended_min)}?`} sub={`${pn(prev)} · encurta o registro`} onClick={(e) => openMini('finish', { op, ev: prev, at: m }, { x: e.clientX, y: e.clientY })}/>}
             {prev && <Item ic="⏱" txt={`Ajustar horário de ${pn(prev)}`} sub={`${fmt(prev.started_min)} → ${prevOpen ? 'agora' : fmt(prev.ended_min)}`} onClick={(e) => openMini('adjust', { op, ev: prev }, { x: e.clientX, y: e.clientY })}/>}
-            {prev && next && !prevOpen && next.started_min - prevEnd >= 15 && <Item ic="⇥" txt={`Estender ${pn(prev)} até ${fmt(next.started_min)}`} sub={`preenche ${L.fmtDurShort(next.started_min - prevEnd)} sem registro`} onClick={() => { closeAll(); onQuickPatch && onQuickPatch(prev.id, { ended_min: next.started_min }); }}/>}
+            {prev && next && !prevOpen && !L.isNeutral(prev) && next.started_min - prevEnd >= 15 && <Item ic="⇥" txt={`Estender ${pn(prev)} até ${fmt(next.started_min)}`} sub={`preenche ${L.fmtDurShort(next.started_min - prevEnd)} sem registro`} onClick={() => { closeAll(); onQuickPatch && onQuickPatch(prev.id, { ended_min: next.started_min }); }}/>}
           </div>
         );
       })()}
