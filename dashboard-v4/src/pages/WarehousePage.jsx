@@ -127,12 +127,16 @@ const ATTENTION_LABEL = {
 /* Valores crus do banco viram palavras que o armazém usa. Se aparecer um valor
    novo, mostra ele mesmo em vez de sumir: melhor uma palavra estranha do que
    uma célula vazia. */
-const MOV_LABEL = {
-  entrada: 'entrada', pick: 'saiu em pedido', take: 'pegou do estoque',
-  restock: 'repôs prateleira', place: 'organizou', move: 'moveu',
-  adjust: 'ajuste', count: 'contagem', separate: 'separou',
+export const MOV_LABEL = {
+  entrada: 'entrada', store_in: 'entrada', pick: 'saiu em pedido', take: 'saída',
+  transfer: 'transferência', restock: 'repôs prateleira', place: 'organizou', move: 'moveu',
+  adjust: 'ajuste', count: 'contagem', separate: 'separou', damaged: 'separou',
   return_in: 'devolução', import: 'importado da Veeqo', issue_release: 'voltou de Separadas',
 };
+/* Motivos (v3.stock_reasons) carregados uma vez por página; o modal e o histórico
+   usam a mesma lista. */
+const REASONS_CACHE = { list: [] };
+const REVERSIBLE_KINDS = new Set(['store_in', 'import', 'place', 'adjust', 'count', 'take', 'transfer']);
 const ISSUE_REASON = { label: 'rótulo ruim', seal: 'sem lacre', other: 'outro', return: 'devolução' };
 const ISSUE_STATUS = { separated: 'separada', restocked: 'voltou ao estoque', relabeled: 'rótulo refeito', discarded: 'descartada' };
 const REQ_STATUS = { pending: 'pendente', approved: 'aprovado', rejected: 'recusado', applied: 'aplicado' };
@@ -245,48 +249,75 @@ function Field({ label, children }) {
 }
 
 // ═══ modais de ação ═══════════════════════════════════════════════
-function ActionModal({ action, row, onClose, onDone, onError }) {
+function ActionModal({ action: rawAction, row, onClose, onDone, onError }) {
+  /* Fase B (Bruno 09-10): os verbos de uma FÁBRICA. 'entrada' e 'ajustar' são os
+     nomes antigos que outros pontos da página ainda chamam; aqui viram Receber e
+     Contar. Ajustar (delta com sinal) não existe mais: contar é "esperado X,
+     contado Y, motivo". */
+  const action = rawAction === 'entrada' ? 'receber' : (rawAction === 'ajustar' ? 'contar' : rawAction);
   const [qty, setQty] = React.useState('');
   const [dest, setDest] = React.useState('unplaced');
   const [from, setFrom] = React.useState('');
   const [to, setTo] = React.useState('');
   const [reason, setReason] = React.useState(action === 'separar' ? 'label' : '');
   const [orderNumber, setOrderNumber] = React.useState('');
+  const [shipmentRef, setShipmentRef] = React.useState('');
+  const [destination, setDestination] = React.useState('fba');
+  const [batch, setBatch] = React.useState('');
   const [note, setNote] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [reasons, setReasons] = React.useState(REASONS_CACHE.list);
+  const [batches, setBatches] = React.useState([]);
+
+  React.useEffect(() => {
+    let alive = true;
+    if (!REASONS_CACHE.list.length) {
+      wh.getReasons().then((r) => { const l = (r && r.data && r.data.reasons) || []; REASONS_CACHE.list = l; if (alive) setReasons(l); }).catch(() => {});
+    }
+    if (action === 'receber') {
+      wh.getBatches(row.product_id).then((r) => { if (alive) setBatches((r && r.data && r.data.batches) || []); }).catch(() => {});
+    }
+    return () => { alive = false; };
+  }, [action, row.product_id]);
 
   const q = Number(qty) || 0;
   const bins = row.bins || [];
   const boxes = row.boxes || [];
   const locOptions = [
-    ...bins.map((b) => ({ v: 'bin:' + b.id, t: 'Prateleira ' + [b.shelf_code, b.bin_code].filter(Boolean).join(' ') })),
-    ...boxes.map((b) => ({ v: 'box:' + b.id, t: 'Caixa ' + b.box_number })),
+    ...bins.map((b) => ({ v: 'bin:' + b.id, t: 'Prateleira ' + [b.shelf_code, b.bin_code].filter(Boolean).join(' ') + ' · tem ' + fmt(b.qty), qty: n(b.qty) })),
+    ...boxes.map((b) => ({ v: 'box:' + b.id, t: 'Caixa ' + b.box_number + ' · tem ' + fmt(b.qty), qty: n(b.qty) })),
   ];
   const parseLoc = (v) => {
     if (!v) return {};
     const [k, id] = v.split(':');
     return k === 'bin' ? { bin_id: Number(id) } : { box_id: Number(id) };
   };
+  const locQty = (v) => { const o = locOptions.find((x) => x.v === v); return o ? o.qty : 0; };
+  const reasonsFor = (dirs, exclude = []) => reasons.filter((r) => dirs.includes(r.direction) && !exclude.includes(r.code));
+  const inReasons = reasonsFor(['in']).concat(reasons.filter((r) => r.code === 'erro_registro'));
+  const outReasons = reasonsFor(['out'], ['venda', 'transferencia']);
+  const countReasons = reasonsFor(['count']);
 
   // preview dos números novos
   const cur = { total: n(row.total), shelf: n(row.shelf_qty), box: n(row.box_qty), unplaced: n(row.unplaced_qty), available: n(row.available) };
   const next = { ...cur };
-  if (action === 'entrada') {
+  const applyLocDelta = (v, d) => { if (v.startsWith('bin:')) next.shelf = cur.shelf + d; else if (v.startsWith('box:')) next.box = cur.box + d; else next.unplaced = cur.unplaced + d; };
+  if (action === 'receber') {
     next.total = cur.total + q; next.available = cur.available + q;
-    if (dest === 'unplaced') next.unplaced = cur.unplaced + q;
-    else if (dest.startsWith('bin:')) next.shelf = cur.shelf + q;
-    else next.box = cur.box + q;
+    applyLocDelta(dest === 'unplaced' ? '' : dest, q);
+  } else if (action === 'contar') {
+    const d = from ? (q - locQty(from)) : 0;
+    next.total = cur.total + d; next.available = cur.available + d;
+    if (from) applyLocDelta(from, d);
+  } else if (action === 'saida' || action === 'transferir') {
+    next.total = cur.total - q; next.available = cur.available - q;
+    if (from) applyLocDelta(from, -q);
   } else if (action === 'organizar') {
     next.unplaced = cur.unplaced - q;
     if (to.startsWith('bin:')) next.shelf = cur.shelf + q; else if (to.startsWith('box:')) next.box = cur.box + q;
   } else if (action === 'mover') {
     if (from.startsWith('bin:')) next.shelf = cur.shelf - q; else if (from.startsWith('box:')) next.box = cur.box - q;
     if (to.startsWith('bin:')) next.shelf = cur.shelf + q; else if (to.startsWith('box:')) next.box = cur.box + q;
-  } else if (action === 'ajustar') {
-    const d = Number(qty) || 0;
-    next.total = cur.total + d; next.available = cur.available + d;
-    if (from.startsWith('bin:')) next.shelf = cur.shelf + d; else if (from.startsWith('box:')) next.box = cur.box + d;
-    else next.unplaced = cur.unplaced + d;
   } else if (action === 'separar' || action === 'devolucao') {
     if (action === 'separar' && reason !== 'return') {
       next.total = cur.total - q; next.available = cur.available - q;
@@ -295,48 +326,71 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
   }
 
   const TITLES = {
-    entrada: 'Entrada de garrafas', organizar: 'Organizar',
-    mover: 'Mover entre locais', ajustar: 'Ajustar quantidade',
-    separar: 'Separar garrafas', devolucao: 'Devolução',
+    receber: 'Receber garrafas', contar: 'Contar um local', saida: 'Saída sem venda', transferir: 'Transferir pra fora',
+    organizar: 'Organizar', mover: 'Mover entre locais', separar: 'Separar garrafas', devolucao: 'Devolução',
   };
-  /* Confirmação: o que aconteceu, e onde o número foi parar. */
   const DONE = {
-    entrada: 'Entrada registrada. As garrafas já estão no total.',
+    receber: 'Recebido. As garrafas já estão no total, com a origem no livro.',
+    contar: 'Contagem registrada. O local ficou com o que você contou; a diferença está no livro com o motivo.',
+    saida: 'Saída registrada com o motivo. Dá pra desfazer por 24 h no histórico.',
+    transferir: 'Transferência registrada com a remessa. Dá pra desfazer por 24 h no histórico.',
     organizar: 'Organizado. Saiu de A organizar e entrou no local.',
     mover: 'Movido. O total continua o mesmo.',
-    ajustar: 'Total ajustado. O movimento ficou registrado com o motivo.',
     separar: 'Separado. Saiu do vendável e foi pra Separadas.',
     devolucao: 'Devolução registrada. Entrou em Separadas.',
   };
-  /* O que cada modal FAZ, numa linha, antes dos campos: quem abre "Ajustar"
-     precisa saber que aquilo muda o total de verdade. */
   const HELP = {
-    entrada: 'Garrafas novas entrando no armazém. Escolha se já vão pra um local ou ficam em A organizar.',
+    receber: 'Garrafas entrando no armazém. Diga de onde vieram (produção e lote, devolução usável, voltou de transferência) e onde ficam.',
+    contar: 'Você contou um local. Digite o que ESTÁ lá agora (não soma) e o motivo se a diferença tiver explicação.',
+    saida: 'Garrafas saindo SEM venda: amostra, uso interno, extra num pedido já etiquetado, descarte. Fica no livro com o motivo.',
+    transferir: 'Garrafas indo pra fora do armazém: FBA, WFS, DC ou outro. A remessa é a referência.',
     organizar: 'Tira de A organizar e coloca numa prateleira ou caixa. O total não muda.',
     mover: 'Muda de lugar dentro do armazém. O total não muda.',
-    ajustar: 'Corrige o total na mão. Use só quando a contagem física não bater.',
     separar: 'Tira do vendável e manda pra Separadas. Continua aqui, mas não conta no total.',
-    devolucao: 'Garrafa que voltou de um cliente. Entra em Separadas até alguém conferir.',
+    devolucao: 'Garrafa que voltou de um cliente e NÃO está boa. Entra em Separadas até alguém conferir. (Devolução boa: use Receber.)',
+  };
+
+  const needs = () => {
+    if (action === 'receber' && !reason) return 'Diga de onde vieram as garrafas.';
+    if (action === 'receber' && reason === 'producao' && !batch && batches.length) return 'Escolha o lote.';
+    if (action === 'contar' && !from) return 'Escolha o local que você contou.';
+    if (action === 'saida' && !reason) return 'Diga o motivo da saída.';
+    if (action === 'saida' && reason === 'extra_no_pedido' && !orderNumber.trim()) return 'Qual pedido levou o extra?';
+    if ((action === 'organizar' || action === 'mover') && !to) return 'Escolha o destino.';
+    if (action === 'mover' && !from) return 'Escolha a origem.';
+    return null;
   };
 
   async function confirm(force = false) {
+    const miss = needs();
+    if (miss) { onError(new Error(miss)); return; }
     setBusy(true);
     try {
       let res;
-      if (action === 'entrada') {
-        const body = { qty: q, note: note || undefined, confirm: force || undefined };
+      if (action === 'receber') {
+        const body = { qty: q, note: note || undefined, confirm: force || undefined, reason_code: reason || undefined };
+        if (reason === 'producao' && batch) body.batch_number = batch;
+        if (reason === 'devolucao_usavel' && orderNumber) body.order_number = orderNumber.trim();
+        if (reason === 'transferencia_volta' && shipmentRef) { body.ref_type = 'shipment'; body.ref_id = shipmentRef.trim(); }
         if (dest.startsWith('bin:')) body.bin_id = Number(dest.split(':')[1]);
         else if (dest.startsWith('box:')) {
           const b = boxes.find((x) => x.id === Number(dest.split(':')[1]));
           if (b) body.box_number = b.box_number;
         }
         res = await wh.postEntrada(row.product_id, body);
+      } else if (action === 'contar') {
+        res = await wh.postCount(row.product_id, { ...parseLoc(from), found: Math.max(0, Math.floor(q)),
+          reason_code: reason || undefined, note: note || undefined, client_ref: newRef(), confirm: force || undefined });
+      } else if (action === 'saida') {
+        res = await wh.postTake(row.product_id, { qty: q, reason_code: reason, ...parseLoc(from),
+          order_number: orderNumber.trim() || undefined, note: note || undefined, client_ref: newRef() });
+      } else if (action === 'transferir') {
+        res = await wh.postTransfer(row.product_id, { qty: q, destination, shipment_ref: shipmentRef.trim() || undefined,
+          ...parseLoc(from), note: note || undefined, client_ref: newRef() });
       } else if (action === 'organizar') {
         res = await wh.postPlace(row.product_id, { qty: q, ...parseLoc(to) });
       } else if (action === 'mover') {
         res = await wh.postMove(row.product_id, { qty: q, from: parseLoc(from), to: parseLoc(to) });
-      } else if (action === 'ajustar') {
-        res = await wh.postAdjust(row.product_id, { qty: Number(qty), reason, ...parseLoc(from) });
       } else if (action === 'separar') {
         res = await wh.postSeparate(row.product_id, {
           qty: q, reason: reason || 'other', ...parseLoc(from),
@@ -355,17 +409,35 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
     } finally { setBusy(false); }
   }
 
+  const qtyLabel = action === 'contar' ? 'Quantas garrafas TEM no local agora' : 'Quantidade de garrafas';
   const numInput = (
-    <Field label={action === 'ajustar' ? 'Quantidade com sinal (+ entra, - sai)' : 'Quantidade de garrafas'}>
-      <input className="kit-input mono" type="number" value={qty} autoFocus
+    <Field label={qtyLabel}>
+      <input className="kit-input mono" type="number" min="0" value={qty} autoFocus
              onChange={(e) => setQty(e.target.value)} placeholder="0" />
+    </Field>
+  );
+  const reasonSelect = (list, label) => (
+    <Field label={label}>
+      <select className="kit-input" value={reason} onChange={(e) => setReason(e.target.value)} data-field="motivo">
+        <option value="">escolher</option>
+        {list.map((r) => <option key={r.code} value={r.code}>{r.label_pt}</option>)}
+      </select>
+    </Field>
+  );
+  const locSelect = (label, value, setter, allowNone, noneLabel) => (
+    <Field label={label}>
+      <select className="kit-input" value={value} onChange={(e) => setter(e.target.value)}>
+        {allowNone && <option value="">{noneLabel || 'o sistema escolhe (prateleira com mais)'}</option>}
+        {!allowNone && <option value="">escolher local</option>}
+        {locOptions.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+      </select>
     </Field>
   );
 
   return (
     <TwoStepModal
       title={TITLES[action]} product={row} baseSku={row.base_sku} busy={busy}
-      danger={action === 'separar' || action === 'ajustar'}
+      danger={action === 'separar' || action === 'saida' || action === 'transferir' || action === 'contar'}
       onCancel={onClose} onConfirm={confirm}
       help={HELP[action]}
       confirmLabel={'Confirmar ' + TITLES[action].toLowerCase()}
@@ -379,10 +451,43 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
         </div>
       )}
     >
+      {action === 'contar' && locSelect('Qual local você contou', from, setFrom, false)}
+      {action === 'contar' && from && (
+        <div className="kit-mlabel" style={{ marginTop: -4, marginBottom: 8 }}>O sistema tem <b>{fmt(locQty(from))}</b> neste local.</div>
+      )}
+      {action === 'contar' && !locOptions.length && (
+        <div className="kit-card pad" style={{ marginBottom: 10, color: 'var(--ink-dim)', fontSize: 12.5 }}>
+          Este produto ainda não tem prateleira nem caixa. Conte pelo Modo simples (cria o local junto) ou faça Organizar.
+        </div>
+      )}
+
       {numInput}
 
-      {action === 'entrada' && (
-        <Field label="Onde entra">
+      {action === 'receber' && reasonSelect(inReasons, 'De onde vieram')}
+      {action === 'receber' && reason === 'producao' && (
+        <Field label="Lote da produção">
+          <select className="kit-input" value={batch} onChange={(e) => setBatch(e.target.value)} data-field="lote">
+            <option value="">{batches.length ? 'escolher o lote' : 'sem lote registrado (pode seguir)'}</option>
+            {batches.map((b) => (
+              <option key={b.id} value={b.batch_number}>
+                {b.batch_number} · produzidas {fmt(b.produced)}{b.received ? ' · já recebidas ' + fmt(b.received) : ''}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {action === 'receber' && reason === 'devolucao_usavel' && (
+        <Field label="Número do pedido">
+          <input className="kit-input mono" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="ex: 12-345" />
+        </Field>
+      )}
+      {action === 'receber' && reason === 'transferencia_volta' && (
+        <Field label="Remessa de onde voltou">
+          <input className="kit-input mono" value={shipmentRef} onChange={(e) => setShipmentRef(e.target.value)} placeholder="ex: FBA15ABC" />
+        </Field>
+      )}
+      {action === 'receber' && (
+        <Field label="Onde ficam">
           <select className="kit-input" value={dest} onChange={(e) => setDest(e.target.value)}>
             <option value="unplaced">A organizar (sem local ainda)</option>
             {locOptions.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
@@ -390,44 +495,38 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
         </Field>
       )}
 
-      {(action === 'organizar') && (
-        <Field label="Colocar em">
-          <select className="kit-input" value={to} onChange={(e) => setTo(e.target.value)}>
-            <option value="">escolher local</option>
-            {locOptions.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-          </select>
+      {action === 'contar' && reasonSelect(countReasons, 'Motivo da diferença (se houver)')}
+
+      {action === 'saida' && reasonSelect(outReasons, 'Motivo da saída')}
+      {action === 'saida' && reason === 'extra_no_pedido' && (
+        <Field label="Pedido que levou o extra">
+          <input className="kit-input mono" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="ex: 12-345" />
         </Field>
       )}
+      {action === 'saida' && locSelect('De qual local (opcional)', from, setFrom, true)}
+
+      {action === 'transferir' && (
+        <Field label="Para onde">
+          <div className="kit-seg">
+            {[['fba', 'FBA (Amazon)'], ['wfs', 'WFS (Walmart)'], ['dc', 'DC / distribuidor'], ['other', 'outro']].map(([k, t]) => (
+              <button key={k} type="button" className={destination === k ? 'on' : ''} onClick={() => setDestination(k)}>{t}</button>
+            ))}
+          </div>
+        </Field>
+      )}
+      {action === 'transferir' && (
+        <Field label="Remessa (opcional, mas é a referência)">
+          <input className="kit-input mono" value={shipmentRef} onChange={(e) => setShipmentRef(e.target.value)} placeholder="ex: FBA15ABC / número da remessa" />
+        </Field>
+      )}
+      {action === 'transferir' && locSelect('De qual local (opcional)', from, setFrom, true)}
+
+      {action === 'organizar' && locSelect('Colocar em', to, setTo, false)}
 
       {action === 'mover' && (
         <>
-          <Field label="De">
-            <select className="kit-input" value={from} onChange={(e) => setFrom(e.target.value)}>
-              <option value="">escolher origem</option>
-              {locOptions.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-            </select>
-          </Field>
-          <Field label="Para">
-            <select className="kit-input" value={to} onChange={(e) => setTo(e.target.value)}>
-              <option value="">escolher destino</option>
-              {locOptions.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-            </select>
-          </Field>
-        </>
-      )}
-
-      {action === 'ajustar' && (
-        <>
-          <Field label="Local (opcional)">
-            <select className="kit-input" value={from} onChange={(e) => setFrom(e.target.value)}>
-              <option value="">A organizar / sem local</option>
-              {locOptions.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
-            </select>
-          </Field>
-          <Field label="Motivo (obrigatório)">
-            <input className="kit-input" value={reason} onChange={(e) => setReason(e.target.value)}
-                   placeholder="ex: contagem física do dia" />
-          </Field>
+          {locSelect('De', from, setFrom, false)}
+          {locSelect('Para', to, setTo, false)}
         </>
       )}
 
@@ -457,11 +556,9 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
         </Field>
       )}
 
-      {action !== 'ajustar' && (
-        <Field label="Observação (opcional)">
-          <input className="kit-input" value={note} onChange={(e) => setNote(e.target.value)} />
-        </Field>
-      )}
+      <Field label="Observação (opcional)">
+        <input className="kit-input" value={note} onChange={(e) => setNote(e.target.value)} />
+      </Field>
     </TwoStepModal>
   );
 }
@@ -549,9 +646,7 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
                       <td>{writable && (
                         <span style={{ display: 'flex', gap: 6 }}>
                           <button className="kit-btn xs sec" onClick={() => onAction('mover', p)}>Repor</button>
-                          {/* abre Ajustar: corrigir o número depois de contar na
-                              prateleira. Contagem em si é do operador (hub /op). */}
-                          <button className="kit-btn xs sec" onClick={() => onAction('ajustar', p)}>Ajustar</button>
+                          <button className="kit-btn xs sec" onClick={() => onAction('contar', p)}>Contar</button>
                         </span>
                       )}</td>
                     </tr>
@@ -605,21 +700,33 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
 
           {tab === 'mov' && (
             <div className="kit-card pad">
-              <div className="kit-mlabel" style={{ marginBottom: 8 }}>Movimentos (mais novo primeiro)</div>
+              <div className="kit-mlabel" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                <span>Movimentos (mais novo primeiro)</span>
+                <a href="#estoque-movimentos" style={{ fontWeight: 500 }}>ver o livro inteiro</a>
+              </div>
               <table className="kit-table">
-                <thead><tr><th>Quando</th><th>Tipo</th><th className="num">Qtd</th><th>Local</th><th>Quem</th><th>Origem</th></tr></thead>
+                <thead><tr><th>Quando</th><th>Tipo</th><th className="num">Qtd</th><th>Motivo</th><th>Ref.</th><th>Local</th><th>Quem</th><th /></tr></thead>
                 <tbody>
-                  {((d && d.movements) || []).map((m) => (
-                    <tr key={m.id}>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{String(m.created_at || '').slice(0, 16).replace('T', ' ')}</td>
-                      <td><span className="kit-chip neutral">{word(MOV_LABEL, m.kind)}</span></td>
-                      <td className="num">{m.qty > 0 ? '+' : ''}{fmt(m.qty)}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{m.bin_code || m.box_number || '—'}</td>
-                      <td style={{ color: 'var(--ink-dim)' }}>{m.person || '—'}</td>
-                      <td style={{ color: 'var(--ink-faint)', fontSize: 12 }}>{m.source || '—'}</td>
-                    </tr>
-                  ))}
-                  {d && !((d.movements || []).length) && <tr><td colSpan={6} style={{ color: 'var(--ink-faint)' }}>Nenhum movimento registrado.</td></tr>}
+                  {((d && d.movements) || []).map((m) => {
+                    const undoable = writable && m.within_24h && !m.reversed && !m.reverses_movement_id
+                      && REVERSIBLE_KINDS.has(m.kind) && !['veeqo_ship', 'veeqo_import'].includes(m.source);
+                    return (
+                      <tr key={m.id} style={{ opacity: m.reversed ? 0.55 : 1 }}>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{String(m.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                        <td><span className="kit-chip neutral">{word(MOV_LABEL, m.kind)}</span>{m.reverses_movement_id ? <span className="kit-chip info" style={{ marginLeft: 4 }}>desfazer</span> : null}{m.reversed ? <span className="kit-chip warn" style={{ marginLeft: 4 }}>desfeito</span> : null}</td>
+                        <td className="num">{m.qty > 0 ? '+' : ''}{fmt(m.qty)}</td>
+                        <td style={{ fontSize: 12.5 }}>{(REASONS_CACHE.list.find((r) => r.code === m.reason_code) || {}).label_pt || m.reason_code || '—'}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{m.ref_type ? (m.ref_type === 'movement' ? 'mov ' : '') + m.ref_id : '—'}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{m.bin_code || m.box_number || (m.kind === 'store_in' || m.kind === 'import' ? 'a organizar' : '—')}</td>
+                        <td style={{ color: 'var(--ink-dim)' }} title={m.source || ''}>{m.person || '—'}</td>
+                        <td>{undoable && (
+                          <button className="kit-btn xs sec" disabled={busy} data-act="desfazer"
+                                  onClick={() => { if (window.confirm(`Desfazer o movimento ${m.id} (${word(MOV_LABEL, m.kind)} ${m.qty > 0 ? '+' : ''}${m.qty})? Cria o inverso; nada é apagado.`)) act(() => wh.reverseMovement(m.id, {}), 'desfeito'); }}>Desfazer</button>
+                        )}</td>
+                      </tr>
+                    );
+                  })}
+                  {d && !((d.movements || []).length) && <tr><td colSpan={8} style={{ color: 'var(--ink-faint)' }}>Nenhum movimento registrado.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -969,10 +1076,12 @@ function RowMenu({ row, onAction, writable }) {
     return () => document.removeEventListener('mousedown', off);
   }, [open]);
   if (!writable) return null;
+  // Fase B (Bruno 09-10): os verbos de uma fabrica. Ajustar (delta com sinal) saiu;
+  // Contar e "esperado x contado, motivo".
   const items = [
-    ['entrada', 'Entrada'],
+    ['receber', 'Receber'], ['contar', 'Contar'], ['saida', 'Saída'], ['transferir', 'Transferir'],
     ...(n(row.unplaced_qty) > 0 ? [['organizar', 'Organizar']] : []),
-    ['mover', 'Mover'], ['ajustar', 'Ajustar'], ['separar', 'Separar'],
+    ['mover', 'Mover'], ['separar', 'Separar'],
     ['devolucao', 'Devolução'], ['familia', 'Família/SKUs'],
     ...(row.base_sku ? [['importar-veeqo', 'Importar Veeqo']] : []),
     ['veeqo', 'Veeqo'],
@@ -1454,7 +1563,7 @@ export function WarehousePage() {
           </button>
           {writable && (
             <button className="kit-btn primary" data-act="entrada-top"
-                    onClick={() => filtered[0] && openAction('entrada', filtered[0])}>Entrada</button>
+                    onClick={() => filtered[0] && openAction('receber', filtered[0])}>Receber</button>
           )}
           {writable && (
             <button className="kit-btn sec" data-act="juntar-skus"
@@ -1657,7 +1766,7 @@ export function WarehousePage() {
                   <button className="kit-btn xs sec" onClick={() => openAction('organizar', row)}>Organizar</button>
                 )}
                 {a.action && a.action.type === 'entrada' && writable && row && (
-                  <button className="kit-btn xs sec" onClick={() => openAction('entrada', row)}>Entrada</button>
+                  <button className="kit-btn xs sec" onClick={() => openAction('receber', row)}>Receber</button>
                 )}
                 {a.action && a.action.type === 'ver' && row && (
                   <button className="kit-btn xs sec" onClick={() => setPanel(row)}>Ver</button>

@@ -288,6 +288,21 @@ export const updateBoxType   = (id, body) => whPost('/box-types/' + id, body);
 /* Fase A (Bruno 09-10): a porta POST /load (que SOMAVA) foi removida do backend.
    Contar e absoluto por LOCAL: "nesta prateleira/caixa tem N agora". */
 export const postCount       = (id, body) => whPost('/product/' + id + '/count', body);
+/* Fase B: o vocabulario de fabrica (motivos), Saida sem venda, Transferencia,
+   Desfazer 24 h, o Livro filtravel e os lotes recentes (Receber a producao). */
+export const getReasons      = () => whGet('/reasons');
+export const postTake        = (id, body) => whPost('/product/' + id + '/take', body);
+export const postTransfer    = (id, body) => whPost('/product/' + id + '/transfer', body);
+export const reverseMovement = (movementId, body) => whPost('/movements/' + movementId + '/reverse', body || {});
+export const getBatches      = (id) => whGet('/product/' + id + '/batches');
+export function movementsQuery(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v != null && v !== '' && v !== false) qs.set(k, String(v));
+  const s = qs.toString();
+  return '/movements' + (s ? '?' + s : '');
+}
+export const getMovements    = (params) => whGet(movementsQuery(params));
+export const movementsCsvUrl = (params) => BASE + movementsQuery({ ...params, format: 'csv' }) + '&pin=' + encodeURIComponent(getPin() || '');
 
 /** O cabeçalho da página numa consulta só: produtos, pesos, locais,
  *  garrafas carregadas, quantos batem com a Veeqo e quais tipos de caixa

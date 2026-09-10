@@ -71,7 +71,7 @@ describe('dashboard-v4 Shell NAV — seção Estoque (S15)', () => {
   test('a seção Estoque tem hub, montar estoque, aprovações, locais, etiquetas, setup, config e o subgrupo P&P na ordem (sem as antigas, 08-19)', () => {
     const ids = idsIn(sectionBlock('Estoque'));
     expect(ids).toEqual([
-      'estoque', 'estoque-montar', 'estoque-aprovacoes', 'estoque-locais', 'estoque-etiquetas',
+      'estoque', 'estoque-montar', 'estoque-aprovacoes', 'estoque-movimentos', 'estoque-locais', 'estoque-etiquetas',
       'produto-setup', 'config-estoque',
       'pp', 'picklist',
     ]);

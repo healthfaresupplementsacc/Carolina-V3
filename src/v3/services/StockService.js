@@ -23,7 +23,14 @@
 // 'import' (S15 Fase 3, migration 072): entrada inicial espelhada da Veeqo. Fica
 // distinguível pra sempre de uma entrada real da linha — o dia que a gente virar
 // a fonte da verdade, dá pra saber o que era saldo importado e o que era produção.
-const KINDS = ['store_in', 'pick', 'restock', 'adjust', 'damaged', 'count', 'place', 'move', 'import'];
+// 'take' / 'transfer' (Fase B, migration 088): saida SEM venda (amostra, uso interno,
+// extra num pedido, descarte) e transferencia pra FBA / WFS / DC. Os dois deduzem
+// do local como o pick, mas ficam distinguiveis pra sempre no livro.
+const KINDS = ['store_in', 'pick', 'restock', 'adjust', 'damaged', 'count', 'place', 'move', 'import', 'take', 'transfer'];
+// Kinds que o Desfazer sabe inverter (24 h). pick de venda, damaged (abre issue),
+// restock e move (dois locais) ficam de fora: pra esses, a correcao e outro verbo.
+const REVERSIBLE = new Set(['store_in', 'import', 'place', 'adjust', 'count', 'take', 'transfer']);
+const REVERSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 class StockService {
   /**
@@ -78,17 +85,21 @@ class StockService {
   async _insertMovement(c, m) {
     // actor_login_id/actor_name (mig 087, Fase A 09-10): quem do DASHBOARD fez o
     // movimento. person_id continua sendo o operador do kiosk; os dois coexistem.
+    // reason_code / ref_type / ref_id / reverses_movement_id (mig 088, Fase B): o POR
+    // QUE, a REFERENCIA (lote, pedido, remessa) e o elo do Desfazer.
     const r = await c.query(
       `INSERT INTO v3.stock_movements
          (kind, product_id, qty, bin_id, box_id, person_id, source, source_ref, snapshot_url, note, is_test,
-          actor_login_id, actor_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          actor_login_id, actor_name, reason_code, ref_type, ref_id, reverses_movement_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT (source, source_ref) WHERE source_ref IS NOT NULL DO NOTHING
        RETURNING *`,
       [m.kind, m.product_id || null, m.qty, m.bin_id || null, m.box_id || null,
         m.person_id || null, m.source, m.source_ref || null, m.snapshot_url || null,
         m.note || null, !!m.is_test,
-        Number.isInteger(m.actor_login_id) ? m.actor_login_id : null, m.actor_name || null]);
+        Number.isInteger(m.actor_login_id) ? m.actor_login_id : null, m.actor_name || null,
+        m.reason_code || null, m.ref_type || null, m.ref_id != null ? String(m.ref_id) : null,
+        Number.isInteger(m.reverses_movement_id) ? m.reverses_movement_id : null]);
     if (r.rows[0]) return { movement: r.rows[0], duplicate: false };
     // conflito de idempotência — devolve o existente, sem tocar quantidades
     const ex = await this._existing(c, m.source, m.source_ref);
@@ -799,6 +810,148 @@ class StockService {
 
   // ── leitura ────────────────────────────────────────────────
 
+  // ── Fase B: saída sem venda, transferência, desfazer ───────────
+
+  /**
+   * SAÍDA sem venda ('take': amostra, uso interno, extra num pedido, descarte) ou
+   * TRANSFERÊNCIA ('transfer': FBA / WFS / DC). Deduz do local (bin ou caixa) com
+   * floor em 0 + discrepância, como o pick, mas sempre com reason_code e fica
+   * distinguível de venda pra sempre.
+   * p: {product_id, qty, kind ('take'|'transfer'), reason_code, bin_id?, box_id?,
+   *     ref_type?, ref_id?, person_id?, actor_*?, source, source_ref?, note?, is_test?}
+   */
+  async takeOut(p = {}) {
+    this._checkQty(p.qty);
+    if (!p.product_id) throw new Error('takeOut: product_id obrigatório');
+    if (!p.source) throw new Error('takeOut: source obrigatório');
+    const kind = p.kind === 'transfer' ? 'transfer' : 'take';
+    if (!p.reason_code) throw new Error('takeOut: reason_code (motivo) obrigatório');
+    if (p.bin_id && p.box_id) throw new Error('takeOut: bin_id OU box_id, não os dois');
+    return this._withTx(async (c) => {
+      const ex = await this._existing(c, p.source, p.source_ref);
+      if (ex) return { movement: ex, duplicate: true, applied: 0 };
+      let bin = null; let box = null;
+      if (p.bin_id) bin = await this._getBin(c, p.bin_id);
+      else if (p.box_id) box = await this._getBox(c, p.box_id);
+      else {
+        // sem local informado: a prateleira com mais, senão a caixa com mais
+        const rb = await c.query(
+          `SELECT * FROM v3.stock_bins WHERE product_id = $1 AND active AND qty > 0
+            ORDER BY qty DESC LIMIT 1 FOR UPDATE`, [p.product_id]);
+        bin = rb.rows[0] || null;
+        if (!bin) {
+          const rx = await c.query(
+            `SELECT * FROM v3.stock_boxes WHERE product_id = $1 AND status = 'in_storage' AND qty > 0
+              ORDER BY qty DESC LIMIT 1 FOR UPDATE`, [p.product_id]);
+          box = rx.rows[0] || null;
+        }
+      }
+      const target = box || bin;
+      const have = target ? Number(target.qty) : 0;
+      const applied = Math.min(have, p.qty);
+      const ins = await this._insertMovement(c, {
+        ...p, kind, qty: -applied,
+        bin_id: bin ? bin.id : null, box_id: box ? box.id : null,
+        note: applied < p.qty ? `pedido ${p.qty}, havia ${have}${p.note ? ' — ' + p.note : ''}` : p.note,
+      });
+      if (ins.duplicate) return { ...ins, applied: 0 };
+      if (applied > 0) {
+        if (box) await this._setBoxQty(c, box.id, have - applied);
+        else if (bin) await this._setBinQty(c, bin.id, have - applied);
+      }
+      if (applied < p.qty) {
+        await this._flagDiscrepancy({
+          kind: 'insufficient_stock', product_id: p.product_id,
+          bin_id: bin ? bin.id : null, box_id: box ? box.id : null, wanted: p.qty, applied,
+          note: `${kind === 'transfer' ? 'transferência' : 'saída'} pedia ${p.qty}, havia ${have}`,
+        });
+      }
+      await this._audit(c, {
+        actorType: p.actor_type || 'admin', actorPersonId: p.person_id,
+        action: 'stock.' + kind, targetId: ins.movement.id,
+        after: { product_id: p.product_id, wanted: p.qty, applied, reason_code: p.reason_code,
+          bin_id: bin ? bin.id : null, box_id: box ? box.id : null, ref_type: p.ref_type || null, ref_id: p.ref_id || null },
+        metadata: { source: p.source, source_ref: p.source_ref, actor_name: p.actor_name || null },
+      });
+      return { ...ins, applied, bin, box };
+    });
+  }
+
+  /**
+   * DESFAZER (Bruno 09-10: "admin reduz = motivo + Desfazer 24 h"). Cria o movimento
+   * INVERSO ligado ao original (reverses_movement_id); nunca apaga nada.
+   * Regras: só kinds reversíveis; só até 24 h; só uma vez; só movimento humano
+   * (nunca venda da Veeqo). Efeito por kind:
+   *   store_in/import  +q no local (ou A organizar)   → −q no mesmo lugar
+   *   place            +q no local, −q A organizar     → −q no local, +q A organizar
+   *   adjust/count     delta no local (ou A organizar) → −delta no mesmo lugar
+   *   take/transfer    −q no local                     → +q no local
+   * p: {movement_id, person_id?, actor_*?, source, note?}
+   */
+  async reverse(p = {}) {
+    const id = Number(p.movement_id);
+    if (!id) throw new Error('reverse: movement_id obrigatório');
+    if (!p.source) throw new Error('reverse: source obrigatório');
+    return this._withTx(async (c) => {
+      const orig = (await c.query('SELECT * FROM v3.stock_movements WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (!orig) throw new Error('movimento não existe: ' + id);
+      if (!REVERSIBLE.has(orig.kind)) throw new Error(`movimento "${orig.kind}" não pode ser desfeito por aqui`);
+      if (orig.reverses_movement_id) throw new Error('este movimento já é um desfazer');
+      if (['veeqo_ship', 'veeqo_import'].includes(String(orig.source))) throw new Error('venda/importação da Veeqo não se desfaz por aqui');
+      const already = (await c.query(
+        'SELECT id FROM v3.stock_movements WHERE reverses_movement_id = $1 LIMIT 1', [id])).rows[0];
+      if (already) throw new Error('este movimento já foi desfeito (movimento ' + already.id + ')');
+      const ageMs = this._now().getTime() - new Date(orig.created_at).getTime();
+      if (ageMs > REVERSE_WINDOW_MS) throw new Error('só dá pra desfazer até 24 h depois; este tem mais');
+      const q = Number(orig.qty) || 0;
+      if (q === 0) throw new Error('movimento sem quantidade, nada a desfazer');
+      const productId = orig.product_id;
+      // 1) o local do original volta −q (com floor em 0: nunca negativo)
+      let before = null; let after = null; let applied = -q;
+      if (orig.bin_id) {
+        const bin = await this._getBin(c, orig.bin_id);
+        before = Number(bin.qty); after = Math.max(0, before - q); applied = after - before;
+        await this._setBinQty(c, orig.bin_id, after);
+      } else if (orig.box_id) {
+        const box = await this._getBox(c, orig.box_id);
+        before = Number(box.qty); after = Math.max(0, before - q); applied = after - before;
+        await this._setBoxQty(c, orig.box_id, after);
+      } else {
+        before = await this._getUnplaced(c, productId);
+        after = Math.max(0, before - q); applied = after - before;
+        await this._setUnplaced(c, productId, after);
+      }
+      // 2) place também devolve pro A organizar o que tinha saído de lá
+      if (orig.kind === 'place' && applied !== 0) {
+        const un = await this._getUnplaced(c, productId);
+        await this._setUnplaced(c, productId, un + (-applied));
+      }
+      const ins = await this._insertMovement(c, {
+        kind: orig.kind, product_id: productId, qty: applied,
+        bin_id: orig.bin_id || null, box_id: orig.box_id || null,
+        person_id: p.person_id || null, actor_login_id: p.actor_login_id, actor_name: p.actor_name,
+        source: p.source, source_ref: p.source_ref || ('reverse:' + id),
+        reason_code: orig.reason_code || null, ref_type: 'movement', ref_id: String(id),
+        reverses_movement_id: id, is_test: !!orig.is_test,
+        note: `desfez o movimento ${id}${p.note ? ' — ' + p.note : ''}`,
+      });
+      if (ins.duplicate) return { ...ins, applied: 0 };
+      if (Math.abs(applied) < Math.abs(q)) {
+        await this._flagDiscrepancy({
+          kind: 'reverse_short', product_id: productId, bin_id: orig.bin_id || null, box_id: orig.box_id || null,
+          wanted: -q, applied, note: `desfazer do movimento ${id} pedia ${-q}, o local tinha ${before}`,
+        });
+      }
+      await this._audit(c, {
+        actorType: p.actor_type || 'admin', actorPersonId: p.person_id,
+        action: 'stock.reverse', targetId: ins.movement.id,
+        before: { qty: before, original: { id, kind: orig.kind, qty: q } }, after: { qty: after, applied },
+        metadata: { actor_name: p.actor_name || null },
+      });
+      return { ...ins, applied, original: orig };
+    });
+  }
+
   /** Estoque do armazém por produto: bins + caixas (exclui is_test por construção — qty real). */
   async warehouseByProduct() {
     const r = await this.db.query(`
@@ -1062,6 +1215,9 @@ class StockService {
 
     const movements = (await this.db.query(`
       SELECT m.id, m.kind, m.qty, m.source, m.note, m.created_at,
+             m.reason_code, m.ref_type, m.ref_id, m.reverses_movement_id,
+             EXISTS (SELECT 1 FROM v3.stock_movements r WHERE r.reverses_movement_id = m.id) AS reversed,
+             (m.created_at > NOW() - INTERVAL '24 hours') AS within_24h,
              b.bin_code, x.box_number,
              COALESCE(pe.display_name, m.actor_name) AS person   -- operador OU login do dashboard (mig 087)
         FROM v3.stock_movements m

@@ -39,6 +39,8 @@ const NAV = [
     // S15.43 (Bruno 08-22): a porta de CARGA do armazém, logo depois do hub.
     { id: "estoque-montar",     pt: "Montar estoque",            en: "Load stock",         icon: "plan" },
     { id: "estoque-aprovacoes", pt: "Aprovações",                en: "Approvals",          icon: "target" },
+    // Fase B (Bruno 09-10): o livro inteiro, filtrável, com CSV e Desfazer
+    { id: "estoque-movimentos", pt: "Movimentos",                en: "Movements",          icon: "plan" },
     { id: "estoque-locais",     pt: "Locais",                    en: "Locations",          icon: "plan" },
     { id: "estoque-etiquetas",  pt: "Etiquetas",                 en: "Labels",             icon: "product" },
     { id: "produto-setup",      pt: "Product Setup",             en: "Product Setup",      icon: "config" },

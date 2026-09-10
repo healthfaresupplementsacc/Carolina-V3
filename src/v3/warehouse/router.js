@@ -29,6 +29,7 @@ const { suggest } = require('./sku-suggest');
 const { createSkuSync } = require('./sku-sync');
 const { createVeeqoAbsorb } = require('./veeqo-absorb');
 const { createSimpleSet, simpleProgress } = require('./simple-set');
+const { createMovements } = require('./movements');   // Fase B: o livro, motivos, lotes
 // days_of_stock UNIFICADO no interino (Bruno 09-04): armazém vazio → dias sobre
 // o estoque Veeqo com a velocidade 14d do planner; carga física → volta sozinho.
 const { applyInterimDays } = require('../stock/interim-days');
@@ -234,6 +235,8 @@ function createWarehouseRouter(deps = {}) {
   const requests = deps.requests;
   // db no cache = semente do snapshot (Fase A R1): a coluna Veeqo nunca nasce vazia
   const veeqoCache = deps.veeqoCache || createVeeqoCache({ veeqo: deps.veeqo, db });
+  // o livro, os motivos e os lotes (Fase B) — só leitura; quantidade é do StockService
+  const movements = deps.movements || createMovements({ db });
   const locations = deps.locations || new LocationsRepo({ db });
   // stock no FamilyRepo: o merge move ESTOQUE, e quantidade só o StockService escreve
   const family = deps.family || new FamilyRepo({ db, veeqoCache, stock });
@@ -512,6 +515,9 @@ function createWarehouseRouter(deps = {}) {
     const b = req.body || {};
     const qty = intOf(b.qty);
     if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
+    // Fase B: de ONDE veio (producao/lote, devolucao usavel, voltou de transferencia,
+    // erro de registro). Opcional por compatibilidade; a tela sempre manda.
+    const reason = b.reason_code ? await movements.requireReason(b.reason_code, ['in', 'count']) : null;
     // guarda de tamanho ANTES de criar caixa ou mexer em quantidade
     const before = (await rowsWithVeeqo(id))[0];
     await assertNotOverTarget({ productId: id, totalAfter: (Number(before && before.total) || 0) + qty,
@@ -525,8 +531,12 @@ function createWarehouseRouter(deps = {}) {
     await stock.storeIn({
       ...actor(req, b.note || ''), product_id: id, qty,
       bin_id: intOf(b.bin_id) || null, box_id: boxId || null,
+      reason_code: reason ? reason.code : null,
+      ref_type: b.ref_type || (b.batch_number ? 'batch' : (b.order_number ? 'order' : null)),
+      ref_id: b.ref_id || b.batch_number || b.order_number || null,
     });
-    await audit(req, 'warehouse.entrada', id, { qty, bin_id: intOf(b.bin_id) || null, box_id: boxId || null });
+    await audit(req, 'warehouse.entrada', id, { qty, bin_id: intOf(b.bin_id) || null, box_id: boxId || null,
+      reason_code: reason ? reason.code : null, ref: b.ref_id || b.batch_number || b.order_number || null });
     ok(res, { ok: true, product: await freshRow(id) });
   });
 
@@ -1048,11 +1058,87 @@ function createWarehouseRouter(deps = {}) {
     const totalAfter = (Number(before && before.total) || 0) - (Number(loc.qty) || 0) + found;
     await assertNotOverTarget({ productId: id, totalAfter, confirm: !!b.confirm, label: 'Esta contagem' });
     const ref = b.client_ref ? 'count:' + String(b.client_ref).toLowerCase() : null;
+    const reason = b.reason_code ? await movements.requireReason(b.reason_code, ['count']) : null;
     const out = await stock.count({
       ...actor(req, b.note || ''), bin_id: binId, box_id: boxId, found, source_ref: ref,
+      reason_code: reason ? reason.code : 'contagem',
     });
-    await audit(req, 'warehouse.count', id, { bin_id: binId, box_id: boxId, found, applied: out.applied, duplicate: !!out.duplicate });
+    await audit(req, 'warehouse.count', id, { bin_id: binId, box_id: boxId, found, applied: out.applied, duplicate: !!out.duplicate, reason_code: reason ? reason.code : 'contagem' });
     ok(res, { applied: out.applied, duplicate: !!out.duplicate, product: await freshRow(id) });
+  });
+
+  // ── FASE B (Bruno 09-10): motivos, Saída, Transferência, Desfazer, o Livro ──
+  route('get', '/reasons', 'read', async (req, res) => {
+    ok(res, { reasons: await movements.reasons() });
+  });
+
+  // SAÍDA sem venda: amostra, uso interno, extra num pedido, descarte.
+  // body: { qty, reason_code (out, ≠ venda/transferencia), bin_id|box_id?, ref_type?, ref_id?, order_number?, note? }
+  route('post', '/product/:id/take', 'write', async (req, res) => {
+    const id = productIdOf(req);
+    const b = req.body || {};
+    const qty = intOf(b.qty);
+    if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
+    const reason = await movements.requireReason(b.reason_code, ['out']);
+    if (['venda', 'transferencia'].includes(reason.code)) throw new Error('motivo inválido pra Saída: venda é automática e transferência tem o verbo Transferir');
+    const out = await stock.takeOut({
+      ...actor(req, b.note || ''), product_id: id, qty, kind: 'take', reason_code: reason.code,
+      bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null,
+      ref_type: b.ref_type || (b.order_number ? 'order' : null), ref_id: b.ref_id || b.order_number || null,
+      source_ref: b.client_ref ? 'take:' + String(b.client_ref).toLowerCase() : null,
+    });
+    await audit(req, 'warehouse.take', id, { qty, applied: out.applied, reason_code: reason.code, bin_id: out.bin ? out.bin.id : null, box_id: out.box ? out.box.id : null });
+    ok(res, { ok: true, applied: out.applied, duplicate: !!out.duplicate, product: await freshRow(id) });
+  });
+
+  // TRANSFERÊNCIA pra fora do armazém: FBA, WFS, DC, outro. A remessa é a referência.
+  // body: { qty, destination ('fba'|'wfs'|'dc'|'other'), shipment_ref?, bin_id|box_id?, note? }
+  const DESTINATIONS = { fba: 'FBA (Amazon)', wfs: 'WFS (Walmart)', dc: 'DC / distribuidor', other: 'outro' };
+  route('post', '/product/:id/transfer', 'write', async (req, res) => {
+    const id = productIdOf(req);
+    const b = req.body || {};
+    const qty = intOf(b.qty);
+    if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
+    const dest = String(b.destination || '').toLowerCase();
+    if (!DESTINATIONS[dest]) throw new Error('destination inválido (fba, wfs, dc ou other)');
+    const out = await stock.takeOut({
+      ...actor(req, `para ${DESTINATIONS[dest]}${b.shipment_ref ? ' · remessa ' + b.shipment_ref : ''}${b.note ? ' · ' + b.note : ''}`),
+      product_id: id, qty, kind: 'transfer', reason_code: 'transferencia',
+      bin_id: intOf(b.bin_id) || null, box_id: intOf(b.box_id) || null,
+      ref_type: 'shipment', ref_id: b.shipment_ref ? String(b.shipment_ref) : dest,
+      source_ref: b.client_ref ? 'transfer:' + String(b.client_ref).toLowerCase() : null,
+    });
+    await audit(req, 'warehouse.transfer', id, { qty, applied: out.applied, destination: dest, shipment_ref: b.shipment_ref || null });
+    ok(res, { ok: true, applied: out.applied, duplicate: !!out.duplicate, product: await freshRow(id) });
+  });
+
+  // DESFAZER um movimento (24 h; cria o inverso ligado ao original; nunca apaga)
+  route('post', '/movements/:id/reverse', 'write', async (req, res) => {
+    const mid = intOf(req.params.id);
+    if (!mid) throw new Error('id inválido');
+    const b = req.body || {};
+    const out = await stock.reverse({ ...actor(req, b.note || ''), movement_id: mid });
+    await audit(req, 'warehouse.reverse', out.original ? out.original.product_id : null, { movement_id: mid, applied: out.applied });
+    const pid = out.original ? out.original.product_id : null;
+    ok(res, { ok: true, applied: out.applied, movement: out.movement, product: pid ? await freshRow(pid) : null });
+  });
+
+  // O LIVRO: lista filtrável e CSV
+  route('get', '/movements', 'read', async (req, res) => {
+    const qs = req.query || {};
+    const opts = { product_id: qs.product_id, q: qs.q, person: qs.person, reason: qs.reason, kind: qs.kind,
+      from: qs.from, to: qs.to, include_test: qs.include_test === '1', limit: qs.limit, offset: qs.offset };
+    if (String(qs.format || '').toLowerCase() === 'csv') {
+      res.setHeader('content-type', 'text/csv; charset=utf-8');
+      res.setHeader('content-disposition', 'attachment; filename="movimentos.csv"');
+      return res.send('﻿' + await movements.csv(opts));
+    }
+    ok(res, await movements.list(opts));
+  });
+
+  // Lotes recentes do produto com o total produzido (pra "Receber a produção")
+  route('get', '/product/:id/batches', 'read', async (req, res) => {
+    ok(res, { batches: await movements.batches(productIdOf(req), req.query && req.query.limit) });
   });
 
   // ── MODO SIMPLES (Fase 1, mutirão): quantidade ABSOLUTA por escopo ──
