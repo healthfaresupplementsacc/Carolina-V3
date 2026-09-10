@@ -190,7 +190,8 @@ subgraph S11["S11 · Satellites (other machines / out-of-process)"]
   S11_02["S11.02 · Cameras PC"]:::satellite
   S11_03["S11.03 · Bruno PC: weekly drift check task"]:::satellite
   S11_04["S11.04 · Bruno PC: scripts/analyst (Claude Code analyst) + Carol-speaks"]:::satellite
-  S11_05["S11.05 · Simone PC .246 (NOT IN CODE)"]:::unknown
+  S11_05["S11.05 · PC de packing .246 (HF-PrintAgent S15.52, deploy pendente)"]:::satellite
+  S15_52["S15.52 · HF-PrintAgent: poll 15s da fila, PDF → Rollo via SumatraPDF"]:::partial
   S11_06["S11.06 · Ana scheduled task (README only)"]:::unknown
   S11_07["S11.07 · LAN Intercom (separate project)"]:::unknown
   S11_09["S11.09 · Bruno PC: Slack↔Claude 24/7 watch (watchdog DOM 10s + Socket Mode push; Startup vbs; inbox.jsonl)"]:::satellite
@@ -366,6 +367,7 @@ S11_09_03 -->|R166 sexta 10am| S11_09_04
 S11_09_04 -->|R167 users.setPhoto via CDP| S10_01
 S11_02 -->|R104| S10_08
 S11_05 -.->|R103 UNKNOWN| S02_08
+S15_52 -.->|R269 poll 15s x-print-token; take/done/error; poll = sinal de vida| S02_10
 S11_01 -->|R023 /op/config.js| S02_08
 S02_12 -->|R105| S09_03
 

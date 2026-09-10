@@ -1,0 +1,9 @@
+{
+  "url": "https://productionlineservice-production.up.railway.app",
+  "token": "COLOQUE-AQUI-O-PRINT_EVENT_TOKEN",
+  "printer": "Label Printer 4x6",
+  "poll_sec": 15,
+  "kinds": ["shipping_labels", "bin_labels", "box_label"],
+  "agent_id": "hf-printagent-246",
+  "by": "HF-PrintAgent .246"
+}

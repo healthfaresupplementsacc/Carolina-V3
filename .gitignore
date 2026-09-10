@@ -20,3 +20,6 @@ docs/DRIFT-[0-9]*.md
 
 # estado local do watchdog Slack<->Claude (tokens, inbox, logs) - NUNCA commitar
 scripts/analyst/_watch/
+
+# config REAL do print agent (tem o PRINT_EVENT_TOKEN) - so o .example vai pro git
+src/print-agent/print-agent.config.json
