@@ -54,7 +54,7 @@ Li o dia inteiro no banco (`timeline?date=2026-09-09`). Os problemas que o Bruno
 
 **R2 · Processo paralelo = trilho fino (rail), não bloco.** Grafana "State timeline" e traces (Datadog/Honeycomb) desenham estados longos como faixas de 6–10 px com o rótulo **fora** ou só no hover. Encapsulação/pesagem/impressão de labels são estados de máquina que a pessoa acompanha: viram um rail de 8 px em cima da lane, com o nome só quando a faixa tem > 90 px.
 
-**R3 · Label só quando cabe, senão nada.** Regra do Google Calendar e de todo Gantt sério (dhtmlx, Bryntum, Frappe): abaixo de ~48 px de largura o bloco fica **mudo** (só cor + borda); entre 48 e 110 px, uma linha (nome curto); acima, duas linhas. O texto nunca é cortado no meio da palavra com "…" em 3 linhas; o hover/painel carrega o resto.
+**R3 · Label só quando cabe, senão nada.** Regra do Google Calendar e de todo Gantt sério (dhtmlx, Bryntum, Frappe): abaixo de 28 px o bloco fica **mudo** (só cor + borda); 28–60 px um código de 3 letras; 60–110 px o nome curto; acima, nome + produto e duração. O texto nunca é cortado no meio da palavra com "…" em 3 linhas; o hover/painel carrega o resto.
 
 **R4 · Blocos baixos, densidade alta.** Toggl/Clockify: 24–32 px por entrada; Google Calendar: 24 px por 30 min. Nossos 54 px + 6 de gap + 20 de tab + 28 de topo = 114 px por pessoa *antes* de qualquer sobreposição. Alvo: row de 56 px (rail 8 + lane 36 + folgas), expandível.
 
