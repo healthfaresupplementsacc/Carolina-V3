@@ -896,7 +896,7 @@ const ENDPOINTS = [
   { method: 'get', path: '/api/v3/data/product-setup',
     handler: async (req, r, s) => {
       const rows = await s.stock.db.query(`
-        SELECT p.id, p.canonical_name, p.nickname, p.bottle_color, p.active,
+        SELECT p.id, p.canonical_name, p.nickname, p.bottle_color, p.active, p.kind, p.merged_into_product_id, p.parent_product_id,
                COALESCE(json_agg(json_build_object(
                  'id', ps.id, 'sku', ps.sku, 'channel', ps.channel,
                  'units_per_pack', ps.units_per_pack, 'confirmed', ps.confirmed_at IS NOT NULL

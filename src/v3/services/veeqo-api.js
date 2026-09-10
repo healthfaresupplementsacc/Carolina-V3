@@ -232,11 +232,15 @@ function createVeeqoClient(opts = {}) {
 
   // Catálogo de PRODUTOS do Veeqo (pro tab Inventory — mapear SKU↔nosso produto).
   // Read-only. Pagina /products; devolve [{sku, title, product_title, ...}] por sellable.
-  async function getProductsPage({ page = 1, pageSize = 100 }) {
+  // `timeoutMs` por chamada (Fase A 09-10): o catálogo inteiro (5 páginas de 100)
+  // é lido em background pelo cache do hub e estourava os 20 s padrão no
+  // Railway, deixando a coluna Veeqo vazia. Ninguém espera por essa chamada.
+  async function getProductsPage({ page = 1, pageSize = 100, timeoutMs: perCallMs } = {}) {
     if (!apiKey) { const e = new Error('VEEQO_API_KEY não configurada'); e.code = 'no_key'; throw e; }
     const qs = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const effMs = perCallMs || timeoutMs;
+    const timer = setTimeout(() => ctrl.abort(), effMs);
     let r;
     try {
       r = await fetchImpl(baseUrl + '/products?' + qs.toString(), {
@@ -244,7 +248,7 @@ function createVeeqoClient(opts = {}) {
       });
     } catch (e) {
       clearTimeout(timer);
-      const err = new Error(e && e.name === 'AbortError' ? ('Veeqo timeout (' + timeoutMs + 'ms)') : ('Veeqo inacessível: ' + (e && e.message)));
+      const err = new Error(e && e.name === 'AbortError' ? ('Veeqo timeout (' + effMs + 'ms)') : ('Veeqo inacessível: ' + (e && e.message)));
       err.code = e && e.name === 'AbortError' ? 'timeout' : 'network';
       throw err;
     }
@@ -268,7 +272,7 @@ function createVeeqoClient(opts = {}) {
   async function listSellables() {
     const out = new Map(); // sku -> { sku, title, product_title, stock, type, wh }
     for (let page = 1; page <= 60; page++) {
-      const rows = await getProductsPage({ page, pageSize: 100 });
+      const rows = await getProductsPage({ page, pageSize: 100, timeoutMs: 60000 });
       if (!rows.length) break;
       for (const pd of rows) {
         const ptitle = pd.title || pd.name || '';
@@ -318,7 +322,7 @@ function createVeeqoClient(opts = {}) {
   async function listProducts() {
     const out = [];
     for (let page = 1; page <= 60; page++) {
-      const rows = await getProductsPage({ page, pageSize: 100 });
+      const rows = await getProductsPage({ page, pageSize: 100, timeoutMs: 60000 });
       if (!rows.length) break;
       for (const pd of rows) {
         if (!pd) continue;
@@ -363,7 +367,7 @@ function createVeeqoClient(opts = {}) {
     const want = String(sku || '').trim().toLowerCase();
     if (!want) return null;
     for (let page = 1; page <= 60; page++) {
-      const rows = await getProductsPage({ page, pageSize: 100 });
+      const rows = await getProductsPage({ page, pageSize: 100, timeoutMs: 60000 });
       if (!rows.length) break;
       for (const pd of rows) {
         for (const s of (pd.sellables || [])) {

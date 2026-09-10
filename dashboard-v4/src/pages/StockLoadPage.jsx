@@ -759,26 +759,41 @@ function Step3Carregar({
     if (mode === 'avulsas' && !note.trim()) { onError(new Error('diga de onde vieram as avulsas (o campo de nota)')); return; }
     setBusy(true);
     try {
-      const body = {
-        product_id: product.product_id,
-        qty: qn,
-        dest: dest.kind === 'unplaced' ? { kind: 'unplaced' } : { kind: dest.kind, id: Number(dest.id) },
-        source: sourceKind,
-        client_ref: uuid(),
-      };
+      /* Fase A (Bruno 09-10, "nunca duplicar"): a porta que SOMAVA (/load) não
+         existe mais. O número digitado é o que está NO LOCAL agora:
+           prateleira/caixa → /product/:id/count (absoluto por local);
+           A organizar      → /simple/set scope unplaced (absoluto por escopo).
+         Contar a mesma caixa duas vezes não entra duas vezes. Acima do alvo da
+         Veeqo o backend pede confirmação (over_target) com os dois números. */
       const m = { ...(meta || {}) };
-      if (mode === 'avulsas') m.note = note.trim();
-      if (Object.keys(m).length) body.meta = m;
-      const res = await wh.postLoad(body);
+      const noteTxt = [
+        sourceKind === 'count_weigh' ? 'contagem por peso' : sourceKind === 'production_direct' ? 'direto da produção'
+          : sourceKind === 'loose_fixed' ? 'garrafas soltas, label consertada' : 'contagem na mão',
+        mode === 'avulsas' ? note.trim() : '',
+        m.gross_g ? `bruto ${m.gross_g} g, tara ${m.tare_g} g, unidade ${m.unit_weight_g} g` : '',
+      ].filter(Boolean).join(' · ');
+      const send = (confirm) => (dest.kind === 'unplaced'
+        ? wh.simpleSet({ product_id: product.product_id, scope: 'unplaced', qty: qn, client_ref: uuid(), confirm: confirm || undefined })
+        : wh.postCount(product.product_id, {
+          [dest.kind === 'bin' ? 'bin_id' : 'box_id']: Number(dest.id), found: qn,
+          note: noteTxt, client_ref: uuid(), confirm: confirm || undefined,
+        }));
+      let res;
+      try { res = await send(false); }
+      catch (e1) {
+        if (e1 && e1.code === 'over_target' && window.confirm(e1.message)) res = await send(true);
+        else throw e1;
+      }
       const d = (res && res.data) || {};
-      const prod = d.product || {};
+      // /count devolve product; /simple/set devolve o resumo direto
+      const prod = d.product || (d.total != null ? { total: d.total, veeqo_total: d.veeqo_total, veeqo_match: d.match ? 'ok' : null } : {});
       const vq = prod.veeqo_total != null ? Number(prod.veeqo_total) : veeqoOf(product);
       const tot = prod.total != null ? Number(prod.total) : null;
       let tail = '';
       if (prod.veeqo_match) tail = ', batendo com a Veeqo.';
       else if (vq != null && tot != null) tail = tot < vq ? '. Faltam ' + fmt(vq - tot) + ' pra Veeqo.' : '. Sobram ' + fmt(tot - vq) + ' sobre a Veeqo.';
       else tail = '.';
-      onLoaded(prod, fmt(qn) + ' garrafas ' + destLabel() + '. Total agora ' + fmt(tot) + tail);
+      onLoaded(prod, fmt(qn) + ' garrafas agora ' + destLabel() + '. Total ' + fmt(tot) + tail);
       setRecent((r) => [{
         at: new Date(), product: product.nickname || product.name, qty: qn,
         dest: destLabel(), source: sourceKind,

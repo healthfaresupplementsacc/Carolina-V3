@@ -164,8 +164,18 @@ function suggest(rows = [], bySku = {}) {
     candidates.push({ list, score, reason });
   };
 
+  // Código de barras igual NÃO é prova (Fase A, R3 da auditoria 09-10): a Veeqo
+  // repete UPC em produtos DIFERENTES (Lithium Orotate × Melatonin 5mg; B2 180 ×
+  // B2 400). Sozinho vale "média · conferir". Só vira "alta" quando o nome
+  // canônico OU a raiz do SKU também batem — aí sim é a mesma garrafa.
   for (const [upc, list] of byUpc) {
-    push(list, 100, `mesmo código de barras ${upc}: é a mesma garrafa`);
+    const names = new Set(list.map((x) => x.norm_name).filter(Boolean));
+    const roots = new Set(list.flatMap((x) => x.sku_roots || []));
+    const corroborated = names.size === 1 || (list.every((x) => (x.sku_roots || []).length) && roots.size === 1);
+    push(list, corroborated ? 100 : 70,
+      corroborated
+        ? `mesmo código de barras ${upc} e mesmo nome/SKU base: é a mesma garrafa`
+        : `mesmo código de barras ${upc}, mas nomes diferentes: CONFERIR antes de juntar (a Veeqo repete código em produtos distintos)`);
   }
   for (const [root, list] of byRoot) {
     // só vale como sinal se os SKUs realmente DIFEREM (senão é o mesmo produto)

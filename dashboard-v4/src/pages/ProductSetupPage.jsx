@@ -423,6 +423,7 @@ export function ProductSetupPage() {
   const [rows, setRows] = React.useState(null);
   const [tiers, setTiers] = React.useState([]);
   const [q, setQ] = React.useState('');
+  const [showAll, setShowAll] = React.useState(false);   // false = só garrafas raiz (o universo do hub)
   const [flash, setFlash] = React.useState('');
   const [cal, setCal] = React.useState(null);        // produto sendo calibrado
   const ro = !V4_ALLOW_WRITES;
@@ -497,13 +498,18 @@ export function ProductSetupPage() {
     return <div className="pgi-page" data-page="inv-produto-setup"><div className="kit-card pad bad" style={{ color: 'var(--bad-deep)' }}>Erro: {String(setup.error)}</div></div>;
   }
 
-  const list = (rows || []).filter((p) => {
+  /* UM universo só (Fase A, Bruno 09-10): por padrão a página mostra as GARRAFAS
+     RAIZ (as mesmas linhas do hub), não a tabela inteira com planos, insumos,
+     mescladas e filhas de casepack. "Tudo" continua a um clique. */
+  const isRoot = (p) => (p.kind == null || p.kind === 'bottle') && !p.merged_into_product_id && !p.parent_product_id;
+  const universe = (rows || []).filter((p) => (showAll ? true : isRoot(p)));
+  const list = universe.filter((p) => {
     if (!q) return true;
     const hay = (p.canonical_name + ' ' + (p.nickname || '') + ' ' + (p.skus || []).map((s) => s.sku).join(' ')).toLowerCase();
     return hay.includes(q.toLowerCase());
   });
-  const noNick = (rows || []).filter((p) => !p.nickname).length;
-  const noColor = (rows || []).filter((p) => !p.bottle_color).length;
+  const noNick = universe.filter((p) => !p.nickname).length;
+  const noColor = universe.filter((p) => !p.bottle_color).length;
 
   return (
     <div className="pgi-page" data-page="inv-produto-setup">
@@ -528,6 +534,11 @@ export function ProductSetupPage() {
         <input className="kit-input grow" value={q} onChange={(e) => setQ(e.target.value)}
           placeholder="buscar produto / nickname / SKU…" />
         <span className="pgi-count">{list.length} produtos</span>
+        <button type="button" className={'kit-chip ' + (showAll ? 'neutral' : 'solid')} data-act="universo"
+                title={showAll ? 'Mostrando tudo: planos, insumos, mescladas e filhas de casepack' : 'Só as garrafas raiz, as mesmas linhas do estoque'}
+                onClick={() => setShowAll((v) => !v)} style={{ cursor: 'pointer' }}>
+          {showAll ? 'tudo (' + (rows || []).length + ')' : 'garrafas raiz'}
+        </button>
         {noNick > 0 && <span className="kit-chip warn">{noNick} sem nickname</span>}
         {noColor > 0 && <span className="kit-chip warn">{noColor} sem cor</span>}
         {ro && <span className="kit-chip neutral">somente leitura</span>}

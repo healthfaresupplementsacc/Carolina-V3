@@ -76,15 +76,19 @@ class StockService {
   }
 
   async _insertMovement(c, m) {
+    // actor_login_id/actor_name (mig 087, Fase A 09-10): quem do DASHBOARD fez o
+    // movimento. person_id continua sendo o operador do kiosk; os dois coexistem.
     const r = await c.query(
       `INSERT INTO v3.stock_movements
-         (kind, product_id, qty, bin_id, box_id, person_id, source, source_ref, snapshot_url, note, is_test)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         (kind, product_id, qty, bin_id, box_id, person_id, source, source_ref, snapshot_url, note, is_test,
+          actor_login_id, actor_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (source, source_ref) WHERE source_ref IS NOT NULL DO NOTHING
        RETURNING *`,
       [m.kind, m.product_id || null, m.qty, m.bin_id || null, m.box_id || null,
         m.person_id || null, m.source, m.source_ref || null, m.snapshot_url || null,
-        m.note || null, !!m.is_test]);
+        m.note || null, !!m.is_test,
+        Number.isInteger(m.actor_login_id) ? m.actor_login_id : null, m.actor_name || null]);
     if (r.rows[0]) return { movement: r.rows[0], duplicate: false };
     // conflito de idempotência — devolve o existente, sem tocar quantidades
     const ex = await this._existing(c, m.source, m.source_ref);
@@ -1058,7 +1062,8 @@ class StockService {
 
     const movements = (await this.db.query(`
       SELECT m.id, m.kind, m.qty, m.source, m.note, m.created_at,
-             b.bin_code, x.box_number, pe.display_name AS person
+             b.bin_code, x.box_number,
+             COALESCE(pe.display_name, m.actor_name) AS person   -- operador OU login do dashboard (mig 087)
         FROM v3.stock_movements m
         LEFT JOIN v3.stock_bins b ON b.id = m.bin_id
         LEFT JOIN v3.stock_boxes x ON x.id = m.box_id

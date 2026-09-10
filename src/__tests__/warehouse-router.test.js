@@ -333,12 +333,14 @@ describe('Warehouse hub — ficha do produto', () => {
 
 describe('Warehouse hub — escritas devolvem a Row fresca', () => {
   test('entrada sem local chama storeIn sem bin/caixa e devolve product', async () => {
-    const r = await call('POST', '/api/v3/warehouse/product/10/entrada', { qty: 80, note: 'lote novo' }, ADMIN_PIN);
+    // 40 fica dentro do teto da guarda de tamanho (Fase A: Veeqo 226 → teto 271);
+    // acima disso a rota devolve 409 over_target (coberto em warehouse-fase-a.test.js)
+    const r = await call('POST', '/api/v3/warehouse/product/10/entrada', { qty: 40, note: 'lote novo' }, ADMIN_PIN);
     expect(r.status).toBe(200);
     expect(r.body.data.ok).toBe(true);
     expect(r.body.data.product.product_id).toBe(10);
     const p = stock.storeIn.mock.calls[0][0];
-    expect(p.qty).toBe(80);
+    expect(p.qty).toBe(40);
     expect(p.bin_id).toBeNull();
     expect(p.box_id).toBeNull();
     expect(p.source).toBe('warehouse_hub');

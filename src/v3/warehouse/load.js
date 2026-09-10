@@ -69,69 +69,11 @@ function createLoad(deps = {}) {
    * ctx: {person_id, login} de quem está logado.
    * @returns {{applied, duplicate, product}}
    */
-  async function load(body = {}, ctx = {}) {
-    const productId = intOf(body.product_id);
-    if (!productId || productId <= 0) throw new Error('product_id inválido');
-    const qty = intOf(body.qty);
-    if (!qty || qty < 1 || qty > QTY_MAX) {
-      throw new Error(`qty inválido (inteiro de 1 a ${QTY_MAX})`);
-    }
-    const dest = body.dest || {};
-    const kind = dest.kind;
-    if (!['bin', 'box', 'unplaced'].includes(kind)) {
-      throw new Error('dest.kind inválido (bin, box ou unplaced)');
-    }
-    const destId = intOf(dest.id);
-    if (kind !== 'unplaced' && (!destId || destId <= 0)) {
-      throw new Error('dest.id obrigatório quando o destino é bin ou caixa');
-    }
-    const source = String(body.source || '');
-    if (!SOURCES.includes(source)) {
-      throw new Error('source inválido (' + SOURCES.join(', ') + ')');
-    }
-    const clientRef = String(body.client_ref || '').trim();
-    if (!UUID_RE.test(clientRef)) {
-      throw new Error('client_ref inválido (uuid, é a idempotência do clique)');
-    }
+  // A função load() (que SOMAVA o contado ao local) FOI REMOVIDA na Fase A
+  // (Bruno 09-10, "nunca duplicar"): contar a mesma caixa duas vezes entrava duas
+  // vezes. O que DEFINE o absoluto ficou: /simple/set (escopo) e /product/:id/count
+  // (local). Este módulo só guarda os contadores do cabeçalho e as constantes.
 
-    const ref = 'load:' + clientRef.toLowerCase();
-    const who = ctx.login || 'admin';
-    const meta = body.meta && typeof body.meta === 'object' ? body.meta : null;
-    const weighBit = meta && meta.gross_g != null
-      ? ` (bruto ${meta.gross_g}g, tara ${meta.tare_g != null ? meta.tare_g : '?'}g)` : '';
-    const note = `[${who}] carga: ${SOURCE_PT[source]}${weighBit}`;
-
-    // 1) entra no armazém (bucket "a organizar") — idempotente por client_ref
-    const stored = await stock.storeIn({
-      product_id: productId, qty,
-      person_id: ctx.person_id || null, actor_type: 'admin',
-      source: 'warehouse_load', source_ref: ref, note,
-    });
-
-    // 2) destino bin/caixa: organiza até lá (ref próprio: o retry completa o
-    //    que faltou sem duplicar o que já foi)
-    if (kind !== 'unplaced') {
-      await stock.place({
-        product_id: productId, qty,
-        bin_id: kind === 'bin' ? destId : null,
-        box_id: kind === 'box' ? destId : null,
-        person_id: ctx.person_id || null, actor_type: 'admin',
-        source: 'warehouse_load', source_ref: ref + ':place', note,
-      });
-    }
-
-    return {
-      applied: stored.applied || 0,
-      duplicate: !!stored.duplicate,
-      product: await productSummary(productId),
-    };
-  }
-
-  /**
-   * O CABEÇALHO da página Montar em uma consulta barata: quanto do armazém já
-   * está carregado e o que ainda falta calibrar. Os números de produto saem das
-   * MESMAS Rows do hub (nenhuma conta paralela pra divergir um dia).
-   */
   async function progress() {
     const [rows, counts, recal] = await Promise.all([
       rowsWithVeeqo(null),
@@ -166,7 +108,7 @@ function createLoad(deps = {}) {
     };
   }
 
-  return { load, progress, productSummary };
+  return { progress, productSummary };
 }
 
 module.exports = { createLoad, SOURCES, SOURCE_PT, QTY_MAX, UUID_RE };

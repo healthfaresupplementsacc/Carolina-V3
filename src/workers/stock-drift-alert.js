@@ -206,7 +206,11 @@ class StockDriftAlert {
   _line(d) {
     const name = d.nickname || d.name || ('produto ' + d.product_id);
     const sign = d.delta > 0 ? '+' : '';
-    return `${name}: Veeqo ${d.veeqo}, aqui ${d.ours}, diferença de ${sign}${d.delta}`;
+    // Fase A (Bruno 09-10): "nosso > Veeqo" e o lado perigoso (vende o que nao
+    // tem). Vem marcado, separado do "nosso < Veeqo" (falta contar/organizar).
+    const over = Number(d.ours) > Number(d.veeqo);
+    const base = `${name}: Veeqo ${d.veeqo}, aqui ${d.ours}, diferença de ${sign}${d.delta}`;
+    return over ? `ATENCAO, aqui tem MAIS que a Veeqo (risco de vender sem ter): ${base}` : base;
   }
 
   async tick() {

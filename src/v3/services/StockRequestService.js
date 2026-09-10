@@ -245,6 +245,8 @@ class StockRequestService {
     const common = {
       product_id: req.product_id, person_id: p.person_id || req.proposed_by_person_id || null,
       source: 'request', source_ref: sourceRef, actor_type: 'admin',
+      actor_login_id: Number.isInteger(p.login_id) ? p.login_id : null,   // quem APROVOU (dashboard), mig 087
+      actor_name: p.login || null,
       note: (p.login ? `[${p.login}] ` : '') + (req.reason || req.note || 'aprovado'),
       is_test: !!req.is_test,
     };

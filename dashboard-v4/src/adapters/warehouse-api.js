@@ -285,7 +285,9 @@ export const updateBoxType   = (id, body) => whPost('/box-types/' + id, body);
  *  source:'count_manual'|'count_weigh'|'production_direct'|'loose_fixed',
  *  meta?, client_ref (uuid: repetir a chamada não duplica) }.
  *  Resposta traz o produto atualizado + veeqo_match pro chip ao vivo. */
-export const postLoad        = (body) => whPost('/load', body);
+/* Fase A (Bruno 09-10): a porta POST /load (que SOMAVA) foi removida do backend.
+   Contar e absoluto por LOCAL: "nesta prateleira/caixa tem N agora". */
+export const postCount       = (id, body) => whPost('/product/' + id + '/count', body);
 
 /** O cabeçalho da página numa consulta só: produtos, pesos, locais,
  *  garrafas carregadas, quantos batem com a Veeqo e quais tipos de caixa

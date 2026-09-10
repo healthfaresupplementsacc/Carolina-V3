@@ -566,9 +566,13 @@ describe('POST /api/v3/warehouse/simple/set — a rota', () => {
   });
 
   test('contrato A: {data:{...}} com números, check da Veeqo e locais; audit gravado', async () => {
+    // O overview mockado é ESTÁTICO e representa o DEPOIS (prateleira 23 = Veeqo 23),
+    // que é o que o contrato de resposta checa. A guarda de tamanho (Fase A) lê a
+    // mesma linha como ANTES (23 + 23 > teto 43) e pediria confirmação; `confirm`
+    // é o caminho legítimo da tela. A guarda em si é coberta em warehouse-fase-a.
     await boot([routerRow({ shelf_qty: 23, total: 23 })], 23);
     const r = await call('POST', '/api/v3/warehouse/simple/set',
-      { product_id: 10, scope: 'shelf', qty: 23, bin_code: 'A03', client_ref: REF }, ADMIN_PIN);
+      { product_id: 10, scope: 'shelf', qty: 23, bin_code: 'A03', client_ref: REF, confirm: true }, ADMIN_PIN);
     expect(r.status).toBe(200);
     expect(r.body.data).toMatchObject({
       product_id: 10, veeqo_total: 23, shelf_qty: 23, box_qty: 0, unplaced_qty: 0,

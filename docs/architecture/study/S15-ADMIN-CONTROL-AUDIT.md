@@ -43,11 +43,13 @@ livro, permissão por pessoa, notificação dirigida), e três riscos de dado.
 `v3.veeqo_snapshots` já tem o estoque por SKU a cada 6 h e não é usado. Sem alvo, o modo simples e o
 Montar viram "digite qualquer coisa".
 
-**R2 · Importar da Veeqo dobraria e sujaria o estoque.** O modal (h10) traz **345 "[125 Test Strips]
-Feminine pH Checker"** e **"Ice Pack"** como garrafas (kind errado), e o passo 3 do Montar pede para
-carregar **POTA-130-C3 "faltam 6.670"**: cinco casepacks ainda são produto RAIZ (`#103 FOTI-1000-C2,
-#54 PANT-500-C2, #57 POTA-130-C3, #62 STIN-7500-C2, #67 VTB2-180-C2-WFS`), o que conta a mesma
-garrafa duas vezes (a Veeqo deriva o kit da base). Regra do Bruno: uma linha por garrafa física.
+**R2 · Importar da Veeqo sujaria o estoque com o que não é garrafa.** O modal (h10) traz **345 "[125
+Test Strips] Feminine pH Checker"** e **"Ice Pack"** como garrafas (kind errado). *(Correção 09-10,
+depois de verificar no banco: os "5 casepacks raiz" que a auditoria apontou aqui NÃO eram produtos
+duplicados. Cada um É o produto-base (`#57 Potassium Iodide` tem `HF-POTA-130 x1` e os C2/C3/C4
+pendurados); só o **apelido** tinha sufixo de casepack ("POTA-130-C3"), o que fazia o Montar mostrar
+"faltam 6.670" com nome de casepack. Não dobrava nada. Corrigido: apelidos `FOTI-1000, PANT-500,
+POTA-130, STIN-7500, VTB2-180`; kind de Ice Pack → supply e Test Strips → other. Universo: 108.)*
 
 **R3 · "Juntar SKUs" sugere fusões erradas com "confiança alta".** A sugestão usa só o código de barras
 igual. Dado real: `HF-LITH-5 Lithium Orotate` e `HF-MELA-5 Melatonin Berry 5mg` compartilham o UPC

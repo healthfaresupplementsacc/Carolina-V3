@@ -365,7 +365,11 @@ describe('sugestões: agrupa o que é a mesma garrafa, nunca junta sozinho', () 
     expect(groups[0].confidence).toBe('média');
   });
 
-  test('mesmo UPC é o sinal mais forte: confiança alta', () => {
+  // Fase A 09-10 (R3 da auditoria): este teste dizia o CONTRÁRIO ("mesmo UPC =
+  // confiança alta") e era exatamente o erro. A Veeqo repete UPC em produtos
+  // diferentes (Lithium Orotate × Melatonin 5mg). UPC igual sozinho = média,
+  // "CONFERIR"; alta só com nome canônico ou raiz do SKU iguais.
+  test('mesmo UPC com nomes DIFERENTES: média e "CONFERIR", nunca alta', () => {
     const rows = [
       row({ product_id: 1, name: 'Nada a ver A', base_sku: 'AAA',
         skus: [{ sku: 'AAA', channel: 'veeqo', units_per_pack: 1, barcode: '812345678901' }] }),
@@ -374,8 +378,21 @@ describe('sugestões: agrupa o que é a mesma garrafa, nunca junta sozinho', () 
     ];
     const { groups } = suggest(rows, {});
     expect(groups.length).toBe(1);
-    expect(groups[0].confidence).toBe('alta');
+    expect(groups[0].confidence).toBe('média');
     expect(groups[0].reason).toMatch(/código de barras/);
+    expect(groups[0].reason).toMatch(/CONFERIR/);
+  });
+
+  test('mesmo UPC e mesmo nome canônico: aí sim confiança alta', () => {
+    const rows = [
+      row({ product_id: 1, name: 'Beet Root 2000mg', base_sku: 'HF-BEET-2000',
+        skus: [{ sku: 'HF-BEET-2000', channel: 'veeqo', units_per_pack: 1, barcode: '850054045393' }] }),
+      row({ product_id: 2, name: 'Beet Root 2000mg', base_sku: 'HF-BEET-2000-C3',
+        skus: [{ sku: 'HF-BEET-2000-C3', channel: 'veeqo', units_per_pack: 3, barcode: '850054045393' }] }),
+    ];
+    const { groups } = suggest(rows, {});
+    expect(groups.length).toBe(1);
+    expect(groups[0].confidence).toBe('alta');
   });
 
   test('DOSE DIFERENTE NUNCA agrupa (Berberine 1000 vs 6000)', () => {

@@ -680,8 +680,11 @@ export function CompareChip({ row }) {
   if (d === 0) {
     return <span className="kit-chip ok" data-compare={row.product_id} data-match="ok">bate ✓</span>;
   }
+  // "sobram" = aqui tem MAIS que a Veeqo = o lado que vende o que nao tem (Bruno
+  // 09-10): vermelho, separado do amarelo "faltam" (ainda nao contou/organizou).
   return (
-    <span className="kit-chip warn" data-compare={row.product_id} data-match={d > 0 ? 'faltam' : 'sobram'}>
+    <span className={'kit-chip ' + (d > 0 ? 'warn' : 'bad')} data-compare={row.product_id} data-match={d > 0 ? 'faltam' : 'sobram'}
+          title={d > 0 ? 'a Veeqo tem mais: faltam contar ou organizar' : 'aqui tem MAIS que a Veeqo: risco de vender sem ter'}>
       {d > 0 ? 'faltam ' + fmt(d) : 'sobram ' + fmt(-d)}
     </span>
   );

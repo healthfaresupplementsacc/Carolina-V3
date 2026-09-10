@@ -43,6 +43,16 @@ const newRef = () => (window.crypto && window.crypto.randomUUID
   ? window.crypto.randomUUID()
   : 'ref-' + Date.now().toString(16) + '-' + Math.random().toString(16).slice(2, 10));
 
+/* Selo de idade da coluna Veeqo (Fase A, R1): o backend agora nasce com o
+   snapshot do banco e diz de onde veio ('live' = API agora; 'snapshot' = último
+   snapshot de 6 h). A pessoa que conta precisa saber a idade do alvo. */
+export function veeqoAgeLabel(data) {
+  if (!data || !data.veeqo_checked_at) return 'Veeqo sem dado';
+  const min = Math.max(0, Math.round((Date.now() - new Date(data.veeqo_checked_at).getTime()) / 60000));
+  const age = min < 2 ? 'agora' : (min < 60 ? `há ${min} min` : `há ${Math.round(min / 60)} h`);
+  return (data.veeqo_source === 'snapshot' ? 'Veeqo (snapshot) ' : 'Veeqo ') + age;
+}
+
 /* O número da Veeqo da linha: o overview manda veeqo_total (SKU base, cache
    de 10 min); o objeto veeqo.physical é o mesmo número no formato antigo. */
 const veeqoOf = (r) => (r.veeqo_total != null ? Number(r.veeqo_total)
@@ -309,12 +319,12 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
     devolucao: 'Garrafa que voltou de um cliente. Entra em Separadas até alguém conferir.',
   };
 
-  async function confirm() {
+  async function confirm(force = false) {
     setBusy(true);
     try {
       let res;
       if (action === 'entrada') {
-        const body = { qty: q, note: note || undefined };
+        const body = { qty: q, note: note || undefined, confirm: force || undefined };
         if (dest.startsWith('bin:')) body.bin_id = Number(dest.split(':')[1]);
         else if (dest.startsWith('box:')) {
           const b = boxes.find((x) => x.id === Number(dest.split(':')[1]));
@@ -339,6 +349,8 @@ function ActionModal({ action, row, onClose, onDone, onError }) {
       }
       onDone(res && res.data && res.data.product, DONE[action] || 'Pronto. Os números já mudaram.');
     } catch (e) {
+      // guarda de tamanho (Fase A): acima do alvo da Veeqo, confirma com os numeros na frente
+      if (e && e.code === 'over_target' && !force && window.confirm(e.message)) { setBusy(false); return confirm(true); }
       onError(e);
     } finally { setBusy(false); }
   }
@@ -1284,7 +1296,14 @@ export function WarehousePage() {
     const body = { product_id: row.product_id, scope, qty, client_ref: newRef() };
     if (bin_code) body.bin_code = bin_code;
     try {
-      const res = await wh.simpleSet(body);
+      // guarda de tamanho (Fase A): acima do alvo da Veeqo o backend devolve
+      // over_target e a pessoa confirma com os dois numeros na frente
+      let res;
+      try { res = await wh.simpleSet(body); }
+      catch (e1) {
+        if (e1 && e1.code === 'over_target' && window.confirm(e1.message)) res = await wh.simpleSet({ ...body, confirm: true });
+        else throw e1;
+      }
       const d = (res && res.data) || {};
       const patched = {
         ...row,
@@ -1518,7 +1537,7 @@ export function WarehousePage() {
           {/* dia 1 do mutirão: tudo zerado é o ponto de partida, não um erro */}
           {rows.length > 0 && rows.every((r) => !n(r.total)) && (
             <div className="kit-card pad" style={{ marginTop: 12, color: 'var(--ink-dim)' }} data-simple-empty>
-              Conte e digite direto na linha. O alvo de cada produto é o número da Veeqo.
+              Conte e digite direto na linha o que está no local AGORA (não soma). O alvo de cada produto é o número da Veeqo{data && data.veeqo_checked_at ? ' · ' + veeqoAgeLabel(data) : ''}.
             </div>
           )}
 
@@ -1890,8 +1909,8 @@ export function WarehousePage() {
       )}
 
       {data.veeqo_checked_at && (
-        <div className="kit-mlabel" style={{ marginTop: 10 }}>
-          Veeqo conferida em {String(data.veeqo_checked_at).slice(0, 16).replace('T', ' ')} · a coluna Veeqo é comparação, nunca entra na soma
+        <div className="kit-mlabel" style={{ marginTop: 10 }} data-veeqo-source={data.veeqo_source || 'live'}>
+          {veeqoAgeLabel(data)} · a coluna Veeqo é comparação, nunca entra na soma
         </div>
       )}
 

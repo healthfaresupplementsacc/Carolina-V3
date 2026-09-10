@@ -48,12 +48,16 @@ const err = (res, code, message, status) =>
 
 /** Erro do service → HTTP. Mesmo critério do data router. */
 function statusFor(e) {
+  if (e && Number.isInteger(e.status) && e.status >= 400 && e.status < 600) return e.status;
   const m = String((e && e.message) || '');
   if (/não existe/.test(m)) return 404;
   if (/obrigatóri|inválid|precisa de|iguais/.test(m)) return 400;
   return 500;
 }
-function codeFor(status) {
+// Erro com `code` próprio (multi_location, over_target) chega ao cliente com esse
+// código: o frontend decide pelo código, não pelo texto.
+function codeFor(status, e) {
+  if (e && typeof e.code === 'string' && e.code) return e.code;
   return status === 404 ? 'not_found' : (status === 400 ? 'bad_request' : 'internal');
 }
 
@@ -228,7 +232,8 @@ function createWarehouseRouter(deps = {}) {
   const db = deps.db;
   const stock = deps.stock;
   const requests = deps.requests;
-  const veeqoCache = deps.veeqoCache || createVeeqoCache({ veeqo: deps.veeqo });
+  // db no cache = semente do snapshot (Fase A R1): a coluna Veeqo nunca nasce vazia
+  const veeqoCache = deps.veeqoCache || createVeeqoCache({ veeqo: deps.veeqo, db });
   const locations = deps.locations || new LocationsRepo({ db });
   // stock no FamilyRepo: o merge move ESTOQUE, e quantidade só o StockService escreve
   const family = deps.family || new FamilyRepo({ db, veeqoCache, stock });
@@ -249,13 +254,37 @@ function createWarehouseRouter(deps = {}) {
   const canRead = (req) => hasFunction(req.login, 'view_stock') || hasFunction(req.login, 'manage_stock');
   const canWrite = (req) => hasFunction(req.login, 'manage_stock');
 
-  /** Contexto padrão de toda chamada ao StockService a partir do hub. */
+  /** Contexto padrão de toda chamada ao StockService a partir do hub.
+   *  Fase A (09-10): o livro passa a guardar QUEM do dashboard fez a ação
+   *  (actor_login_id/actor_name). Antes só person_id, que é null para Admin e
+   *  Henrique, e a coluna "Quem" do histórico ficava vazia. */
   const actor = (req, note) => ({
     source: 'warehouse_hub',
     actor_type: 'admin',
     person_id: (req.login && req.login.person_id) || null,
+    actor_login_id: (req.login && Number.isInteger(req.login.id)) ? req.login.id : null,
+    actor_name: (req.login && req.login.name) || null,
     note: `[${(req.login && req.login.name) || 'admin'}]${note ? ' ' + note : ''}`,
   });
+
+  /* ── GUARDA DE TAMANHO (Fase A, item 6 · Bruno 09-10: "nunca duplicar") ──
+     Um movimento que deixe o produto ACIMA do alvo da Veeqo (+20 %, mínimo +20
+     garrafas) só passa com `confirm: true`: a tela mostra os dois números e a
+     pessoa confirma que contou de novo. Sem alvo (Veeqo desconhecida) não há
+     guarda — nunca bloqueia quem está carregando do zero. */
+  async function assertNotOverTarget({ productId, totalAfter, confirm, label }) {
+    if (confirm) return;
+    const row = (await rowsWithVeeqo(productId))[0];
+    const target = row && row.veeqo_total != null ? Number(row.veeqo_total) : null;
+    if (target == null || !Number.isFinite(target) || target < 0) return;
+    const ceiling = Math.max(Math.round(target * 1.2), target + 20);
+    if (totalAfter <= ceiling) return;
+    const e = new Error(`${label || 'Isso'} deixaria ${row.nickname || row.name} com ${totalAfter} garrafas; ` +
+      `a Veeqo tem ${target}. Se você contou de novo e é isso mesmo, confirme.`);
+    e.code = 'over_target'; e.status = 409;
+    e.detail = { total_after: totalAfter, veeqo: target, ceiling };
+    throw e;
+  }
 
   async function audit(req, action, targetId, after) {
     try {
@@ -396,7 +425,7 @@ function createWarehouseRouter(deps = {}) {
       } catch (e) {
         const status = statusFor(e);
         if (status === 500) console.error('[warehouse]', method.toUpperCase(), path, '-', e.message);
-        return err(res, codeFor(status), e.message, status);
+        return err(res, codeFor(status, e), e.message, status);
       }
     });
   }
@@ -459,6 +488,7 @@ function createWarehouseRouter(deps = {}) {
       attention: attentionFrom(all).concat(recalItems),
       pending_summary: pending,
       veeqo_checked_at: veeqoCache.checkedAt(),
+      veeqo_source: veeqoCache.source(),        // 'live' | 'snapshot' | 'none' (selo de idade no hub)
       generated_at: new Date().toISOString(),
     });
   });
@@ -482,6 +512,10 @@ function createWarehouseRouter(deps = {}) {
     const b = req.body || {};
     const qty = intOf(b.qty);
     if (!qty || qty <= 0) throw new Error('qty inválido (inteiro > 0)');
+    // guarda de tamanho ANTES de criar caixa ou mexer em quantidade
+    const before = (await rowsWithVeeqo(id))[0];
+    await assertNotOverTarget({ productId: id, totalAfter: (Number(before && before.total) || 0) + qty,
+      confirm: !!b.confirm, label: 'Esta entrada' });
     let boxId = intOf(b.box_id);
     if (!boxId && b.box_number) {
       const box = await locations.upsertBox({ box_number: b.box_number, area: b.area,
@@ -983,30 +1017,48 @@ function createWarehouseRouter(deps = {}) {
     ok(res, { type });
   });
 
-  // ── S15.44 — A PORTA DA CARGA (página Montar; começa HOJE) ──
+  // ── S15.44 — o cabeçalho da página Montar (contadores) ──
+  // Fase A (Bruno 09-10, item 5, "nunca duplicar"): a porta POST /load, que SOMAVA
+  // o contado ao local, FOI REMOVIDA. Contar a mesma caixa duas vezes entrava duas
+  // vezes. Sobrou só o que DEFINE o absoluto: /simple/set (por escopo) e
+  // /product/:id/count (por local). O GET de progresso continua.
   const loadDoor = deps.load || createLoad({ db, stock, boxTypes, rowsWithVeeqo });
-
-  route('post', '/load', 'write', async (req, res) => {
-    const b = req.body || {};
-    const out = await loadDoor.load(b, {
-      person_id: (req.login && req.login.person_id) || null,
-      login: (req.login && req.login.name) || null,
-    });
-    await audit(req, 'warehouse.load', intOf(b.product_id) || null, {
-      qty: b.qty, dest: b.dest || null, source: b.source || null,
-      client_ref: b.client_ref || null, applied: out.applied,
-      duplicate: out.duplicate, meta: b.meta || null });
-    ok(res, out);
-  });
 
   route('get', '/load/progress', 'read', async (req, res) => {
     ok(res, await loadDoor.progress());
   });
 
+  // ── CONTAR (absoluto por LOCAL) — a porta da página Montar, passo 3 ──
+  // body: { bin_id | box_id, found (int >= 0), confirm?, note?, client_ref? }
+  // "Nesta prateleira/caixa tem N agora." O StockService.count grava o delta
+  // como movimento 'count' e deixa qty = found. Repetir é inofensivo.
+  route('post', '/product/:id/count', 'write', async (req, res) => {
+    const id = productIdOf(req);
+    const b = req.body || {};
+    const found = intOf(b.found);
+    if (found == null || found < 0) throw new Error('found inválido (inteiro >= 0, o que está no local agora)');
+    const binId = intOf(b.bin_id) || null; const boxId = intOf(b.box_id) || null;
+    if (!binId && !boxId) throw new Error('bin_id ou box_id obrigatório: contar é por local');
+    const loc = binId
+      ? (await db.query('SELECT qty, product_id FROM v3.stock_bins WHERE id = $1', [binId])).rows[0]
+      : (await db.query('SELECT qty, product_id FROM v3.stock_boxes WHERE id = $1', [boxId])).rows[0];
+    if (!loc) throw new Error('local não existe');
+    if (Number(loc.product_id) !== id) throw new Error('local inválido: pertence a outro produto');
+    const before = (await rowsWithVeeqo(id))[0];
+    const totalAfter = (Number(before && before.total) || 0) - (Number(loc.qty) || 0) + found;
+    await assertNotOverTarget({ productId: id, totalAfter, confirm: !!b.confirm, label: 'Esta contagem' });
+    const ref = b.client_ref ? 'count:' + String(b.client_ref).toLowerCase() : null;
+    const out = await stock.count({
+      ...actor(req, b.note || ''), bin_id: binId, box_id: boxId, found, source_ref: ref,
+    });
+    await audit(req, 'warehouse.count', id, { bin_id: binId, box_id: boxId, found, applied: out.applied, duplicate: !!out.duplicate });
+    ok(res, { applied: out.applied, duplicate: !!out.duplicate, product: await freshRow(id) });
+  });
+
   // ── MODO SIMPLES (Fase 1, mutirão): quantidade ABSOLUTA por escopo ──
   // Toda a lógica (delta, criação de local, verbos do StockService) em
   // simple-set.js; aqui só o registro fino da rota, como o resto do hub.
-  const simpleSet = deps.simpleSet || createSimpleSet({ db, stock, locations, rowsWithVeeqo });
+  const simpleSet = deps.simpleSet || createSimpleSet({ db, stock, locations, rowsWithVeeqo, assertNotOverTarget });
 
   route('post', '/simple/set', 'write', async (req, res) => {
     const b = req.body || {};

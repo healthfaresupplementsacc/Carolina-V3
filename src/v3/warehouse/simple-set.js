@@ -80,7 +80,7 @@ function simpleProgress(rows = []) {
  *   deps.rowsWithVeeqo (productId|null) → Rows enriquecidas (mesmas do hub)
  */
 function createSimpleSet(deps = {}) {
-  const { db, stock, locations, rowsWithVeeqo } = deps;
+  const { db, stock, locations, rowsWithVeeqo, assertNotOverTarget } = deps;
 
   const binsOf = async (productId) => (await db.query(
     `SELECT id, bin_code, product_id, qty FROM v3.stock_bins
@@ -162,11 +162,20 @@ function createSimpleSet(deps = {}) {
     let applied = 0; let duplicate = false;
     const noteFor = (current) =>
       `[${who}] Modo simples: ${SCOPE_PT[scope]} contada ${qty}, sistema tinha ${current}`;
+    // GUARDA DE TAMANHO (Fase A, Bruno 09-10): só quando a contagem SOBE o total
+    // e passa do alvo da Veeqo; a tela confirma com os dois números (body.confirm).
+    const guard = async (delta) => {
+      if (delta <= 0 || typeof assertNotOverTarget !== 'function') return;
+      const row = (await rowsWithVeeqo(productId))[0];
+      await assertNotOverTarget({ productId, totalAfter: (Number(row && row.total) || 0) + delta,
+        confirm: !!body.confirm, label: 'Esta contagem' });
+    };
 
     if (scope === 'unplaced') {
       const current = await unplacedOf(productId);
       const delta = qty - current;
       if (delta > 0) {
+        await guard(delta);
         // sem bin e sem caixa o storeIn cai no bucket "a organizar"
         const stored = await stock.storeIn({ ...common, qty: delta,
           source_ref: ref, note: noteFor(current) });
@@ -197,6 +206,7 @@ function createSimpleSet(deps = {}) {
       const current = Number(bin.qty) || 0;
       const delta = qty - current;
       if (delta > 0) {
+        await guard(delta);
         const stored = await stock.storeIn({ ...common, qty: delta,
           source_ref: ref, note: noteFor(current) });
         applied = stored.applied || 0; duplicate = !!stored.duplicate;
@@ -221,6 +231,7 @@ function createSimpleSet(deps = {}) {
       const current = Number(box.qty) || 0;
       const delta = qty - current;
       if (delta > 0) {
+        await guard(delta);
         const stored = await stock.storeIn({ ...common, qty: delta,
           source_ref: ref, note: noteFor(current) });
         applied = stored.applied || 0; duplicate = !!stored.duplicate;
