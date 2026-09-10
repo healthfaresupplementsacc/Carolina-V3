@@ -1348,6 +1348,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             onOpenBatch={openBatch}
             onOpenFullForm={openFullForm}
             isToday={isToday}
+            onClosePanel={() => openPanel(null)}
           />
         )}
       </div>

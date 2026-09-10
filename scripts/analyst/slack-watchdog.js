@@ -54,6 +54,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── mantém o Chrome vivo ──────────────────────────────────────────────
 async function chromeUp() { try { const r = await fetch('http://localhost:9222/json/version'); return r.ok; } catch { return false; } }
+// 09-10: quando um HUMANO precisa ver a tela (login com captcha/iframe), o
+// Chrome tem que subir na SESSAO DELE, nao pela task (S4U = janela invisivel).
+// Enquanto _watch/chrome-pausado.txt existir, o watchdog nao relanca nada —
+// senao ele recria o Chrome invisivel e rouba o perfil do humano.
+const CHROME_PAUSADO = path.join(DIR, 'chrome-pausado.txt');
+function chromePausado() { try { return fs.existsSync(CHROME_PAUSADO); } catch (_) { return false; } }
+
 function relaunchChrome() {
   return new Promise((res) => {
     execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', LAUNCHER], { windowsHide: true }, () => res());
@@ -63,6 +70,7 @@ let chromeOkAgora = false;
 async function ensureChrome() {
   if (await chromeUp()) { chromeOkAgora = true; return true; }
   chromeOkAgora = false;
+  if (chromePausado()) { console.log('[watchdog] Chrome pausado por um humano (chrome-pausado.txt); nao relanco'); return false; }
   console.log('[watchdog] Chrome caiu → relançando');
   await relaunchChrome();
   for (let i = 0; i < 20; i++) { if (await chromeUp()) return true; await sleep(1500); }

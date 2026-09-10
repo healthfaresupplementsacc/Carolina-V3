@@ -72,6 +72,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     onDedupe,           // (keepId, removeIds) => void
                     onSplitRequest,     // (id, minute) => void
                     isToday = true,     // dia passado: sem AGORA, sem 'ao vivo', sem 'sem registro há'
+                    onClosePanel,       // () => void  fecha o painel de detalhes (1 clique) quando o menu (2) ou o arrastar (3) entra
 }) {
   const { DAY_START, DAY_END: DAY_END_BASE, activities, products } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
@@ -110,8 +111,8 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
     ev.stopPropagation();
     const at = { x: ev.clientX, y: ev.clientY };
     if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
-    if (ev.detail >= 3) { setMenu(null); setBar(null); setArmed(e.id); return; }
-    if (ev.detail === 2) { setArmed(null); openBar(at.x, at.y, e, op); return; }
+    if (ev.detail >= 3) { setMenu(null); setBar(null); onClosePanel && onClosePanel(); setArmed(e.id); return; }
+    if (ev.detail === 2) { setArmed(null); onClosePanel && onClosePanel(); openBar(at.x, at.y, e, op); return; }
     clickTimer.current = setTimeout(() => { clickTimer.current = null; if (armed !== e.id) { setBar(null); onSelectEvent && onSelectEvent(e.id, at); } }, 230);
   };
   // pointerdown no bloco: só arrasta se estiver armado; senão não deixa o clique virar "vazio"
@@ -192,9 +193,11 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
           <span className="legend-item"><span className="sw hatch"/>almoço · pausa · fora do turno</span>
         </div>
         {setHourPx && (
-          <div className="tl-seg" role="group" aria-label="Densidade">
-            <button className={hourPx < 150 ? 'on' : ''} onClick={() => setHourPx(110)}>Compacto</button>
-            <button className={hourPx >= 150 ? 'on' : ''} onClick={() => setHourPx(160)}>Confortável</button>
+          <div className="tl-seg" role="group" aria-label="Zoom">
+            <button title="Menos zoom" onClick={() => setHourPx((p) => Math.max(60, Math.round(p / 1.25)))}>−</button>
+            <button className={hourPx < 150 ? 'on' : ''} onClick={() => setHourPx(110)} title="Compacto">Compacto</button>
+            <button className={hourPx >= 150 ? 'on' : ''} onClick={() => setHourPx(160)} title="Confortável">Confortável</button>
+            <button title="Mais zoom" onClick={() => setHourPx((p) => Math.min(400, Math.round(p * 1.25)))}>+</button>
           </div>
         )}
         {onQuickCreate && (

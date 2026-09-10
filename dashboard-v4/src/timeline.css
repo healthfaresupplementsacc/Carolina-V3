@@ -29,6 +29,8 @@
 .tl-header .sw.hatch { background: repeating-linear-gradient(135deg, var(--tl-hatch) 0 2px, transparent 2px 6px); border: 1px solid var(--border-strong, var(--border)); }
 .tl-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
 .tl-seg button { border: 0; background: transparent; color: var(--text-2); font: 500 12px inherit; font-family: inherit; padding: 5px 11px; cursor: pointer; }
+.tl-seg button:first-child, .tl-seg button:last-child { font-weight: 800; padding: 5px 10px; border-right: 1px solid var(--border); }
+.tl-seg button:last-child { border-right: 0; border-left: 1px solid var(--border); }
 .tl-seg button.on { background: var(--hf-navy-600); color: #fff; }
 .tl-newbtn { margin-left: 4px; }
 .tl-pending-bar { margin: 8px 10px 0; padding: 10px 14px; border-radius: 10px; background: linear-gradient(90deg, rgba(245,158,11,.12), rgba(245,158,11,.04)); border: 1px solid var(--warn, #f59e0b); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: relative; z-index: 3; }
