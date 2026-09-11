@@ -329,7 +329,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               }
               const out = [];
               pieces.forEach((seg) => {
-                const left = X(seg.start); const w = Math.max(6, X(seg.end) - X(seg.start));
+                const left = X(seg.start); const w = Math.max(4, X(seg.end) - X(seg.start));
                 const head = seg.is_first;
                 const fitW = (head ? totalW : w) - 12;
                 const fitRes = neutral ? null : L.fitLabel({ name: act.name, short: L.shortName(e.activity, act.name), w: fitW, h, durTxt, prodName: productName, measure });
