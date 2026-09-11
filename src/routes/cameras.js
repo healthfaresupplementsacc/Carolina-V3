@@ -417,7 +417,8 @@ router.get('/cameras/pip', (req, res) => {
   var cam=${JSON.stringify(cam)}, label=${JSON.stringify(label)};
   var tok=(location.hash.match(/t=([^&]+)/)||[])[1]||'';
   if(!tok){ document.getElementById('wrap').innerHTML='<div style="display:grid;place-items:center;height:100%;text-align:center;padding:12px">Sessão das câmeras não encontrada — abra pelo dashboard.</div>'; return; }
-  var v=document.getElementById('v'), im=document.getElementById('vm'), stage=document.getElementById('stage'), retry=null, mode='mp4', blackTimer=null, fails=0;
+  var PREFER_MP4=false; // 09-11: /mp4 chega em rajadas de ~2 s pelo funnel → preto; MJPEG é contínuo
+  var v=document.getElementById('v'), im=document.getElementById('vm'), stage=document.getElementById('stage'), retry=null, mode=PREFER_MP4?'mp4':'mjpeg', blackTimer=null, fails=0;
   function mp4src(){ return '/api/cam/'+cam+'/mp4?t='+decodeURIComponent(tok)+'&r='+Date.now(); }
   function mjpgsrc(){ return '/api/cam/'+cam+'?t='+decodeURIComponent(tok)+'&r='+Date.now(); }
   // fMP4 fica PRETO numa conexão nova até o 1º keyframe (a warehouse tem GOP
@@ -428,7 +429,7 @@ router.get('/cameras/pip', (req, res) => {
   v.onplaying=function(){ clearTimeout(blackTimer); };
   v.onerror=function(){ fails++; if(fails>=2){ toMjpeg(); } else { clearTimeout(retry); retry=setTimeout(startMp4,2500); } };
   v.onended=v.onerror;
-  startMp4();
+  if(PREFER_MP4) startMp4(); else toMjpeg();
   // (Janela simples só-vídeo. O "sempre no topo" foi removido — Chrome só
   // permite 1 PIP no total; pra as 2 câmeras no topo use "PIP tudo" no dashboard.)
 })();
@@ -624,9 +625,10 @@ ${cams.map((c) => `  <div class="card" data-cam="${c.id}">
   var K='hf_cam_tok', TOKEN=null;
   var ov=document.getElementById('pin-overlay'), inp=document.getElementById('pin'), err=document.getElementById('pin-err');
   var gw=document.getElementById('gw');
+  var PREFER_MP4=false; // 09-11: MJPEG por padrão (ver SPEC: /mp4 em rajadas de ~2 s = preto)
   var cams={}; // id -> {card,img,badge,offmsg,backoff,timer,pump,video,canvas,inPip}
   document.querySelectorAll('.card').forEach(function(c){
-    cams[c.dataset.cam]={card:c,img:c.querySelector('img'),video:c.querySelector('video'),badge:c.querySelector('.badge'),offmsg:c.querySelector('.off-msg'),backoff:2000,timer:null,stallTimer:null,firstFrameTimer:null,pump:null,pipVideo:null,canvas:null,inPip:false,mode:'mp4',mp4Fails:0};
+    cams[c.dataset.cam]={card:c,img:c.querySelector('img'),video:c.querySelector('video'),badge:c.querySelector('.badge'),offmsg:c.querySelector('.off-msg'),backoff:2000,timer:null,stallTimer:null,firstFrameTimer:null,pump:null,pipVideo:null,canvas:null,inPip:false,mode:(PREFER_MP4?'mp4':'mjpeg'),mp4Fails:0};
   });
 
   // ── tamanho ajustável (persistido) ──
@@ -695,7 +697,7 @@ ${cams.map((c) => `  <div class="card" data-cam="${c.id}">
       // gateway VOLTOU e a câmera está offline → reconecta na hora, e volta a
       // TENTAR o mp4 (HD): a queda pode ter sido do gateway, não do codec —
       // não deixa a câmera presa no MJPEG pra sempre depois de um blip. Bruno 07-08.
-      if(j.reachable){ Object.keys(cams).forEach(function(id){ var c=cams[id]; if(c.badge.className.indexOf('off')>=0){ c.backoff=2000; if(c.video){ c.mode='mp4'; c.mp4Fails=0; } startStream(id); } }); }
+      if(j.reachable){ Object.keys(cams).forEach(function(id){ var c=cams[id]; if(c.badge.className.indexOf('off')>=0){ c.backoff=2000; if(PREFER_MP4&&c.video){ c.mode='mp4'; c.mp4Fails=0; } startStream(id); } }); }
     }).catch(function(){});
   }, 15000);
   document.addEventListener('visibilitychange', function(){

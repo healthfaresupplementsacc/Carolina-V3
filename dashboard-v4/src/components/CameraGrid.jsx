@@ -71,7 +71,11 @@ function CameraGrid({ compact = false }) {
 
   const st = (id) => { ref.current[id] = ref.current[id] || { backoff: 2000, mp4Fails: 0 }; return ref.current[id]; };
   const setSt = (id, s) => setStatus((p) => (p[id] === s ? p : { ...p, [id]: s }));
-  const camMode = (id) => mode[id] || 'mp4';
+  // 09-11 (Bruno: "picando preto"): medido pelo funnel, o /mp4 chega em rajadas a cada ~2 s e o
+  // <video> esvazia entre elas (preto). MJPEG chega contínuo. Padrão = MJPEG até o gateway
+  // mandar fragmentos curtos (pedido no SPEC); PREFER_MP4 volta o H.264 num toque.
+  const PREFER_MP4 = false;
+  const camMode = (id) => mode[id] || (PREFER_MP4 ? 'mp4' : 'mjpeg');
 
   const startStream = React.useCallback((id) => {
     const c = st(id); if (!token) return;
@@ -175,7 +179,7 @@ function CameraGrid({ compact = false }) {
             // no MJPEG pra sempre depois de um blip. Bruno 07-08.
             if ((statusRef.current[cam.id] || '') === 'off') {
               const c = st(cam.id); c.backoff = 2000;
-              if (c.video && camMode(cam.id) === 'mjpeg') { c.mp4Fails = 0; setMode((p) => ({ ...p, [cam.id]: 'mp4' })); }
+              if (PREFER_MP4 && c.video && camMode(cam.id) === 'mjpeg') { c.mp4Fails = 0; setMode((p) => ({ ...p, [cam.id]: 'mp4' })); }
               else startStream(cam.id);
             }
           });
