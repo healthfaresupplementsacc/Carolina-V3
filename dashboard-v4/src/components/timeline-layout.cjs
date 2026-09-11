@@ -117,6 +117,14 @@ function fitLabel({ name, short, w, h, durTxt, prodName, measure }) {
     }
   }
   for (const px of [10.5, 9.5]) { if (measure(short, px, 'sans') <= w) return { inside: true, name: short, px, line2, prod }; }
+  // VERTICAL (Bruno 09-11): não coube na horizontal mas o bloco é alto o bastante → texto em pé
+  if (w >= 13 && h >= 30) {
+    for (const px of [10, 9.5]) {
+      const withDur = short + ' ' + durTxt;
+      if (measure(withDur, px, 'sans') <= h - 6) return { inside: true, vertical: true, name: withDur, px, line2: false, prod: false };
+      if (measure(short, px, 'sans') <= h - 6) return { inside: true, vertical: true, name: short, px, line2: false, prod: false };
+    }
+  }
   return { inside: false, name: short };
 }
 
@@ -126,8 +134,15 @@ function fitLabel({ name, short, w, h, durTxt, prodName, measure }) {
  */
 function railLabel({ name, short, w, durTxt, prodName, room, measure }) {
   const full = (prodName ? prodName + ' · ' : '') + durTxt;
-  if (w >= measure(name, 10.5, 'sans') + measure(full, 10.5, 'mono') + 22) return { mode: 'full', name, extra: full };
-  if (w >= measure(short, 10.5, 'sans') + measure(durTxt, 10.5, 'mono') + 20) return { mode: 'short_dur', name: short, extra: durTxt };
+  const fits = (n, x) => w >= measure(n, 10.5, 'sans') + measure(x, 10.5, 'mono') + 20;
+  // escada: nome + lote + tempo → curto + lote + tempo → nome + tempo → curto + tempo
+  if (fits(name, full)) return { mode: 'full', name, extra: full };
+  if (prodName && fits(short, full)) return { mode: 'full', name: short, extra: full };
+  if (fits(name, durTxt)) return { mode: 'short_dur', name, extra: durTxt };
+  if (fits(short, durTxt)) return { mode: 'short_dur', name: short, extra: durTxt };
+  // fora, à direita: com o lote se houver espaço, senão só curto + tempo
+  const outFull = short + (prodName ? ' · ' + prodName : '') + ' ' + durTxt;
+  if (prodName && room >= measure(outFull, 10.5, 'mono') + 10) return { mode: 'outside', name: outFull, extra: '' };
   const out = short + ' ' + durTxt;
   if (room >= measure(out, 10.5, 'mono') + 10) return { mode: 'outside', name: out, extra: '' };
   if (w >= 30) return { mode: 'short', name: short, extra: '' };
@@ -163,13 +178,40 @@ function layoutPerson(events, { now, dayEnd }) {
   const valid = events.filter((e) => e.started_min != null);
   const rails = collapseDupes(valid.filter(isRail), effEnd).filter((e) => effEnd(e) - e.started_min >= 2);
   const rl = assignLanes(rails, effEnd);
-  for (const r of rails) r._lane = Math.min(rl.laneOf[r.id] || 0, 2);
+  for (const r of rails) r._lane = Math.min(rl.laneOf[r.id] || 0, 3);
   const hands = collapseDupes(valid.filter((e) => !isRail(e)), effEnd);
   const ticks = hands.filter((e) => e.ended_min != null && effEnd(e) - e.started_min < 2);
   const real = hands.filter((e) => !(e.ended_min != null && effEnd(e) - e.started_min < 2)).sort((a, b) => a.started_min - b.started_min);
-  const cls = clusters(real.filter((e) => !isNeutral(e)), effEnd);
+  // 09-11: almoço/pausa ENTRAM nos clusters (antes ficavam por cima de tarefa que os atravessava)
+  const cls = clusters(real, effEnd);
   const neutral = real.filter(isNeutral);
-  return { rails, railLanes: rails.length ? Math.min(3, rl.count) : 0, real, ticks, clusters: cls, neutral, gaps: gapsBetween(real, effEnd, 15), effEnd };
+  return { rails, railLanes: rails.length ? Math.min(4, rl.count) : 0, real, ticks, clusters: cls, neutral, gaps: gapsBetween(real, effEnd, 15), effEnd };
 }
 
-module.exports = { SHORT, RAIL_SLUGS, NEUTRAL, shortName, isRail, isNeutral, fmtDurShort, collapseDupes, assignLanes, clusters, fitLabel, railLabel, gapsBetween, rowMetrics, layoutPerson };
+/**
+ * CALOR (Bruno 09-11): quanto uma tarefa AO VIVO já passou do esperado.
+ *  expected = ajuste da pessoa (pref) → cadastro (act.expected) → média das
+ *  concluídas da mesma atividade no dia (≥ 3) → null (sem sinal).
+ *  Devolve 0..4: 0 azul (<50 %), 1 verde (<85 %), 2 amarelo (<100 %),
+ *  3 laranja (<130 %), 4 vermelho + fogo (≥ 130 %).
+ */
+function expectedFor(slug, { prefMin, actMin, events, effEnd }) {
+  if (prefMin > 0) return prefMin;
+  if (actMin > 0) return actMin;
+  const done = (events || []).filter((e) => e.activity === slug && e.ended_min != null && effEnd(e) - e.started_min >= 2);
+  if (done.length >= 3) return done.reduce((a, e) => a + (effEnd(e) - e.started_min), 0) / done.length;
+  return null;
+}
+function heatLevel(elapsedMin, expectedMin) {
+  if (!expectedMin || expectedMin <= 0) return null;
+  const r = elapsedMin / expectedMin;
+  return r < 0.5 ? 0 : r < 0.85 ? 1 : r < 1 ? 2 : r < 1.3 ? 3 : 4;
+}
+/** Marca ao terminar: 'fast' (≤ 90 % do esperado) · 'ok' · 'slow' (≥ 120 %). */
+function doneMark(durMin, expectedMin) {
+  if (!expectedMin || expectedMin <= 0) return null;
+  const r = durMin / expectedMin;
+  return r <= 0.9 ? 'fast' : r >= 1.2 ? 'slow' : 'ok';
+}
+
+module.exports = { expectedFor, heatLevel, doneMark, SHORT, RAIL_SLUGS, NEUTRAL, shortName, isRail, isNeutral, fmtDurShort, collapseDupes, assignLanes, clusters, fitLabel, railLabel, gapsBetween, rowMetrics, layoutPerson };

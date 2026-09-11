@@ -55,6 +55,29 @@ describe('layoutPerson (Caroline 09-09)', () => {
   });
 });
 
+describe('almoço dentro de uma tarefa divide a faixa (não fica por cima)', () => {
+  test('revisão 11:32–12:21 + almoço 12:20–13:03 = um cluster com 2 lanes', () => {
+    const lay = L.layoutPerson([ev(1, 'review', 692, 741), ev(2, 'lunch', 740, 783)], { now: 1200, dayEnd: 1080 });
+    expect(lay.clusters).toHaveLength(1); expect(lay.clusters[0].count).toBe(2);
+  });
+});
+
+describe('calor e marca ao terminar', () => {
+  const effEnd = (e) => e.ended_min;
+  test('esperado: pref > cadastro > média do dia (≥ 3) > nada', () => {
+    const evs = [ev(1, 'review', 0, 50), ev(2, 'review', 0, 40), ev(3, 'review', 0, 60)];
+    expect(L.expectedFor('review', { prefMin: 30, actMin: 45, events: evs, effEnd })).toBe(30);
+    expect(L.expectedFor('review', { prefMin: 0, actMin: 45, events: evs, effEnd })).toBe(45);
+    expect(L.expectedFor('review', { prefMin: 0, actMin: null, events: evs, effEnd })).toBe(50);
+    expect(L.expectedFor('review', { prefMin: 0, actMin: null, events: evs.slice(0, 2), effEnd })).toBeNull();
+  });
+  test('níveis: azul → verde → amarelo → laranja → vermelho', () => {
+    expect([10, 40, 55, 70, 100].map((m) => L.heatLevel(m, 60))).toEqual([0, 1, 2, 3, 4]);
+    expect(L.heatLevel(30, null)).toBeNull();
+  });
+  test('marca ao terminar', () => { expect(L.doneMark(50, 60)).toBe('fast'); expect(L.doneMark(58, 60)).toBe('ok'); expect(L.doneMark(80, 60)).toBe('slow'); });
+});
+
 describe('layoutPerson (Vitor 09-09): sobreposição real divide a faixa; 0 min vira tique', () => {
   const events = [ev(4305, 'cleaning', 498, 633), ev(4311, 'packaging', 590, 630), ev(4344, 'encapsulation', 927, 927, { _is_background: true }), ev(4356, 'review', 1049, 1049)];
   const lay = L.layoutPerson(events, { now: 1200, dayEnd: 1080 });
@@ -86,6 +109,10 @@ describe('fitLabel: nome e tempo sempre, letra encolhe, senão sai do bloco', ()
     const f = L.fitLabel({ ...base, w: 9, h: 42 });
     expect(f).toEqual({ inside: false, name: 'Linha' });
   });
+  test('estreito mas alto: texto em pé dentro do bloco (antes de ir pra calha)', () => {
+    const f = L.fitLabel({ ...base, w: 16, h: 42 });
+    expect(f).toMatchObject({ inside: true, vertical: true, name: 'Linha' });
+  });
   test('faixa dividida (bloco baixo): "Limpeza · 2h15" numa linha só', () => {
     const f = L.fitLabel({ name: 'Limpeza', short: 'Limpeza', durTxt: '2h15', w: 150, h: 20, measure });
     expect(f).toMatchObject({ inside: true, name: 'Limpeza · 2h15', line2: false });
@@ -96,7 +123,9 @@ describe('railLabel: aba diz o que é', () => {
   const base = { name: 'Encapsulação', short: 'Encaps.', durTxt: '3h08', prodName: 'Mullein Leaf', measure };
   test('aba larga: nome · lote · duração', () => expect(L.railLabel({ ...base, w: 300, room: 0 }).mode).toBe('full'));
   test('aba média: nome curto + duração', () => expect(L.railLabel({ ...base, w: 110, room: 0 }).mode).toBe('short_dur'));
-  test('aba estreita com espaço à direita: rótulo fora', () => expect(L.railLabel({ ...base, w: 20, room: 200 })).toMatchObject({ mode: 'outside', name: 'Encaps. 3h08' }));
+  test('aba estreita com espaço à direita: rótulo fora COM o suplemento', () => expect(L.railLabel({ ...base, w: 20, room: 200 })).toMatchObject({ mode: 'outside', name: 'Encaps. · Mullein Leaf 3h08' }));
+  test('aba estreita com pouco espaço: rótulo fora só curto + tempo', () => expect(L.railLabel({ ...base, w: 20, room: 90 })).toMatchObject({ mode: 'outside', name: 'Encaps. 3h08' }));
+  test('aba média com lote: nome curto + lote + tempo antes de perder o lote', () => expect(L.railLabel({ ...base, w: 185, room: 0 })).toMatchObject({ mode: 'full', name: 'Encaps.', extra: 'Mullein Leaf · 3h08' }));
   test('aba estreita sem espaço: nada (hover carrega)', () => expect(L.railLabel({ ...base, w: 20, room: 10 }).mode).toBe('none'));
 });
 

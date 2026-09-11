@@ -114,7 +114,11 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
     return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', upd); };
   }, []);
   // CORES (Bruno 09-11): estilo global + cor por atividade, por conta (v3.user_prefs 'timeline.colors')
-  const [colorsPref, setColorsPref] = useAccountPref('timeline.colors', { style: 'regular', colors: {} }, { localKey: 'hf-tl-colors' });
+  const [colorsPref, setColorsPref] = useAccountPref('timeline.colors', { style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, presets: {} }, { localKey: 'hf-tl-colors' });
+  const styleOf = (slug) => `bst-${(colorsPref && colorsPref.styles && colorsPref.styles[slug]) || (colorsPref && colorsPref.style) || 'regular'}`;
+  const expectedOf = (slug, act) => L.expectedFor(slug, { prefMin: Number(colorsPref && colorsPref.expected && colorsPref.expected[slug]) || 0, actMin: act && act.expected, events, effEnd: (x) => (x.ended_min == null ? Math.floor(now) : x.ended_min) });
+  const heatOn = !colorsPref || colorsPref.heat !== false;
+  const doneOn = !colorsPref || colorsPref.doneMark !== false;
   const [gearOpen, setGearOpen] = React.useState(null);   // {x,y}
   const customColor = (slug) => (colorsPref && colorsPref.colors && colorsPref.colors[slug]) || null;
   const tintOf = (hex, a) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return null; const n = parseInt(m[1], 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
@@ -202,7 +206,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const byOp = {}; for (const ev of events) (byOp[ev.op] = byOp[ev.op] || []).push(ev);
 
   return (
-    <div className={`tl-wrap st-${(colorsPref && colorsPref.style) || 'regular'}`} ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%' }}>
+    <div className="tl-wrap" ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%' }}>
       <div className="tl-header">
         <h2>Linha do tempo</h2>
         <span className="en">{operators.length} pessoas</span>
@@ -316,6 +320,13 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const flowDimmed = filterFlows && filterFlows.size > 0 && !filterFlows.has(flow);
               const totalW = X(end) - X(start);
               const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
+              // calor (ao vivo) / marca ao terminar, pelo esperado da atividade
+              let heatCls = '';
+              if (!neutral && isToday) {
+                const exp = expectedOf(e.activity, act);
+                if (isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv; }
+                else if (!isLiveEv && doneOn) { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
+              }
               const out = [];
               pieces.forEach((seg) => {
                 const left = X(seg.start); const w = Math.max(6, X(seg.end) - X(seg.start));
@@ -330,7 +341,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                 }
                 out.push(
                   <div key={`${e.id}-s${seg.index}`} data-block-id={e.id} data-seg-index={seg.index}
-                       className={`tl-block flow-${flow} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
+                       className={`tl-block flow-${flow} ${neutral ? '' : styleOf(e.activity)} ${heatCls} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
                        style={{ left, width: w, top, height: h, ...(neutral ? {} : colorVars(e.activity)) }}
                        onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}
                        title={tip}>
@@ -340,7 +351,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                       ? <div className="l1" style={{ fontSize: 10.5 }}>{w >= 64 ? `${L.shortName(e.activity, act.name)} ${durTxt}` : (w >= 30 ? durTxt : '')}</div>
                       : (head && fitRes.inside ? (
                         <>
-                          <div className={`l1 ${fitRes.wrap ? 'wrap' : ''}`} style={{ fontSize: fitRes.px }}>{fitRes.name}</div>
+                          <div className={`l1 ${fitRes.wrap ? 'wrap' : ''} ${fitRes.vertical ? 'vert' : ''}`} style={{ fontSize: fitRes.px }}>{fitRes.name}</div>
                           {fitRes.line2 && (
                             <div className="l2">
                               {fitRes.prod && productName && (<><u onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); onOpenBatch && onOpenBatch(e.product); }} title={`Jornada do lote ${products[e.product]?.batch || ''}`}>{productName}</u> · </>)}
@@ -394,7 +405,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     const tip = `${act.name}${productName ? ' · ' + productName + ' (' + (products[e.product]?.batch || '') + ')' : ''}\n${fmt(e.started_min)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - e.started_min)}${e.dupes ? `\n${e.dupes} registros iguais (juntar?)` : ''}\n1 clique: detalhes · 2: ações · 3: arrastar`;
                     return (
                       <React.Fragment key={'rail-' + e.id}>
-                        <div className={`tl-rail flow-${flow} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
+                        <div className={`tl-rail flow-${flow} ${styleOf(e.activity)} ${isLiveEv && isToday && heatOn ? (() => { const lv = L.heatLevel(now - e.started_min, expectedOf(e.activity, act)); return lv != null ? 'heat-' + lv : ''; })() : ''} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
                              style={{ left: X(e.started_min), width: w, top, height: M.RAIL_H, ...colorVars(e.activity) }} title={tip}
                              onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}>
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur' || lbl.mode === 'short') && <b>{lbl.name}</b>}
@@ -407,7 +418,6 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
 
                   {/* TAREFAS DE MÃO: clusters → lanes só dentro do cluster */}
                   {lay.clusters.map((c) => c.items.map((e) => renderBlock(e, c, c.count, c.laneOf[e.id] || 0)))}
-                  {lay.neutral.map((e) => renderBlock(e, null, 1, 0))}
 
                   {/* CHIP DA PAUSA dentro da faixa (08-20) */}
                   {split.pauses.filter((p) => p.inline).map((p) => {
@@ -600,30 +610,62 @@ function QuickAdd({ mini, fmt, operators, activities, events, nowMin, DAY_END_BA
    (regular, plano, pastel, 3D, brilho, animado) e cor por atividade, salvos por conta. */
 const STYLES = [['regular', 'Regular'], ['plain', 'Plano'], ['pastel', 'Pastel'], ['3d', '3D'], ['glow', 'Brilho'], ['anim', 'Animado']];
 const FLOW_DEFAULT = { production: '#1a3a6b', pnp: '#0f766e', support: '#5b3fa8' };
+const HEAT_LEGEND = [['heat-0', 'azul · começou'], ['heat-1', 'verde · no ritmo'], ['heat-2', 'amarelo · perto do esperado'], ['heat-3', 'laranja · passou'], ['heat-4', 'vermelho + fogo · passou muito']];
 function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
   const used = new Set(events.map((e) => e.activity));
   const list = Object.entries(activities).filter(([k, a]) => a && k !== 'unknown').sort((a, b) => (used.has(b[0]) - used.has(a[0])) || String(a[1].flow).localeCompare(String(b[1].flow)) || a[1].name.localeCompare(b[1].name));
-  const cur = pref || { style: 'regular', colors: {} };
-  const setColor = (slug, hex) => setPref({ ...cur, colors: { ...(cur.colors || {}), [slug]: hex } });
-  const reset = (slug) => { const c = { ...(cur.colors || {}) }; delete c[slug]; setPref({ ...cur, colors: c }); };
+  const cur = { style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, presets: {}, ...(pref || {}) };
+  const put = (patch) => setPref({ ...cur, ...patch });
+  const setIn = (field, slug, v) => { const o = { ...(cur[field] || {}) }; if (v == null || v === '' || v === 'inherit') delete o[slug]; else o[slug] = v; put({ [field]: o }); };
+  const [tab, setTab] = React.useState('cores');
+  const [presetName, setPresetName] = React.useState('');
+  const snapshot = () => ({ style: cur.style, colors: cur.colors, styles: cur.styles, expected: cur.expected, heat: cur.heat, doneMark: cur.doneMark });
   const vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
+  const presetNames = Object.keys(cur.presets || {});
   return (
-    <div className="tl-mini wide tl-colors" style={{ left: Math.max(8, Math.min(vw - 420, at.x - 380)), top: Math.max(8, Math.min(vh - 520, at.y + 12)) }} onMouseDown={(e) => e.stopPropagation()}>
-      <h3>Cores e estilo dos blocos</h3>
-      <div className="hint">Vale só pra sua conta. A cor padrão segue o fluxo (Produção · P&P · Suporte).</div>
-      <div className="lbl">Estilo</div>
-      <div className="chips">{STYLES.map(([k, t]) => (<button key={k} className={`chip ${(cur.style || 'regular') === k ? 'on' : ''}`} onClick={() => setPref({ ...cur, style: k })}>{t}</button>))}</div>
-      <div className="lbl">Cor por atividade <span style={{ textTransform: 'none', letterSpacing: 0 }}>(as de hoje primeiro)</span></div>
-      <div className="tl-color-list">
-        {list.map(([k, a]) => { const c = (cur.colors || {})[k]; return (
-          <div key={k} className="row">
-            <span className="sw" style={{ background: c || FLOW_DEFAULT[a.flow] || FLOW_DEFAULT.support }}/>
-            <span className="n">{a.name}{used.has(k) ? '' : <small> · hoje não</small>}</span>
-            <input type="color" value={c || FLOW_DEFAULT[a.flow] || FLOW_DEFAULT.support} onChange={(e) => setColor(k, e.target.value)} title="Escolher cor"/>
-            {c && <button className="link" onClick={() => reset(k)} title="Voltar à cor do fluxo">padrão</button>}
-          </div>); })}
+    <div className="tl-mini wide tl-colors" style={{ left: Math.max(8, Math.min(vw - 470, at.x - 430)), top: Math.max(8, Math.min(vh - 560, at.y + 12)) }} onMouseDown={(e) => e.stopPropagation()}>
+      <h3>Cores, estilos e sinais da linha do tempo</h3>
+      <div className="hint">Vale só pra sua conta. Salve um preset antes de experimentar: dá pra voltar depois.</div>
+      <div className="chips" style={{ marginBottom: 6 }}>
+        {[['cores', 'Cores e estilo'], ['sinais', 'Sinal de demora'], ['presets', `Presets (${presetNames.length})`]].map(([k, t]) => (<button key={k} className={`chip ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{t}</button>))}
       </div>
-      <div className="foot"><button className="link" onClick={() => setPref({ style: 'regular', colors: {} })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
+      {tab === 'cores' && (<>
+        <div className="lbl">Estilo de todos os blocos</div>
+        <div className="chips">{STYLES.map(([k, t]) => (<button key={k} className={`chip ${(cur.style || 'regular') === k ? 'on' : ''}`} onClick={() => put({ style: k })}>{t}</button>))}</div>
+        <div className="lbl">Por atividade <span style={{ textTransform: 'none', letterSpacing: 0 }}>(cor · estilo · minutos esperados; as de hoje primeiro)</span></div>
+        <div className="tl-color-list">
+          {list.map(([k, a]) => { const c = (cur.colors || {})[k]; const st = (cur.styles || {})[k] || ''; const ex = (cur.expected || {})[k] || ''; return (
+            <div key={k} className="row">
+              <span className="sw" style={{ background: c || FLOW_DEFAULT[a.flow] || FLOW_DEFAULT.support }}/>
+              <span className="n">{a.name}{used.has(k) ? '' : <small> · hoje não</small>}</span>
+              <input type="color" value={c || FLOW_DEFAULT[a.flow] || FLOW_DEFAULT.support} onChange={(e) => setIn('colors', k, e.target.value)} title="Cor deste bloco"/>
+              <select value={st} onChange={(e) => setIn('styles', k, e.target.value)} title="Estilo só deste bloco"><option value="">= geral</option>{STYLES.map(([sk, t]) => <option key={sk} value={sk}>{t}</option>)}</select>
+              <input type="number" min="1" max="1440" placeholder={a.expected ? String(a.expected) : 'min'} value={ex} onChange={(e) => setIn('expected', k, e.target.value ? Number(e.target.value) : null)} title="Minutos esperados (vazio = cadastro ou média do dia)"/>
+              {(c || st || ex) && <button className="link" onClick={() => { setIn('colors', k, null); setIn('styles', k, null); setIn('expected', k, null); }} title="Voltar ao padrão">padrão</button>}
+            </div>); })}
+        </div>
+      </>)}
+      {tab === 'sinais' && (<>
+        <div className="lbl">Tarefa em andamento</div>
+        <label className="tl-check"><input type="checkbox" checked={cur.heat !== false} onChange={(e) => put({ heat: e.target.checked })}/> Brilho que muda de cor conforme o tempo passa do esperado</label>
+        <div className="tl-heat-legend">{HEAT_LEGEND.map(([c, t]) => (<div key={c} className="row"><span className={`sw ${c}`}/><span>{t}</span></div>))}</div>
+        <div className="lbl">Ao terminar</div>
+        <label className="tl-check"><input type="checkbox" checked={cur.doneMark !== false} onChange={(e) => put({ doneMark: e.target.checked })}/> Marca ao redor: verde = mais rápido que o esperado · vermelho = bem mais lento</label>
+        <div className="hint" style={{ marginTop: 8 }}>O "esperado" de cada atividade: os minutos que você digitar na aba Cores e estilo; se vazio, o cadastro; se não houver, a média das concluídas hoje (a partir de 3). Sem nada disso, não há sinal.</div>
+      </>)}
+      {tab === 'presets' && (<>
+        <div className="lbl">Salvar o que está agora</div>
+        <div className="inl" style={{ display: 'flex', gap: 6 }}>
+          <input type="text" placeholder="nome do preset" value={presetName} onChange={(e) => setPresetName(e.target.value)} style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 8, padding: '6px 9px', font: 'inherit' }}/>
+          <button className="btn sm primary" disabled={!presetName.trim()} onClick={() => { put({ presets: { ...(cur.presets || {}), [presetName.trim()]: snapshot() } }); setPresetName(''); }}>Salvar</button>
+        </div>
+        <div className="lbl">Salvos</div>
+        {presetNames.length === 0 && <div className="hint">Nenhum ainda.</div>}
+        <div className="tl-color-list">
+          {presetNames.map((n) => (<div key={n} className="row preset"><span className="n">{n}<small> · {STYLES.find((x) => x[0] === (cur.presets[n].style || 'regular'))?.[1]} · {Object.keys(cur.presets[n].colors || {}).length} cores</small></span><button className="link" onClick={() => put({ ...cur.presets[n] })}>aplicar</button><button className="link" onClick={() => { const p2 = { ...cur.presets }; delete p2[n]; put({ presets: p2 }); }}>apagar</button></div>))}
+        </div>
+      </>)}
+      <div className="foot"><button className="link" onClick={() => put({ style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
     </div>
   );
 }
