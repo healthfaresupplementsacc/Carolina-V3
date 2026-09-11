@@ -31,7 +31,8 @@
   }
   function useCount(slug) { return (S.order && S.order.types && S.order.types[slug]) || 0; }
   function sortedGroups() {
-    var gs = (DATA.groups || []).slice();
+    var hidden = (S.order && S.order.hidden_groups) || [];
+    var gs = (DATA.groups || []).filter(function (g) { return hidden.indexOf(g.key) < 0; });
     if (!S.order) return gs;
     return gs.map(function (g, i) { return { g: g, i: i, n: (g.types || []).reduce(function (a, t) { return a + useCount(t.slug); }, 0) }; })
       .sort(function (a, b) { return (b.n - a.n) || (a.i - b.i); }).map(function (x) { return x.g; });
@@ -228,6 +229,21 @@
   // ════════════════════════════════════════════════════════════
   var AMBIENT = null, MANTRA = null, shellBuilt = false, ambientDensity = null;
   var LYR = {}; // name -> { el, on, key }
+  // LOGAR COMO (Bruno 09-11): /op/?as=<token> aberto pelo painel → vira a sessão da pessoa.
+  function bootImpersonation() {
+    var tok = null; try { tok = new URLSearchParams(location.search).get('as'); } catch (e) { tok = null; }
+    if (!tok) return false;
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    S.session = { token: tok, person: { display_name: '…' }, auto_logoff_seconds: 30 };
+    api('/api/v3/kiosk-admin/session/' + encodeURIComponent(tok)).then(function (r) {
+      var d = r && r.data; if (!d) throw new Error('sem sessão');
+      S.session = { token: d.session_token, person: d.person, auto_logoff_seconds: d.auto_logoff_seconds, impersonated_by: d.impersonated_by };
+      S.pinError = ''; S.screen = 'home'; S.pulse = 0.7; render(); loadData(); startTimers();
+      toast('Você está vendo o kiosk como ' + (d.person && d.person.display_name) + ' (aberto por ' + d.impersonated_by + ')');
+    }).catch(function () { S.session = null; S.screen = 'login'; S.pinError = 'Link de "logar como" expirou'; render(); });
+    return true;
+  }
+  bootImpersonation();
   function bootShell() {
     // #hf-ambient vive no #hf-stage (full viewport), fora do canvas — não recriar aqui.
     ROOT.innerHTML =
@@ -386,6 +402,7 @@
       var on = S.pin.length > i;
       dots += '<div style="width:16px; height:16px; border-radius:50%; transition:all .2s; background:' + (on ? ac : 'transparent') + '; border:2px solid ' + (on ? ac : 'rgba(15,40,90,.28)') + '; transform:' + (on ? 'scale(1.18)' : 'scale(1)') + ';"></div>';
     }
+    if (S.pin.length > 4) dots += '<div style="font-size:13px; font-weight:700; color:#566681; margin-left:6px;">+' + (S.pin.length - 4) + '</div>';
     var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'];
     var kp = '';
     keys.forEach(function (k) {
@@ -1363,10 +1380,14 @@
   // ACT: workspace (ws*) vem de /op/ws.js, pausa (pause*) de /op/pause-ui.js.
   var ACT = Object.assign({}, (WS && WS.acts) || {}, (PZ && PZ.acts()) || {}, {
     pinkey: function (k) {
+      // PIN FALSO (Bruno 09-11): 4 dígitos + pausa curta = entra; continuou digitando = modo
+      // longo (até 16), entra no '0' final ou no ✓. O servidor usa só os 4 primeiros.
+      clearTimeout(S._pinTimer);
       if (k === '⌫') S.pin = S.pin.slice(0, -1);
-      else if (k === '✓') { if (S.pin.length === 4) return submitPin(); }
-      else if (S.pin.length < 4) S.pin += k;
-      if (S.pin.length === 4 && k !== '✓') { render(); return submitPin(); }
+      else if (k === '✓') { if (S.pin.length >= 4) return submitPin(); }
+      else if (S.pin.length < 16) S.pin += k;
+      if (S.pin.length === 4 && k !== '✓') { render(); S._pinTimer = setTimeout(function () { if (S.pin.length === 4) submitPin(); }, 650); return; }
+      if (S.pin.length >= 6 && k === '0') { render(); return submitPin(); }
       render();
     },
     toggleSettings: function () { S.settingsOpen = !S.settingsOpen; render(); },

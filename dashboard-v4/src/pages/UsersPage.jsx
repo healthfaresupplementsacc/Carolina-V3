@@ -12,6 +12,7 @@ import React from 'react';
 import { usePoll, apiPost } from '../adapters/from-api.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import { getLoginFunctions, setLoginFunction, STOCK_FUNCTIONS } from '../adapters/rbac-api.js';
+import { getOperators, setOperatorPin, setKioskPrefs, impersonate, KIOSK_GROUPS } from '../adapters/operators-api.js';
 import './pages-admin.css';
 
 const CAT_LABEL = { admin: 'Admin', operacao: 'Operação', estoque: 'Estoque & Produtos', fabrica: 'Fábrica', assistente: 'Assistente' };
@@ -22,6 +23,65 @@ const CAT_LABEL = { admin: 'Admin', operacao: 'Operação', estoque: 'Estoque & 
    chama ninguém de manager ou supervisor." Cada pessoa × cada nível: herda do
    perfil (cinza), dado por cima (verde), tirado por cima (vermelho). O perfil é
    só o modelo inicial. */
+
+/* ── OPERADORES E KIOSK (Bruno 09-11) ─────────────────────────────────────
+   "Eu deveria ver todos os operadores e os PINs (se esquecerem eu falo), logar
+   como eles pra achar bug, e editar o que cada um vê no kiosk." Toda leitura de
+   PIN fica no audit. */
+function OperatorsKiosk({ ro }) {
+  const [rows, setRows] = React.useState(null);
+  const [err, setErr] = React.useState('');
+  const [show, setShow] = React.useState(false);
+  const [busy, setBusy] = React.useState(null);
+  const load = React.useCallback(() => { getOperators().then((d) => { setRows(d.operators || []); setErr(''); }).catch((e) => setErr(e.message || String(e))); }, []);
+  React.useEffect(load, [load]);
+  if (err) return <div className="kit-card pad bad" style={{ marginBottom: 22 }}>Operadores e kiosk: {err}</div>;
+  if (!rows) return null;
+  const ops = rows.filter((r) => r.role === 'operator');
+  const changePin = async (r) => {
+    const v = window.prompt(`Novo PIN de 4 dígitos pra ${r.display_name}:`, r.pin || ''); if (v == null) return;
+    if (!/^\d{4}$/.test(v.trim())) { alert('PIN tem 4 dígitos'); return; }
+    setBusy(r.id); try { await setOperatorPin(r.id, v.trim()); load(); } catch (e) { alert(e.message); } finally { setBusy(null); }
+  };
+  const toggleGroup = async (r, key) => {
+    const cur = (r.kiosk_prefs && r.kiosk_prefs.hidden_groups) || []; const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
+    setBusy(r.id); try { await setKioskPrefs(r.id, next); load(); } catch (e) { alert(e.message); } finally { setBusy(null); }
+  };
+  const loginAs = async (r) => {
+    setBusy(r.id); try { const d = await impersonate(r.id); window.open(d.url, '_blank'); } catch (e) { alert(e.message); } finally { setBusy(null); }
+  };
+  const stamp = (iso) => { if (!iso) return 'nunca'; try { return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)); } catch (_) { return ''; } };
+  return (
+    <div className="kit-card pad" style={{ marginBottom: 22 }} data-section="operadores-kiosk">
+      <div className="adm-sec">
+        <span className="kit-mlabel">Operadores e kiosk</span>
+        <span className="rule"/>
+        <button className="kit-btn sm ghost" onClick={() => setShow((v) => !v)}>{show ? 'Esconder PINs' : 'Mostrar PINs'}</button>
+      </div>
+      <p style={{ fontSize: 12.5, color: 'var(--ink-dim)', margin: '6px 0 12px' }}>
+        PIN do kiosk de cada pessoa (toda leitura fica no audit). <b>Logar como</b> abre o kiosk na conta da pessoa, numa aba nova, pra você ver o que ela vê; o que fizer ali é real e fica registrado como aberto por você. Os chips escondem grupos do kiosk só pra aquela pessoa. No kiosk, qualquer um pode digitar o PIN seguido de números e um 0 no fim: o sistema usa só os 4 primeiros.
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="kit-table" data-table="operadores-kiosk">
+          <thead><tr><th>Pessoa</th><th>PIN</th><th>Dashboard</th><th>Último kiosk</th><th>Esconder no kiosk</th><th/></tr></thead>
+          <tbody>
+            {ops.map((r) => { const hidden = (r.kiosk_prefs && r.kiosk_prefs.hidden_groups) || []; return (
+              <tr key={r.id} style={{ opacity: r.active ? 1 : 0.5 }}>
+                <td><b>{r.display_name}</b>{r.is_sandbox && <span className="kit-chip neutral" style={{ marginLeft: 6 }}>sandbox</span>}{!r.active && <span className="kit-chip neutral" style={{ marginLeft: 6 }}>inativo</span>}</td>
+                <td className="mono">{!r.has_pin ? <span style={{ color: 'var(--ink-faint)' }}>sem PIN</span> : r.pin_unknown ? <span className="kit-chip warn" title="PIN definido antes do painel guardar o número; defina um novo">desconhecido</span> : (show ? <b>{r.pin}</b> : '••••')}
+                  {!ro && <button className="kit-btn sm ghost" style={{ marginLeft: 6 }} disabled={busy === r.id} onClick={() => changePin(r)}>{r.has_pin ? 'trocar' : 'definir'}</button>}</td>
+                <td style={{ fontSize: 12 }}>{r.login_role ? <span className="kit-chip ok">{r.login_name} · {r.login_role}</span> : <span style={{ color: 'var(--ink-faint)' }}>sem acesso</span>}</td>
+                <td className="mono" style={{ fontSize: 11.5 }}>{stamp(r.last_kiosk_at)}</td>
+                <td>{KIOSK_GROUPS.map(([k, t]) => (<button key={k} type="button" className={'kit-chip ' + (hidden.includes(k) ? 'bad' : 'neutral')} disabled={ro || busy === r.id} title={hidden.includes(k) ? 'escondido: clique pra mostrar' : 'visível: clique pra esconder'} onClick={() => toggleGroup(r, k)} style={{ cursor: 'pointer', marginRight: 4, textDecoration: hidden.includes(k) ? 'line-through' : 'none', opacity: hidden.includes(k) ? 0.7 : 1 }}>{t}</button>))}</td>
+                <td>{r.active && <button className="kit-btn sm primary" disabled={ro || busy === r.id} onClick={() => loginAs(r)}>Logar como</button>}</td>
+              </tr>); })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function PersonStockLevels({ ro }) {
   const [data, setData] = React.useState(null);
   const [busy, setBusy] = React.useState(null);
@@ -230,6 +290,8 @@ export function UsersPage() {
       </div>
 
       {/* MATRIZ DE PERMISSÕES */}
+      <OperatorsKiosk ro={ro} />
+
       <PersonStockLevels ro={ro} />
 
       <div className="kit-card pad">

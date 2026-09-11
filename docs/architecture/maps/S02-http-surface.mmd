@@ -37,6 +37,7 @@ subgraph MOUNT["Mount order (src/index.js → wire.mount → index.js tail)"]
   S02_22["S02.22 · /api/v3/journey ×1 (journey/router.js) — PIN; batch/:id = registros do lote em todos os dias + contagens; so leitura (09-10)"]:::verified
   S02_23["S02.23 · /api/v3/duration-check ×3 (duration-check/router.js) — kiosk (page token+sessao) avalia/responde; PIN marca consertado (09-11)"]:::verified
   S02_24["S02.24 · /api/v3/kiosk ×5 (kiosk/router.js) — kiosk: order · subtype · title (IA); PIN: others · resolve (09-11)"]:::verified
+  S02_25["S02.25 · /api/v3/kiosk-admin ×5 (kiosk-admin/router.js) — PIN falso (middleware do login), PIN legivel, logar como, kiosk_prefs (09-11)"]:::verified
   S02_13["S02.13 · dashboard/router.js ×10 HTML — mounted LAST (index.js:63)"]:::partial
 end
 S01_02 --> MOUNT
@@ -151,6 +152,11 @@ OPKIOSK_ORD["S03.02 · kiosk /op sortedGroups + cleanKind + pos-start subtype/ti
 OPKIOSK_ORD -->|R202 GET order · POST subtype · POST title| S02_24
 V4OTHERS["S03.01 · OthersReview.jsx (abaixo do Resumo do dia)"]:::verified
 V4OTHERS -->|R203 GET others · POST resolve (PIN)| S02_24
+
+%% S02.25 — operadores no painel (09-11). Montado ANTES do op.js (reescreve o pin do login). Escreve persons.pin_hash/pin_plain/kiosk_prefs, operator_sessions.impersonated_by.
+V4OPS["S03.01 · UsersPage 'Operadores e kiosk'"]:::verified
+V4OPS -->|R204 GET operators · POST pin · kiosk-prefs · impersonate| S02_25
+S02_25 -->|R205 reescreve body.pin DDDD...0 → DDDD| S02_04
 
 %% S02.18 — revisao do dia (08-19). Dia e calendario saem dos NOSSOS eventos; a
 %% fila NASCE no EMS, porque lote esquecido nao tem evento nenhum aqui.

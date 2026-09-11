@@ -95,7 +95,9 @@ function createKioskRouter(deps = {}) {
         types[row.slug] = (types[row.slug] || 0) + row.n;
         if (row.slug === 'cleaning' && row.phase_label && row.phase_label.startsWith('limpeza:')) { const k = row.phase_label.slice(8); clean_kinds[k] = (clean_kinds[k] || 0) + row.n; }
       }
-      ok(res, { month, window_days: WINDOW_DAYS, types, clean_kinds });
+      let hidden = [];
+      try { const kp = (await db.query('SELECT kiosk_prefs FROM v3.persons WHERE id = $1', [s.person_id])).rows[0]; hidden = (kp && kp.kiosk_prefs && Array.isArray(kp.kiosk_prefs.hidden_groups)) ? kp.kiosk_prefs.hidden_groups : []; } catch (_) { hidden = []; }
+      ok(res, { month, window_days: WINDOW_DAYS, types, clean_kinds, hidden_groups: hidden });
     } catch (e) { console.error('[kiosk]', e.message); err(res, 'internal', e.message, 500); }
   });
 
