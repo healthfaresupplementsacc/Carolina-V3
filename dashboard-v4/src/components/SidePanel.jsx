@@ -77,7 +77,7 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
     const el = panelRef.current; if (!el) return;
     const vh = window.innerHeight || 800; const h = el.offsetHeight || 0;
     setPos((p) => (p.y + h > vh - 12 ? { ...p, y: Math.max(12, vh - 12 - h) } : p));
-  }, [event?.id, mode, pos.x]);
+  }, [event?.id, mode, pos.x, pos.y]);
 
   // ── drag pela barra de título ──
   const dragRef = React.useRef(null);
