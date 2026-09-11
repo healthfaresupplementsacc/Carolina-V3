@@ -195,9 +195,9 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
         {setHourPx && (
           <div className="tl-seg" role="group" aria-label="Zoom">
             <button title="Menos zoom" onClick={() => setHourPx((p) => Math.max(60, Math.round(p / 1.25)))}>−</button>
-            <button className={hourPx < 150 ? 'on' : ''} onClick={() => setHourPx(110)} title="Compacto">Compacto</button>
-            <button className={hourPx >= 150 ? 'on' : ''} onClick={() => setHourPx(160)} title="Confortável">Confortável</button>
-            <button title="Mais zoom" onClick={() => setHourPx((p) => Math.min(400, Math.round(p * 1.25)))}>+</button>
+            <button className={hourPx === 110 ? 'on' : ''} onClick={() => setHourPx(110)} title="Compacto: o dia inteiro na tela">Compacto</button>
+            <button className={hourPx === 400 ? 'on' : ''} onClick={() => setHourPx(400)} title="Confortável: bem de perto (era o zoom máximo)">Confortável</button>
+            <button title="Mais zoom" onClick={() => setHourPx((p) => Math.min(1000, Math.round(p * 1.25)))}>+</button>
           </div>
         )}
         {onQuickCreate && (

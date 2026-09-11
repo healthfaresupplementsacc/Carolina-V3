@@ -182,6 +182,12 @@ async function fluxo(c, cfg) {
     await espera(async () => /slack\.com/.test(await url()), 20000);
   }
 
+  // 5b) DEPOIS do Google o Slack pode cair de novo em workspace-signin
+  //     (visto em 09-11: Google lembrou a conta e voltou pra "Sign in to your
+  //     workspace"). Digita o workspace e segue.
+  await sleep(3000);
+  if (await tratarWorkspaceSignin(c, cfg)) log('workspace-signin depois do Google: tratado');
+
   // 6) /ssb/redirect ("Launching...") -> client
   await sleep(3000);
   await c.raw('Page.navigate', { url: CLIENT }); await sleep(10000);
@@ -208,6 +214,11 @@ async function fluxo(c, cfg) {
   if (soChecar) { log('NAO LOGADO'); c.close(); process.exit(1); }
 
   log('sessao caiu, logando...');
+  // 09-11: avisa o watchdog pra NAO navegar a aba enquanto eu logo (o tick dele
+  // arrancava a tela do Google no meio do fluxo). Lock vale 5min; apago no fim.
+  const LOCK = path.join(DIR, 'autologin.lock');
+  try { fs.writeFileSync(LOCK, String(Date.now())); } catch (_) {}
+  process.on('exit', () => { try { fs.unlinkSync(LOCK); } catch (_) {} });
   try {
     const r = await fluxo(c, cfg);
     log(r); c.close(); process.exit(0);

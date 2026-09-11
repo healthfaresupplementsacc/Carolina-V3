@@ -221,6 +221,14 @@ async function tick() {
     const st = fs.statSync(path.join(DIR, 'say.lock'));
     if (Date.now() - st.mtimeMs < 120000) { fs.writeFileSync(HB, new Date().toISOString()); return; }
   } catch (_) {}
+  // MUTEX com o autologin (09-11): o readChannel navega a aba a cada tick, e
+  // isso arrancava a tela do Google no meio do login (a propria tentativa do
+  // watchdog e a manual). Enquanto o autologin.lock estiver fresco, nao navega.
+  if (autologinRodando) { fs.writeFileSync(HB, new Date().toISOString()); return; }
+  try {
+    const st = fs.statSync(path.join(DIR, 'autologin.lock'));
+    if (Date.now() - st.mtimeMs < 5 * 60 * 1000) { fs.writeFileSync(HB, new Date().toISOString()); return; }
+  } catch (_) {}
   // com o listener vivo, só raspa o que o push NÃO cobre (ex.: DM da Carol; canais
   // onde o claude_listener ainda não foi convidado — lista em covered.json)
   let toScrape = CHANNELS;
