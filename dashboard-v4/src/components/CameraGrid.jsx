@@ -18,7 +18,7 @@ const STATIC_CAMS = [
 ];
 // Rótulos pra câmeras que o gateway pode passar a expor (Bruno 09-11: "câmera 2 no
 // dashboard"). Qualquer nome novo no /health do gateway vira um tile aqui sozinho.
-const CAM_LABELS = { cam2: '🏭 Warehouse Back (Cam 2)', warehouse2: '🏭 Warehouse Back (Cam 2)', cam7: '🧪 Formulation Cam 2', formulation2: '🧪 Formulation Cam 2', cam1: '📷 Cam 1', cam3: '📷 Cam 3', cam4: '📷 Cam 4', cam5: '📷 Cam 5' };
+const CAM_LABELS = { storage: '📦 Storage (Cam 2)', cam2: '🏭 Warehouse Back (Cam 2)', warehouse2: '🏭 Warehouse Back (Cam 2)', cam7: '🧪 Formulation Cam 2', formulation2: '🧪 Formulation Cam 2', cam1: '📷 Cam 1', cam3: '📷 Cam 3', cam4: '📷 Cam 4', cam5: '📷 Cam 5' };
 function mergeCams(ids) {
   const out = STATIC_CAMS.slice();
   for (const id of ids || []) if (!out.some((c) => c.id === id)) out.push({ id, label: CAM_LABELS[id] || ('📷 ' + id) });
