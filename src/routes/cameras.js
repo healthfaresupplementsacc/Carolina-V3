@@ -34,7 +34,25 @@ const { onDemandActive } = require('../v3/workday');
 
 const router = express.Router();
 
-const CAMS = new Set(['warehouse', 'packaging', 'formulation']);
+const STATIC_CAMS = new Set(['warehouse', 'packaging', 'formulation']);
+// DESCOBERTA (Bruno 09-11, "câmera 2 no dashboard"): o gateway do PC das câmeras diz em
+// /health quais nomes ele expõe (`cams`). Qualquer nome que ele exponha vale aqui e no
+// dashboard, sem deploy: quando o gateway ganhar a cam2, ela aparece sozinha.
+const gatewayCams = { names: new Set(), at: 0 };
+async function refreshGatewayCams() {
+  const base = process.env.CAM_TUNNEL_URL; const token = process.env.CAM_TOKEN;
+  if (!base || !token) return [];
+  const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 3500);
+  try {
+    const r = await fetch(base.replace(/\/$/, '') + '/health', { signal: ctrl.signal, headers: { 'X-Cam-Token': token } });
+    clearTimeout(timer);
+    if (!r.ok) return [...gatewayCams.names];
+    const j = await r.json().catch(() => null);
+    if (j && Array.isArray(j.cams)) { gatewayCams.names = new Set(j.cams.map(String).filter((x) => /^[a-z0-9_]{1,32}$/i.test(x))); gatewayCams.at = Date.now(); }
+    return [...gatewayCams.names];
+  } catch (_) { clearTimeout(timer); return [...gatewayCams.names]; }
+}
+const CAMS = { has: (name) => STATIC_CAMS.has(name) || gatewayCams.names.has(name) };
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h ≈ um turno; expira -> pede o PIN de novo
 
 // ── proteções ───────────────────────────────────────────────
@@ -178,7 +196,8 @@ router.get('/api/cam/health', async (req, res) => {
     // qualquer resposta HTTP (mesmo 403 na raiz) = túnel/gateway de pé
     const r = await fetch(base.replace(/\/$/, ''), { signal: ctrl.signal, headers: { 'X-Cam-Token': process.env.CAM_TOKEN } });
     clearTimeout(timer);
-    return res.json({ reachable: true, status: r.status });
+    const cams = await refreshGatewayCams();
+    return res.json({ reachable: true, status: r.status, cams });
   } catch {
     clearTimeout(timer);
     return res.json({ reachable: false, reason: 'unreachable' });
