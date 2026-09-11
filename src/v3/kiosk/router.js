@@ -21,6 +21,9 @@ const { makeAuthMiddleware } = require('../data/auth');
 const BASE = '/api/v3/kiosk';
 const WINDOW_DAYS = 60;
 const CLEAN_KINDS = { linha: 'Linha de produção', capsula: 'Máquina de cápsula', tablet: 'Máquina de tablet', formulacao: 'Área da formulação', warehouse: 'Warehouse geral', pesada: 'Limpeza pesada (sexta)', fim: 'Fim do dia' };
+// O painel começa a contar do dia em que entrou no ar: o passado (centenas de 'Outros') não
+// vira fila; só o que entrar daqui pra frente fica lá até alguém resolver.
+const OTHERS_SINCE = '2026-09-11';
 const OTHER_SLUGS = ['special_task', 'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other'];
 
 /** Primeiro dia do mês (NY) de `now`: a ordem vale o mês inteiro. */
@@ -128,8 +131,8 @@ function createKioskRouter(deps = {}) {
                ROUND((EXTRACT(EPOCH FROM (COALESCE(e.ended_at, NOW()) - e.started_at)) - COALESCE(e.total_paused_seconds, 0)) / 60.0) AS duration_min
           FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id JOIN v3.persons pe ON pe.id = e.person_id
          WHERE at.slug = ANY($1) AND e.deleted_at IS NULL AND COALESCE(e.is_test, false) = false AND e.other_reviewed_at IS NULL
-           AND e.started_at > NOW() - INTERVAL '90 days'
-         ORDER BY e.started_at DESC LIMIT 200`, [OTHER_SLUGS])).rows;
+           AND e.started_at >= $2::date
+         ORDER BY e.started_at DESC LIMIT 200`, [OTHER_SLUGS, OTHERS_SINCE])).rows;
       ok(res, { rows, count: rows.length });
     } catch (e) { console.error('[kiosk]', e.message); err(res, 'internal', e.message, 500); }
   });
