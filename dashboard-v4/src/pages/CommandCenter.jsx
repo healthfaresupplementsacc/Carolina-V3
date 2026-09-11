@@ -11,6 +11,7 @@ import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
 import { FlowHistory } from '../components/FlowHistory.jsx';
 import { BatchJourney } from '../components/BatchJourney.jsx';
+import { fixDurationFlag } from '../adapters/duration-api.js';
 import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
@@ -693,6 +694,12 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     if (refresh) refresh(); ack(`${n} duplicado(s) apagado(s) ✓ (restauráveis pelo audit)`);
   };
   const splitRequest = (id, minute) => { if (onSplit) onSplit(id, isoAt(minute)); };
+  const fixFlag = async (id) => {
+    if (!window.confirm('Revisou com o operador e está consertado? O alerta some da linha do tempo.')) return;
+    const r = await fixDurationFlag(id);
+    if (!r.ok) { ack('Erro: ' + (r.error.message || r.error)); return; }
+    if (refresh) refresh(); ack(`Alerta de ev${id} marcado como consertado ✓`);
+  };
   const openFullForm = (d) => {
     openPanel({ id: 'new-' + Date.now(), _new: true, op: d.op ? d.op.id : (operators[0] || {}).id, activity: d.activity || 'unknown', product: null,
       started_min: d.started_min, ended_min: d.ended_min == null ? null : d.ended_min, cowork: d.cowork || [], qty: null, unit: null, description: '', confidence: 'high' }, null);
@@ -1355,6 +1362,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             onOpenFullForm={openFullForm}
             isToday={isToday}
             onClosePanel={() => openPanel(null)}
+            onFixFlag={fixFlag}
           />
         )}
       </div>

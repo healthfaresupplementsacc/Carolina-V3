@@ -74,6 +74,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     onSplitRequest,     // (id, minute) => void
                     isToday = true,     // dia passado: sem AGORA, sem 'ao vivo', sem 'sem registro há'
                     onClosePanel,       // () => void  fecha o painel de detalhes (1 clique) quando o menu (2) ou o arrastar (3) entra
+                    onFixFlag,          // (id) => void  marca o alerta de duração como consertado (09-11)
 }) {
   const { DAY_START: DAY_START_BASE, DAY_END: DAY_END_BASE, activities, products } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
@@ -319,7 +320,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const isInvalid = invalidIds && invalidIds.has(e.id);
               const flowDimmed = filterFlows && filterFlows.size > 0 && !filterFlows.has(flow);
               const totalW = X(end) - X(start);
-              const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
+              const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + (e._flag ? '\nALERTA: operador disse que este registro NÃO está certo' : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
               // calor (ao vivo) / marca ao terminar, pelo esperado da atividade
               let heatCls = '';
               if (!neutral && isToday) {
@@ -341,7 +342,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                 }
                 out.push(
                   <div key={`${e.id}-s${seg.index}`} data-block-id={e.id} data-seg-index={seg.index}
-                       className={`tl-block flow-${flow} ${neutral ? '' : styleOf(e.activity)} ${heatCls} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
+                       className={`tl-block flow-${flow} ${neutral ? '' : styleOf(e.activity)} ${e._flag ? 'flagged' : heatCls} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
                        style={{ left, width: w, top, height: h, ...(neutral ? {} : colorVars(e.activity)) }}
                        onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}
                        title={tip}>
@@ -362,6 +363,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                       ) : (seg.is_continuation ? <div className="l1 cont" style={{ fontSize: 10.5 }}>{seg.is_last ? durTxt : ''}</div> : null))}
                     {e.cowork && e.cowork.length > 0 && head && !neutral && <span className="cwd" title={'com ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).short).join(', ')}/>}
                     {e.dupes && head && <span className="dup">×{e.dupes}</span>}
+                    {e._flag && head && <span className="flag" title={e._flag === 'too_short' ? 'Operador disse que NÃO está certo: ficou curta demais (entrou sem querer?)' : 'Operador disse que NÃO está certo: levou tempo demais'}>?</span>}
                     {e.overrun && head && <span className="bk-overrun" title="passou do esperado">⏰</span>}
                   </div>
                 );
@@ -405,7 +407,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     const tip = `${act.name}${productName ? ' · ' + productName + ' (' + (products[e.product]?.batch || '') + ')' : ''}\n${fmt(e.started_min)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - e.started_min)}${e.dupes ? `\n${e.dupes} registros iguais (juntar?)` : ''}\n1 clique: detalhes · 2: ações · 3: arrastar`;
                     return (
                       <React.Fragment key={'rail-' + e.id}>
-                        <div className={`tl-rail flow-${flow} ${styleOf(e.activity)} ${isLiveEv && isToday && heatOn ? (() => { const lv = L.heatLevel(now - e.started_min, expectedOf(e.activity, act)); return lv != null ? 'heat-' + lv : ''; })() : ''} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
+                        <div className={`tl-rail flow-${flow} ${styleOf(e.activity)} ${e._flag ? 'flagged' : ''} ${isLiveEv && isToday && heatOn ? (() => { const lv = L.heatLevel(now - e.started_min, expectedOf(e.activity, act)); return lv != null ? 'heat-' + lv : ''; })() : ''} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
                              style={{ left: X(e.started_min), width: w, top, height: M.RAIL_H, ...colorVars(e.activity) }} title={tip}
                              onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}>
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur' || lbl.mode === 'short') && <b>{lbl.name}</b>}
@@ -509,6 +511,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
             {onSplitRequest && ev.ended_min != null && <Item ic="÷" txt="Dividir no meio" onClick={() => { closeAll(); onSplitRequest(ev.id, snap((ev.started_min + end) / 2)); }}/>}
             {ev.dupes && onDedupe && <Item ic="×" txt={`Duplicado ×${ev.dupes}: manter 1`} onClick={() => { closeAll(); onDedupe(ev.dupe_ids[0], ev.dupe_ids.slice(1)); }}/>}
             {ev.product && onOpenBatch && <Item ic="▣" txt={`Lote ${products[ev.product]?.name || ''}`} sub="jornada inteira" onClick={() => { closeAll(); onOpenBatch(ev.product); }}/>}
+            {ev._flag && onFixFlag && <Item ic="✔" txt="Marcar como consertado" sub={ev._flag === 'too_short' ? 'operador: ficou curta demais, não está certo' : 'operador: levou tempo demais, não está certo'} onClick={() => { closeAll(); onFixFlag(ev.id); }}/>}
             {onDeleteEvent && <Item ic="🗑" txt="Apagar" danger onClick={() => { closeAll(); onDeleteEvent(ev); }}/>}
           </div>
         );

@@ -43,6 +43,8 @@ function shapeEvent(e) {
     joined_since: e.joined_since || null,
     joined_at: toNyIso(e.joined_at),
     product_batch_id: e.product_batch_id || null,
+    duration_flag: e.duration_flag || null,                 // 09-11: 'too_short'|'too_long' (operador disse que não está certo)
+    duration_flag_status: e.duration_flag_status || null,   // 'open' → alerta na timeline · 'fixed' → revisado
     phase_label: e.phase_label || null,
     description: e.description || null,
     source_message_ts: e.source_message_ts || null,
@@ -66,6 +68,7 @@ const EVENT_COLUMNS = `e.id, e.person_id, e.activity_type_id, e.product_batch_id
             e.quantity, e.quantity_unit,
             e.cowork_group_id, e.total_paused_seconds, e.paused_at,
             e.joined_since, e.joined_at,
+            e.duration_flag, e.duration_flag_status,
             pb.target_bottles AS estimated_bottles,
             (SELECT json_agg(json_build_object(
                        'qty', pc.bottles,

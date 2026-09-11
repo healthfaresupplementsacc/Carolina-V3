@@ -54,7 +54,7 @@ function positionAboveCursor(initialPos) {
 }
 
 function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
-                     initialPos, pendingForm, onDraftChange }) {
+                     initialPos, pendingForm, onDraftChange, onFixFlag }) {
   // Quando há pendente, abrimos JÁ em edit pra Bruno ver os campos.
   const [mode, setMode] = React.useState(() => (event?._new || pendingForm) ? "edit" : "view");
   React.useEffect(() => { setMode((event?._new || pendingForm) ? "edit" : "view"); }, [event?.id]);
@@ -232,6 +232,13 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
       <div style={{ flex: 1, overflow: 'auto', padding: '12px 14px' }}>
         {mode === "view" && (
           <>
+            {event._flag && (
+              <div className="sp-flag" data-flag={event._flag}>
+                <b>Operador disse que NÃO está certo.</b> {event._flag === 'too_short' ? 'Ficou curta demais pra essa tarefa (entrou sem querer?).' : 'Levou tempo demais pra essa tarefa.'} Revise com a pessoa, ajuste o registro e marque como consertado.
+                {onFixFlag && <div style={{ marginTop: 6 }}><button className="btn sm primary" onClick={() => onFixFlag(event.id)}>Marcar como consertado</button></div>}
+              </div>
+            )}
+            {event._flag_fixed && <div className="sp-flag fixed">Alerta de duração revisado e marcado como consertado.</div>}
             <Field label="Atividade" en="Activity"><span>{act?.name || '—'} {act?.en && <span style={{ color: "var(--text-3)" }}>· {act?.en}</span>}</span></Field>
             {flow && <Field label="Fluxo" en="Flow"><FlowPill flow={flow}/></Field>}
             <Field label="Produto" en="Product">

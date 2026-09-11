@@ -282,6 +282,9 @@ function mount(app) {
   // router próprio porque src/routes/op.js não pode crescer. Só leitura.
   const opCopilotApi = require('./freight/op-copilot-router');
   app.use('/', opCopilotApi.createOpCopilotRouter({ db: _pool }));
+  // CHECAGEM DE DURACAO (Bruno 09-11): pergunta no kiosk se a tarefa ficou curta/longa demais; dashboard marca consertado
+  const durationCheckApi = require('./duration-check/router');
+  app.use('/', durationCheckApi.createDurationCheckRouter({ db: _pool }));
   // PLANEJAMENTO (Bruno 09-04, direção corrigida) — /api/v3/planning/*. A
   // página Planejamento mostra o FUNIL da produção do EMS em 7 colunas
   // (Formulando → Encaixotado; planning/model.js deriva do ems_activity_cache

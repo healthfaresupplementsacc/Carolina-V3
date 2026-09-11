@@ -19,6 +19,7 @@ import { V4_ALLOW_WRITES } from './flags.js';
 
 // adapter API → HFData
 import { useSnapshotAsHFData, getPin, clearPin, useFetch, nyToday, can } from './adapters/from-api.js';
+import { fixDurationFlag } from './adapters/duration-api.js';
 // E5 — wrapper de writes (PATCH/POST/DELETE) auditados via PIN
 import * as writes from './adapters/writes.js';
 
@@ -525,6 +526,7 @@ function AuthedApp({ onLogout }) {
           operators={snapshot.hfdata.operators || []}
           now={window.HFH.liveNowMin()}
           initialPos={panelPos}
+          onFixFlag={async (id) => { if (!window.confirm('Revisou com o operador e está consertado? O alerta some da linha do tempo.')) return; const r = await fixDurationFlag(id); if (!r.ok) { ack('Erro: ' + (r.error.message || r.error)); return; } snapshot.refresh(); closePanel(); ack(`Alerta de ev${id} marcado como consertado ✓`); }}
           pendingForm={pendingEdits[panelEvent.id] || null}
           onDraftChange={(draft) => { draftRef.current = draft; }}
         />

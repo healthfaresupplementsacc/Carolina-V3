@@ -1792,11 +1792,11 @@
       if (res && res.is_last_finisher === false) {
         S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
         toast('Você terminou sua parte' + (res.remaining != null ? ' — falta(m) ' + res.remaining + ' colega(s)' : ''));
-        loadData(); return;
+        loadData(); maybeDurationCheck(o.eventId); return;
       }
       // backend fechou (último de tarefa sem contagem)
       S.overlay = null; S.pulse = 1; if (S.voice.on) stopVoice();
-      toast('Tarefa finalizada!'); loadData();
+      toast('Tarefa finalizada!'); loadData(); maybeDurationCheck(o.eventId);
       if (handleMachineReturn(res)) return;   // encerrou almoço → pergunta da máquina
       checkEndOfDay(); // PASSADA 2
     }).catch(function (e) {
@@ -1808,6 +1808,24 @@
         if (S.overlay) { S.overlay.lastFinisher = true; render(); }
       } else { toast(e.message); }
     });
+  }
+  // CHECAGEM DE DURAÇÃO (Bruno 09-11): depois de finalizar, se ficou curta ou longa demais
+  // pra essa tarefa (o sistema aprende a mediana), pergunta. "Não está certo" marca o
+  // registro pro dashboard revisar. Nunca bloqueia: o registro já foi salvo.
+  function maybeDurationCheck(eventId) {
+    if (!eventId) return;
+    api('/api/v3/duration-check/event/' + eventId).then(function (r) {
+      var c = r && r.data && r.data.check; if (!c) return;
+      var dur = c.dur_min >= 60 ? (Math.floor(c.dur_min / 60) + 'h' + (c.dur_min % 60 ? String(c.dur_min % 60) : '')) : (c.dur_min + ' min');
+      var med = c.median_min >= 60 ? (Math.floor(c.median_min / 60) + 'h' + (c.median_min % 60 ? String(c.median_min % 60) : '')) : (c.median_min + ' min');
+      var msg = c.kind === 'too_short'
+        ? (c.activity + ' ficou só ' + dur + ' (normalmente leva ~' + med + ').\n\nFoi entrada sem querer?\n\nOK = está certo, foi isso mesmo\nCancelar = NÃO está certo (o escritório revisa com você)')
+        : (c.activity + ' levou ' + dur + ' (normalmente leva ~' + med + ').\n\nEstá certo?\n\nOK = está certo\nCancelar = NÃO está certo (o escritório revisa com você)');
+      var okAns = window.confirm(msg);
+      api('/api/v3/duration-check/event/' + eventId + '/answer', { method: 'POST', body: { ok: okAns, kind: c.kind } }).then(function () {
+        if (!okAns) toast('Marcado pra revisar · obrigado');
+      }).catch(function () {});
+    }).catch(function () {});
   }
   function postFinish(o) {
     var body;
@@ -1843,6 +1861,7 @@
       var w = res && res.bottle_warning;
       if (w) toast('⚠️ ' + w.actual + ' bottles vs estimado ' + w.target + ' (' + (w.pct > 0 ? '+' : '') + w.pct + '%) — produção avisada');
       else toast(o.exc ? 'Finalizada com exceção — Orders & Inventory avisado' : 'Tarefa finalizada · +1 hoje');
+      maybeDurationCheck(o.eventId);
       loadData();
       // CUSTÓDIA (Bruno 07-08): ALMOÇO é finalizado por AQUI (não pelo resumeWork,
       // que é só do break) → sem isto, encerrar o almoço engolia o machine_return_*

@@ -190,6 +190,9 @@ function adaptToHFData(input) {
         overrun: false,          // calculado em render com `now`
         _flow: ev.flow || (a && a.flow) || 'support',
         _is_background: !!(a && a.is_background),
+        // 09-11: alerta de duração aberto ('too_short'|'too_long') → a Timeline marca; null quando sem alerta ou já consertado
+        _flag: ev.duration_flag_status === 'open' ? (ev.duration_flag || 'too_short') : null,
+        _flag_fixed: ev.duration_flag_status === 'fixed',
         _phase_label: ev.phase_label || null,
         _started_at: ev.started_at,
         _ended_at: ev.ended_at,
