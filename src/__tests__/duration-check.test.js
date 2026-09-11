@@ -20,10 +20,13 @@ describe('evaluate (regra pura)', () => {
 });
 
 const PAGE = 'page-fake'; const SESSION = 'sess-fake';
-const state = { flagged: null, fixed: null };
+const state = { flagged: null, fixed: null, settings: null };
 const db = {
   async query(sql, params) {
     const q = String(sql).replace(/\s+/g, ' ');
+    if (q.startsWith('SELECT value FROM v3.settings WHERE key')) return { rows: state.settings ? [{ value: state.settings }] : [] };
+    if (q.startsWith('INSERT INTO v3.settings')) { state.settings = JSON.parse(params[1]); return { rows: [] }; }
+    if (/ORDER BY x\.ended_at DESC LIMIT/.test(q)) return { rows: [{ id: 1, person: 'Caroline Braga', started_at: '2026-09-10T13:00:00Z', ended_at: '2026-09-10T13:50:00Z', batch_number: 'BR-1', product: 'DEVC', duration_min: 50 }] };
     if (/FROM v3\.operator_sessions s/.test(q)) return { rows: params[0] === SESSION ? [{ session_id: 1, person_id: 9, display_name: 'Caroline Braga' }] : [] };
     if (/FROM v3\.events e LEFT JOIN v3\.activity_types at ON at\.id = e\.activity_type_id WHERE e\.id/.test(q)) {
       if (params[0] === 4307) return { rows: [{ id: 4307, person_id: 9, activity_type_id: 3, started_at: '2026-09-11T13:00:00Z', ended_at: '2026-09-11T13:03:00Z', deleted_at: null, paused: 0, product_batch_id: null, slug: 'packaging', activity: 'Empacotamento' }] };
@@ -47,6 +50,20 @@ beforeAll(async () => { const app = express(); app.use('/', createDurationCheckR
 afterAll(async () => { await new Promise((r) => server.close(r)); });
 const kiosk = async (method, p, body) => { const r = await fetch(base + p, { method, headers: { authorization: 'Bearer ' + PAGE, 'x-session-token': SESSION, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
 
+test('kiosk DESLIGADO por padrão (Bruno: não alertar os funcionários ainda) → check null', async () => {
+  const r = await kiosk('GET', '/api/v3/duration-check/event/4307');
+  expect(r.status).toBe(200); expect(r.body.data).toEqual({ check: null, kiosk_ask: false });
+});
+test('ligar a pergunta exige PIN de quem configura; depois disso o kiosk pergunta', async () => {
+  let r = await fetch(base + '/api/v3/duration-check/settings', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"kiosk_ask":true}' }); expect(r.status).toBe(401);
+  r = await fetch(base + '/api/v3/duration-check/settings', { method: 'POST', headers: { 'x-admin-pin': '111111', 'content-type': 'application/json' }, body: '{"kiosk_ask":true}' });
+  expect(r.status).toBe(200); expect((await r.json()).data.kiosk_ask).toBe(true);
+  r = await fetch(base + '/api/v3/duration-check/settings', { headers: { 'x-admin-pin': '111111' } }); expect((await r.json()).data.kiosk_ask).toBe(true);
+});
+test('dashboard: history devolve as últimas tarefas iguais', async () => {
+  const r = await fetch(base + '/api/v3/duration-check/history?slug=review&product_id=7&limit=5', { headers: { 'x-admin-pin': '111111' } }); const j = await r.json();
+  expect(r.status).toBe(200); expect(j.data.rows[0]).toMatchObject({ person: 'Caroline Braga', duration_min: 50 });
+});
 test('kiosk: 3 min de Empacotamento (mediana 70) → pergunta too_short', async () => {
   const r = await kiosk('GET', '/api/v3/duration-check/event/4307');
   expect(r.status).toBe(200); expect(r.body.data.check).toMatchObject({ kind: 'too_short', dur_min: 3, median_min: 70, activity: 'Empacotamento' });

@@ -4,6 +4,7 @@ import { OperatorAvatar } from './Primitives.jsx';
 import timelinePause from './timeline-pause.cjs';
 import L from './timeline-layout.cjs';
 import { useAccountPref } from '../hooks/useAccountPref.js';
+import { getSettings as getDurSettings, setSettings as setDurSettings } from '../adapters/duration-api.js';
 
 /* Timeline — a linha do tempo do Hoje, redesenhada (Bruno 09-10, estudo
    docs/architecture/study/S03-TIMELINE-REDESIGN-STUDY.md).
@@ -120,6 +121,8 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const styleOf = (slug) => `bst-${(colorsPref && colorsPref.styles && colorsPref.styles[slug]) || (colorsPref && colorsPref.style) || 'regular'}`;
   const expectedOf = (slug, act, productKey) => L.expectedFor(slug, { prefMin: Number(colorsPref && colorsPref.expected && colorsPref.expected[slug]) || 0, actMin: act && act.expected, productId: productKey && products[productKey] ? products[productKey]._product_id : null, expectations });
   const heatOn = !colorsPref || colorsPref.heat !== false;
+  const heatStyle = (colorsPref && colorsPref.heatStyle) || 'ring';
+  const heatVars = {}; L.HEAT_COLORS.forEach((c, i) => { heatVars['--h' + i] = (colorsPref && colorsPref.heatColors && colorsPref.heatColors[i]) || c; });
   const doneOn = !colorsPref || colorsPref.doneMark !== false;
   const [gearOpen, setGearOpen] = React.useState(null);   // {x,y}
   const customColor = (slug) => (colorsPref && colorsPref.colors && colorsPref.colors[slug]) || null;
@@ -208,7 +211,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const byOp = {}; for (const ev of events) (byOp[ev.op] = byOp[ev.op] || []).push(ev);
 
   return (
-    <div className="tl-wrap" ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%' }}>
+    <div className={`tl-wrap hs-${heatStyle}`} ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%', ...heatVars }}>
       <div className="tl-header">
         <h2>Linha do tempo</h2>
         <span className="en">{operators.length} pessoas</span>
@@ -323,12 +326,13 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const totalW = X(end) - X(start);
               const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + (e._flag ? '\nALERTA: operador disse que este registro NÃO está certo' : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
               // calor (ao vivo) / marca ao terminar, pelo esperado da atividade
-              let heatCls = ''; let expTip = '';
+              let heatCls = ''; let expTip = ''; let heatPct = 0;
               if (!neutral) {
                 const exp = expectedOf(e.activity, act, e.product);
-                if (exp) expTip = `\nesperado ~${L.fmtDurShort(exp.min)} (${exp.label})`;
-                if (isToday && isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv; }
-                else if (isToday && !isLiveEv && doneOn) { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
+                if (exp) { expTip = `\nesperado ~${L.fmtDurShort(exp.min)} (${exp.label})`; heatPct = Math.min(100, Math.round(((isLiveEv ? now - e.started_min : end - start) / exp.min) * 100)); }
+                else { expTip = '\naprendendo: ainda sem histórico suficiente desta tarefa'; if (isToday && (heatOn || doneOn)) heatCls = 'learning'; }
+                if (exp && isToday && isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv; }
+                else if (exp && isToday && !isLiveEv && doneOn) { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
               }
               const out = [];
               pieces.forEach((seg) => {
@@ -345,7 +349,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                 out.push(
                   <div key={`${e.id}-s${seg.index}`} data-block-id={e.id} data-seg-index={seg.index}
                        className={`tl-block flow-${flow} ${neutral ? '' : styleOf(e.activity)} ${e._flag ? 'flagged' : heatCls} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
-                       style={{ left, width: w, top, height: h, ...(neutral ? {} : colorVars(e.activity)) }}
+                       style={{ left, width: w, top, height: h, '--heat-pct': heatPct + '%', ...(neutral ? {} : colorVars(e.activity)) }}
                        onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}
                        title={tip + expTip}>
                     {armed === e.id && !isLiveEv && !seg.is_continuation && <div className="tl-handle left" onPointerDown={(ev) => startDrag(ev, e, 'left')}/>}
@@ -365,6 +369,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                       ) : (seg.is_continuation ? <div className="l1 cont" style={{ fontSize: 10.5 }}>{seg.is_last ? durTxt : ''}</div> : null))}
                     {e.cowork && e.cowork.length > 0 && head && !neutral && <span className="cwd" title={'com ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).short).join(', ')}/>}
                     {e.dupes && head && <span className="dup">×{e.dupes}</span>}
+                    {heatCls === 'heat-4' && head && <span className="fire" aria-hidden="true">🔥</span>}
                     {e._flag && head && <span className="flag" title={e._flag === 'too_short' ? 'Operador disse que NÃO está certo: ficou curta demais (entrou sem querer?)' : 'Operador disse que NÃO está certo: levou tempo demais'}>?</span>}
                     {e.overrun && head && <span className="bk-overrun" title="passou do esperado">⏰</span>}
                   </div>
@@ -615,8 +620,11 @@ function QuickAdd({ mini, fmt, operators, activities, events, nowMin, DAY_END_BA
    (regular, plano, pastel, 3D, brilho, animado) e cor por atividade, salvos por conta. */
 const STYLES = [['regular', 'Regular'], ['plain', 'Plano'], ['pastel', 'Pastel'], ['3d', '3D'], ['glow', 'Brilho'], ['anim', 'Animado']];
 const FLOW_DEFAULT = { production: '#1a3a6b', pnp: '#0f766e', support: '#5b3fa8' };
-const HEAT_LEGEND = [['heat-0', 'azul · começou'], ['heat-1', 'verde · no ritmo'], ['heat-2', 'amarelo · perto do esperado'], ['heat-3', 'laranja · passou'], ['heat-4', 'vermelho + fogo · passou muito']];
+const HEAT_LEGEND = [[0, 'começou (< 50 %)'], [1, 'no ritmo (< 85 %)'], [2, 'perto do esperado (< 100 %)'], [3, 'passou (< 130 %)'], [4, 'passou muito (≥ 130 %) + fogo']];
+const HEAT_STYLES = [['ring', 'Linha interna', 'contorno colorido por dentro do bloco'], ['pulse', 'Pulsando', 'a linha interna pulsa; mais rápido quanto mais atrasado'], ['orbit', 'Ponto girando', 'um ponto corre a borda por dentro, mudando de cor com o tempo'], ['bar', 'Barra de progresso', 'barra fina no pé do bloco enchendo até o esperado']];
 function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
+  const [kiosk, setKiosk] = React.useState(null);
+  React.useEffect(() => { getDurSettings().then((s) => setKiosk(!!(s && s.kiosk_ask))).catch(() => setKiosk(null)); }, []);
   const used = new Set(events.map((e) => e.activity));
   const list = Object.entries(activities).filter(([k, a]) => a && k !== 'unknown').sort((a, b) => (used.has(b[0]) - used.has(a[0])) || String(a[1].flow).localeCompare(String(b[1].flow)) || a[1].name.localeCompare(b[1].name));
   const cur = { style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, presets: {}, ...(pref || {}) };
@@ -652,10 +660,16 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
       </>)}
       {tab === 'sinais' && (<>
         <div className="lbl">Tarefa em andamento</div>
-        <label className="tl-check"><input type="checkbox" checked={cur.heat !== false} onChange={(e) => put({ heat: e.target.checked })}/> Brilho que muda de cor conforme o tempo passa do esperado</label>
-        <div className="tl-heat-legend">{HEAT_LEGEND.map(([c, t]) => (<div key={c} className="row"><span className={`sw ${c}`}/><span>{t}</span></div>))}</div>
+        <label className="tl-check"><input type="checkbox" checked={cur.heat !== false} onChange={(e) => put({ heat: e.target.checked })}/> Sinal dentro do bloco que muda de cor conforme o tempo passa do esperado</label>
+        <div className="lbl">Estilo do sinal</div>
+        <div className="chips">{HEAT_STYLES.map(([k, t, d]) => (<button key={k} className={`chip ${(cur.heatStyle || 'ring') === k ? 'on' : ''}`} title={d} onClick={() => put({ heatStyle: k })}>{t}</button>))}</div>
+        <div className="lbl">Cores por nível</div>
+        <div className="tl-heat-legend">{HEAT_LEGEND.map(([i, t]) => { const c = (cur.heatColors || {})[i] || L.HEAT_COLORS[i]; return (<div key={i} className="row"><input type="color" value={c} onChange={(e) => put({ heatColors: { ...(cur.heatColors || {}), [i]: e.target.value } })} title="Cor deste nível"/><span className="sw" style={{ background: c }}/><span>{t}</span></div>); })}<button className="link" onClick={() => put({ heatColors: {} })}>cores padrão</button></div>
+        <div className="hint">Sem histórico suficiente da tarefa (ou do produto), o bloco fica só com uma linha pontilhada por dentro: o sistema ainda está aprendendo.</div>
         <div className="lbl">Ao terminar</div>
         <label className="tl-check"><input type="checkbox" checked={cur.doneMark !== false} onChange={(e) => put({ doneMark: e.target.checked })}/> Marca ao redor: verde = mais rápido que o esperado · vermelho = bem mais lento</label>
+        <div className="lbl">Kiosk</div>
+        <label className="tl-check"><input type="checkbox" disabled={kiosk == null} checked={!!kiosk} onChange={(e) => { const v = e.target.checked; setKiosk(v); setDurSettings({ kiosk_ask: v }).catch((err) => { setKiosk(!v); alert(err.message); }); }}/> Perguntar ao operador no kiosk quando a tarefa ficou curta ou longa demais {kiosk === false && <small style={{ color: 'var(--text-3)' }}>(desligado enquanto ajustamos)</small>}</label>
         <div className="hint" style={{ marginTop: 8 }}>O "esperado": os minutos que você digitar na aba Cores e estilo; senão a mediana histórica DESTE PRODUTO nesta atividade (a partir de 3 nos últimos 60 dias, com o último tempo); senão a mediana histórica da atividade (a partir de 5); senão o cadastro. Nunca a média só de hoje. Passe o mouse no bloco pra ver contra o que ele foi comparado.</div>
       </>)}
       {tab === 'presets' && (<>

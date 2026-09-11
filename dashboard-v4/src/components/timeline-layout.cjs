@@ -212,12 +212,14 @@ function heatLevel(elapsedMin, expected) {
   const r = elapsedMin / expectedMin;
   return r < 0.5 ? 0 : r < 0.85 ? 1 : r < 1 ? 2 : r < 1.3 ? 3 : 4;
 }
-/** Marca ao terminar: 'fast' (≤ 90 % do esperado) · 'ok' · 'slow' (≥ 120 %). */
+/** Marca ao terminar (09-11: folga maior pra não pintar tudo): 'fast' (≤ 2/3 do esperado) · 'ok' · 'slow' (≥ 1,5×). */
 function doneMark(durMin, expected) {
   const expectedMin = expected && typeof expected === 'object' ? expected.min : expected;
   if (!expectedMin || expectedMin <= 0) return null;
   const r = durMin / expectedMin;
-  return r <= 0.9 ? 'fast' : r >= 1.2 ? 'slow' : 'ok';
+  return r <= 0.66 ? 'fast' : r >= 1.5 ? 'slow' : 'ok';
 }
+/** Cores padrão dos 5 níveis (azul · verde · amarelo · laranja · vermelho); a engrenagem sobrescreve. */
+const HEAT_COLORS = ['#3b82f6', '#22b35d', '#eab308', '#f97316', '#ef4444'];
 
-module.exports = { expectedFor, heatLevel, doneMark, SHORT, RAIL_SLUGS, NEUTRAL, shortName, isRail, isNeutral, fmtDurShort, collapseDupes, assignLanes, clusters, fitLabel, railLabel, gapsBetween, rowMetrics, layoutPerson };
+module.exports = { expectedFor, heatLevel, doneMark, HEAT_COLORS, SHORT, RAIL_SLUGS, NEUTRAL, shortName, isRail, isNeutral, fmtDurShort, collapseDupes, assignLanes, clusters, fitLabel, railLabel, gapsBetween, rowMetrics, layoutPerson };

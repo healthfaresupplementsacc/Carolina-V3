@@ -1,6 +1,8 @@
 import React from 'react';
 import { Icon } from './Icons.jsx';
 import { OperatorAvatar, FlowPill, ProductChip } from './Primitives.jsx';
+import { getExpectations, getHistory } from '../adapters/duration-api.js';
+import L from './timeline-layout.cjs';
 
 /* Painel flutuante de evento — E7 substitui o "side panel" lateral com
    backdrop. Agora abre próximo do clique, sem overlay (dá pra ver a
@@ -51,6 +53,48 @@ function positionAboveCursor(initialPos) {
   let x = initialPos.x + 18;
   if (x + PANEL_W > vw - 12) x = initialPos.x - PANEL_W - 18;
   return clampPos(x, y);
+}
+
+/* DurationStats (Bruno 09-11): "quando eu clico no bloco, o detalhe explica como o sinal
+   de demora foi medido, com os tempos das últimas tarefas". Só leitura. */
+function DurationStats({ event, dur, isLive, fmtDur }) {
+  const [exp, setExp] = React.useState(undefined);
+  const [hist, setHist] = React.useState(null);
+  const products = (window.HFData && window.HFData.products) || {};
+  const productId = event.product && products[event.product] ? products[event.product]._product_id : null;
+  const act = window.HFData && window.HFData.activities && window.HFData.activities[event.activity];
+  let prefMin = 0; try { const c = JSON.parse(localStorage.getItem('hf-tl-colors') || 'null'); prefMin = Number(c && c.expected && c.expected[event.activity]) || 0; } catch (_) { prefMin = 0; }
+  React.useEffect(() => {
+    let alive = true;
+    getExpectations().then((x) => { if (alive) setExp(L.expectedFor(event.activity, { prefMin, actMin: act && act.expected, productId, expectations: x })); }).catch(() => { if (alive) setExp(null); });
+    getHistory(event.activity, productId, 6, typeof event.id === 'number' ? event.id : 0).then((h) => { if (alive) setHist(h); }).catch(() => { if (alive) setHist({ rows: [] }); });
+    return () => { alive = false; };
+  }, [event.id, event.activity, productId]);
+  const lv = exp && isLive ? L.heatLevel(dur, exp) : null;
+  const dm = exp && !isLive ? L.doneMark(dur, exp) : null;
+  const lvTxt = ['começou', 'no ritmo', 'perto do esperado', 'passou do esperado', 'passou muito'];
+  const dmTxt = { fast: 'mais rápido que o esperado (≤ 2/3)', ok: 'dentro do esperado', slow: 'bem mais lento que o esperado (≥ 1,5×)' };
+  const stamp = (iso) => { try { return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', day: '2-digit', month: '2-digit' }).format(new Date(iso)); } catch (_) { return ''; } };
+  return (
+    <div className="sp-dur">
+      <div className="sp-dur-h">Sinal de demora</div>
+      {exp === undefined ? <div className="muted">medindo…</div> : exp === null ? (
+        <div className="muted">Ainda aprendendo: sem histórico suficiente desta tarefa{productId ? ' pra este produto nem pra atividade' : ''} (precisa de 3 do produto ou 5 da atividade em 60 dias). Por isso o bloco fica só pontilhado.</div>
+      ) : (
+        <>
+          <div className="sp-dur-row"><span>Esta tarefa</span><b className="mono">{fmtDur(Math.round(dur))}</b></div>
+          <div className="sp-dur-row"><span>Esperado</span><b className="mono">{fmtDur(exp.min)}</b><small>{exp.label}</small></div>
+          <div className="sp-dur-row"><span>{isLive ? 'Agora' : 'Resultado'}</span><b>{isLive ? (lv != null ? `${Math.round((dur / exp.min) * 100)}% · ${lvTxt[lv]}` : '—') : (dm ? `${Math.round((dur / exp.min) * 100)}% · ${dmTxt[dm]}` : '—')}</b></div>
+        </>
+      )}
+      {hist && hist.rows && hist.rows.length > 0 && (
+        <div className="sp-dur-hist">
+          <div className="sp-dur-hh">Últimas {hist.rows.length} {productId ? 'deste produto' : 'desta atividade'} (60 d)</div>
+          {hist.rows.map((r) => (<div key={r.id} className="sp-dur-row sub"><span>{stamp(r.ended_at)} · {(r.person || '').split(' ')[0]}{!productId && r.product ? ' · ' + r.product : ''}</span><b className="mono">{fmtDur(Number(r.duration_min))}</b></div>))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
@@ -254,6 +298,7 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
                 <span style={{ fontSize: 11, color: "var(--text-3)", marginLeft: 8 }}>esperado {fmtDur(act.expected)}</span>
               )}
             </Field>
+            {!event._new && event.activity && !L.isNeutral(event) && <DurationStats event={event} dur={dur} isLive={isLive} fmtDur={fmtDur}/>}
             {/* BOTTLES (Bruno 06-22): estimado do EMS + quanto foi produzido NESTE
                 evento (quem/quando/quanto). Surface o controle — dá pra ver, p.ex.,
                 2 pessoas contando o mesmo lote (cowork) = contagem dobrada. */}

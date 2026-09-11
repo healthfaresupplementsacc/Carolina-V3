@@ -78,7 +78,7 @@ describe('calor e marca ao terminar', () => {
     expect(L.heatLevel(70, { min: 60, basis: 'produto' })).toBe(3);
     expect(L.heatLevel(30, null)).toBeNull();
   });
-  test('marca ao terminar', () => { expect(L.doneMark(50, 60)).toBe('fast'); expect(L.doneMark(58, 60)).toBe('ok'); expect(L.doneMark(80, 60)).toBe('slow'); });
+  test('marca ao terminar (folga: rápido ≤ 2/3, lento ≥ 1,5×)', () => { expect(L.doneMark(35, 60)).toBe('fast'); expect(L.doneMark(50, 60)).toBe('ok'); expect(L.doneMark(80, 60)).toBe('ok'); expect(L.doneMark(95, 60)).toBe('slow'); });
 });
 
 describe('layoutPerson (Vitor 09-09): sobreposição real divide a faixa; 0 min vira tique', () => {

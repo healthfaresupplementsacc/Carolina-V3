@@ -66,6 +66,19 @@ function evaluate(durMin, medianMin, samples) {
   return null;
 }
 
+/* Ajustes (v3.settings 'duration_check'): { kiosk_ask: false } por padrão —
+   Bruno 09-11: "não alertar nada aos funcionários ainda, estamos ajustando". */
+const SETTINGS_KEY = 'duration_check';
+async function getSettings(db) {
+  try { const r = await db.query('SELECT value FROM v3.settings WHERE key = $1', [SETTINGS_KEY]); const v = r.rows[0] && r.rows[0].value; return { kiosk_ask: false, ...(v && typeof v === 'object' ? v : {}) }; }
+  catch (_) { return { kiosk_ask: false }; }
+}
+async function setSettings(db, patch, by) {
+  const cur = await getSettings(db); const next = { ...cur, ...patch, updated_by: by || null, updated_at: new Date().toISOString() };
+  await db.query(`INSERT INTO v3.settings (key, value, description) VALUES ($1, $2::jsonb, $3) ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()`, [SETTINGS_KEY, JSON.stringify(next), 'checagem de duração (kiosk pergunta? etc.)']);
+  return next;
+}
+
 function extractBearer(req) { const h = String(req.headers.authorization || ''); return h.startsWith('Bearer ') ? h.slice(7) : null; }
 
 function createDurationCheckRouter(deps = {}) {
@@ -99,6 +112,8 @@ function createDurationCheckRouter(deps = {}) {
     try {
       const got = await kioskOwned(req, res); if (!got) return;
       const { ev } = got;
+      const settings = await getSettings(db);
+      if (!settings.kiosk_ask) return ok(res, { check: null, kiosk_ask: false });   // desligado enquanto ajustamos (Bruno 09-11)
       if (!ev.ended_at || !ev.activity_type_id) return ok(res, { check: null });
       const durMin = (new Date(ev.ended_at) - new Date(ev.started_at)) / 60000 - Number(ev.paused) / 60;
       // por PRODUTO primeiro (revisão do Devil's Claw contra as revisões do Devil's Claw), senão a atividade
@@ -146,6 +161,36 @@ function createDurationCheckRouter(deps = {}) {
     catch (e) { console.error('[duration-check]', e.message); err(res, 'internal', e.message, 500); }
   });
 
+  // dashboard (PIN): ajustes (kiosk pergunta?) — ler qualquer PIN; mudar só quem configura
+  router.get(BASE + '/settings', makeAuthMiddleware({ db }), async (req, res) => { try { ok(res, await getSettings(db)); } catch (e) { err(res, 'internal', e.message, 500); } });
+  router.post(BASE + '/settings', makeAuthMiddleware({ db }), async (req, res) => {
+    const l = req.login || {}; const fns = l.functions || [];
+    if (!(fns.includes('*') || fns.includes('config_page') || fns.includes('manage_system'))) return err(res, 'forbidden', 'Só quem configura o sistema liga a pergunta no kiosk.', 403);
+    try { const b = req.body || {}; ok(res, await setSettings(db, { kiosk_ask: !!b.kiosk_ask }, l.name)); } catch (e) { err(res, 'internal', e.message, 500); }
+  });
+
+  // dashboard (PIN): as últimas tarefas iguais (pra explicar o sinal no detalhe)
+  router.get(BASE + '/history', makeAuthMiddleware({ db }), async (req, res) => {
+    try {
+      const slug = String(req.query.slug || '').trim(); if (!slug) return err(res, 'bad_request', 'slug obrigatório');
+      const productId = req.query.product_id ? parseInt(req.query.product_id, 10) : null;
+      const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 8));
+      const exclude = req.query.exclude ? parseInt(req.query.exclude, 10) : 0;
+      const rows = (await db.query(`
+        SELECT x.id, x.started_at, x.ended_at, pe.display_name AS person, pb.batch_number, COALESCE(pr.nickname, pr.canonical_name) AS product,
+               ROUND((EXTRACT(EPOCH FROM (x.ended_at - x.started_at)) - COALESCE(x.total_paused_seconds, 0)) / 60.0) AS duration_min
+          FROM v3.events x JOIN v3.activity_types at ON at.id = x.activity_type_id
+          JOIN v3.persons pe ON pe.id = x.person_id
+          LEFT JOIN v3.product_batches pb ON pb.id = x.product_batch_id
+          LEFT JOIN v3.products pr ON pr.id = pb.product_id
+         WHERE at.slug = $1 AND x.ended_at IS NOT NULL AND x.deleted_at IS NULL AND COALESCE(x.is_test, false) = false
+           AND x.started_at > NOW() - INTERVAL '${DAYS} days' AND x.ended_at - x.started_at >= INTERVAL '1 minute' AND x.id <> $4
+           AND ($2::int IS NULL OR pb.product_id = $2)
+         ORDER BY x.ended_at DESC LIMIT $3`, [slug, productId || null, limit, exclude || 0])).rows;
+      ok(res, { rows, slug, product_id: productId, days: DAYS });
+    } catch (e) { console.error('[duration-check]', e.message); err(res, 'internal', e.message, 500); }
+  });
+
   // dashboard (PIN): marcar como consertado → para o alerta na linha do tempo
   router.post(BASE + '/event/:id/fix', makeAuthMiddleware({ db }), async (req, res) => {
     try {
@@ -161,4 +206,4 @@ function createDurationCheckRouter(deps = {}) {
   return router;
 }
 
-module.exports = { createDurationCheckRouter, evaluate, learnExpectations, BASE, MIN_SAMPLES, PRODUCT_MIN_SAMPLES };
+module.exports = { createDurationCheckRouter, evaluate, learnExpectations, getSettings, setSettings, BASE, MIN_SAMPLES, PRODUCT_MIN_SAMPLES };
