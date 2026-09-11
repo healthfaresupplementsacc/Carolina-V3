@@ -70,6 +70,14 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
     if (!initialPos) return;
     setPos(positionAboveCursor(initialPos));
   }, [event?.id, initialPos?.x, initialPos?.y]);
+  // 09-11 (Bruno: "parte do painel fica embaixo da área visível"): depois de montar,
+  // mede a altura REAL e sobe o painel o necessário pra caber na janela.
+  const panelRef = React.useRef(null);
+  React.useLayoutEffect(() => {
+    const el = panelRef.current; if (!el) return;
+    const vh = window.innerHeight || 800; const h = el.offsetHeight || 0;
+    setPos((p) => (p.y + h > vh - 12 ? { ...p, y: Math.max(12, vh - 12 - h) } : p));
+  }, [event?.id, mode, pos.x]);
 
   // ── drag pela barra de título ──
   const dragRef = React.useRef(null);
@@ -177,7 +185,7 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
   }
 
   return (
-    <aside className="float-panel" style={{
+    <aside className="float-panel" ref={panelRef} style={{
       position: 'fixed', left: pos.x, top: pos.y, width: PANEL_W,
       maxHeight: 'min(80vh, 640px)', zIndex: 300,
       background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,

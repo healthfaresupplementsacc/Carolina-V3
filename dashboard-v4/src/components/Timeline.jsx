@@ -3,6 +3,7 @@ import { Icon } from './Icons.jsx';
 import { OperatorAvatar } from './Primitives.jsx';
 import timelinePause from './timeline-pause.cjs';
 import L from './timeline-layout.cjs';
+import { useAccountPref } from '../hooks/useAccountPref.js';
 
 /* Timeline — a linha do tempo do Hoje, redesenhada (Bruno 09-10, estudo
    docs/architecture/study/S03-TIMELINE-REDESIGN-STUDY.md).
@@ -74,7 +75,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     isToday = true,     // dia passado: sem AGORA, sem 'ao vivo', sem 'sem registro há'
                     onClosePanel,       // () => void  fecha o painel de detalhes (1 clique) quando o menu (2) ou o arrastar (3) entra
 }) {
-  const { DAY_START, DAY_END: DAY_END_BASE, activities, products } = window.HFData;
+  const { DAY_START: DAY_START_BASE, DAY_END: DAY_END_BASE, activities, products } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
   const fmt = fmtClockProp || fmtClock;
 
@@ -90,6 +91,12 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   if (attMarkers) for (const k of Object.keys(attMarkers)) for (const mk of (attMarkers[k] || [])) { const mm = isoToDayMin(mk.at); if (mm != null && mm > latest) latest = mm; }
   for (const e of events) { const ee = e.ended_min == null ? Math.floor(now) : e.ended_min; if (ee > latest) latest = ee; }
   const DAY_END = Math.max(DAY_END_BASE, latest > 0 ? Math.ceil((latest + 10) / 60) * 60 : 0);
+  // INÍCIO da régua (Bruno 09-11): hora cheia do primeiro check-in ou primeiro registro do dia,
+  // e não 8 AM fixo ("espaço gigante vazio das 8 às 9 quando todo mundo começou depois das 9").
+  let earliest = null;
+  if (attMarkers) for (const k of Object.keys(attMarkers)) for (const mk of (attMarkers[k] || [])) { const mm = isoToDayMin(mk.at); if (mm != null && (earliest == null || mm < earliest)) earliest = mm; }
+  for (const e of events) if (e.started_min != null && (earliest == null || e.started_min < earliest)) earliest = e.started_min;
+  const DAY_START = earliest != null ? Math.min(Math.floor(earliest / 60) * 60, DAY_END - 60) : DAY_START_BASE;
   const trackW = ((DAY_END - DAY_START) / 60) * hourPx;
   const X = (m) => ((Math.max(DAY_START, Math.min(DAY_END, m)) - DAY_START) / 60) * hourPx;
   const nowMin = Math.floor(now);
@@ -98,6 +105,20 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
 
   // ── UI flutuante local: menu do vazio, mini-forms, barra do bloco, registro rápido ──
   const wrapRef = React.useRef(null);
+  const [visW, setVisW] = React.useState(0);
+  React.useEffect(() => {
+    const sc = wrapRef.current && wrapRef.current.querySelector('.tl-scroller'); if (!sc) return undefined;
+    const upd = () => setVisW(sc.clientWidth);
+    upd(); const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(upd) : null; if (ro) ro.observe(sc);
+    window.addEventListener('resize', upd);
+    return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', upd); };
+  }, []);
+  // CORES (Bruno 09-11): estilo global + cor por atividade, por conta (v3.user_prefs 'timeline.colors')
+  const [colorsPref, setColorsPref] = useAccountPref('timeline.colors', { style: 'regular', colors: {} }, { localKey: 'hf-tl-colors' });
+  const [gearOpen, setGearOpen] = React.useState(null);   // {x,y}
+  const customColor = (slug) => (colorsPref && colorsPref.colors && colorsPref.colors[slug]) || null;
+  const tintOf = (hex, a) => { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return null; const n = parseInt(m[1], 16); return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`; };
+  const colorVars = (slug) => { const c = customColor(slug); return c ? { '--c': c, '--t': tintOf(c, 0.18), '--t2': tintOf(c, 0.3) } : {}; };
   const [menu, setMenu] = React.useState(null);   // {op, m, prev, next, x, y}
   const [mini, setMini] = React.useState(null);   // {kind:'adjust'|'finish'|'quick', ...}
   const [bar, setBar] = React.useState(null);     // {ev, op, x, y}
@@ -106,7 +127,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   // 1 clique = detalhes perto do mouse · 2 cliques = menu compacto · hover = resumo.
   const [armed, setArmed] = React.useState(null);
   const clickTimer = React.useRef(null);
-  const closeAll = () => { setMenu(null); setMini(null); setBar(null); setMoveOpen(false); setArmed(null); };
+  const closeAll = () => { setMenu(null); setMini(null); setBar(null); setMoveOpen(false); setArmed(null); setGearOpen && setGearOpen(null); };
   const handleBlockClick = (ev, e, op) => {
     ev.stopPropagation();
     const at = { x: ev.clientX, y: ev.clientY };
@@ -118,7 +139,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   // pointerdown no bloco: só arrasta se estiver armado; senão não deixa o clique virar "vazio"
   const blockDown = (ev, e, mode) => { if (armed === e.id) startDrag(ev, e, mode); else ev.stopPropagation(); };
   React.useEffect(() => {
-    const onDoc = (e) => { if (!e.target.closest('.tl-menu, .tl-mini, .tl-abar, .tl-block, .tl-rail, .tl-tick, .tl-pause-inline')) closeAll(); };
+    const onDoc = (e) => { if (!e.target.closest('.tl-menu, .tl-mini, .tl-abar, .tl-block, .tl-rail, .tl-tick, .tl-pause-inline, .tl-gear')) closeAll(); };
     const onKey = (e) => { if (e.key === 'Escape') closeAll(); };
     document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
@@ -181,7 +202,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const byOp = {}; for (const ev of events) (byOp[ev.op] = byOp[ev.op] || []).push(ev);
 
   return (
-    <div className="tl-wrap" ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px` }}>
+    <div className={`tl-wrap st-${(colorsPref && colorsPref.style) || 'regular'}`} ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%' }}>
       <div className="tl-header">
         <h2>Linha do tempo</h2>
         <span className="en">{operators.length} pessoas</span>
@@ -200,6 +221,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
             <button title="Mais zoom" onClick={() => setHourPx((p) => Math.min(1000, Math.round(p * 1.25)))}>+</button>
           </div>
         )}
+        <button className="btn sm ghost tl-gear" title="Cores e estilo dos blocos" onClick={(e) => { e.stopPropagation(); closeAll(); setGearOpen(gearOpen ? null : { x: e.clientX, y: e.clientY }); }}>⚙</button>
         {onQuickCreate && (
           <button className="btn sm primary tl-newbtn" data-action="novo-registro"
                   onClick={(e) => { e.stopPropagation(); openMini('quick', { op: null, start: Math.max(DAY_START, snap(nowMin) - 60), end: snap(nowMin), pickPerson: true }, { x: e.clientX, y: e.clientY }); }}>
@@ -304,12 +326,12 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                   // rótulo fora, na calha acima: nome curto + tempo; empurra se colide com o anterior
                   const ow = measure(fitRes.name, 10, 'sans') + measure(durTxt, 10, 'mono') + 12;
                   let ol = left; if (ol < lastOutRight + 4) ol = lastOutRight + 4; lastOutRight = ol + ow;
-                  out.push(<div key={`ol-${e.id}`} className="tl-olbl" style={{ left: ol, top: M.gutterTop, '--c': `var(--flow-${flow === 'production' ? 'prod' : flow})` }}>{fitRes.name}<small>{durTxt}</small></div>);
+                  out.push(<div key={`ol-${e.id}`} className="tl-olbl" style={{ left: ol, top: M.gutterTop, '--c': customColor(e.activity) || `var(--flow-${flow === 'production' ? 'prod' : flow})` }}>{fitRes.name}<small>{durTxt}</small></div>);
                 }
                 out.push(
                   <div key={`${e.id}-s${seg.index}`} data-block-id={e.id} data-seg-index={seg.index}
                        className={`tl-block flow-${flow} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
-                       style={{ left, width: w, top, height: h }}
+                       style={{ left, width: w, top, height: h, ...(neutral ? {} : colorVars(e.activity)) }}
                        onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}
                        title={tip}>
                     {armed === e.id && !isLiveEv && !seg.is_continuation && <div className="tl-handle left" onPointerDown={(ev) => startDrag(ev, e, 'left')}/>}
@@ -373,7 +395,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     return (
                       <React.Fragment key={'rail-' + e.id}>
                         <div className={`tl-rail flow-${flow} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
-                             style={{ left: X(e.started_min), width: w, top, height: M.RAIL_H }} title={tip}
+                             style={{ left: X(e.started_min), width: w, top, height: M.RAIL_H, ...colorVars(e.activity) }} title={tip}
                              onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}>
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur' || lbl.mode === 'short') && <b>{lbl.name}</b>}
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur') && <span className="mono">{lbl.extra}</span>}
@@ -482,6 +504,8 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
         );
       })()}
 
+      {gearOpen && <ColorSettings at={gearOpen} pref={colorsPref} setPref={setColorsPref} activities={activities} events={events} onClose={() => setGearOpen(null)}/>}
+
       {drag && drag.moved && (
         <div className="drag-tooltip" style={{ left: drag.tooltipX, top: drag.tooltipY }}>
           {drag.mode === 'left' ? `início → ${fmt(drag.newStart)}` : drag.mode === 'right' ? `fim → ${fmt(drag.newEnd)}` : drag.hoveredEventId ? 'solte para juntar' : `${fmt(drag.newStart)} → ${fmt(drag.newEnd)}`}
@@ -572,6 +596,38 @@ function QuickAdd({ mini, fmt, operators, activities, events, nowMin, DAY_END_BA
   );
 }
 
+/* ColorSettings — engrenagem da linha do tempo (Bruno 09-11): estilo dos blocos
+   (regular, plano, pastel, 3D, brilho, animado) e cor por atividade, salvos por conta. */
+const STYLES = [['regular', 'Regular'], ['plain', 'Plano'], ['pastel', 'Pastel'], ['3d', '3D'], ['glow', 'Brilho'], ['anim', 'Animado']];
+const FLOW_DEFAULT = { production: '#1a3a6b', pnp: '#0f766e', support: '#5b3fa8' };
+function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
+  const used = new Set(events.map((e) => e.activity));
+  const list = Object.entries(activities).filter(([k, a]) => a && k !== 'unknown').sort((a, b) => (used.has(b[0]) - used.has(a[0])) || String(a[1].flow).localeCompare(String(b[1].flow)) || a[1].name.localeCompare(b[1].name));
+  const cur = pref || { style: 'regular', colors: {} };
+  const setColor = (slug, hex) => setPref({ ...cur, colors: { ...(cur.colors || {}), [slug]: hex } });
+  const reset = (slug) => { const c = { ...(cur.colors || {}) }; delete c[slug]; setPref({ ...cur, colors: c }); };
+  const vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
+  return (
+    <div className="tl-mini wide tl-colors" style={{ left: Math.max(8, Math.min(vw - 420, at.x - 380)), top: Math.max(8, Math.min(vh - 520, at.y + 12)) }} onMouseDown={(e) => e.stopPropagation()}>
+      <h3>Cores e estilo dos blocos</h3>
+      <div className="hint">Vale só pra sua conta. A cor padrão segue o fluxo (Produção · P&P · Suporte).</div>
+      <div className="lbl">Estilo</div>
+      <div className="chips">{STYLES.map(([k, t]) => (<button key={k} className={`chip ${(cur.style || 'regular') === k ? 'on' : ''}`} onClick={() => setPref({ ...cur, style: k })}>{t}</button>))}</div>
+      <div className="lbl">Cor por atividade <span style={{ textTransform: 'none', letterSpacing: 0 }}>(as de hoje primeiro)</span></div>
+      <div className="tl-color-list">
+        {list.map(([k, a]) => { const c = (cur.colors || {})[k]; return (
+          <div key={k} className="row">
+            <span className="sw" style={{ background: c || FLOW_DEFAULT[a.flow] || FLOW_DEFAULT.support }}/>
+            <span className="n">{a.name}{used.has(k) ? '' : <small> · hoje não</small>}</span>
+            <input type="color" value={c || FLOW_DEFAULT[a.flow] || FLOW_DEFAULT.support} onChange={(e) => setColor(k, e.target.value)} title="Escolher cor"/>
+            {c && <button className="link" onClick={() => reset(k)} title="Voltar à cor do fluxo">padrão</button>}
+          </div>); })}
+      </div>
+      <div className="foot"><button className="link" onClick={() => setPref({ style: 'regular', colors: {} })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
+    </div>
+  );
+}
+
 /* E7 #5 — bloco de detalhes inline que abre embaixo da lane quando o nome do operador é clicado. Read-only. */
 function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, activities, onSelectEvent, onGapClick }) {
   const sorted = events.slice().sort((a, b) => a.started_min - b.started_min);
@@ -585,12 +641,8 @@ function PersonExpansion({ op, events, now, gap, fmtClock, fmtDur, fmtCron, acti
     <div className="tl-row-expansion">
       <div className="tl-expansion-name">
         <div className="exp-title">Detalhes · {op.name}</div>
-        {gap && gap.idle_seconds + gap.unreported_seconds > 0 && (
-          <div className="exp-gaps">
-            {gap.idle_seconds > 0 && <span className="tag">idle: {fmtDur(Math.round(gap.idle_seconds / 60))}</span>}
-            {gap.unreported_seconds > 0 && <span className="tag tag-warn">não reportado: {fmtDur(Math.round(gap.unreported_seconds / 60))}</span>}
-          </div>
-        )}
+        {/* 09-11: as tags "idle / não reportado" saíram (contavam até agora e diziam
+            "3 h sem tarefa" pra quem já tinha ido embora); os buracos estão na lista. */}
       </div>
       <div className="tl-expansion-list">
         {items.length === 0 ? <div className="exp-empty">sem eventos hoje</div> : items.map((it, i) => it.kind === 'event' ? (() => {

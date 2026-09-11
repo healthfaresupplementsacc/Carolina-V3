@@ -286,6 +286,10 @@ function loadLayout() {
   return { grid: defaultLayout(), stack: defaultStack() };
 }
 
+// Resumo do dia (Bruno 09-11): nasce escondido; aberto uma vez, fica aberto ao trocar de dia,
+// até recarregar a página ou esconder. Variável de módulo = some no reload, sobrevive ao navegar.
+let RESUMO_OPEN = false;
+
 function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata, refresh, date, raw,
                           onMerge, onSplit, onCreateInGap, writes,
                           notifOpen, onNotifClose, onNotifInfo }) {
@@ -640,6 +644,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   // ── REDESENHO 09-10: registrar e corrigir NO LUGAR (Timeline → aqui → API) ──
   // Tudo auditado via PIN (actor admin). Sem writes ligados = preview com aviso.
   const [journeyKey, setJourneyKey] = React.useState(null);   // 'b<batch_id>' do lote aberto
+  const [resumoOpen, setResumoOpenState] = React.useState(RESUMO_OPEN);
+  const setResumoOpen = (v) => { RESUMO_OPEN = v; setResumoOpenState(v); };
   const isoAt = (min) => (min == null ? null : nyTime.minutesToNyIso(date, min));
   const quickCreate = async (d) => {
     if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
@@ -1358,11 +1364,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
            conceitos do negócio. Tudo derivado via util/day-stats.cjs com
            UNIÃO de intervalos (wall-clock), sem dupla-contagem. ──────── */}
       {wOn('resumo') && (<section style={{ order: wOrder('resumo') }}>
-      <div className="opa-section" style={{ marginTop: 26 }}>
-        <span className="kit-mlabel">Resumo do dia</span>
-        <div className="rule"/>
-      </div>
-      {(() => {
+      <button className={`resumo-toggle ${resumoOpen ? 'open' : ''}`} data-resumo-toggle onClick={() => setResumoOpen(!resumoOpen)} title={resumoOpen ? 'Esconder o resumo do dia' : 'Ver o resumo do dia'}>
+        <span className="car">▶</span> Resumo do dia <small>{state.events.length} eventos · {operators.length} pessoas · {resumoOpen ? 'clique pra esconder' : 'clique pra ver'}</small>
+      </button>
+      {resumoOpen && (() => {
         const prodT = dayStats.productionTime(state.events, now, HFD.activities || {});
         const supB  = dayStats.supportBreakdown(state.events, now, HFD.activities || {});
         const idleR = dayStats.idleRanking(state.events, now, operators, GAP_VISIBLE_MIN);

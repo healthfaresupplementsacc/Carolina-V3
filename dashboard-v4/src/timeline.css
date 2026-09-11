@@ -217,3 +217,34 @@
 .bj-wait { margin-left: 32px; font: 600 11px "JetBrains Mono", monospace; color: var(--warn); padding: 2px 0 4px; }
 .bj-hint, .bj-err { font-size: 12.5px; color: var(--text-3); padding: 20px 0; }
 .bj-err { color: var(--bad); }
+
+/* ── expansão da pessoa fica PARADA na tela ao rolar a régua (Bruno 09-11) ── */
+.tl-wrap .tl-row-expansion { position: sticky; left: 0; width: var(--vis-w, 100%); box-sizing: border-box; }
+
+/* ── engrenagem: cores e estilos ── */
+.tl-gear { font-size: 15px; padding: 3px 9px; }
+.tl-colors .tl-color-list { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; }
+.tl-colors .row { display: grid; grid-template-columns: 14px 1fr 34px auto; gap: 8px; align-items: center; padding: 4px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.tl-colors .row:first-child { border-top: 0; }
+.tl-colors .row .sw { width: 14px; height: 14px; border-radius: 4px; }
+.tl-colors .row .n small { color: var(--text-3); }
+.tl-colors .row input[type=color] { width: 34px; height: 22px; border: 1px solid var(--border); border-radius: 6px; padding: 0; background: none; cursor: pointer; }
+/* estilos dos blocos */
+.st-plain .tl-block { border-left-width: 0; border-radius: 6px; background: var(--t2); }
+.st-plain .tl-rail { border-width: 0; background: var(--t2); }
+.st-pastel .tl-block, .st-pastel .tl-rail { background: var(--t); border-color: var(--t2); border-left-color: var(--c); filter: saturate(.8); }
+.st-3d .tl-block { background: linear-gradient(180deg, #fff 0%, var(--t) 55%, var(--t2) 100%); box-shadow: 0 2px 0 var(--t2), 0 4px 10px -4px rgba(0,0,0,.35); border-radius: 6px; }
+.st-3d .tl-rail { box-shadow: 0 1px 0 var(--t2), 0 3px 8px -4px rgba(0,0,0,.35); }
+:root[data-theme="dark"] .st-3d .tl-block { background: linear-gradient(180deg, var(--t2) 0%, var(--t) 60%, rgba(0,0,0,.25) 100%); }
+.st-glow .tl-block, .st-glow .tl-rail { box-shadow: 0 0 10px 1px var(--c); border-color: var(--c); }
+.st-anim .tl-block::after, .st-anim .tl-rail::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%); background-size: 220% 100%; animation: tl-shimmer 3s linear infinite; pointer-events: none; }
+@keyframes tl-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+@media (prefers-reduced-motion: reduce) { .st-anim .tl-block::after, .st-anim .tl-rail::after { animation: none; } }
+.st-anim .tl-block, .st-anim .tl-rail { position: absolute; }
+
+/* ── Resumo do dia: barra expansível que chama atenção (Bruno 09-11) ── */
+.resumo-toggle { width: 100%; display: flex; align-items: center; gap: 12px; margin-top: 26px; padding: 12px 18px; border-radius: 12px; border: 1px solid var(--hf-leaf-500); background: linear-gradient(90deg, rgba(34,179,93,.16), rgba(34,179,93,.04)); color: var(--text); font: 800 16px "Plus Jakarta Sans", system-ui, sans-serif; letter-spacing: -0.01em; cursor: pointer; text-align: left; }
+.resumo-toggle:hover { background: linear-gradient(90deg, rgba(34,179,93,.24), rgba(34,179,93,.08)); }
+.resumo-toggle .car { display: inline-block; transition: transform .18s; color: var(--hf-leaf-600); font-size: 14px; }
+.resumo-toggle.open .car { transform: rotate(90deg); }
+.resumo-toggle small { font: 500 12px "JetBrains Mono", monospace; color: var(--text-3); margin-left: auto; }
