@@ -64,15 +64,18 @@ describe('almoço dentro de uma tarefa divide a faixa (não fica por cima)', () 
 
 describe('calor e marca ao terminar', () => {
   const effEnd = (e) => e.ended_min;
-  test('esperado: pref > cadastro > média do dia (≥ 3) > nada', () => {
-    const evs = [ev(1, 'review', 0, 50), ev(2, 'review', 0, 40), ev(3, 'review', 0, 60)];
-    expect(L.expectedFor('review', { prefMin: 30, actMin: 45, events: evs, effEnd })).toBe(30);
-    expect(L.expectedFor('review', { prefMin: 0, actMin: 45, events: evs, effEnd })).toBe(45);
-    expect(L.expectedFor('review', { prefMin: 0, actMin: null, events: evs, effEnd })).toBe(50);
-    expect(L.expectedFor('review', { prefMin: 0, actMin: null, events: evs.slice(0, 2), effEnd })).toBeNull();
+  test('esperado (Bruno 09-11): ajuste > mediana do PRODUTO (≥3) > mediana da atividade (≥5) > cadastro > nada; nunca a média de hoje', () => {
+    const X = { days: 60, min_samples: 5, by_activity: { review: { median_min: 40, samples: 12 }, cleaning: { median_min: 90, samples: 2 } }, by_product: { review: { 77: { median_min: 52, samples: 6, last_min: 48 } } } };
+    expect(L.expectedFor('review', { prefMin: 30, actMin: 45, productId: 77, expectations: X })).toMatchObject({ min: 30, basis: 'ajuste' });
+    expect(L.expectedFor('review', { prefMin: 0, actMin: 45, productId: 77, expectations: X })).toMatchObject({ min: 52, basis: 'produto', last_min: 48, samples: 6 });
+    expect(L.expectedFor('review', { prefMin: 0, actMin: 45, productId: 99, expectations: X })).toMatchObject({ min: 40, basis: 'atividade', samples: 12 });
+    expect(L.expectedFor('cleaning', { prefMin: 0, actMin: 45, productId: null, expectations: X })).toMatchObject({ min: 45, basis: 'cadastro' });
+    expect(L.expectedFor('cleaning', { prefMin: 0, actMin: null, productId: null, expectations: X })).toBeNull();
+    expect(L.expectedFor('cleaning', { prefMin: 0, actMin: null, productId: null, expectations: null })).toBeNull();
   });
   test('níveis: azul → verde → amarelo → laranja → vermelho', () => {
     expect([10, 40, 55, 70, 100].map((m) => L.heatLevel(m, 60))).toEqual([0, 1, 2, 3, 4]);
+    expect(L.heatLevel(70, { min: 60, basis: 'produto' })).toBe(3);
     expect(L.heatLevel(30, null)).toBeNull();
   });
   test('marca ao terminar', () => { expect(L.doneMark(50, 60)).toBe('fast'); expect(L.doneMark(58, 60)).toBe('ok'); expect(L.doneMark(80, 60)).toBe('slow'); });

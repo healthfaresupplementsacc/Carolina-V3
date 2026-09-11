@@ -11,7 +11,7 @@ import { KPI, CapBar, FlowDot } from '../components/Primitives.jsx';
 import { Timeline } from '../components/Timeline.jsx';
 import { FlowHistory } from '../components/FlowHistory.jsx';
 import { BatchJourney } from '../components/BatchJourney.jsx';
-import { fixDurationFlag } from '../adapters/duration-api.js';
+import { fixDurationFlag, getExpectations } from '../adapters/duration-api.js';
 import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
@@ -646,6 +646,9 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   // Tudo auditado via PIN (actor admin). Sem writes ligados = preview com aviso.
   const [journeyKey, setJourneyKey] = React.useState(null);   // 'b<batch_id>' do lote aberto
   const [resumoOpen, setResumoOpenState] = React.useState(RESUMO_OPEN);
+  // o que o sistema aprendeu (mediana histórica por atividade e por produto), pro sinal de demora
+  const [expectations, setExpectations] = React.useState(null);
+  React.useEffect(() => { let alive = true; getExpectations().then((d) => { if (alive) setExpectations(d); }).catch(() => {}); return () => { alive = false; }; }, [date]);
   const setResumoOpen = (v) => { RESUMO_OPEN = v; setResumoOpenState(v); };
   const isoAt = (min) => (min == null ? null : nyTime.minutesToNyIso(date, min));
   const quickCreate = async (d) => {
@@ -1363,6 +1366,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             isToday={isToday}
             onClosePanel={() => openPanel(null)}
             onFixFlag={fixFlag}
+            expectations={expectations}
           />
         )}
       </div>

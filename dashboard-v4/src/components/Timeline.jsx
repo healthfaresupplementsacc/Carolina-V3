@@ -75,6 +75,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     isToday = true,     // dia passado: sem AGORA, sem 'ao vivo', sem 'sem registro há'
                     onClosePanel,       // () => void  fecha o painel de detalhes (1 clique) quando o menu (2) ou o arrastar (3) entra
                     onFixFlag,          // (id) => void  marca o alerta de duração como consertado (09-11)
+                    expectations,       // GET /api/v3/duration-check/expectations (mediana histórica por atividade e por produto)
 }) {
   const { DAY_START: DAY_START_BASE, DAY_END: DAY_END_BASE, activities, products } = window.HFData;
   const { fmtClock, fmtCron, fmtDur } = window.HFH;
@@ -117,7 +118,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   // CORES (Bruno 09-11): estilo global + cor por atividade, por conta (v3.user_prefs 'timeline.colors')
   const [colorsPref, setColorsPref] = useAccountPref('timeline.colors', { style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, presets: {} }, { localKey: 'hf-tl-colors' });
   const styleOf = (slug) => `bst-${(colorsPref && colorsPref.styles && colorsPref.styles[slug]) || (colorsPref && colorsPref.style) || 'regular'}`;
-  const expectedOf = (slug, act) => L.expectedFor(slug, { prefMin: Number(colorsPref && colorsPref.expected && colorsPref.expected[slug]) || 0, actMin: act && act.expected, events, effEnd: (x) => (x.ended_min == null ? Math.floor(now) : x.ended_min) });
+  const expectedOf = (slug, act, productKey) => L.expectedFor(slug, { prefMin: Number(colorsPref && colorsPref.expected && colorsPref.expected[slug]) || 0, actMin: act && act.expected, productId: productKey && products[productKey] ? products[productKey]._product_id : null, expectations });
   const heatOn = !colorsPref || colorsPref.heat !== false;
   const doneOn = !colorsPref || colorsPref.doneMark !== false;
   const [gearOpen, setGearOpen] = React.useState(null);   // {x,y}
@@ -322,11 +323,12 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const totalW = X(end) - X(start);
               const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + (e._flag ? '\nALERTA: operador disse que este registro NÃO está certo' : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
               // calor (ao vivo) / marca ao terminar, pelo esperado da atividade
-              let heatCls = '';
-              if (!neutral && isToday) {
-                const exp = expectedOf(e.activity, act);
-                if (isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv; }
-                else if (!isLiveEv && doneOn) { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
+              let heatCls = ''; let expTip = '';
+              if (!neutral) {
+                const exp = expectedOf(e.activity, act, e.product);
+                if (exp) expTip = `\nesperado ~${L.fmtDurShort(exp.min)} (${exp.label})`;
+                if (isToday && isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv; }
+                else if (isToday && !isLiveEv && doneOn) { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
               }
               const out = [];
               pieces.forEach((seg) => {
@@ -345,7 +347,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                        className={`tl-block flow-${flow} ${neutral ? '' : styleOf(e.activity)} ${e._flag ? 'flagged' : heatCls} ${neutral ? 'neutral' : ''} ${isLiveEv && seg.is_last ? 'live' : ''} ${isDragging ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isMergeTarget ? 'merge-target' : ''} ${flowDimmed ? 'dim' : ''} ${isInvalid ? 'tl-block-invalid' : ''} ${seg.is_continuation ? 'tl-block-cont' : ''} ${e.overrun && head ? 'overrun' : ''} ${armed === e.id ? 'armed' : ''}`}
                        style={{ left, width: w, top, height: h, ...(neutral ? {} : colorVars(e.activity)) }}
                        onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}
-                       title={tip}>
+                       title={tip + expTip}>
                     {armed === e.id && !isLiveEv && !seg.is_continuation && <div className="tl-handle left" onPointerDown={(ev) => startDrag(ev, e, 'left')}/>}
                     {armed === e.id && !isLiveEv && seg.is_last && <div className="tl-handle right" onPointerDown={(ev) => startDrag(ev, e, 'right')}/>}
                     {neutral
@@ -407,7 +409,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                     const tip = `${act.name}${productName ? ' · ' + productName + ' (' + (products[e.product]?.batch || '') + ')' : ''}\n${fmt(e.started_min)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - e.started_min)}${e.dupes ? `\n${e.dupes} registros iguais (juntar?)` : ''}\n1 clique: detalhes · 2: ações · 3: arrastar`;
                     return (
                       <React.Fragment key={'rail-' + e.id}>
-                        <div className={`tl-rail flow-${flow} ${styleOf(e.activity)} ${e._flag ? 'flagged' : ''} ${isLiveEv && isToday && heatOn ? (() => { const lv = L.heatLevel(now - e.started_min, expectedOf(e.activity, act)); return lv != null ? 'heat-' + lv : ''; })() : ''} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
+                        <div className={`tl-rail flow-${flow} ${styleOf(e.activity)} ${e._flag ? 'flagged' : ''} ${isLiveEv && isToday && heatOn ? (() => { const lv = L.heatLevel(now - e.started_min, expectedOf(e.activity, act, e.product)); return lv != null ? 'heat-' + lv : ''; })() : ''} ${isLiveEv ? 'live' : ''} ${bar && bar.ev.id === e.id ? 'selected' : ''} ${armed === e.id ? 'armed' : ''}`} data-block-id={e.id}
                              style={{ left: X(e.started_min), width: w, top, height: M.RAIL_H, ...colorVars(e.activity) }} title={tip}
                              onPointerDown={(ev) => blockDown(ev, e, 'body')} onClick={(ev) => handleBlockClick(ev, e, op)}>
                           {(lbl.mode === 'full' || lbl.mode === 'short_dur' || lbl.mode === 'short') && <b>{lbl.name}</b>}
@@ -654,7 +656,7 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
         <div className="tl-heat-legend">{HEAT_LEGEND.map(([c, t]) => (<div key={c} className="row"><span className={`sw ${c}`}/><span>{t}</span></div>))}</div>
         <div className="lbl">Ao terminar</div>
         <label className="tl-check"><input type="checkbox" checked={cur.doneMark !== false} onChange={(e) => put({ doneMark: e.target.checked })}/> Marca ao redor: verde = mais rápido que o esperado · vermelho = bem mais lento</label>
-        <div className="hint" style={{ marginTop: 8 }}>O "esperado" de cada atividade: os minutos que você digitar na aba Cores e estilo; se vazio, o cadastro; se não houver, a média das concluídas hoje (a partir de 3). Sem nada disso, não há sinal.</div>
+        <div className="hint" style={{ marginTop: 8 }}>O "esperado": os minutos que você digitar na aba Cores e estilo; senão a mediana histórica DESTE PRODUTO nesta atividade (a partir de 3 nos últimos 60 dias, com o último tempo); senão a mediana histórica da atividade (a partir de 5); senão o cadastro. Nunca a média só de hoje. Passe o mouse no bloco pra ver contra o que ele foi comparado.</div>
       </>)}
       {tab === 'presets' && (<>
         <div className="lbl">Salvar o que está agora</div>

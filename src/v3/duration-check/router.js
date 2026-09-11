@@ -27,6 +27,32 @@ const opAuth = require('../../lib/op-auth');
 const { makeAuthMiddleware } = require('../data/auth');
 
 const BASE = '/api/v3/duration-check';
+const DAYS = 60;
+const PRODUCT_MIN_SAMPLES = 3;
+
+/* Mediana por atividade e por (atividade, produto) nos últimos DAYS dias.
+   Devolve { by_activity: {slug:{median_min,samples}}, by_product: {slug:{product_id:{median_min,samples,last_min,last_at}}} }.
+   O dashboard e o kiosk comparam contra ISTO (Bruno 09-11): "a média que gastamos com o
+   empacotamento todo dia"; "a revisão do Devil's Claw contra a última e a média das
+   revisões do Devil's Claw". Nunca contra a média só de hoje. */
+async function learnExpectations(db) {
+  const DUR = "(EXTRACT(EPOCH FROM (x.ended_at - x.started_at)) - COALESCE(x.total_paused_seconds, 0)) / 60.0";
+  const WHERE = `x.ended_at IS NOT NULL AND x.deleted_at IS NULL AND COALESCE(x.is_test, false) = false
+                 AND x.started_at > NOW() - INTERVAL '${DAYS} days' AND x.ended_at - x.started_at >= INTERVAL '1 minute'`;
+  const a = await db.query(`
+    SELECT at.slug, COUNT(*)::int AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY ${DUR}) AS median_min
+      FROM v3.events x JOIN v3.activity_types at ON at.id = x.activity_type_id
+     WHERE ${WHERE} GROUP BY at.slug`);
+  const p = await db.query(`
+    SELECT at.slug, pb.product_id, COUNT(*)::int AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY ${DUR}) AS median_min,
+           (ARRAY_AGG(${DUR} ORDER BY x.ended_at DESC))[1] AS last_min, MAX(x.ended_at) AS last_at
+      FROM v3.events x JOIN v3.activity_types at ON at.id = x.activity_type_id
+      JOIN v3.product_batches pb ON pb.id = x.product_batch_id
+     WHERE ${WHERE} AND pb.product_id IS NOT NULL GROUP BY at.slug, pb.product_id HAVING COUNT(*) >= ${PRODUCT_MIN_SAMPLES}`);
+  const by_activity = {}; for (const r of a.rows) by_activity[r.slug] = { median_min: Math.round(Number(r.median_min)), samples: r.samples };
+  const by_product = {}; for (const r of p.rows) { (by_product[r.slug] = by_product[r.slug] || {})[r.product_id] = { median_min: Math.round(Number(r.median_min)), samples: r.samples, last_min: Math.round(Number(r.last_min)), last_at: r.last_at }; }
+  return { by_activity, by_product, days: DAYS, min_samples: MIN_SAMPLES, product_min_samples: PRODUCT_MIN_SAMPLES };
+}
 const MIN_SAMPLES = 5;
 const SHORT_MIN = 5;          // "menos de 5 min"
 const SHORT_ONLY_IF_MEDIAN_GE = 15;
@@ -60,7 +86,7 @@ function createDurationCheckRouter(deps = {}) {
     if (!id) { err(res, 'bad_id', 'id inválido'); return null; }
     const r = await db.query(`
       SELECT e.id, e.person_id, e.activity_type_id, e.started_at, e.ended_at, e.deleted_at,
-             COALESCE(e.total_paused_seconds, 0) AS paused, at.slug, at.display_name AS activity
+             COALESCE(e.total_paused_seconds, 0) AS paused, e.product_batch_id, at.slug, at.display_name AS activity
         FROM v3.events e LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
        WHERE e.id = $1`, [id]);
     const ev = r.rows[0];
@@ -75,7 +101,21 @@ function createDurationCheckRouter(deps = {}) {
       const { ev } = got;
       if (!ev.ended_at || !ev.activity_type_id) return ok(res, { check: null });
       const durMin = (new Date(ev.ended_at) - new Date(ev.started_at)) / 60000 - Number(ev.paused) / 60;
-      const st = (await db.query(`
+      // por PRODUTO primeiro (revisão do Devil's Claw contra as revisões do Devil's Claw), senão a atividade
+      let basis = 'atividade';
+      let st = null;
+      if (ev.product_batch_id) {
+        const ps = (await db.query(`
+          SELECT COUNT(*)::int AS samples,
+                 percentile_cont(0.5) WITHIN GROUP (ORDER BY (EXTRACT(EPOCH FROM (x.ended_at - x.started_at)) - COALESCE(x.total_paused_seconds, 0)) / 60.0) AS median_min
+            FROM v3.events x JOIN v3.product_batches pb ON pb.id = x.product_batch_id
+           WHERE x.activity_type_id = $1 AND x.id <> $2 AND x.ended_at IS NOT NULL AND x.deleted_at IS NULL
+             AND COALESCE(x.is_test, false) = false AND x.started_at > NOW() - INTERVAL '60 days'
+             AND x.ended_at - x.started_at >= INTERVAL '1 minute'
+             AND pb.product_id = (SELECT product_id FROM v3.product_batches WHERE id = $3)`, [ev.activity_type_id, ev.id, ev.product_batch_id])).rows[0];
+        if (ps && Number(ps.samples) >= PRODUCT_MIN_SAMPLES) { st = { samples: MIN_SAMPLES, median_min: ps.median_min, real_samples: ps.samples }; basis = 'produto'; }
+      }
+      if (!st) st = (await db.query(`
         SELECT COUNT(*)::int AS samples,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY (EXTRACT(EPOCH FROM (x.ended_at - x.started_at)) - COALESCE(x.total_paused_seconds, 0)) / 60.0) AS median_min
           FROM v3.events x
@@ -83,7 +123,7 @@ function createDurationCheckRouter(deps = {}) {
            AND COALESCE(x.is_test, false) = false AND x.started_at > NOW() - INTERVAL '60 days'
            AND x.ended_at - x.started_at >= INTERVAL '1 minute'`, [ev.activity_type_id, ev.id])).rows[0];
       const check = evaluate(durMin, Number(st.median_min), Number(st.samples));
-      ok(res, { check: check ? { ...check, activity: ev.activity, slug: ev.slug } : null });
+      ok(res, { check: check ? { ...check, samples: st.real_samples || check.samples, basis, activity: ev.activity, slug: ev.slug } : null });
     } catch (e) { console.error('[duration-check]', e.message); err(res, 'internal', e.message, 500); }
   });
 
@@ -98,6 +138,12 @@ function createDurationCheckRouter(deps = {}) {
       }
       ok(res, { flagged: false });
     } catch (e) { console.error('[duration-check]', e.message); err(res, 'internal', e.message, 500); }
+  });
+
+  // dashboard (PIN): o que o sistema aprendeu — a Timeline compara contra isto
+  router.get(BASE + '/expectations', makeAuthMiddleware({ db }), async (req, res) => {
+    try { ok(res, await learnExpectations(db)); }
+    catch (e) { console.error('[duration-check]', e.message); err(res, 'internal', e.message, 500); }
   });
 
   // dashboard (PIN): marcar como consertado → para o alerta na linha do tempo
@@ -115,4 +161,4 @@ function createDurationCheckRouter(deps = {}) {
   return router;
 }
 
-module.exports = { createDurationCheckRouter, evaluate, BASE, MIN_SAMPLES };
+module.exports = { createDurationCheckRouter, evaluate, learnExpectations, BASE, MIN_SAMPLES, PRODUCT_MIN_SAMPLES };

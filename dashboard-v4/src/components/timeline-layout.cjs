@@ -190,25 +190,31 @@ function layoutPerson(events, { now, dayEnd }) {
 
 /**
  * CALOR (Bruno 09-11): quanto uma tarefa AO VIVO já passou do esperado.
- *  expected = ajuste da pessoa (pref) → cadastro (act.expected) → média das
- *  concluídas da mesma atividade no dia (≥ 3) → null (sem sinal).
+ *  expected (Bruno 09-11: NUNCA a média só de hoje) = ajuste da pessoa (pref) →
+ *  mediana histórica DESTE PRODUTO nesta atividade (≥ 3 em 60 d, vem com o último)
+ *  → mediana histórica da atividade (≥ 5 em 60 d) → cadastro → null (sem sinal).
  *  Devolve 0..4: 0 azul (<50 %), 1 verde (<85 %), 2 amarelo (<100 %),
  *  3 laranja (<130 %), 4 vermelho + fogo (≥ 130 %).
  */
-function expectedFor(slug, { prefMin, actMin, events, effEnd }) {
-  if (prefMin > 0) return prefMin;
-  if (actMin > 0) return actMin;
-  const done = (events || []).filter((e) => e.activity === slug && e.ended_min != null && effEnd(e) - e.started_min >= 2);
-  if (done.length >= 3) return done.reduce((a, e) => a + (effEnd(e) - e.started_min), 0) / done.length;
+function expectedFor(slug, { prefMin, actMin, productId, expectations }) {
+  const bp = expectations && expectations.by_product && expectations.by_product[slug] && productId != null ? expectations.by_product[slug][productId] : null;
+  const ba = expectations && expectations.by_activity ? expectations.by_activity[slug] : null;
+  const minS = (expectations && expectations.min_samples) || 5;
+  if (prefMin > 0) return { min: prefMin, basis: 'ajuste', label: 'ajustado por você na engrenagem' };
+  if (bp && bp.samples >= 3) return { min: bp.median_min, basis: 'produto', last_min: bp.last_min, samples: bp.samples, label: `mediana de ${bp.samples} deste produto (${expectations.days || 60} d) · último ${fmtDurShort(bp.last_min)}` };
+  if (ba && ba.samples >= minS) return { min: ba.median_min, basis: 'atividade', samples: ba.samples, label: `mediana de ${ba.samples} desta atividade (${expectations.days || 60} d)` };
+  if (actMin > 0) return { min: actMin, basis: 'cadastro', label: 'esperado do cadastro' };
   return null;
 }
-function heatLevel(elapsedMin, expectedMin) {
+function heatLevel(elapsedMin, expected) {
+  const expectedMin = expected && typeof expected === 'object' ? expected.min : expected;
   if (!expectedMin || expectedMin <= 0) return null;
   const r = elapsedMin / expectedMin;
   return r < 0.5 ? 0 : r < 0.85 ? 1 : r < 1 ? 2 : r < 1.3 ? 3 : 4;
 }
 /** Marca ao terminar: 'fast' (≤ 90 % do esperado) · 'ok' · 'slow' (≥ 120 %). */
-function doneMark(durMin, expectedMin) {
+function doneMark(durMin, expected) {
+  const expectedMin = expected && typeof expected === 'object' ? expected.min : expected;
   if (!expectedMin || expectedMin <= 0) return null;
   const r = durMin / expectedMin;
   return r <= 0.9 ? 'fast' : r >= 1.2 ? 'slow' : 'ok';

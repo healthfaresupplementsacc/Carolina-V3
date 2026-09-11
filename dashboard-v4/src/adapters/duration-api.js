@@ -1,6 +1,13 @@
 /* HEALTHFARE V4 — checagem de duração (Bruno 09-11): marcar como consertado. */
 import { getPin } from './from-api.js';
 
+export async function getExpectations() {
+  const r = await fetch('/api/v3/duration-check/expectations', { headers: { 'x-admin-pin': getPin() } });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error((j && j.error && j.error.message) || ('erro ' + r.status));
+  return j.data;
+}
+
 export async function fixDurationFlag(eventId, note) {
   let r;
   try { r = await fetch('/api/v3/duration-check/event/' + eventId + '/fix', { method: 'POST', headers: { 'x-admin-pin': getPin(), 'content-type': 'application/json' }, body: JSON.stringify({ note: note || null }) }); }
