@@ -150,10 +150,6 @@ function mount(app) {
   // Montado ANTES do op.js: o middleware do PIN falso reescreve o corpo do login.
   const kioskAdminApi = require('./kiosk-admin/router');
   app.use('/', kioskAdminApi.createKioskAdminRouter({ db: _pool }));
-  // OPERADORES NO PAINEL (Bruno 09-11): PIN legivel, PIN falso 'DDDD...0', logar como, o que cada um ve no kiosk.
-  // Montado ANTES do op.js: o middleware do PIN falso reescreve o corpo do login.
-  const kioskAdminApi = require('./kiosk-admin/router');
-  app.use('/', kioskAdminApi.createKioskAdminRouter({ db: _pool }));
   app.use('/', opApi.createOpRouter({
     db: _pool,
     slack: { postAs: slackSender.postAs },
