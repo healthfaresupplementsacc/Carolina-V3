@@ -27,7 +27,7 @@ const GROUPS = [
   { key: 'formulacao', icon: '🧪', label: 'Formulação', items: [
     ['separating', 'Separando ingredientes'], ['weighing', 'Weighing (Pesagem)'],
     ['mixing', 'Mixing (Mistura)'], ['encapsulation', 'Encapsulation / Tablet'],
-    ['material_handling', 'Material prep'],
+    // ['material_handling', 'Material prep'] — saiu do kiosk 09-11 (Bruno): 7 usos, o último em 08/07; o histórico fica
     ['sieving', 'Peneira'],                                  // Bruno 09-11
     ['powder_receiving', 'Recebimento de powder no sistema'], // Bruno 09-11
     ['cleaning', 'Limpeza'],                                 // Bruno 09-11

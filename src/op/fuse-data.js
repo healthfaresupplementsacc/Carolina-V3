@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-09-11T19:07:28.978Z",
+ "generated_at": "2026-09-11T20:04:55.780Z",
  "groups": [
   {
    "key": "linha",
@@ -116,15 +116,6 @@ window.HF_DATA = {
      "slug": "encapsulation",
      "label": "Encapsulation / Tablet",
      "requires_product": true,
-     "note_required": false,
-     "orders_required": false,
-     "requires_order_count": false,
-     "counts_as_pp": false
-    },
-    {
-     "slug": "material_handling",
-     "label": "Material prep",
-     "requires_product": false,
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
@@ -989,7 +980,7 @@ window.HF_DATA = {
     "chromium picolinate",
     "picolinato de cromo"
    ],
-   "last_used_at": "2026-09-11T18:10:27.108Z"
+   "last_used_at": "2026-09-11T19:28:12.253Z"
   },
   {
    "id": 94,
@@ -2421,7 +2412,7 @@ window.HF_DATA = {
     "rutim",
     "rutina"
    ],
-   "last_used_at": "2026-09-11T19:06:33.885Z"
+   "last_used_at": "2026-09-11T19:53:55.946Z"
   },
   {
    "id": 149,
@@ -3071,7 +3062,12 @@ window.HF_DATA = {
   {
    "batch_number": "BR-2026-0392",
    "product_id": 14,
-   "last_used": "2026-09-11T19:06:33.885Z"
+   "last_used": "2026-09-11T19:53:55.946Z"
+  },
+  {
+   "batch_number": "BR-2026-0292",
+   "product_id": 28,
+   "last_used": "2026-09-11T19:28:12.253Z"
   },
   {
    "batch_number": "BR-2026-0355",
@@ -3082,11 +3078,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0391",
    "product_id": 202,
    "last_used": "2026-09-11T18:13:51.893Z"
-  },
-  {
-   "batch_number": "BR-2026-0292",
-   "product_id": 28,
-   "last_used": "2026-09-11T18:10:27.108Z"
   },
   {
    "batch_number": "BR-2026-0387",
