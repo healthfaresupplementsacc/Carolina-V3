@@ -12,6 +12,7 @@ import { Timeline } from '../components/Timeline.jsx';
 import { FlowHistory } from '../components/FlowHistory.jsx';
 import { BatchJourney } from '../components/BatchJourney.jsx';
 import { fixDurationFlag, getExpectations } from '../adapters/duration-api.js';
+import { OthersReview } from '../components/OthersReview.jsx';
 import { CameraGrid } from '../components/CameraGrid.jsx';
 import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
@@ -1379,6 +1380,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
       <button className={`resumo-toggle ${resumoOpen ? 'open' : ''}`} data-resumo-toggle onClick={() => setResumoOpen(!resumoOpen)} title={resumoOpen ? 'Esconder o resumo do dia' : 'Ver o resumo do dia'}>
         <span className="car">▶</span> Resumo do dia <small>{state.events.length} eventos · {operators.length} pessoas · {resumoOpen ? 'clique pra esconder' : 'clique pra ver'}</small>
       </button>
+      <OthersReview activities={HFD.activities || {}} ack={ack} refresh={refresh}/>
       {resumoOpen && (() => {
         const prodT = dayStats.productionTime(state.events, now, HFD.activities || {});
         const supB  = dayStats.supportBreakdown(state.events, now, HFD.activities || {});

@@ -22,6 +22,53 @@
 (function () {
   var CFG = window.HF_OP_CONFIG || { pageToken: '' };
   var DATA = window.HF_DATA || { groups: [], quick: [], supplements: [], recent_batches: [] };
+  // ORDEM POR USO (Bruno 09-11): grupos e tarefas na ordem em que ESTA pessoa mais usa,
+  // com a contagem fechada no dia 1 do mês (muda 1x por mês, não embaralha no meio).
+  // S.order = { types: {slug: n}, clean_kinds: {kind: n} } vindo de /api/v3/kiosk/order.
+  function loadOrder() {
+    if (!S.session || S._orderBusy) return; S._orderBusy = true;
+    api('/api/v3/kiosk/order').then(function (r) { S.order = (r && r.data) || null; S._orderBusy = false; if (S.flow) render(); }).catch(function () { S._orderBusy = false; });
+  }
+  function useCount(slug) { return (S.order && S.order.types && S.order.types[slug]) || 0; }
+  function sortedGroups() {
+    var gs = (DATA.groups || []).slice();
+    if (!S.order) return gs;
+    return gs.map(function (g, i) { return { g: g, i: i, n: (g.types || []).reduce(function (a, t) { return a + useCount(t.slug); }, 0) }; })
+      .sort(function (a, b) { return (b.n - a.n) || (a.i - b.i); }).map(function (x) { return x.g; });
+  }
+  function sortedTypes(g) {
+    var ts = (g.types || []).slice();
+    if (!S.order) return ts;
+    return ts.map(function (t, i) { return { t: t, i: i, n: useCount(t.slug) }; })
+      .sort(function (a, b) { return (b.n - a.n) || (a.i - b.i); }).map(function (x) { return x.t; });
+  }
+  // LIMPEZA DE QUÊ? (Bruno 09-11) — subtipo gravado no registro (phase_label 'limpeza:<kind>')
+  var CLEAN_KINDS = [
+    ['linha', 'Linha de produção', 'factory'], ['capsula', 'Máquina de cápsula', 'gear'], ['tablet', 'Máquina de tablet', 'gear'],
+    ['formulacao', 'Área da formulação', 'flask'], ['warehouse', 'Warehouse geral', 'grid'], ['pesada', 'Limpeza pesada (sexta)', 'spray'], ['fim', 'Fim do dia', 'coffee'],
+  ];
+  function cleanKindsOrdered() {
+    var now = new Date(); var h = now.getHours() + now.getMinutes() / 60; var fri = now.getDay() === 5;
+    var group = S.flow && S.flow.groupKey;
+    // contexto primeiro: de onde a pessoa veio e a hora; depois o uso dela; depois a ordem fixa
+    var ctx = {};
+    if (group === 'formulacao') { ctx.capsula = 3; ctx.tablet = 3; ctx.formulacao = 3; if (h >= 19) ctx.fim = 5; }
+    else if (group === 'linha') { ctx.linha = 3; if (h >= 17.5) ctx.fim = 5; }
+    else { if (h >= 17.5) ctx.fim = 4; }
+    if (fri && h >= 13) ctx.pesada = (ctx.pesada || 0) + 4;
+    var use = (S.order && S.order.clean_kinds) || {};
+    return CLEAN_KINDS.map(function (k, i) { return { k: k, i: i, c: ctx[k[0]] || 0, u: use[k[0]] || 0 }; })
+      .sort(function (a, b) { return (b.c - a.c) || (b.u - a.u) || (a.i - b.i); }).map(function (x) { return x.k; });
+  }
+  function flowCleanKind() {
+    var h = '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(20px,2.6vw,26px); color:#0c2545; margin-bottom:6px;">Limpeza de quê?</div><div style="font-size:14px; color:#566681; margin-bottom:16px;">Assim a gente aprende quanto tempo cada limpeza leva.</div><div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:clamp(10px,1.4vw,14px);">';
+    cleanKindsOrdered().forEach(function (k) {
+      var ac = '#2faa57';
+      h += '<button data-act="pickCleanKind" data-arg="' + esc(k[0]) + '" style="' + tileBase + 'min-height:104px; border:1px solid rgba(15,40,90,.1); background:rgba(255,255,255,.74); box-shadow:0 14px 34px -22px rgba(15,40,90,.4);"><span style="flex:none; width:48px; height:48px; border-radius:15px; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb, ' + ac + ' 14%, white); color:' + ac + ';">' + svg(ICONS[k[2]] || ICONS.spray, 24, 1.7) + '</span><span style="font-family:\'Sora\',sans-serif; font-weight:600; font-size:15px; line-height:1.2;">' + esc(k[1]) + '</span></button>';
+    });
+    h += '</div><div style="display:flex; gap:11px; margin-top:22px;">' + backBtn() + '</div>'; return h;
+  }
+  var OTHER_SLUGS = { special_task: 1, production_line_other: 1, formulation_other: 1, cleaning_other: 1, packaging_other: 1, shipping_other: 1 };
   var SM = window.HFStateMachine; var D = window.HFDesign;
   var Q = window.HFOfflineQueue || null;
   var ROOT = document.getElementById('hf-canvas'); // design fixo 1440x900 (escalado por fitCanvas)
@@ -608,6 +655,7 @@
   function flowBody(f) {
     if (f.step === 'group') return flowGroup();
     if (f.step === 'type') return flowType();
+    if (f.step === 'cleanKind') return flowCleanKind();
     if (f.step === 'pipeline') return flowPipeline();
     if (f.step === 'supp') return flowSupp();
     if (f.step === 'batch') return flowBatch();
@@ -618,7 +666,7 @@
   var tileBase = 'display:flex; flex-direction:column; align-items:center; justify-content:center; gap:11px; padding:20px 12px; border-radius:22px; cursor:pointer; text-align:center; transition:transform .1s; font-family:\'Manrope\',sans-serif; color:#0c2545;';
   function flowGroup() {
     var h = '<div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(20px,2.6vw,26px); color:#0c2545; margin-bottom:18px;">O que você vai fazer?</div><div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:clamp(10px,1.4vw,14px);">';
-    (DATA.groups || []).forEach(function (g) {
+    sortedGroups().forEach(function (g) {
       var ac = GROUP_ACCENT[g.key] || '#0f4c92';
       h += '<button data-act="pickGroup" data-arg="' + esc(g.key) + '" style="' + tileBase + 'min-height:116px; border:1px solid rgba(15,40,90,.1); background:rgba(255,255,255,.74); box-shadow:0 14px 34px -22px rgba(15,40,90,.4);"><span style="flex:none; width:56px; height:56px; border-radius:18px; display:flex; align-items:center; justify-content:center; background:color-mix(in srgb, ' + ac + ' 14%, white); color:' + ac + ';">' + svg(ICONS[GROUP_ICON[g.key] || 'grid'], 28, 1.7) + '</span><span style="font-family:\'Sora\',sans-serif; font-weight:600; font-size:15px; line-height:1.2;">' + esc(g.label) + '</span></button>';
     });
@@ -631,7 +679,7 @@
     var g = (DATA.groups || []).find(function (x) { return x.key === S.flow.groupKey; }) || { types: [], key: '' };
     var gac = GROUP_ACCENT[g.key] || accent();
     var h = '<div style="display:flex; align-items:center; gap:12px; margin-bottom:18px;"><span style="flex:none; width:42px; height:42px; border-radius:13px; background:rgba(15,40,90,.07); color:#0f4c92; display:flex; align-items:center; justify-content:center;">' + svg(ICONS[GROUP_ICON[g.key] || 'grid'], 24, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:clamp(19px,2.4vw,24px); color:#0c2545;">' + esc(g.label) + '</div></div><div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:clamp(10px,1.4vw,14px);">';
-    (g.types || []).forEach(function (t) {
+    sortedTypes(g).forEach(function (t) {
       var other = !!t.other || /_other$/.test(t.slug);
       var ac = other ? '#c77d12' : gac;
       var tile = tileBase + 'min-height:108px; border:' + (other ? '1px solid rgba(199,125,18,.35)' : '1px solid rgba(15,40,90,.1)') + '; background:' + (other ? 'rgba(255,247,234,.78)' : 'rgba(255,255,255,.74)') + '; box-shadow:0 14px 34px -22px rgba(15,40,90,.4);';
@@ -788,6 +836,7 @@
         else h += '<div style="margin-bottom:18px;"></div>';
       }
     }
+    if (f.slug === 'cleaning' && f.cleanKind) { var ck = CLEAN_KINDS.find(function (k) { return k[0] === f.cleanKind; }); if (ck) h += '<div style="font-size:14px; color:#0c2545; background:rgba(47,170,87,.12); border-left:3px solid #2faa57; padding:9px 12px; border-radius:10px; margin-bottom:14px;">Limpeza: <b>' + esc(ck[1]) + '</b></div>'; }
     h += sectionLabel(noteReq ? 'Motivo (obrigatório)' : 'Notas (opcional)', EDITP, 2);
     h += '<textarea data-input="note" data-focus="note" placeholder="' + (noteReq ? 'Conte o que está acontecendo, ou use a voz…' : 'Escreva ou use o microfone…') + '" style="width:100%; min-height:84px; font-size:16px; padding:13px 15px; border:1px solid rgba(15,40,90,.16); border-radius:14px; background:rgba(255,255,255,.9); color:#0c2545; outline:none;">' + esc(f.note || '') + '</textarea>';
     h += '<div style="display:flex; justify-content:flex-end; margin-top:10px;">' + voiceBtn('flow') + '</div>';
@@ -1231,6 +1280,7 @@
   // dia EDT (NY) atual — usado pra detectar virada de dia com a página aberta
   function edtDay() { try { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } catch (e) { return ''; } }
   function loadData() {
+    if (S.session && !S.order) loadOrder();
     if (!S.session) return Promise.resolve();
     S.dataDay = edtDay(); // carimba o dia dos dados (rollover detecta virada)
     loadProductImages(); // Bug 3: imagens dos produtos (uma vez)
@@ -1325,6 +1375,8 @@
     startFlow: function () { S.flow = flowDefaults(); render(); },
     cancelFlow: function () { S.flow = null; render(); },
     flowBack: function () {
+      if (S.flow && S.flow.step === 'cleanKind') { S.flow.step = 'type'; render(); return; }
+      if (S.flow && S.flow.step === 'confirm' && S.flow.slug === 'cleaning' && S.flow.cleanKind) { S.flow.step = 'cleanKind'; render(); return; }
       var f = S.flow; if (!f) return;
       var isPipe = usesLotList(f.slug);
       if (f.step === 'type') f.step = 'group';
@@ -1340,6 +1392,7 @@
     quickLunch: function (slug) { S.flow.slug = slug; S.flow.requires_product = false; S.flow.step = 'confirm'; render(); },
     pickType: function (slug) {
       var m = typeMeta(slug); S.flow.slug = slug; S.flow.requires_product = !!m.requires_product; S.flow.viaPipeline = false;
+      if (slug === 'cleaning') { S.flow.cleanKind = null; S.flow.step = 'cleanKind'; render(); return; }   // Bruno 09-11
       // FASE 4 + FASE FORM — linha/revisão/formulação: lista LOTE+PRODUTO do EMS
       // (não pede suplemento direto; lista vazia → operador usa o catálogo).
       if (usesLotList(slug)) {
@@ -1348,6 +1401,7 @@
       }
       S.flow.step = m.requires_product ? 'supp' : 'confirm'; S._focus = m.requires_product ? 'query' : null; render();
     },
+    pickCleanKind: function (kind) { S.flow.cleanKind = kind; S.flow.step = 'confirm'; S._focus = null; render(); },
     pickLot: function (batch, el) {
       S.flow.batch = batch || null;
       S.flow.supplement = el ? (el.getAttribute('data-prod') || null) : null;
@@ -1601,6 +1655,10 @@
           .then(function (r) { toast(adj.mode === 'reset' ? ('Total de ordens: ' + r.old_total + ' → ' + r.new_total) : ('+' + adj.quantity + ' ordens adicionadas')); })
           .catch(function (e) { toast('Erro no ajuste de ordens: ' + (e.message || e)); });
       }
+      // Bruno 09-11: subtipo da limpeza e título do "Outros" (resumo por IA) vão DEPOIS do start, nunca seguram ele
+      var newId = res && res.event && res.event.id;
+      if (newId && f.slug === 'cleaning' && f.cleanKind) api('/api/v3/kiosk/event/' + newId + '/subtype', { method: 'POST', body: { kind: f.cleanKind } }).catch(function () {});
+      if (newId && OTHER_SLUGS[f.slug] && (f.note || '').trim()) api('/api/v3/kiosk/event/' + newId + '/title', { method: 'POST', body: { text: (f.note || '').trim() } }).then(function (r) { if (r && r.data && r.data.title) toast('Anotado como: ' + r.data.title); loadData(); }).catch(function () {});
       S.flow = null; S.pulse = 1; if (S.voice.on) stopVoice();
       toast(res && res.queued ? 'Salvo offline — sincroniza ao voltar' : (startedAt ? 'Tarefa adicionada' : 'Tarefa iniciada!'));
       // P&P Workspace (Bruno 08-06): registrou Impressão de ordens / Organização de

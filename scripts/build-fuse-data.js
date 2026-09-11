@@ -21,12 +21,16 @@ const GROUPS = [
     ['labeling', 'Colocar labels'],
     ['fnsku_labeling', 'Colocando FNSKU / Código de Barras'],
     ['counting', 'Contagem'], ['line_changeover', 'Troca de linha'],
+    ['cleaning', 'Limpeza'],   // Bruno 09-11: limpeza também aqui (pergunta "limpeza de quê?")
     ['production_line_other', '✏️ Outro (Linha)'],
   ] },
   { key: 'formulacao', icon: '🧪', label: 'Formulação', items: [
     ['separating', 'Separando ingredientes'], ['weighing', 'Weighing (Pesagem)'],
     ['mixing', 'Mixing (Mistura)'], ['encapsulation', 'Encapsulation / Tablet'],
     ['material_handling', 'Material prep'],
+    ['sieving', 'Peneira'],                                  // Bruno 09-11
+    ['powder_receiving', 'Recebimento de powder no sistema'], // Bruno 09-11
+    ['cleaning', 'Limpeza'],                                 // Bruno 09-11
     ['formulation_other', '✏️ Outro (Formulação)'],
   ] },
   { key: 'limpeza', icon: '🧹', label: 'Limpeza / Organização', items: [
@@ -57,7 +61,7 @@ const GROUPS = [
     ['shipping_other', '✏️ Outro (Envio)'],
   ] },
   { key: 'outros', icon: '⋯', label: 'Outros', items: [
-    ['special_task', '✨ Algo Especial'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
+    ['special_task', '✏️ Outros'], ['powder_receiving', 'Recebimento de powder no sistema'], ['break', 'Pausa'], ['meeting', 'Reunião'], ['training', 'Treinamento'],
   ] },
 ];
 

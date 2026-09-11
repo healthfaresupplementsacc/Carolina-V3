@@ -62,6 +62,15 @@ describe('almoço dentro de uma tarefa divide a faixa (não fica por cima)', () 
   });
 });
 
+describe('blockTitle (Bruno 09-11): Outros mostra o título, limpeza mostra o subtipo', () => {
+  test('limpeza com subtipo · Outros com título · resto null', () => {
+    expect(L.blockTitle({ activity: 'cleaning', _phase_label: 'limpeza:capsula' }, 'Limpeza')).toEqual({ name: 'Limpeza · Máquina de cápsula', short: 'Máquina de cápsula' });
+    expect(L.blockTitle({ activity: 'special_task', _phase_label: 'Berberine virando Burn' }, 'Outros')).toEqual({ name: 'Berberine virando Burn', short: 'Berberine virando' });
+    expect(L.blockTitle({ activity: 'cleaning', _phase_label: null }, 'Limpeza')).toBeNull();
+    expect(L.blockTitle({ activity: 'review', _phase_label: 'x' }, 'Revisão')).toBeNull();
+  });
+});
+
 describe('calor e marca ao terminar', () => {
   const effEnd = (e) => e.ended_min;
   test('esperado (Bruno 09-11): ajuste > mediana do PRODUTO (≥3) > mediana da atividade (≥5) > cadastro > nada; nunca a média de hoje', () => {

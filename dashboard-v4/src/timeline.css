@@ -316,3 +316,15 @@
 .sp-dur-row.sub { grid-template-columns: 1fr auto; font-size: 12px; border-top: 1px dashed var(--border); }
 .sp-dur-hist { margin-top: 6px; } .sp-dur-hh { font-size: 11px; color: var(--text-3); font-weight: 600; margin-bottom: 2px; }
 .sp-dur .muted { font-size: 12px; color: var(--text-3); }
+
+/* Outros pra reclassificar (Bruno 09-11): barra laranja abaixo do Resumo do dia; some quando zera */
+.resumo-toggle.others { border-color: #f97316; background: linear-gradient(90deg, rgba(249,115,22,.16), rgba(249,115,22,.04)); margin-top: 12px; }
+.resumo-toggle.others .car { color: #c2410c; }
+.others-list { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; margin-top: 8px; }
+.others-list .hint { font-size: 12px; color: var(--text-3); margin-bottom: 8px; }
+.others-row { display: grid; grid-template-columns: 200px 1fr 300px; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+.others-row .who { font-weight: 700; font-size: 13px; } .others-row .who small { display: block; font: 500 11px "JetBrains Mono", monospace; color: var(--text-3); }
+.others-row .what b { font-size: 13px; } .others-row .what small { display: block; font-size: 12px; color: var(--text-2); }
+.others-row .act { display: flex; gap: 6px; align-items: center; }
+.others-row .act select { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font: 500 12px inherit; font-family: inherit; background: var(--surface); color: var(--text); }
+@media (max-width: 900px) { .others-row { grid-template-columns: 1fr; } }

@@ -285,6 +285,9 @@ function mount(app) {
   // CHECAGEM DE DURACAO (Bruno 09-11): pergunta no kiosk se a tarefa ficou curta/longa demais; dashboard marca consertado
   const durationCheckApi = require('./duration-check/router');
   app.use('/', durationCheckApi.createDurationCheckRouter({ db: _pool }));
+  // KIOSK (Bruno 09-11): ordem por uso mensal, limpeza com subtipo, Outros com titulo (IA), painel de reclassificacao
+  const kioskApi = require('./kiosk/router');
+  app.use('/', kioskApi.createKioskRouter({ db: _pool, provider: (() => { try { return getProductionProvider(); } catch (_) { return null; } })() }));
   // PLANEJAMENTO (Bruno 09-04, direção corrigida) — /api/v3/planning/*. A
   // página Planejamento mostra o FUNIL da produção do EMS em 7 colunas
   // (Formulando → Encaixotado; planning/model.js deriva do ems_activity_cache

@@ -324,7 +324,8 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
               const isInvalid = invalidIds && invalidIds.has(e.id);
               const flowDimmed = filterFlows && filterFlows.size > 0 && !filterFlows.has(flow);
               const totalW = X(end) - X(start);
-              const tip = `${act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + (e._flag ? '\nALERTA: operador disse que este registro NÃO está certo' : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
+              const btTip = L.blockTitle(e, act.name);
+              const tip = `${btTip ? btTip.name + ' (' + act.name + ')' : act.name}${productName ? ' · ' + productName : ''}\n${fmt(start)} → ${isLiveEv ? 'agora' : fmt(end)} · ${L.fmtDurShort(end - start)}` + (e.cowork && e.cowork.length ? '\ncom ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).name).filter(Boolean).join(', ') : '') + (e.dupes ? `\n${e.dupes} registros iguais no mesmo horário` : '') + (e._flag ? '\nALERTA: operador disse que este registro NÃO está certo' : '') + '\n1 clique: detalhes · 2: ações · 3: arrastar';
               // calor (ao vivo) / marca ao terminar, pelo esperado da atividade
               let heatCls = ''; let expTip = ''; let heatPct = 0;
               if (!neutral) {
@@ -339,7 +340,8 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                 const left = X(seg.start); const w = Math.max(4, X(seg.end) - X(seg.start));
                 const head = seg.is_first;
                 const fitW = (head ? totalW : w) - 12;
-                const fitRes = neutral ? null : L.fitLabel({ name: act.name, short: L.shortName(e.activity, act.name), w: fitW, h, durTxt, prodName: productName, measure });
+                const bt = L.blockTitle(e, act.name);
+                const fitRes = neutral ? null : L.fitLabel({ name: bt ? bt.name : act.name, short: bt ? bt.short : L.shortName(e.activity, act.name), w: fitW, h, durTxt, prodName: productName, measure });
                 if (!neutral && head && fitRes && !fitRes.inside) {
                   // rótulo fora, na calha acima: nome curto + tempo; empurra se colide com o anterior
                   const ow = measure(fitRes.name, 10, 'sans') + measure(durTxt, 10, 'mono') + 12;

@@ -89,6 +89,7 @@ describe('drift: route surfaces mounted are documented', () => {
     './rbac/router',      // RBAC por pessoa /api/v3/rbac/* (Fase C 09-10; documentado §2 routes + §9 Admin)
     './journey/router',   // jornada do lote /api/v3/journey/* (09-10; documentado §2 routes)
     './duration-check/router', // checagem de duração /api/v3/duration-check/* (09-11; documentado §2 routes)
+    './kiosk/router',          // kiosk: ordem por uso, subtipo de limpeza, Outros com título, reclassificação (09-11; documentado §2 routes)
   ]);
   const idx = read('src/index.js');
   const wire = read('src/v3/wire.js');

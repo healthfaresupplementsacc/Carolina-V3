@@ -32,7 +32,18 @@ const SHORT = {
   dc_shipment: 'Envio DC', shipping_walmart: 'Envio Walmart', shipping_amazon: 'Envio Amazon',
   label_change: 'Troca label', label_repair: 'Cons. label', facility_maintenance: 'Manutenção',
   machine_downtime: 'Downtime', material_handling: 'Carga/desc.', end_of_day: 'Fim',
+  powder_receiving: 'Powder', sieving: 'Peneira',
 };
+/* Subtipos de limpeza (kiosk grava phase_label 'limpeza:<kind>') */
+const CLEAN_KINDS = { linha: 'Linha de produção', capsula: 'Máquina de cápsula', tablet: 'Máquina de tablet', formulacao: 'Área da formulação', warehouse: 'Warehouse geral', pesada: 'Limpeza pesada', fim: 'Fim do dia' };
+const OTHER_SLUGS = new Set(['special_task', 'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other']);
+/** Título do bloco (Bruno 09-11): "Outros" mostra o título resumido; limpeza mostra o subtipo. */
+function blockTitle(ev, actName) {
+  const pl = ev && ev._phase_label ? String(ev._phase_label).trim() : '';
+  if (ev && ev.activity === 'cleaning' && pl.startsWith('limpeza:')) { const k = CLEAN_KINDS[pl.slice(8)]; return k ? { name: 'Limpeza · ' + k, short: k } : null; }
+  if (ev && OTHER_SLUGS.has(ev.activity) && pl && !pl.startsWith('limpeza:')) return { name: pl, short: pl.split(' ').slice(0, 2).join(' ') };
+  return null;
+}
 /* Processos que a pessoa ACOMPANHA (rodam sozinhos): viram aba, não bloco.
    `is_background` do cadastro também conta. label_printing entra por decisão
    do estudo (9 de 11 "SIMULTÂNEO" do dia 09-09 eram Linha + Labels). */
@@ -222,4 +233,4 @@ function doneMark(durMin, expected) {
 /** Cores padrão dos 5 níveis (azul · verde · amarelo · laranja · vermelho); a engrenagem sobrescreve. */
 const HEAT_COLORS = ['#3b82f6', '#22b35d', '#eab308', '#f97316', '#ef4444'];
 
-module.exports = { expectedFor, heatLevel, doneMark, HEAT_COLORS, SHORT, RAIL_SLUGS, NEUTRAL, shortName, isRail, isNeutral, fmtDurShort, collapseDupes, assignLanes, clusters, fitLabel, railLabel, gapsBetween, rowMetrics, layoutPerson };
+module.exports = { expectedFor, heatLevel, doneMark, HEAT_COLORS, CLEAN_KINDS, OTHER_SLUGS, blockTitle, SHORT, RAIL_SLUGS, NEUTRAL, shortName, isRail, isNeutral, fmtDurShort, collapseDupes, assignLanes, clusters, fitLabel, railLabel, gapsBetween, rowMetrics, layoutPerson };
