@@ -53,6 +53,17 @@ async function refreshGatewayCams() {
   } catch (_) { clearTimeout(timer); return [...gatewayCams.names]; }
 }
 const CAMS = { has: (name) => STATIC_CAMS.has(name) || gatewayCams.names.has(name) };
+// Rótulos das páginas /cameras e /cameras/tag (o dashboard tem os dele em CameraGrid.jsx).
+const CAM_LABELS_SRV = { warehouse: '🏭 Warehouse Floor', packaging: '📦 Packaging Line', formulation: '🧪 Formulation Cam 1',
+  cam2: '🏭 Warehouse Back (Cam 2)', warehouse2: '🏭 Warehouse Back (Cam 2)', cam7: '🧪 Formulation Cam 2', formulation2: '🧪 Formulation Cam 2' };
+// Lista viva: as 3 fixas + o que o gateway expõe agora (Bruno 09-11: a cam2 entra com o
+// MESMO PIN, o MESMO horário, o mesmo PIP/tela cheia e no mesmo lugar, sem deploy).
+async function camList() {
+  const extra = await refreshGatewayCams();
+  const ids = [...STATIC_CAMS, ...extra.filter((x) => !STATIC_CAMS.has(x))];
+  return ids.map((id) => ({ id, label: CAM_LABELS_SRV[id] || ('📷 ' + id) }));
+}
+const escHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h ≈ um turno; expira -> pede o PIN de novo
 
 // ── proteções ───────────────────────────────────────────────
@@ -428,7 +439,8 @@ router.get('/cameras/pip', (req, res) => {
 // de cada câmera e NOMEIA cada máquina/área (máquina de cápsulas, mixer, saída das
 // cápsulas, mesa de P&P, computador, etc). Salva em v3.camera_zones. Como as
 // máquinas não se movem, marca 1× e o Claude sabe pra sempre onde olhar. ─────
-router.get('/cameras/tag', (_req, res) => {
+router.get('/cameras/tag', async (_req, res) => {
+  const cams = await camList();
   res.set('Cache-Control', 'no-store');
   res.type('html').send(`<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
@@ -466,9 +478,7 @@ router.get('/cameras/tag', (_req, res) => {
 <header>🏷️ Marcar máquinas & áreas nas câmeras
   <span class="sub">Arraste um retângulo em cima de cada máquina/área e dê um nome. Como elas não se movem, você faz isso uma vez só. Isso ensina o sistema onde olhar.</span></header>
 <div class="wrap" id="wrap">
-  <div class="cam" data-cam="warehouse"><h2>🏭 Warehouse Floor</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Clique pra colocar pontos ao redor da máquina; ligue-os. Feche com ✓ ou 2 cliques no 1º ponto.</span></div><div class="stage"><img alt="warehouse"><canvas></canvas></div><div class="list"></div></div>
-  <div class="cam" data-cam="packaging"><h2>📦 Packaging Line</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Ex.: Máquina de cápsulas, Saída das cápsulas, Mesa de P&P, Computador…</span></div><div class="stage"><img alt="packaging"><canvas></canvas></div><div class="list"></div></div>
-  <div class="cam" data-cam="formulation"><h2>🧪 Formulation</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Ex.: Mixer, Área de formulação…</span></div><div class="stage"><img alt="formulation"><canvas></canvas></div><div class="list"></div></div>
+${cams.map((c) => `  <div class="cam" data-cam="${c.id}"><h2>${escHtml(c.label)}</h2><div class="tools"><button data-act="finish">✓ Fechar forma</button><button data-act="undo">↶ Desfazer ponto</button><button data-act="clear">✕ Limpar</button><span class="tip">Clique pra colocar pontos ao redor da máquina; ligue-os. Feche com ✓ ou 2 cliques no 1º ponto.</span></div><div class="stage"><img alt="warehouse"><canvas></canvas></div><div class="list"></div></div>`).join('\n')}
 </div>
 <div id="pin-overlay"><div class="box"><strong>PIN das câmeras</strong>
   <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••••" autofocus>
@@ -485,7 +495,7 @@ router.get('/cameras/tag', (_req, res) => {
 (function(){
   var K='hf_cam_tok', TOKEN=null;
   var ov=document.getElementById('pin-overlay'), err=document.getElementById('err');
-  var CAMS=['warehouse','packaging','formulation'];
+  var CAMS=${JSON.stringify(cams.map((c) => c.id))};
   var state={}; // cam -> {img,canvas,list,zones,pts,hover}
   var pending=null; // {cam, points}
 
@@ -557,7 +567,8 @@ router.get('/cameras/tag', (_req, res) => {
 // YouTube: janela flutuante do SO, redimensionável, sempre no topo).
 // PIP técnica: MJPEG (<img>) não entra em PIP direto — bombeamos os frames num
 // <canvas> -> captureStream() -> <video> escondido -> requestPictureInPicture().
-router.get('/cameras', (_req, res) => {
+router.get('/cameras', async (_req, res) => {
+  const cams = await camList();
   res.set('Cache-Control', 'no-store');
   res.type('html').send(`<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
@@ -601,18 +612,12 @@ router.get('/cameras', (_req, res) => {
   <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="••••••" autofocus>
   <div id="pin-err"></div><button id="go">Entrar</button></div></div>
 <div class="grid" id="grid">
-  <div class="card" data-cam="warehouse">
-    <div class="bar"><h2>🏭 Warehouse Floor</h2><span class="badge">—</span>
+${cams.map((c) => `  <div class="card" data-cam="${c.id}">
+    <div class="bar"><h2>${escHtml(c.label)}</h2><span class="badge">—</span>
       <button data-act="pip" title="Picture-in-Picture (janela flutuante)">⧉ PIP</button>
       <button data-act="fs" title="Tela cheia">⛶</button></div>
-    <video muted autoplay playsinline></video><img alt="Warehouse Floor" style="display:none"><div class="off-msg"></div>
-  </div>
-  <div class="card" data-cam="packaging">
-    <div class="bar"><h2>📦 Packaging Line</h2><span class="badge">—</span>
-      <button data-act="pip" title="Picture-in-Picture (janela flutuante)">⧉ PIP</button>
-      <button data-act="fs" title="Tela cheia">⛶</button></div>
-    <video muted autoplay playsinline></video><img alt="Packaging Line" style="display:none"><div class="off-msg"></div>
-  </div>
+    <video muted autoplay playsinline></video><img alt="${escHtml(c.label)}" style="display:none"><div class="off-msg"></div>
+  </div>`).join('\n')}
 </div>
 <script>
 (function(){
