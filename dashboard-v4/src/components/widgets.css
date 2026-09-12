@@ -204,3 +204,18 @@
 :root[data-theme="dark"] .ponto-chip.ponto-warn  .ponto-when { color: #e3b45c; }
 :root[data-theme="dark"] .wg-ghost { background: rgba(74,116,194,.16); border-color: var(--border-strong); }
 :root[data-theme="dark"] .wg-handle { border-bottom-color: var(--border); }
+
+/* ── opções por widget (Bruno 09-11): zoom, ajuste ao espaço, tamanhos, presets ── */
+.wg-gear { margin-left: auto; border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1; opacity: .55; }
+.wg-handle:hover .wg-gear, .wg-gear:hover { opacity: 1; color: var(--ink); }
+.wg-opts { position: absolute; top: 34px; right: 8px; z-index: 40; width: 300px; background: var(--kit-surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 10px 12px; font-size: 12.5px; }
+.wg-opts-h { font: 600 10.5px "JetBrains Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px; }
+.wg-opts-hint { font-size: 12px; color: var(--ink-faint); margin: 2px 0 6px; }
+.wg-opts-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.wg-opts-row input[type=range] { flex: 1; }
+.wg-opts-row input[type=text] { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; background: var(--kit-surface); color: var(--ink); }
+.wg-opts-row .lnk { background: none; border: 0; color: var(--primary-deep); font: 600 12px inherit; font-family: inherit; cursor: pointer; padding: 2px 4px; }
+.wg-opts-row .lnk:disabled { opacity: .4; cursor: default; }
+.wg-opts-row.sizes button { border: 1px solid var(--line); background: var(--kit-surface); color: var(--ink); border-radius: 999px; padding: 3px 10px; font: 600 12px inherit; font-family: inherit; cursor: pointer; }
+.wg-opts-row.sizes button.on { background: var(--primary-deep); border-color: var(--primary-deep); color: #fff; }
+.wg-opts-row.preset span small { color: var(--ink-faint); font-family: "JetBrains Mono", monospace; }

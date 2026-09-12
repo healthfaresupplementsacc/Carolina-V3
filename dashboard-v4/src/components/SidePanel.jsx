@@ -85,6 +85,8 @@ function DurationStats({ event, dur, isLive, fmtDur }) {
           <div className="sp-dur-row"><span>Esta tarefa</span><b className="mono">{fmtDur(Math.round(dur))}</b></div>
           <div className="sp-dur-row"><span>Esperado</span><b className="mono">{fmtDur(exp.min)}</b><small>{exp.label}</small></div>
           <div className="sp-dur-row"><span>{isLive ? 'Agora' : 'Resultado'}</span><b>{isLive ? (lv != null ? `${Math.round((dur / exp.min) * 100)}% · ${lvTxt[lv]}` : '—') : (dm ? `${Math.round((dur / exp.min) * 100)}% · ${dmTxt[dm]}` : '—')}</b></div>
+          <div className="sp-dur-bar" title="100% = o esperado"><i style={{ width: Math.min(100, Math.round((dur / exp.min) * 100)) + '%', background: (dur / exp.min) >= 1.3 ? 'var(--bad)' : (dur / exp.min) >= 1 ? '#f97316' : 'var(--hf-leaf-500)' }}/></div>
+          <div className="muted" style={{ marginTop: 4 }}>Comparado a tarefas similares {exp.basis === 'produto' ? 'pro mesmo suplemento' : exp.basis === 'atividade' ? 'desta atividade' : exp.basis === 'ajuste' ? '(seu ajuste)' : '(cadastro)'}, esta {isLive ? 'está' : 'ficou'} em <b>{Math.round((dur / exp.min) * 100)}%</b> do tempo esperado.</div>
         </>
       )}
       {hist && hist.rows && hist.rows.length > 0 && (

@@ -92,6 +92,8 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
   const [drag, setDrag] = React.useState(null);
   // layout mostrado enquanto arrasta (preview ao vivo); null = usa o de fora
   const [preview, setPreview] = React.useState(null);
+  // 09-11: popover de opções (zoom, ajuste ao espaço, presets) aberto pra qual widget
+  const [opts, setOpts] = React.useState(null);
 
   const narrow = narrowProp != null ? narrowProp : autoNarrow;
 
@@ -224,6 +226,11 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
       {on.map((w) => {
         const def = (defs && defs[w.id]) || {};
         const dragging = drag && drag.id === w.id;
+        // 09-11 (Bruno): texto se ajusta ao espaço. fit = zoom proporcional ao tamanho padrão do
+        // widget (menor widget → conteúdo menor, sem cortar); z = zoom manual. Presets por widget.
+        const baseW = (def.w || w.w) * colPx, baseH = (def.h || w.h) * ROW_H;
+        const fitZ = w.fit ? Math.max(0.5, Math.min(1.25, Math.min((w.w * colPx) / baseW, (w.h * ROW_H) / baseH))) : null;
+        const zoom = w.z != null ? w.z : (fitZ != null ? fitZ : 1);
         return (
           <section key={w.id}
                    className={`wg-item ${dragging ? 'wg-dragging' : ''}`}
@@ -240,8 +247,14 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
                  onPointerDown={(e) => startDrag(e, w, 'move')}>
               <span className="wg-grip" aria-hidden="true">⋮⋮</span>
               <span className="wg-title kit-mlabel">{def.label || w.id}</span>
+              <button className="wg-gear" data-widget-gear={w.id} title="Tamanho, texto e presets deste widget"
+                      onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOpts(opts === w.id ? null : w.id); }}>⚙</button>
             </div>
-            <div className="wg-body">{renderWidget(w.id, { narrow: false })}</div>
+            <div className="wg-body" style={zoom !== 1 ? { zoom } : undefined} data-zoom={zoom.toFixed(2)}>{renderWidget(w.id, { narrow: false })}</div>
+            {opts === w.id && (
+              <WidgetOptions w={w} def={def} zoom={zoom} onClose={() => setOpts(null)}
+                             onChange={(patch) => onLayout(layout.map((x) => (x.id === w.id ? { ...x, ...patch } : x)))}/>
+            )}
             {/* canto: muda o tamanho */}
             <div className="wg-resize" data-widget-resize={w.id}
                  title="Puxe pra mudar o tamanho"
@@ -249,6 +262,40 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/* WidgetOptions (Bruno 09-11): "deixar eu ajustar o tamanho e o texto auto fit o espaço que eu
+   escolher... o widget deveria ter seu próprio preset lá na opção do widget". */
+function WidgetOptions({ w, def, zoom, onClose, onChange }) {
+  const [name, setName] = React.useState('');
+  const presets = w.presets || {};
+  const names = Object.keys(presets);
+  React.useEffect(() => {
+    const onDoc = (e) => { if (!e.target.closest('.wg-opts, .wg-gear')) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return (
+    <div className="wg-opts" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="wg-opts-h">{def.label || w.id} · {w.w}×{w.h}</div>
+      <label className="wg-opts-row"><input type="checkbox" checked={!!w.fit && w.z == null} onChange={(e) => onChange({ fit: e.target.checked, z: null })}/> Texto se ajusta ao espaço (automático)</label>
+      <div className="wg-opts-row"><span>Zoom {Math.round(zoom * 100)}%</span>
+        <input type="range" min="50" max="140" step="5" value={Math.round(zoom * 100)} onChange={(e) => onChange({ z: Number(e.target.value) / 100, fit: false })}/>
+        {w.z != null && <button className="lnk" onClick={() => onChange({ z: null })}>auto</button>}
+      </div>
+      <div className="wg-opts-row sizes"><span>Tamanho</span>
+        {[[2, 2, 'P'], [3, 3, 'M'], [4, 4, 'G'], [6, 5, 'GG']].map(([cw, ch, t]) => (<button key={t} className={w.w === cw && w.h === ch ? 'on' : ''} onClick={() => onChange({ w: Math.max(def.minW || 2, cw), h: Math.max(def.minH || 2, ch) })}>{t}</button>))}
+      </div>
+      <div className="wg-opts-h" style={{ marginTop: 8 }}>Presets deste widget</div>
+      {names.length === 0 && <div className="wg-opts-hint">Nenhum ainda. Ajuste o tamanho e o zoom, dê um nome e salve.</div>}
+      {names.map((n) => (<div key={n} className="wg-opts-row preset"><span>{n} <small>{presets[n].w}×{presets[n].h} · {Math.round((presets[n].z || 1) * 100)}%{presets[n].fit ? ' · auto' : ''}</small></span>
+        <button className="lnk" onClick={() => onChange({ w: presets[n].w, h: presets[n].h, z: presets[n].z != null ? presets[n].z : null, fit: !!presets[n].fit })}>aplicar</button>
+        <button className="lnk" onClick={() => { const p = { ...presets }; delete p[n]; onChange({ presets: p }); }}>apagar</button></div>))}
+      <div className="wg-opts-row"><input type="text" placeholder="nome do preset" value={name} onChange={(e) => setName(e.target.value)}/>
+        <button className="lnk" disabled={!name.trim()} onClick={() => { onChange({ presets: { ...presets, [name.trim()]: { w: w.w, h: w.h, z: w.z, fit: !!w.fit } } }); setName(''); }}>salvar</button></div>
     </div>
   );
 }

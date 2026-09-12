@@ -123,6 +123,14 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const heatOn = !colorsPref || colorsPref.heat !== false;
   const heatStyle = (colorsPref && colorsPref.heatStyle) || 'ring';
   const heatVars = {}; L.HEAT_COLORS.forEach((c, i) => { heatVars['--h' + i] = (colorsPref && colorsPref.heatColors && colorsPref.heatColors[i]) || c; });
+  // 09-11 (Bruno): grossura da linha, efeito por nível, ícone, barra + %, marca ao terminar
+  heatVars['--hw'] = ((colorsPref && colorsPref.heatWidth) || 1.5) + 'px';
+  const heatFx = (colorsPref && colorsPref.heatFx) || {};
+  const fxOf = (lv) => heatFx[lv] || (lv >= 4 ? 'pulse' : 'none');
+  const heatIcon = (colorsPref && colorsPref.heatIcon != null) ? colorsPref.heatIcon : '🔥';
+  const heatBar = !!(colorsPref && colorsPref.heatBar);
+  const heatBarPct = !colorsPref || colorsPref.heatBarPct !== false;
+  const doneStyle = (colorsPref && colorsPref.doneStyle) || 'thin';
   const doneOn = !colorsPref || colorsPref.doneMark !== false;
   const [gearOpen, setGearOpen] = React.useState(null);   // {x,y}
   const customColor = (slug) => (colorsPref && colorsPref.colors && colorsPref.colors[slug]) || null;
@@ -211,7 +219,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const byOp = {}; for (const ev of events) (byOp[ev.op] = byOp[ev.op] || []).push(ev);
 
   return (
-    <div className={`tl-wrap hs-${heatStyle}`} ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%', ...heatVars }}>
+    <div className={`tl-wrap hs-${heatStyle} ds-${doneStyle} ${heatBar ? 'hb-on' : ''}`} ref={wrapRef} style={{ '--name-w': `${NAME_W}px`, '--hour-px': `${hourPx}px`, '--vis-w': visW ? `${visW}px` : '100%', ...heatVars }}>
       <div className="tl-header">
         <h2>Linha do tempo</h2>
         <span className="en">{operators.length} pessoas</span>
@@ -332,8 +340,9 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                 const exp = expectedOf(e.activity, act, e.product);
                 if (exp) { expTip = `\nesperado ~${L.fmtDurShort(exp.min)} (${exp.label})`; heatPct = Math.min(100, Math.round(((isLiveEv ? now - e.started_min : end - start) / exp.min) * 100)); }
                 else { expTip = '\naprendendo: ainda sem histórico suficiente desta tarefa'; if (isToday && (heatOn || doneOn)) heatCls = 'learning'; }
-                if (exp && isToday && isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv; }
-                else if (exp && isToday && !isLiveEv && doneOn) { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
+                if (exp && isToday && isLiveEv && heatOn) { const lv = L.heatLevel(now - e.started_min, exp); if (lv != null) heatCls = 'heat-' + lv + ' fx-' + fxOf(lv); }
+                else if (exp && isToday && !isLiveEv && doneOn && doneStyle !== 'off') { const dm = L.doneMark(end - start, exp); if (dm && dm !== 'ok') heatCls = 'done-' + dm; }
+                if (exp && heatBar && !heatCls.startsWith('heat-')) heatCls += ' hb';
               }
               const out = [];
               pieces.forEach((seg) => {
@@ -371,7 +380,9 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                       ) : (seg.is_continuation ? <div className="l1 cont" style={{ fontSize: 10.5 }}>{seg.is_last ? durTxt : ''}</div> : null))}
                     {e.cowork && e.cowork.length > 0 && head && !neutral && <span className="cwd" title={'com ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).short).join(', ')}/>}
                     {e.dupes && head && <span className="dup">×{e.dupes}</span>}
-                    {heatCls === 'heat-4' && head && <span className="fire" aria-hidden="true">🔥</span>}
+                    {heatCls.startsWith('heat-4') && head && heatIcon && <span className="fire" aria-hidden="true">{heatIcon}</span>}
+                    {heatStyle === 'dots' && (heatCls.startsWith('heat-') || heatCls.startsWith('done-')) && <svg className="hsvg" aria-hidden="true"><rect x="2" y="2" rx="5" ry="5"/></svg>}
+                    {(heatBar || heatStyle === 'bar') && heatPct > 0 && (heatCls.startsWith('heat-') || heatCls.includes('done-') || heatCls.includes('hb')) && heatBarPct && head && w >= 34 && <i className="pct">{heatPct}%</i>}
                     {e._flag && head && <span className="flag" title={e._flag === 'too_short' ? 'Operador disse que NÃO está certo: ficou curta demais (entrou sem querer?)' : 'Operador disse que NÃO está certo: levou tempo demais'}>?</span>}
                     {e.overrun && head && <span className="bk-overrun" title="passou do esperado">⏰</span>}
                   </div>
@@ -623,7 +634,8 @@ function QuickAdd({ mini, fmt, operators, activities, events, nowMin, DAY_END_BA
 const STYLES = [['regular', 'Regular'], ['plain', 'Plano'], ['pastel', 'Pastel'], ['3d', '3D'], ['glow', 'Brilho'], ['anim', 'Animado']];
 const FLOW_DEFAULT = { production: '#1a3a6b', pnp: '#0f766e', support: '#5b3fa8' };
 const HEAT_LEGEND = [[0, 'começou (< 50 %)'], [1, 'no ritmo (< 85 %)'], [2, 'perto do esperado (< 100 %)'], [3, 'passou (< 130 %)'], [4, 'passou muito (≥ 130 %) + fogo']];
-const HEAT_STYLES = [['ring', 'Linha interna', 'contorno colorido por dentro do bloco'], ['pulse', 'Pulsando', 'a linha interna pulsa; mais rápido quanto mais atrasado'], ['orbit', 'Ponto girando', 'um ponto corre a borda por dentro, mudando de cor com o tempo'], ['bar', 'Barra de progresso', 'barra fina no pé do bloco enchendo até o esperado']];
+const HEAT_STYLES = [['ring', 'Linha fina', 'linha colorida por dentro, separada da borda do bloco'], ['dots', 'Pontilhado girando', 'pontilhado que corre por dentro da borda e muda de cor com a demora'], ['orbit', 'Ponto girando', 'um ponto corre a borda por dentro'], ['bar', 'Só a barra', 'só a barra de progresso no pé do bloco']];
+const HEAT_FX = [['none', 'parado'], ['pulse', 'pulsando'], ['blink', 'piscando']];
 function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
   const [kiosk, setKiosk] = React.useState(null);
   React.useEffect(() => { getDurSettings().then((s) => setKiosk(!!(s && s.kiosk_ask))).catch(() => setKiosk(null)); }, []);
@@ -634,7 +646,7 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
   const setIn = (field, slug, v) => { const o = { ...(cur[field] || {}) }; if (v == null || v === '' || v === 'inherit') delete o[slug]; else o[slug] = v; put({ [field]: o }); };
   const [tab, setTab] = React.useState('cores');
   const [presetName, setPresetName] = React.useState('');
-  const snapshot = () => ({ style: cur.style, colors: cur.colors, styles: cur.styles, expected: cur.expected, heat: cur.heat, doneMark: cur.doneMark });
+  const snapshot = () => ({ style: cur.style, colors: cur.colors, styles: cur.styles, expected: cur.expected, heat: cur.heat, doneMark: cur.doneMark, heatStyle: cur.heatStyle, heatColors: cur.heatColors, heatWidth: cur.heatWidth, heatFx: cur.heatFx, heatIcon: cur.heatIcon, heatBar: cur.heatBar, heatBarPct: cur.heatBarPct, doneStyle: cur.doneStyle });
   const vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
   const presetNames = Object.keys(cur.presets || {});
   return (
@@ -665,11 +677,21 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
         <label className="tl-check"><input type="checkbox" checked={cur.heat !== false} onChange={(e) => put({ heat: e.target.checked })}/> Sinal dentro do bloco que muda de cor conforme o tempo passa do esperado</label>
         <div className="lbl">Estilo do sinal</div>
         <div className="chips">{HEAT_STYLES.map(([k, t, d]) => (<button key={k} className={`chip ${(cur.heatStyle || 'ring') === k ? 'on' : ''}`} title={d} onClick={() => put({ heatStyle: k })}>{t}</button>))}</div>
+        <div className="lbl">Grossura da linha</div>
+        <div className="wg-opts-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="range" min="1" max="4" step="0.5" value={cur.heatWidth || 1.5} onChange={(e) => put({ heatWidth: Number(e.target.value) })} style={{ flex: 1 }}/><span className="mono">{cur.heatWidth || 1.5} px</span></div>
+        <div className="lbl">Efeito por nível <span style={{ textTransform: 'none', letterSpacing: 0 }}>(o "passou muito" pulsa por padrão)</span></div>
+        <div className="tl-heat-legend">{HEAT_LEGEND.map(([i, t]) => (<div key={'fx' + i} className="row"><span className="sw" style={{ background: (cur.heatColors || {})[i] || L.HEAT_COLORS[i] }}/><span style={{ flex: 1 }}>{t}</span><select value={(cur.heatFx || {})[i] || (i >= 4 ? 'pulse' : 'none')} onChange={(e) => put({ heatFx: { ...(cur.heatFx || {}), [i]: e.target.value } })}>{HEAT_FX.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>))}</div>
+        <div className="lbl">Ícone do "passou muito"</div>
+        <div className="chips">{['🔥', '⏰', '⚠️', '🚨', '❗', ''].map((ic) => (<button key={ic || 'none'} className={`chip ${(cur.heatIcon != null ? cur.heatIcon : '🔥') === ic ? 'on' : ''}`} onClick={() => put({ heatIcon: ic })}>{ic || 'sem ícone'}</button>))}<input type="text" maxLength={2} placeholder="outro" style={{ width: 56, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 6px', font: 'inherit' }} onChange={(e) => e.target.value && put({ heatIcon: e.target.value })}/></div>
+        <div className="lbl">Barra de progresso <span style={{ textTransform: 'none', letterSpacing: 0 }}>(combina com qualquer estilo; vale também pras concluídas)</span></div>
+        <label className="tl-check"><input type="checkbox" checked={!!cur.heatBar} onChange={(e) => put({ heatBar: e.target.checked })}/> Barra fina no pé do bloco enchendo até o esperado</label>
+        <label className="tl-check"><input type="checkbox" checked={cur.heatBarPct !== false} onChange={(e) => put({ heatBarPct: e.target.checked })}/> Mostrar a % na barra</label>
         <div className="lbl">Cores por nível</div>
         <div className="tl-heat-legend">{HEAT_LEGEND.map(([i, t]) => { const c = (cur.heatColors || {})[i] || L.HEAT_COLORS[i]; return (<div key={i} className="row"><input type="color" value={c} onChange={(e) => put({ heatColors: { ...(cur.heatColors || {}), [i]: e.target.value } })} title="Cor deste nível"/><span className="sw" style={{ background: c }}/><span>{t}</span></div>); })}<button className="link" onClick={() => put({ heatColors: {} })}>cores padrão</button></div>
         <div className="hint">Sem histórico suficiente da tarefa (ou do produto), o bloco fica só com uma linha pontilhada por dentro: o sistema ainda está aprendendo.</div>
         <div className="lbl">Ao terminar</div>
-        <label className="tl-check"><input type="checkbox" checked={cur.doneMark !== false} onChange={(e) => put({ doneMark: e.target.checked })}/> Marca ao redor: verde = mais rápido que o esperado · vermelho = bem mais lento</label>
+        <label className="tl-check"><input type="checkbox" checked={cur.doneMark !== false} onChange={(e) => put({ doneMark: e.target.checked })}/> Marcar as concluídas: verde = mais rápido que o esperado · vermelho = bem mais lento (≥ 1,5×)</label>
+        <div className="chips">{[['thin', 'Linha fina por dentro'], ['corner', 'Só um canto'], ['bar', 'Só a barra'], ['off', 'Nada']].map(([k, t]) => (<button key={k} className={`chip ${(cur.doneStyle || 'thin') === k ? 'on' : ''}`} onClick={() => put({ doneStyle: k })}>{t}</button>))}</div>
         <div className="lbl">Kiosk</div>
         <label className="tl-check"><input type="checkbox" disabled={kiosk == null} checked={!!kiosk} onChange={(e) => { const v = e.target.checked; setKiosk(v); setDurSettings({ kiosk_ask: v }).catch((err) => { setKiosk(!v); alert(err.message); }); }}/> Perguntar ao operador no kiosk quando a tarefa ficou curta ou longa demais {kiosk === false && <small style={{ color: 'var(--text-3)' }}>(desligado enquanto ajustamos)</small>}</label>
         <div className="hint" style={{ marginTop: 8 }}>O "esperado": os minutos que você digitar na aba Cores e estilo; senão a mediana histórica DESTE PRODUTO nesta atividade (a partir de 3 nos últimos 60 dias, com o último tempo); senão a mediana histórica da atividade (a partir de 5); senão o cadastro. Nunca a média só de hoje. Passe o mouse no bloco pra ver contra o que ele foi comparado.</div>
@@ -686,7 +708,7 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
           {presetNames.map((n) => (<div key={n} className="row preset"><span className="n">{n}<small> · {STYLES.find((x) => x[0] === (cur.presets[n].style || 'regular'))?.[1]} · {Object.keys(cur.presets[n].colors || {}).length} cores</small></span><button className="link" onClick={() => put({ ...cur.presets[n] })}>aplicar</button><button className="link" onClick={() => { const p2 = { ...cur.presets }; delete p2[n]; put({ presets: p2 }); }}>apagar</button></div>))}
         </div>
       </>)}
-      <div className="foot"><button className="link" onClick={() => put({ style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
+      <div className="foot"><button className="link" onClick={() => put({ style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, heatStyle: 'ring', heatColors: {}, heatWidth: 1.5, heatFx: {}, heatIcon: '🔥', heatBar: false, heatBarPct: true, doneStyle: 'thin' })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
     </div>
   );
 }

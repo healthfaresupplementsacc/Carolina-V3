@@ -168,7 +168,7 @@ function CameraGrid({ compact = false }) {
   // health poll — reconecta na hora quando o gateway volta
   React.useEffect(() => {
     if (!token) return undefined;
-    const t = setInterval(() => {
+    const tick = () => {
       fetch('/api/cam/health?t=' + encodeURIComponent(token)).then((r) => r.json()).then((j) => {
         setGwUp(!!j.reachable);
         if (j.reachable && Array.isArray(j.cams)) { const merged = mergeCams(j.cams); if (merged.length !== camsLive.length) { setCamsLive(merged); setOrder((o) => [...o, ...merged.map((c) => c.id).filter((id) => !o.includes(id))]); } }
@@ -185,7 +185,9 @@ function CameraGrid({ compact = false }) {
           });
         }
       }).catch(() => {});
-    }, 15000);
+    };
+    tick();                                  // 09-11: já na abertura, pra câmera nova do gateway entrar na hora
+    const t = setInterval(tick, 15000);
     return () => clearInterval(t);
   }, [token, startStream]);
   const statusRef = React.useRef({});
