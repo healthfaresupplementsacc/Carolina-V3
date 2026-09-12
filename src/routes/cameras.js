@@ -38,8 +38,18 @@ const STATIC_CAMS = new Set(['warehouse', 'packaging', 'formulation']);
 // DESCOBERTA (Bruno 09-11, "câmera 2 no dashboard"): o gateway do PC das câmeras diz em
 // /health quais nomes ele expõe (`cams`). Qualquer nome que ele exponha vale aqui e no
 // dashboard, sem deploy: quando o gateway ganhar a cam2, ela aparece sozinha.
-const gatewayCams = { names: new Set(), at: 0 };
+const gatewayCams = { names: new Set(), at: 0, loaded: false };
+// Persiste a lista em v3.settings ('cameras.known'): fora do horário, ou depois de um deploy,
+// o servidor ainda sabe quais câmeras existem (o tile da nova não some às 20:30). Best-effort.
+async function loadKnownCams() {
+  if (gatewayCams.loaded) return; gatewayCams.loaded = true;
+  try { const r = await lazyDb.query("SELECT value FROM v3.settings WHERE key = 'cameras.known'"); const v = r.rows && r.rows[0] && r.rows[0].value; const arr = Array.isArray(v) ? v : (v && Array.isArray(v.cams) ? v.cams : []); for (const n of arr) if (/^[a-z0-9_]{1,32}$/i.test(String(n))) gatewayCams.names.add(String(n)); } catch (_) { /* segue em memória */ }
+}
+function saveKnownCams() {
+  lazyDb.query(`INSERT INTO v3.settings (key, value, description) VALUES ('cameras.known', $1::jsonb, 'câmeras que o gateway expôs (descoberta automática, 09-11)') ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`, [JSON.stringify([...gatewayCams.names])]).catch(() => {});
+}
 async function refreshGatewayCams() {
+  await loadKnownCams();
   const base = process.env.CAM_TUNNEL_URL; const token = process.env.CAM_TOKEN;
   if (!base || !token) return [];
   const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 3500);
@@ -48,7 +58,7 @@ async function refreshGatewayCams() {
     clearTimeout(timer);
     if (!r.ok) return [...gatewayCams.names];
     const j = await r.json().catch(() => null);
-    if (j && Array.isArray(j.cams)) { gatewayCams.names = new Set(j.cams.map(String).filter((x) => /^[a-z0-9_]{1,32}$/i.test(x))); gatewayCams.at = Date.now(); }
+    if (j && Array.isArray(j.cams)) { const fresh = j.cams.map(String).filter((x) => /^[a-z0-9_]{1,32}$/i.test(x)); if (fresh.length) { gatewayCams.names = new Set(fresh); gatewayCams.at = Date.now(); saveKnownCams(); } }
     return [...gatewayCams.names];
   } catch (_) { clearTimeout(timer); return [...gatewayCams.names]; }
 }
@@ -199,7 +209,7 @@ router.get('/api/cam/health', async (req, res) => {
   // gateway responde "fora do ar" → a página mostra o "reconectando" normal, sem
   // ficar sondando as câmeras desligadas. Ver src/cameras-schedule.js.
   // fora do horário ainda devolve a lista conhecida: o tile da câmera nova existe mesmo com o vídeo desligado (Bruno 09-11)
-  if (!(await camerasAllowedNow())) return res.json({ reachable: false, reason: 'scheduled_off', scheduled_off: true, schedule: scheduleInfo(), cams: [...gatewayCams.names] });
+  if (!(await camerasAllowedNow())) { await loadKnownCams(); return res.json({ reachable: false, reason: 'scheduled_off', scheduled_off: true, schedule: scheduleInfo(), cams: [...gatewayCams.names] }); }
   const base = process.env.CAM_TUNNEL_URL;
   if (!base || !process.env.CAM_TOKEN) return res.json({ reachable: false, reason: 'not_configured' });
   const ctrl = new AbortController();
