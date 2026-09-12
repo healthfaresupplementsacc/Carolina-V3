@@ -18,6 +18,7 @@ import { NotificationsCard } from '../components/NotificationsPanel.jsx';
 import { FloatingPopover } from '../components/FloatingPopover.jsx';
 import { ReviewPanel } from '../components/ReviewPanel.jsx';
 import { WidgetGrid, compact } from '../components/WidgetGrid.jsx';
+import { publishGlance } from '../components/glance-store.js';
 import { V4_ALLOW_WRITES } from '../flags.js';
 import { apiGet, usePoll, nyToday } from '../adapters/from-api.js';
 import { useRoleHolder, holderShort } from '../adapters/roles-api.js';
@@ -208,16 +209,23 @@ const LAYOUT_KEY = 'hf-hoje-layout-v2';     // cache DESTE navegador
 const WIDGETS_KEY = 'hf-widgets-v1';        // esquema antigo (só on/off + ordem)
 const PREF_KEY = 'hoje.layout';             // a mesma coisa, salva NA CONTA
 
-/* Layout padrão = a ordem VISUAL de hoje: 4 cards de KPI na primeira faixa,
-   Pedidos + FNSKU na segunda, Câmeras em largura cheia embaixo. */
+/* Layout padrão. 09-12 (Bruno): os seis cards de número (produção, revisão,
+   metas, P&P, pedidos, FNSKU) SAÍRAM da grade e viraram chips na barra do topo
+   (GlanceStrip) — o widget inteiro abre no clique do chip. Eles continuam
+   existindo como widget e podem ser religados no botão Widgets; só nascem
+   desligados. Câmeras segue ligada. LAYOUT_VERSION marca a migração: layout
+   salvo antes disso (na conta ou no navegador) recebe os seis desligados uma
+   única vez; depois disso o que a pessoa ligar/desligar é respeitado. */
+const GLANCE_IDS = new Set(['producao', 'revisao', 'metas', 'pp', 'pedidos', 'fnsku']);
+const LAYOUT_VERSION = 3;
 function defaultLayout() {
   return [
-    { id: 'producao', x: 0, y: 0,  w: 3, h: 4, on: true },
-    { id: 'revisao',  x: 3, y: 0,  w: 3, h: 4, on: true },
-    { id: 'metas',    x: 6, y: 0,  w: 3, h: 4, on: true },
-    { id: 'pp',       x: 9, y: 0,  w: 3, h: 4, on: true },
-    { id: 'pedidos',  x: 0, y: 4,  w: 6, h: 5, on: true },
-    { id: 'fnsku',    x: 6, y: 4,  w: 6, h: 5, on: true },
+    { id: 'producao', x: 0, y: 0,  w: 3, h: 4, on: false },
+    { id: 'revisao',  x: 3, y: 0,  w: 3, h: 4, on: false },
+    { id: 'metas',    x: 6, y: 0,  w: 3, h: 4, on: false },
+    { id: 'pp',       x: 9, y: 0,  w: 3, h: 4, on: false },
+    { id: 'pedidos',  x: 0, y: 4,  w: 6, h: 5, on: false },
+    { id: 'fnsku',    x: 6, y: 4,  w: 6, h: 5, on: false },
     { id: 'cameras',  x: 0, y: 9,  w: 12, h: 7, on: true },
   ];
 }
@@ -234,6 +242,7 @@ function normalizeLayout(s) {
   const known = new Set(GRID_DEFS.map((d) => d.id));
   const seen = new Set();
   const grid = [];
+  const savedV = Number(s.v) || 2;
   for (const w of s.grid) {
     if (!w || !known.has(w.id) || seen.has(w.id)) continue;
     seen.add(w.id);
@@ -244,16 +253,17 @@ function normalizeLayout(s) {
       y: Math.max(0, Number(w.y) || 0),
       w: Math.max(def.minW, Math.min(12, Number(w.w) || def.w)),
       h: Math.max(def.minH, Number(w.h) || def.h),
-      on: w.on !== false,
+      // 09-12: layout de antes da barra de números → os seis KPIs desligam uma vez
+      on: (savedV < LAYOUT_VERSION && GLANCE_IDS.has(w.id)) ? false : w.on !== false,
       // 09-11: zoom manual (0.5–1.4), ajuste automático ao espaço e presets por widget
       z: (w.z != null && Number.isFinite(Number(w.z))) ? Math.max(0.4, Math.min(1.4, Number(w.z))) : null,
       fit: w.fit === true,
       presets: (w.presets && typeof w.presets === 'object') ? w.presets : {},
     });
   }
-  // widget novo que o layout salvo não conhece entra ligado, no fim
+  // widget novo que o layout salvo não conhece entra no fim (KPI nasce desligado, 09-12)
   for (const d of GRID_DEFS) {
-    if (!seen.has(d.id)) grid.push({ id: d.id, x: 0, y: 999, w: d.w, h: d.h, on: true });
+    if (!seen.has(d.id)) grid.push({ id: d.id, x: 0, y: 999, w: d.w, h: d.h, on: !GLANCE_IDS.has(d.id) });
   }
   const src = s.stack && Array.isArray(s.stack.order) ? s.stack : defaultStack();
   const kn = STACK_DEFS.map((d) => d.id);
@@ -261,7 +271,7 @@ function normalizeLayout(s) {
     order: src.order.filter((id) => kn.includes(id)).concat(kn.filter((id) => !src.order.includes(id))),
     off: Array.isArray(src.off) ? src.off.filter((id) => kn.includes(id)) : [],
   };
-  return { grid, stack };
+  return { grid, stack, v: LAYOUT_VERSION };
 }
 
 /* Lê o layout salvo NO NAVEGADOR (cache imediato, sem piscar). Se não existir,
@@ -287,10 +297,10 @@ function loadLayout() {
         order: old.order.filter((id) => kn.includes(id)).concat(kn.filter((id) => !old.order.includes(id))),
         off: off.filter((id) => kn.includes(id)),
       };
-      return { grid, stack };
+      return { grid, stack, v: LAYOUT_VERSION };
     }
   } catch { /* localStorage off */ }
-  return { grid: defaultLayout(), stack: defaultStack() };
+  return { grid: defaultLayout(), stack: defaultStack(), v: LAYOUT_VERSION };
 }
 
 // Resumo do dia (Bruno 09-11): nasce escondido; aberto uma vez, fica aberto ao trocar de dia,
@@ -365,8 +375,15 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
      gravou numa versão anterior da página (widget que já não existe, largura
      fora da grade) não pode quebrar a tela por ter chegado pela rede. */
   const wstate = React.useMemo(
-    () => normalizeLayout(rawWstate) || { grid: defaultLayout(), stack: defaultStack() },
+    () => normalizeLayout(rawWstate) || { grid: defaultLayout(), stack: defaultStack(), v: LAYOUT_VERSION },
     [rawWstate]);
+  /* GLANCE (09-12): a barra do topo mostra os números destes widgets. A lista é
+     montada depois de renderGridWidget existir (mais abaixo) e publicada aqui,
+     num efeito sem deps (roda a cada render, custo zero) — o hook fica ANTES
+     dos returns de loading/erro pra ordem dos hooks nunca mudar. */
+  const glanceRef = React.useRef([]);
+  React.useEffect(() => { publishGlance(glanceRef.current); });
+  React.useEffect(() => () => publishGlance([]), []);
   const saveW = React.useCallback((next) => { setWstate(next); }, [setWstate]);
 
   // grade
@@ -1059,6 +1076,42 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
       default: return null;
     }
   };
+
+  /* Chips da barra (Bruno 09-12): só o número que importa; render() = o widget
+     inteiro (MESMO JSX da grade). "corte vencido" e Veeqo divergente pintam
+     o chip de aviso — é isso que precisa pular aos olhos. */
+  glanceRef.current = (() => {
+    const out = [];
+    out.push({ id: 'producao', icon: 'factory', label: 'Produção', value: liveProd.toLocaleString(), unit: 'garrafas',
+      sub: prodPerMin != null ? prodPerMin + '/min' : null, title: 'Produção hoje · clique pra ver tudo',
+      render: () => renderGridWidget('producao') });
+    const corteVencido = !!(correioNotif && correioNotif._minutes != null && window.HFH && window.HFH.liveNowMin() > correioNotif._minutes);
+    const vqN = vqToday.data && vqToday.data.total_orders != null ? Number(vqToday.data.total_orders) : null;
+    const ppDiff = vqN != null ? (Number(pp.orders) || 0) - vqN : 0;
+    out.push({ id: 'pp', icon: 'pp', label: 'P&P', value: String(pp.orders || 0), unit: (pp.orders || 0) === 1 ? 'ordem' : 'ordens',
+      sub: pp.total_minutes ? fmtDur(pp.total_minutes) : null,
+      tone: corteVencido ? 'bad' : (ppDiff < 0 ? 'warn' : null),
+      title: corteVencido ? 'P&P do dia · corte do correio VENCIDO' : (ppDiff < 0 ? 'P&P do dia · faltou digitar ' + Math.abs(ppDiff) + ' vs Veeqo' : 'P&P do dia · clique pra ver tudo'),
+      render: () => renderGridWidget('pp') });
+    const vq = (raw && raw.veeqo) || null;
+    if (vq && vq.configured !== false) {
+      out.push({ id: 'pedidos', icon: 'product', label: 'Pedidos', value: (Number(vq.total_orders) || 0).toLocaleString(), unit: 'pedidos',
+        sub: vq.total_units != null ? vq.total_units + ' un' : null, title: 'Pedidos hoje (Veeqo) · clique pra ver tudo', width: 520,
+        render: () => renderGridWidget('pedidos') });
+    }
+    if (fnsku && (Number(fnsku.total_labels) > 0 || (fnsku.person_seconds || []).length > 0)) {
+      out.push({ id: 'fnsku', icon: 'product', label: 'FNSKU', value: (Number(fnsku.total_labels) || 0).toLocaleString(), unit: 'labels',
+        sub: fnsku.labels_per_min != null ? fnsku.labels_per_min + '/min' : null, title: 'FNSKU hoje · clique pra ver tudo', width: 520,
+        render: () => renderGridWidget('fnsku') });
+    }
+    out.push({ id: 'metas', icon: 'target', label: 'Metas', value: goalsHit + '/' + (goalsActive + goalsHit), unit: goalsActive > 0 ? 'em curso' : 'feitas',
+      tone: (goalsActive + goalsHit) > 0 && goalsActive === 0 ? 'ok' : null, title: 'Metas em curso · clique pra ver tudo',
+      render: () => renderGridWidget('metas') });
+    out.push({ id: 'revisao', icon: 'live', label: 'Revisão', value: review.avg_capsules_per_sec != null ? String(review.avg_capsules_per_sec) : '—', unit: review.avg_capsules_per_sec != null ? 'cáps/s' : '',
+      sub: review.avg_bottles_per_min != null ? review.avg_bottles_per_min + '/min' : null, title: 'Revisão do dia · clique pra ver tudo',
+      render: () => renderGridWidget('revisao') });
+    return out;
+  })();
 
   return (
     <div data-page-op="hoje" style={{ display: 'flex', flexDirection: 'column' }}>

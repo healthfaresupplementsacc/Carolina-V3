@@ -2,7 +2,10 @@ import React from 'react';
 import { Icon } from './Icons.jsx';
 import { PontoStrip } from './PontoStrip.jsx';
 import nyTime from '../utils/ny-time.cjs';
-import { FalarCarolinaButton } from '../pages/CarolinaFalar.jsx';
+import { GlanceStrip } from './GlanceStrip.jsx';
+import { SettingsMenu } from './SettingsMenu.jsx';
+import { MiniCalendar } from './MiniCalendar.jsx';
+import { FloatingPopover } from './FloatingPopover.jsx';
 import { can, getLogin } from '../adapters/from-api.js';
 import { whGet } from '../adapters/warehouse-api.js';
 // E7-refine2: logo real do HealthFare (H+leaf, azul/verde, "HEALTHFARE"
@@ -230,7 +233,7 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
 
 const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEvent,
                   workerNode, readOnly, onLogout, ack, onMenu, onSearch,
-                  onBell, notifTotal = 0, notifBad = 0 }) => {
+                  onBell, notifTotal = 0, notifBad = 0, tweaks, setTweak }) => {
   const page = findPage(pageId);
   return (
     <header className="topbar">
@@ -253,12 +256,16 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
           </span>
         )}
         <PontoStrip pageId={pageId}/>
+        {/* 09-12 (Bruno): os números dos widgets (produção, P&P, pedidos, FNSKU,
+            metas, revisão) cabem AQUI, depois de quem está trabalhando; só o
+            que importa à vista, e o widget inteiro abre no clique. */}
+        <GlanceStrip pageId={pageId}/>
       </div>
       <div className="topbar-spacer"/>
-      {/* hide-mobile: secundários somem no celular (workerNode/falar/busca/bell/admin/op
-          ficam acessíveis pelo drawer ou não-essenciais na tela pequena). */}
-      <span className="hide-mobile" style={{ display: "contents" }}>{workerNode}</span>
-      <span className="hide-mobile"><FalarCarolinaButton ack={ack}/></span>
+      {/* 09-12 (Bruno): "worker ativo" saiu da barra (não tem necessidade) e a
+          Carolina foi pra dentro da engrenagem. workerNode hoje é SÓ o banner
+          de alerta de billing (position:fixed), que precisa continuar visível. */}
+      {workerNode}
       <button className="icon-btn" title="Buscar (produto, lote, pessoa, tarefa)" aria-label="Search" onClick={onSearch}><Icon name="search" size={17}/></button>
       <button className="icon-btn" title="Notificações" aria-label="Notifications" onClick={onBell} style={{ position: "relative" }}>
         <Icon name="bell" size={17}/>
@@ -277,22 +284,10 @@ const TopBar = ({ pageId, date, onDate, onToggleTweaks, theme, onTheme, onNewEve
       <DatePicker date={date} onDate={onDate}/>
       {/* 09-10: "Novo registro" desceu pro cabeçalho da linha do tempo (Timeline.jsx),
           onde o registro acontece; onNewEvent segue disponível pra quem precisar. */}
-      {/* 🔧 gear → Painel Admin (nova aba). ANTES o gear estava no botão de
-          logout (Icon config) e deslogava — bug. Agora gear = admin. */}
-      <a className="icon-btn hide-mobile" href="/admin/" target="_blank" rel="noreferrer"
-         title="Painel Admin (/admin/, nova aba)" aria-label="Admin">
-        <Icon name="config" size={17}/>
-      </a>
-      {/* 👷 Página dos Operadores (nova aba) */}
-      <a className="icon-btn hide-mobile" href="/op/" target="_blank" rel="noreferrer"
-         title="Página dos Operadores (/op/, nova aba)" aria-label="Operadores">
-        <Icon name="people" size={17}/>
-      </a>
-      {onLogout && (
-        <button className="icon-btn" title="Sair (limpar PIN)" aria-label="Logout" onClick={onLogout}>
-          <Icon name="x" size={17}/>
-        </button>
-      )}
+      {/* ⚙ 09-12 (Bruno): a engrenagem NÃO vai mais pra outra página — abre um
+          menu pequeno com aparência, Carolina, atalhos (Admin / operadores),
+          estado do worker e Sair. */}
+      <SettingsMenu tweaks={tweaks} setTweak={setTweak} onLogout={onLogout} ack={ack}/>
     </header>
   );
 };
@@ -304,7 +299,8 @@ const DatePicker = ({ date, onDate }) => {
   //   AGORA: parseYmdLocal cria Date(y,m-1,d,12,0,0) local-noon — getDay/getDate
   //          retornam os valores certos pro YYYY-MM-DD em qualquer fuso do user.
   const d = nyTime.parseYmdLocal(date);
-  const isToday = date === nyTime.nyToday();
+  const today = nyTime.nyToday();
+  const isToday = date === today;
   const ptMonths = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
   const ptDays = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
   const shift = (n) => {
@@ -312,15 +308,31 @@ const DatePicker = ({ date, onDate }) => {
     // Robusto contra DST (sem cair em ambiguidade de meia-noite).
     onDate(nyTime.shiftNyDate(date, n));
   };
+  // 09-12 (Bruno): clicar na data abre um calendário pequeno com todos os dias.
+  // É o MiniCalendar da Revisão (mesma grade, mesmas setas de teclado).
+  const [open, setOpen] = React.useState(false);
+  const [anchor, setAnchor] = React.useState(null);
+  const [month, setMonth] = React.useState(() => String(date || today).slice(0, 7));
+  React.useEffect(() => { if (open) setMonth(String(date || today).slice(0, 7)); }, [open, date, today]);
   if (!d) return null;
   return (
     <div className="date-picker">
       <button onClick={() => shift(-1)} title="Dia anterior"><Icon name="left" size={15}/></button>
-      <div className="date-value">
+      <div className="date-value" role="button" tabIndex={0} data-date-value
+           title="Escolher o dia no calendário" aria-expanded={open}
+           onClick={(e) => { setAnchor({ x: e.clientX, y: e.clientY }); setOpen((v) => !v); }}
+           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setAnchor({ x: r.left + r.width / 2, y: r.bottom }); setOpen((v) => !v); } }}>
         {isToday ? "Hoje" : ptDays[d.getDay()]}, {d.getDate()} {ptMonths[d.getMonth()]}
         <span className="small">{ptDays[d.getDay()]} · {isToday ? "Today" : ""}</span>
       </div>
       <button onClick={() => shift(1)} title="Próximo dia"><Icon name="right" size={15}/></button>
+      <FloatingPopover open={open} anchor={anchor} width={270} onClose={() => setOpen(false)}
+                       anchorSelector="[data-date-value]" className="date-pop">
+        <div className="date-pop-body" data-date-pop>
+          <MiniCalendar month={month} onMonth={setMonth} selected={date} today={today}
+                        onPick={(ymd) => { onDate(ymd); setOpen(false); }}/>
+        </div>
+      </FloatingPopover>
     </div>
   );
 };

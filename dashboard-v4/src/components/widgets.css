@@ -240,3 +240,74 @@
 .wg-editbar .ok { border: 0; background: #fff; color: var(--primary-deep); font: 800 13px inherit; font-family: inherit; padding: 6px 18px; border-radius: 999px; cursor: pointer; }
 .wg-editbar small { opacity: .8; font-size: 11px; }
 @media (prefers-reduced-motion: reduce) { .wg-item.wg-editing { animation: none; } }
+
+/* ═══ GLANCE — números do dia na barra (Bruno 09-12) ═══════════════
+   Chips logo depois do Ponto. Só o número que importa; o widget inteiro
+   abre no clique (popover). Estreito: vira a pill "Números (N)". */
+.glance-strip { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; min-width: 0; }
+.glance-list { display: inline-flex; align-items: center; gap: 6px; flex-wrap: nowrap; min-width: 0; }
+.glance-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px 3px 7px; border-radius: 999px;
+  background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text); font: 500 12px var(--font); line-height: 1.2;
+  white-space: nowrap; cursor: pointer; transition: background .12s, box-shadow .12s;
+}
+.glance-chip:hover, .glance-chip.active { background: var(--surface); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.glance-chip .glance-ico { display: inline-grid; place-items: center; color: var(--text-3); }
+.glance-chip .glance-val { font-weight: 700; font-size: 13px; color: var(--ink, var(--text)); }
+.glance-chip .glance-unit { font-size: 11px; color: var(--ink-dim, var(--text-2)); }
+.glance-chip .glance-lbl { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); margin-left: 2px; }
+.glance-chip .glance-sub { font-size: 11px; color: var(--text-3); padding-left: 5px; border-left: 1px solid var(--border); }
+.glance-chip.glance-warn { background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-line); }
+.glance-chip.glance-warn .glance-val, .glance-chip.glance-warn .glance-unit { color: var(--warn-deep); }
+.glance-chip.glance-bad { background: var(--bad-bg); box-shadow: inset 0 0 0 1px var(--bad-line); }
+.glance-chip.glance-bad .glance-val, .glance-chip.glance-bad .glance-unit { color: var(--bad-deep); }
+.glance-chip.glance-ok .glance-val { color: var(--ok-deep); }
+.glance-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+
+.glance-collapsed { display: none; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); color: var(--text-2); font: 600 12px var(--font); white-space: nowrap; }
+.glance-pop-list { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.glance-pop-list .glance-chip { width: 100%; justify-content: flex-start; }
+
+/* dentro do popover, o widget perde a moldura de card (o popover já é a moldura) */
+.glance-pop-body { padding: 12px 14px; overflow: auto; max-height: min(70vh, 560px); }
+.glance-pop-body .card.kpi { border: none; box-shadow: none; background: transparent; padding: 0; margin: 0; }
+.glance-pop-body .card.kpi .value { font-size: 30px; }
+
+/* larguras: some o rótulo primeiro, depois o sub, depois vira pill */
+@media (max-width: 1500px) { .glance-chip .glance-lbl { display: none; } }
+@media (max-width: 1280px) { .glance-chip .glance-sub { display: none; } }
+@media (max-width: 1100px) {
+  .glance-strip .glance-list { display: none; }
+  .glance-collapsed { display: inline-flex; }
+}
+
+/* ═══ MENU DA ENGRENAGEM (Bruno 09-12) ═══════════════════════════════ */
+.smenu-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 2px; }
+.smenu-sec { margin: 8px 4px 4px; }
+.smenu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 6px; font-size: 12.5px; color: var(--text); }
+.smenu-seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px; }
+.smenu-seg-btn { border: none; background: transparent; padding: 3px 9px; border-radius: 999px; font: 600 11px var(--font); color: var(--text-3); cursor: pointer; }
+.smenu-seg-btn.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), inset 0 0 0 1px var(--border-strong); }
+.smenu-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; border: none; background: transparent;
+  color: var(--text); font: 500 12.5px var(--font); text-decoration: none; cursor: pointer; text-align: left; width: 100%; }
+.smenu-item:hover { background: var(--surface-2); }
+.smenu-item .smenu-muted { margin-left: auto; }
+.smenu-muted { font-size: 11px; color: var(--text-3); }
+.smenu-danger { color: var(--bad-deep); }
+.smenu-worker { font: 500 12px var(--font-mono); color: var(--text-2); display: inline-flex; align-items: center; }
+.icon-btn.active { color: var(--text); border-color: var(--border-strong); background: var(--surface); }
+
+/* ═══ CALENDÁRIO no seletor de data (Bruno 09-12) ═══════════════════ */
+.date-picker .date-value { cursor: pointer; border-radius: 7px; }
+.date-picker .date-value:hover { background: var(--surface); }
+.date-pop-body { padding: 10px 12px 12px; }
+.date-pop-body .mini-cal { width: 100%; }
+
+:root[data-theme="dark"] .glance-chip { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border); color: var(--text); }
+:root[data-theme="dark"] .glance-chip .glance-val { color: var(--text); }
+:root[data-theme="dark"] .glance-chip.glance-warn { background: rgba(232,161,60,.14); box-shadow: inset 0 0 0 1px rgba(232,161,60,.34); }
+:root[data-theme="dark"] .glance-chip.glance-warn .glance-val, :root[data-theme="dark"] .glance-chip.glance-warn .glance-unit { color: #e3b45c; }
+:root[data-theme="dark"] .glance-chip.glance-bad { background: rgba(217,83,79,.14); box-shadow: inset 0 0 0 1px rgba(217,83,79,.34); }

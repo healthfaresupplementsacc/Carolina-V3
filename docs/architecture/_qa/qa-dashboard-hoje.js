@@ -488,6 +488,92 @@ async function main() {
   await shot('01-inicial');
   rec('hoje', 'sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 
+  /* ══ 0b. BARRA DO TOPO (Bruno 09-12) ══════════════════════════════
+     Os números dos widgets viraram CHIPS na barra depois do Ponto; o widget
+     inteiro abre no clique. "worker ativo" e "Carolina" saíram da barra; a
+     engrenagem abre um MENU (não vai mais pro /admin/); clicar na data abre
+     um calendário. Os seis KPIs nascem desligados na grade. */
+  consoleErrors.length = 0;
+  const bar = await page.evaluate(() => {
+    const strip = document.querySelector('[data-glance-strip]');
+    const chips = [...document.querySelectorAll('[data-glance-strip] .glance-list [data-glance]')].map((c) => c.dataset.glance);
+    const ponto = document.querySelector('[data-ponto-strip]');
+    const order = (strip && ponto) ? (ponto.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 : false;
+    const top = document.querySelector('.topbar').textContent;
+    const ppChip = document.querySelector('[data-glance="pp"]');
+    const gridOn = [...document.querySelectorAll('[data-widget-grid] [data-widget]')].map((x) => x.dataset.widget);
+    return {
+      hasStrip: !!strip, chips, order,
+      workerInBar: /worker ativo/.test(top), carolInBar: /Carolina/.test(top),
+      gearLink: !!document.querySelector('.topbar a[href="/admin/"]'),
+      gearBtn: !!document.querySelector('.topbar .smenu-trigger'),
+      ppText: ppChip ? ppChip.textContent.trim() : null,
+      gridOn,
+    };
+  });
+  rec('barra', 'chips dos números aparecem na barra, DEPOIS do Ponto', bar.hasStrip && bar.order && bar.chips.length >= 4, 'chips=' + bar.chips.join(','));
+  rec('barra', 'chip do P&P mostra as ordens do dia (34)', /34/.test(bar.ppText || ''), bar.ppText);
+  rec('barra', '"worker ativo" saiu da barra', !bar.workerInBar);
+  rec('barra', 'Carolina saiu da barra (foi pra engrenagem)', !bar.carolInBar);
+  rec('barra', 'engrenagem virou botão de menu (não é mais link pro /admin/)', bar.gearBtn && !bar.gearLink);
+  rec('grade', 'os seis KPIs nascem DESLIGADOS na grade (moraram pra barra); Câmeras fica', bar.gridOn.length === 1 && bar.gridOn[0] === 'cameras', 'ligados=' + bar.gridOn.join(','));
+
+  // clique no chip do P&P → popover com o widget inteiro
+  await page.click('[data-glance="pp"]');
+  await sleep(500);
+  const pop = await page.evaluate(() => {
+    const el = document.querySelector('[data-glance-pop="pp"]');
+    return { open: !!el, text: el ? el.textContent.replace(/[ \n]+/g, ' ').slice(0, 300) : '' };
+  });
+  rec('barra', 'clicar no chip abre o widget inteiro do P&P (ordens, Veeqo, seg/ordem, responsável)',
+      pop.open && /ordens/i.test(pop.text) && /Veeqo/.test(pop.text) && /seg\/ordem/i.test(pop.text), pop.text.slice(0, 160));
+  await shot('00b-chip-pp-aberto');
+  await page.keyboard.press('Escape');
+  await sleep(300);
+
+  // engrenagem → menu
+  await page.click('.topbar .smenu-trigger');
+  await sleep(500);
+  const menu = await page.evaluate(() => {
+    const m = document.querySelector('[data-settings-menu]');
+    return { open: !!m, items: m ? [...m.querySelectorAll('[data-smenu]')].map((x) => x.dataset.smenu) : [],
+             hasTema: !!(m && /Tema/.test(m.textContent)), hasWorker: !!(m && /worker/.test(m.textContent)) };
+  });
+  rec('barra', 'engrenagem abre menu com aparência, Carolina, atalhos, worker e Sair',
+      menu.open && menu.hasTema && menu.items.includes('carolina') && menu.items.includes('admin') && menu.items.includes('sair'),
+      'itens=' + menu.items.join(','));
+  await shot('00c-menu-engrenagem');
+  // Carolina abre a partir do menu
+  await page.click('[data-smenu="carolina"]');
+  await sleep(600);
+  const carol = await page.evaluate(() => !!document.querySelector('.float-popover textarea, .float-popover [data-falar], .float-popover .falar-compact') || [...document.querySelectorAll('.float-popover')].some((p) => /Falar como Carolina/.test(p.textContent)));
+  rec('barra', 'Falar como Carolina abre pelo menu', carol);
+  await page.keyboard.press('Escape');
+  await sleep(300);
+
+  // data → calendário
+  await page.click('[data-date-value]');
+  await sleep(500);
+  const cal = await page.evaluate(() => {
+    const c = document.querySelector('[data-date-pop] [data-mini-cal]');
+    return { open: !!c, days: c ? c.querySelectorAll('[data-cal-day]').length : 0, today: !!(c && c.querySelector('.mini-cal-day.today')) };
+  });
+  rec('barra', 'clicar na data abre o calendário com o mês inteiro', cal.open && cal.days === 42 && cal.today, JSON.stringify(cal));
+  await shot('00d-calendario');
+  // escolher um dia troca a data da página
+  const picked = await page.evaluate(() => {
+    const days = [...document.querySelectorAll('[data-date-pop] [data-cal-day]')].filter((d) => !d.classList.contains('out') && !d.classList.contains('today'));
+    const d = days[0]; if (!d) return null; const v = d.dataset.calDay; d.click(); return v;
+  });
+  await sleep(700);
+  const afterPick = await page.evaluate(() => ({ closed: !document.querySelector('[data-date-pop]'), label: document.querySelector('.date-value').textContent }));
+  rec('barra', 'escolher um dia no calendário muda a data e fecha o popover', !!picked && afterPick.closed && !/Hoje/.test(afterPick.label), picked + ' → ' + afterPick.label);
+  rec('barra', 'zero erro de console na barra nova', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
+  // volta pra hoje pros blocos seguintes
+  await go('hoje');
+  await page.waitForSelector('[data-widget-grid]', { timeout: 10000 }).catch(() => {});
+  await sleep(600);
+
   /* ══ 0a2. CLIQUE NO NOME DO OPERADOR EXPANDE O DIA (regressão) ════
      Bug real: PersonExpansion referenciava punchPop/setPunchPop/MARKER_STYLE
      do escopo da Timeline (que não existem dentro dela) → ReferenceError →
@@ -729,6 +815,17 @@ async function main() {
   const stripElsewhere = await page.$('[data-ponto-strip]');
   rec('ponto', 'faixa do Ponto não aparece fora da Hoje', !stripElsewhere);
   rec('producao', 'outra rota segue sem erro de console', consoleErrors.length === 0, consoleErrors.slice(0, 2).join(' | '));
+  // 09-12: os seis KPIs nascem DESLIGADOS (viraram chips na barra do topo). O
+  // bloco da grade testa arraste/resize/toggle dos sete, então liga todos antes
+  // de recarregar — na conta (que vence) e no cache do navegador.
+  const ALL_ON = { v: 3, grid: [
+    { id: 'producao', x: 0, y: 0, w: 3, h: 4, on: true }, { id: 'revisao', x: 3, y: 0, w: 3, h: 4, on: true },
+    { id: 'metas', x: 6, y: 0, w: 3, h: 4, on: true }, { id: 'pp', x: 9, y: 0, w: 3, h: 4, on: true },
+    { id: 'pedidos', x: 0, y: 4, w: 6, h: 5, on: true }, { id: 'fnsku', x: 6, y: 4, w: 6, h: 5, on: true },
+    { id: 'cameras', x: 0, y: 9, w: 12, h: 7, on: true },
+  ], stack: { order: ['filtros', 'timeline', 'resumo'], off: [] } };
+  if (PREFS.account) { PREFS.value = ALL_ON; PREFS.updated_at = new Date().toISOString(); }
+  await page.evaluateOnNewDocument((v) => { try { localStorage.setItem('hf-hoje-layout-v2', JSON.stringify(v)); } catch (e) {} }, ALL_ON);
   await go('hoje');
   await page.waitForSelector('[data-widget-grid]', { timeout: 10000 }).catch(() => {});
 
