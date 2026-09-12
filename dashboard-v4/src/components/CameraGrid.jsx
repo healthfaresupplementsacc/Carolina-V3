@@ -40,7 +40,9 @@ const tokenFresh = (t) => {
 
 function CameraGrid({ compact = false }) {
   // lista viva: as 3 fixas + o que o gateway disser em /health (cams)
-  const [camsLive, setCamsLive] = React.useState(STATIC_CAMS);
+  // lembra as câmeras já vistas no gateway (localStorage): fora do horário, ou com o gateway
+  // fora do ar, o tile continua existindo (Bruno 09-11: "não vejo a câmera nova")
+  const [camsLive, setCamsLive] = React.useState(() => { try { return mergeCams(JSON.parse(localStorage.getItem('hf_cam_known') || '[]')); } catch { return STATIC_CAMS; } });
   const CAMS = camsLive;
   const [token, setToken] = React.useState(() => {
     try { const t = localStorage.getItem(TOK_KEY); return tokenFresh(t) ? t : null; } catch { return null; }
@@ -171,7 +173,7 @@ function CameraGrid({ compact = false }) {
     const tick = () => {
       fetch('/api/cam/health?t=' + encodeURIComponent(token)).then((r) => r.json()).then((j) => {
         setGwUp(!!j.reachable);
-        if (j.reachable && Array.isArray(j.cams)) { const merged = mergeCams(j.cams); if (merged.length !== camsLive.length) { setCamsLive(merged); setOrder((o) => [...o, ...merged.map((c) => c.id).filter((id) => !o.includes(id))]); } }
+        if (Array.isArray(j.cams) && j.cams.length) { try { localStorage.setItem('hf_cam_known', JSON.stringify(j.cams)); } catch {} setCamsLive((cur) => { const merged = mergeCams(j.cams); if (merged.length === cur.length) return cur; setOrder((o) => [...o, ...merged.map((c) => c.id).filter((id) => !o.includes(id))]); return merged; }); }
         if (j.reachable) {
           CAMS.forEach((cam) => {
             // gateway VOLTOU e cam offline → reconecta já, e volta a tentar o mp4

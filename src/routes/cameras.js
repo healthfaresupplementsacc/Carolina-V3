@@ -198,7 +198,8 @@ router.get('/api/cam/health', async (req, res) => {
   // trabalho (7:00–20:30 seg–sáb; domingo o dia todo desligadas). Fora disso o
   // gateway responde "fora do ar" → a página mostra o "reconectando" normal, sem
   // ficar sondando as câmeras desligadas. Ver src/cameras-schedule.js.
-  if (!(await camerasAllowedNow())) return res.json({ reachable: false, reason: 'scheduled_off', scheduled_off: true, schedule: scheduleInfo() });
+  // fora do horário ainda devolve a lista conhecida: o tile da câmera nova existe mesmo com o vídeo desligado (Bruno 09-11)
+  if (!(await camerasAllowedNow())) return res.json({ reachable: false, reason: 'scheduled_off', scheduled_off: true, schedule: scheduleInfo(), cams: [...gatewayCams.names] });
   const base = process.env.CAM_TUNNEL_URL;
   if (!base || !process.env.CAM_TOKEN) return res.json({ reachable: false, reason: 'not_configured' });
   const ctrl = new AbortController();
