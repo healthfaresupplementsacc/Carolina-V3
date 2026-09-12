@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 /* ═══════════════════════════════════════════════════════════════════
    WIDGET GRID — grade arrastável e redimensionável da página Hoje.
@@ -291,7 +292,10 @@ function WidgetOptions({ w, def, zoom, anchor, onClose, onChange, onResetAll }) 
   const Stepper = ({ label, value, min, max, onSet }) => (
     <div className="wg-step"><span>{label}</span><button onClick={() => onSet(Math.max(min, value - 1))}>−</button><b>{value}</b><button onClick={() => onSet(Math.min(max, value + 1))}>+</button></div>
   );
-  return (
+  // PORTAL (Bruno 09-11: "clica no gear e nada acontece"): o .wg-item tem transform, e position:fixed
+  // dentro de um elemento com transform vira relativo a ele → o popover caía fora do widget, cortado
+  // pelo overflow:hidden. No body, fixed é fixed de verdade.
+  return createPortal(
     <div className="wg-opts" style={{ position: 'fixed', left, top }} onPointerDown={(e) => e.stopPropagation()}>
       <div className="wg-opts-h">{def.label || w.id} <small>{w.w} colunas × {w.h} linhas</small><button className="wg-x" onClick={onClose} title="Fechar">✕</button></div>
       <div className="wg-opts-h" style={{ marginTop: 6 }}>Tamanho (qualquer forma)</div>
@@ -316,7 +320,8 @@ function WidgetOptions({ w, def, zoom, anchor, onClose, onChange, onResetAll }) 
         <button className="lnk" onClick={() => onChange({ w: def.w || w.w, h: def.h || w.h, z: null, fit: false })}>Este widget ao padrão</button>
         <button className="lnk" onClick={onResetAll}>Texto de todos em 100%</button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
