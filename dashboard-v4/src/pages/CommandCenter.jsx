@@ -187,13 +187,13 @@ const GAP_TRACKED_MIN = 5;     // gaps >= isso entram em allNotifs (mesmo invis�
    largura cheia que se leem em sequência. */
 const GRID_DEFS = [
   // 09-11 (Bruno): mínimos menores pra sobrar espaço pras câmeras; o conteúdo se ajusta (zoom/auto-fit no WidgetGrid)
-  { id: 'producao', label: 'Produção hoje',  minW: 2, minH: 2, w: 3, h: 4 },
-  { id: 'revisao',  label: 'Revisão (dia)',  minW: 2, minH: 2, w: 3, h: 4 },
-  { id: 'metas',    label: 'Metas em curso', minW: 2, minH: 2, w: 3, h: 4 },
-  { id: 'pp',       label: 'P&P do dia',     minW: 2, minH: 2, w: 3, h: 4 },
-  { id: 'pedidos',  label: 'Pedidos hoje',   minW: 2, minH: 2, w: 6, h: 5 },
-  { id: 'fnsku',    label: 'FNSKU hoje',     minW: 2, minH: 2, w: 6, h: 5 },
-  { id: 'cameras',  label: 'Câmeras ao vivo', minW: 3, minH: 3, w: 12, h: 7 },
+  { id: 'producao', label: 'Produção hoje',  minW: 1, minH: 1, w: 3, h: 4 },
+  { id: 'revisao',  label: 'Revisão (dia)',  minW: 1, minH: 1, w: 3, h: 4 },
+  { id: 'metas',    label: 'Metas em curso', minW: 1, minH: 1, w: 3, h: 4 },
+  { id: 'pp',       label: 'P&P do dia',     minW: 1, minH: 1, w: 3, h: 4 },
+  { id: 'pedidos',  label: 'Pedidos hoje',   minW: 1, minH: 1, w: 6, h: 5 },
+  { id: 'fnsku',    label: 'FNSKU hoje',     minW: 1, minH: 1, w: 6, h: 5 },
+  { id: 'cameras',  label: 'Câmeras ao vivo', minW: 2, minH: 2, w: 12, h: 7 },
 ];
 /* Blocos de largura cheia, fora da grade. */
 const STACK_DEFS = [
@@ -246,7 +246,7 @@ function normalizeLayout(s) {
       h: Math.max(def.minH, Number(w.h) || def.h),
       on: w.on !== false,
       // 09-11: zoom manual (0.5–1.4), ajuste automático ao espaço e presets por widget
-      z: Number.isFinite(Number(w.z)) ? Math.max(0.5, Math.min(1.4, Number(w.z))) : null,
+      z: (w.z != null && Number.isFinite(Number(w.z))) ? Math.max(0.4, Math.min(1.4, Number(w.z))) : null,
       fit: w.fit === true,
       presets: (w.presets && typeof w.presets === 'object') ? w.presets : {},
     });

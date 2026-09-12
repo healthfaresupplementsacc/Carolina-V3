@@ -154,8 +154,8 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
   React.useEffect(() => {
     if (!drag) return undefined;
     const def = (defs && defs[drag.id]) || {};
-    const minW = def.minW || 2;
-    const minH = def.minH || 2;
+    const minW = def.minW || 1;
+    const minH = def.minH || 1;
 
     const onMove = (ev) => {
       const dx = Math.round((ev.clientX - drag.startX) / (colPx + GAP));
@@ -229,8 +229,11 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
         // 09-11 (Bruno): texto se ajusta ao espaço. fit = zoom proporcional ao tamanho padrão do
         // widget (menor widget → conteúdo menor, sem cortar); z = zoom manual. Presets por widget.
         const baseW = (def.w || w.w) * colPx, baseH = (def.h || w.h) * ROW_H;
-        const fitZ = w.fit ? Math.max(0.5, Math.min(1.25, Math.min((w.w * colPx) / baseW, (w.h * ROW_H) / baseH))) : null;
+        const fitZ = w.fit ? Math.max(0.4, Math.min(1.3, Math.min((w.w * colPx) / baseW, (w.h * ROW_H) / baseH))) : null;
         const zoom = w.z != null ? w.z : (fitZ != null ? fitZ : 1);
+        // escala REAL (transform) com compensação de largura/altura: o conteúdo ocupa o espaço todo
+        // e o texto encolhe/cresce junto; `zoom` CSS não existe em todo navegador.
+        const bodyStyle = zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: '0 0', width: `${(100 / zoom).toFixed(2)}%`, height: `${(100 / zoom).toFixed(2)}%` } : undefined;
         return (
           <section key={w.id}
                    className={`wg-item ${dragging ? 'wg-dragging' : ''}`}
@@ -248,12 +251,13 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
               <span className="wg-grip" aria-hidden="true">⋮⋮</span>
               <span className="wg-title kit-mlabel">{def.label || w.id}</span>
               <button className="wg-gear" data-widget-gear={w.id} title="Tamanho, texto e presets deste widget"
-                      onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOpts(opts === w.id ? null : w.id); }}>⚙</button>
+                      onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOpts(opts && opts.id === w.id ? null : { id: w.id, anchor: { x: e.clientX, y: e.clientY } }); }}>⚙</button>
             </div>
-            <div className="wg-body" style={zoom !== 1 ? { zoom } : undefined} data-zoom={zoom.toFixed(2)}>{renderWidget(w.id, { narrow: false })}</div>
-            {opts === w.id && (
-              <WidgetOptions w={w} def={def} zoom={zoom} onClose={() => setOpts(null)}
-                             onChange={(patch) => onLayout(layout.map((x) => (x.id === w.id ? { ...x, ...patch } : x)))}/>
+            <div className="wg-body-clip"><div className="wg-body" style={bodyStyle} data-zoom={zoom.toFixed(2)}>{renderWidget(w.id, { narrow: false })}</div></div>
+            {opts && opts.id === w.id && (
+              <WidgetOptions w={w} def={def} zoom={zoom} anchor={opts.anchor} onClose={() => setOpts(null)}
+                             onChange={(patch) => onLayout(layout.map((x) => (x.id === w.id ? { ...x, ...patch } : x)))}
+                             onResetAll={() => onLayout(layout.map((x) => ({ ...x, z: null, fit: false })))}/>
             )}
             {/* canto: muda o tamanho */}
             <div className="wg-resize" data-widget-resize={w.id}
@@ -267,35 +271,51 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
 }
 
 /* WidgetOptions (Bruno 09-11): "deixar eu ajustar o tamanho e o texto auto fit o espaço que eu
-   escolher... o widget deveria ter seu próprio preset lá na opção do widget". */
-function WidgetOptions({ w, def, zoom, onClose, onChange }) {
+   escolher... o widget deveria ter seu próprio preset lá na opção do widget".
+   Posição FIXA na janela (nunca fica cortado dentro do widget), tamanho livre W×H. */
+function WidgetOptions({ w, def, zoom, anchor, onClose, onChange, onResetAll }) {
   const [name, setName] = React.useState('');
   const presets = w.presets || {};
   const names = Object.keys(presets);
+  const minW = def.minW || 1, minH = def.minH || 1;
   React.useEffect(() => {
     const onDoc = (e) => { if (!e.target.closest('.wg-opts, .wg-gear')) onClose(); };
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [onClose]);
+  const vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
+  const left = Math.max(8, Math.min(vw - 328, (anchor ? anchor.x : vw / 2) - 300));
+  const top = Math.max(8, Math.min(vh - 460, (anchor ? anchor.y : 80) + 10));
+  const setSize = (nw, nh) => onChange({ w: Math.max(minW, Math.min(COLS, nw)), h: Math.max(minH, Math.min(30, nh)) });
+  const Stepper = ({ label, value, min, max, onSet }) => (
+    <div className="wg-step"><span>{label}</span><button onClick={() => onSet(Math.max(min, value - 1))}>−</button><b>{value}</b><button onClick={() => onSet(Math.min(max, value + 1))}>+</button></div>
+  );
   return (
-    <div className="wg-opts" onPointerDown={(e) => e.stopPropagation()}>
-      <div className="wg-opts-h">{def.label || w.id} · {w.w}×{w.h}</div>
-      <label className="wg-opts-row"><input type="checkbox" checked={!!w.fit && w.z == null} onChange={(e) => onChange({ fit: e.target.checked, z: null })}/> Texto se ajusta ao espaço (automático)</label>
-      <div className="wg-opts-row"><span>Zoom {Math.round(zoom * 100)}%</span>
-        <input type="range" min="50" max="140" step="5" value={Math.round(zoom * 100)} onChange={(e) => onChange({ z: Number(e.target.value) / 100, fit: false })}/>
-        {w.z != null && <button className="lnk" onClick={() => onChange({ z: null })}>auto</button>}
+    <div className="wg-opts" style={{ position: 'fixed', left, top }} onPointerDown={(e) => e.stopPropagation()}>
+      <div className="wg-opts-h">{def.label || w.id} <small>{w.w} colunas × {w.h} linhas</small><button className="wg-x" onClick={onClose} title="Fechar">✕</button></div>
+      <div className="wg-opts-h" style={{ marginTop: 6 }}>Tamanho (qualquer forma)</div>
+      <div className="wg-opts-row"><Stepper label="Largura" value={w.w} min={minW} max={COLS} onSet={(v) => setSize(v, w.h)}/><Stepper label="Altura" value={w.h} min={minH} max={30} onSet={(v) => setSize(w.w, v)}/></div>
+      <div className="wg-opts-row sizes"><span>Atalhos</span>
+        {[[2, 2, 'P'], [3, 3, 'M'], [4, 3, 'Largo'], [6, 4, 'G'], [12, 5, 'Faixa']].map(([cw, ch, t]) => (<button key={t} className={w.w === cw && w.h === ch ? 'on' : ''} onClick={() => setSize(cw, ch)}>{t}</button>))}
       </div>
-      <div className="wg-opts-row sizes"><span>Tamanho</span>
-        {[[2, 2, 'P'], [3, 3, 'M'], [4, 4, 'G'], [6, 5, 'GG']].map(([cw, ch, t]) => (<button key={t} className={w.w === cw && w.h === ch ? 'on' : ''} onClick={() => onChange({ w: Math.max(def.minW || 2, cw), h: Math.max(def.minH || 2, ch) })}>{t}</button>))}
+      <div className="wg-opts-h" style={{ marginTop: 8 }}>Texto</div>
+      <label className="wg-opts-row"><input type="checkbox" checked={!!w.fit && w.z == null} onChange={(e) => onChange({ fit: e.target.checked, z: null })}/> Ajustar ao espaço automaticamente <small>(encolhe/cresce com o tamanho)</small></label>
+      <div className="wg-opts-row"><span>Escala {Math.round(zoom * 100)}%</span>
+        <input type="range" min="40" max="140" step="5" value={Math.round(zoom * 100)} onChange={(e) => onChange({ z: Number(e.target.value) / 100, fit: false })}/>
+        <button className="lnk" onClick={() => onChange({ z: null, fit: false })}>100%</button>
       </div>
       <div className="wg-opts-h" style={{ marginTop: 8 }}>Presets deste widget</div>
-      {names.length === 0 && <div className="wg-opts-hint">Nenhum ainda. Ajuste o tamanho e o zoom, dê um nome e salve.</div>}
+      {names.length === 0 && <div className="wg-opts-hint">Nenhum ainda. Ajuste tamanho e texto, dê um nome e salve.</div>}
       {names.map((n) => (<div key={n} className="wg-opts-row preset"><span>{n} <small>{presets[n].w}×{presets[n].h} · {Math.round((presets[n].z || 1) * 100)}%{presets[n].fit ? ' · auto' : ''}</small></span>
         <button className="lnk" onClick={() => onChange({ w: presets[n].w, h: presets[n].h, z: presets[n].z != null ? presets[n].z : null, fit: !!presets[n].fit })}>aplicar</button>
         <button className="lnk" onClick={() => { const p = { ...presets }; delete p[n]; onChange({ presets: p }); }}>apagar</button></div>))}
       <div className="wg-opts-row"><input type="text" placeholder="nome do preset" value={name} onChange={(e) => setName(e.target.value)}/>
         <button className="lnk" disabled={!name.trim()} onClick={() => { onChange({ presets: { ...presets, [name.trim()]: { w: w.w, h: w.h, z: w.z, fit: !!w.fit } } }); setName(''); }}>salvar</button></div>
+      <div className="wg-opts-row" style={{ justifyContent: 'space-between', marginTop: 6 }}>
+        <button className="lnk" onClick={() => onChange({ w: def.w || w.w, h: def.h || w.h, z: null, fit: false })}>Este widget ao padrão</button>
+        <button className="lnk" onClick={onResetAll}>Texto de todos em 100%</button>
+      </div>
     </div>
   );
 }

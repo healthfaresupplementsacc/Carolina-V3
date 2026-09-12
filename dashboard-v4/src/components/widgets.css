@@ -208,7 +208,7 @@
 /* ── opções por widget (Bruno 09-11): zoom, ajuste ao espaço, tamanhos, presets ── */
 .wg-gear { margin-left: auto; border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 13px; padding: 0 4px; line-height: 1; opacity: .55; }
 .wg-handle:hover .wg-gear, .wg-gear:hover { opacity: 1; color: var(--ink); }
-.wg-opts { position: absolute; top: 34px; right: 8px; z-index: 40; width: 300px; background: var(--kit-surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 10px 12px; font-size: 12.5px; }
+.wg-opts { z-index: 400; width: 320px; max-height: calc(100vh - 16px); overflow: auto; background: var(--kit-surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-pop); padding: 10px 12px; font-size: 12.5px; }
 .wg-opts-h { font: 600 10.5px "JetBrains Mono", monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px; }
 .wg-opts-hint { font-size: 12px; color: var(--ink-faint); margin: 2px 0 6px; }
 .wg-opts-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
@@ -219,3 +219,13 @@
 .wg-opts-row.sizes button { border: 1px solid var(--line); background: var(--kit-surface); color: var(--ink); border-radius: 999px; padding: 3px 10px; font: 600 12px inherit; font-family: inherit; cursor: pointer; }
 .wg-opts-row.sizes button.on { background: var(--primary-deep); border-color: var(--primary-deep); color: #fff; }
 .wg-opts-row.preset span small { color: var(--ink-faint); font-family: "JetBrains Mono", monospace; }
+
+.wg-body-clip { flex: 1; min-height: 0; overflow: hidden; position: relative; }
+.wg-body-clip > .wg-body { height: 100%; }
+.wg-opts-h small { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-faint); margin-left: 6px; }
+.wg-x { margin-left: auto; float: right; border: 0; background: transparent; color: var(--ink-faint); cursor: pointer; font-size: 12px; }
+.wg-step { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; font-size: 12px; }
+.wg-step span { color: var(--ink-dim); margin-right: 2px; }
+.wg-step button { width: 24px; height: 24px; border: 1px solid var(--line); background: var(--kit-surface); color: var(--ink); border-radius: 6px; cursor: pointer; font-weight: 800; }
+.wg-step b { min-width: 18px; text-align: center; font-family: "JetBrains Mono", monospace; }
+.wg-opts-row small { color: var(--ink-faint); }
