@@ -125,6 +125,7 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
   const heatVars = {}; L.HEAT_COLORS.forEach((c, i) => { heatVars['--h' + i] = (colorsPref && colorsPref.heatColors && colorsPref.heatColors[i]) || c; });
   // 09-11 (Bruno): grossura da linha, efeito por nível, ícone, barra + %, marca ao terminar
   heatVars['--hw'] = ((colorsPref && colorsPref.heatWidth) || 1.5) + 'px';
+  heatVars['--bw'] = ((colorsPref && colorsPref.barWidth) || 3) + 'px';
   const heatFx = (colorsPref && colorsPref.heatFx) || {};
   const fxOf = (lv) => heatFx[lv] || (lv >= 4 ? 'pulse' : 'none');
   const heatIcon = (colorsPref && colorsPref.heatIcon != null) ? colorsPref.heatIcon : '🔥';
@@ -381,9 +382,15 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
                       ) : (seg.is_continuation ? <div className="l1 cont" style={{ fontSize: 10.5 }}>{seg.is_last ? durTxt : ''}</div> : null))}
                     {e.cowork && e.cowork.length > 0 && head && !neutral && <span className="cwd" title={'com ' + e.cowork.map((cw) => (operators.find((o) => o.id === cw) || {}).short).join(', ')}/>}
                     {e.dupes && head && <span className="dup">×{e.dupes}</span>}
+                    {/* SINAL (Bruno 09-11): linha por dentro = <i class="hr">, barra = <i class="hb">, marca ao terminar = <i class="dm">.
+                        Elementos próprios pra estilos combinarem sem um empurrar o outro. */}
+                    {heatCls.startsWith('heat-') && heatStyle !== 'bar' && (heatStyle === 'dots' || heatStyle === 'dash'
+                      ? <svg className={`hr hsvg st-${heatStyle}`} aria-hidden="true"><rect x="3" y="3" rx="4" ry="4"/></svg>
+                      : <i className={`hr st-${heatStyle}`} aria-hidden="true">{heatStyle === 'corners' && <><b/><b/><b/></>}</i>)}
                     {heatCls.startsWith('heat-4') && head && heatIcon && <span className="fire" aria-hidden="true">{heatIcon}</span>}
-                    {heatStyle === 'dots' && (heatCls.startsWith('heat-') || heatCls.startsWith('done-')) && <svg className="hsvg" aria-hidden="true"><rect x="2" y="2" rx="5" ry="5"/></svg>}
+                    {(heatBar || heatStyle === 'bar') && heatPct > 0 && (heatCls.startsWith('heat-') || heatCls.includes('done-') || heatCls.includes('hb')) && <i className="hb" style={{ width: heatPct + '%' }} aria-hidden="true"/>}
                     {(heatBar || heatStyle === 'bar') && heatPct > 0 && (heatCls.startsWith('heat-') || heatCls.includes('done-') || heatCls.includes('hb')) && heatBarPct && head && w >= 34 && <i className="pct">{heatPct}%</i>}
+                    {heatCls.includes('done-') && doneStyle !== 'off' && doneStyle !== 'bar' && <i className={`dm ds-${doneStyle}`} aria-hidden="true"/>}
                     {e._flag && head && <span className="flag" title={e._flag === 'too_short' ? 'Operador disse que NÃO está certo: ficou curta demais (entrou sem querer?)' : 'Operador disse que NÃO está certo: levou tempo demais'}>?</span>}
                     {e.overrun && head && <span className="bk-overrun" title="passou do esperado">⏰</span>}
                   </div>
@@ -635,7 +642,7 @@ function QuickAdd({ mini, fmt, operators, activities, events, nowMin, DAY_END_BA
 const STYLES = [['regular', 'Regular'], ['plain', 'Plano'], ['pastel', 'Pastel'], ['3d', '3D'], ['glow', 'Brilho'], ['anim', 'Animado']];
 const FLOW_DEFAULT = { production: '#1a3a6b', pnp: '#0f766e', support: '#5b3fa8' };
 const HEAT_LEGEND = [[0, 'começou (< 50 %)'], [1, 'no ritmo (< 85 %)'], [2, 'perto do esperado (< 100 %)'], [3, 'passou (< 130 %)'], [4, 'passou muito (≥ 130 %) + fogo']];
-const HEAT_STYLES = [['ring', 'Linha fina', 'linha colorida por dentro, separada da borda do bloco'], ['dots', 'Pontilhado girando', 'pontilhado que corre por dentro da borda e muda de cor com a demora'], ['orbit', 'Ponto girando', 'um ponto corre a borda por dentro'], ['bar', 'Só a barra', 'só a barra de progresso no pé do bloco']];
+const HEAT_STYLES = [['ring', 'Linha fina', 'linha colorida por dentro, separada da borda'], ['pulse', 'Pulsando', 'a linha respira; mais rápido quanto mais atrasado'], ['glow', 'Brilho interno', 'sombra colorida por dentro do bloco'], ['dash', 'Tracejado', 'linha tracejada por dentro, parada'], ['dots', 'Pontilhado girando', 'pontilhado que corre por dentro e acelera com a demora'], ['orbit', 'Bolinha rodando', 'um ponto corre a borda por dentro'], ['corners', 'Cantos', 'quatro cantos coloridos'], ['bar', 'Só a barra', 'só a barra de progresso no pé do bloco']];
 const HEAT_FX = [['none', 'parado'], ['pulse', 'pulsando'], ['blink', 'piscando']];
 function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
   const [kiosk, setKiosk] = React.useState(null);
@@ -647,7 +654,7 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
   const setIn = (field, slug, v) => { const o = { ...(cur[field] || {}) }; if (v == null || v === '' || v === 'inherit') delete o[slug]; else o[slug] = v; put({ [field]: o }); };
   const [tab, setTab] = React.useState('cores');
   const [presetName, setPresetName] = React.useState('');
-  const snapshot = () => ({ style: cur.style, colors: cur.colors, styles: cur.styles, expected: cur.expected, heat: cur.heat, doneMark: cur.doneMark, heatStyle: cur.heatStyle, heatColors: cur.heatColors, heatWidth: cur.heatWidth, heatFx: cur.heatFx, heatIcon: cur.heatIcon, heatBar: cur.heatBar, heatBarPct: cur.heatBarPct, doneStyle: cur.doneStyle, doneFast: cur.doneFast });
+  const snapshot = () => ({ style: cur.style, colors: cur.colors, styles: cur.styles, expected: cur.expected, heat: cur.heat, doneMark: cur.doneMark, heatStyle: cur.heatStyle, heatColors: cur.heatColors, heatWidth: cur.heatWidth, heatFx: cur.heatFx, heatIcon: cur.heatIcon, heatBar: cur.heatBar, heatBarPct: cur.heatBarPct, doneStyle: cur.doneStyle, doneFast: cur.doneFast, barWidth: cur.barWidth });
   const vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
   const presetNames = Object.keys(cur.presets || {});
   return (
@@ -680,7 +687,9 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
         <div className="chips">{HEAT_STYLES.map(([k, t, d]) => (<button key={k} className={`chip ${(cur.heatStyle || 'ring') === k ? 'on' : ''}`} title={d} onClick={() => put({ heatStyle: k })}>{t}</button>))}</div>
         <div className="lbl">Grossura da linha</div>
         <div className="wg-opts-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="range" min="1" max="4" step="0.5" value={cur.heatWidth || 1.5} onChange={(e) => put({ heatWidth: Number(e.target.value) })} style={{ flex: 1 }}/><span className="mono">{cur.heatWidth || 1.5} px</span></div>
-        <div className="lbl">Efeito por nível <span style={{ textTransform: 'none', letterSpacing: 0 }}>(o "passou muito" pulsa por padrão)</span></div>
+        <div className="lbl">Grossura da barra de progresso</div>
+        <div className="wg-opts-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><input type="range" min="1" max="8" step="1" value={cur.barWidth || 3} onChange={(e) => put({ barWidth: Number(e.target.value) })} style={{ flex: 1 }}/><span className="mono">{cur.barWidth || 3} px</span></div>
+        <div className="lbl">Efeito por nível <span style={{ textTransform: 'none', letterSpacing: 0 }}>(o "passou muito" pulsa por padrão; vale pra qualquer estilo)</span></div>
         <div className="tl-heat-legend">{HEAT_LEGEND.map(([i, t]) => (<div key={'fx' + i} className="row"><span className="sw" style={{ background: (cur.heatColors || {})[i] || L.HEAT_COLORS[i] }}/><span style={{ flex: 1 }}>{t}</span><select value={(cur.heatFx || {})[i] || (i >= 4 ? 'pulse' : 'none')} onChange={(e) => put({ heatFx: { ...(cur.heatFx || {}), [i]: e.target.value } })}>{HEAT_FX.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>))}</div>
         <div className="lbl">Ícone do "passou muito"</div>
         <div className="chips">{['🔥', '⏰', '⚠️', '🚨', '❗', ''].map((ic) => (<button key={ic || 'none'} className={`chip ${(cur.heatIcon != null ? cur.heatIcon : '🔥') === ic ? 'on' : ''}`} onClick={() => put({ heatIcon: ic })}>{ic || 'sem ícone'}</button>))}<input type="text" maxLength={2} placeholder="outro" style={{ width: 56, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 6px', font: 'inherit' }} onChange={(e) => e.target.value && put({ heatIcon: e.target.value })}/></div>
@@ -710,7 +719,7 @@ function ColorSettings({ at, pref, setPref, activities, events, onClose }) {
           {presetNames.map((n) => (<div key={n} className="row preset"><span className="n">{n}<small> · {STYLES.find((x) => x[0] === (cur.presets[n].style || 'regular'))?.[1]} · {Object.keys(cur.presets[n].colors || {}).length} cores</small></span><button className="link" onClick={() => put({ ...cur.presets[n] })}>aplicar</button><button className="link" onClick={() => { const p2 = { ...cur.presets }; delete p2[n]; put({ presets: p2 }); }}>apagar</button></div>))}
         </div>
       </>)}
-      <div className="foot"><button className="link" onClick={() => put({ style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, heatStyle: 'ring', heatColors: {}, heatWidth: 1.5, heatFx: {}, heatIcon: '🔥', heatBar: false, heatBarPct: true, doneStyle: 'corner', doneFast: false })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
+      <div className="foot"><button className="link" onClick={() => put({ style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, heatStyle: 'ring', heatColors: {}, heatWidth: 1.5, heatFx: {}, heatIcon: '🔥', heatBar: false, heatBarPct: true, doneStyle: 'corner', doneFast: false, barWidth: 3 })}>Voltar tudo ao padrão</button><span style={{ flex: 1 }}/><button className="btn sm primary" onClick={onClose}>Fechar</button></div>
     </div>
   );
 }
