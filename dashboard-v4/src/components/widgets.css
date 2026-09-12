@@ -120,8 +120,9 @@
   display: flex; align-items: center; gap: 8px;
   padding: 9px 12px 7px; flex: 0 0 auto;
   border-bottom: 1px dotted var(--dotline);
-  cursor: grab; touch-action: none; user-select: none;
+  cursor: default; touch-action: none; user-select: none;
 }
+.wg-edit .wg-handle { cursor: grab; }
 .wg-handle:active { cursor: grabbing; }
 .wg-grip { color: var(--ink-faint); font-size: 12px; line-height: 1; letter-spacing: -1px; }
 .wg-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -229,3 +230,13 @@
 .wg-step button { width: 24px; height: 24px; border: 1px solid var(--line); background: var(--kit-surface); color: var(--ink); border-radius: 6px; cursor: pointer; font-weight: 800; }
 .wg-step b { min-width: 18px; text-align: center; font-family: "JetBrains Mono", monospace; }
 .wg-opts-row small { color: var(--ink-faint); }
+
+/* MODO DE EDIÇÃO (Bruno 09-11): os widgets balançam como na tela inicial do iPhone; sai com OK/Enter/Esc */
+.wg-item.wg-editing { animation: wg-wiggle .45s ease-in-out infinite alternate; outline: 2px dashed var(--primary-line); outline-offset: 2px; }
+.wg-item.wg-editing:nth-child(even) { animation-delay: -.22s; }
+.wg-item.wg-editing.wg-dragging { animation: none; }
+@keyframes wg-wiggle { from { transform: translate(var(--tx, 0), var(--ty, 0)) rotate(-.6deg); } to { transform: translate(var(--tx, 0), var(--ty, 0)) rotate(.6deg); } }
+.wg-editbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 500; display: flex; align-items: center; gap: 12px; background: var(--primary-deep); color: #fff; padding: 8px 10px 8px 16px; border-radius: 999px; box-shadow: var(--shadow-pop); font-size: 13px; }
+.wg-editbar .ok { border: 0; background: #fff; color: var(--primary-deep); font: 800 13px inherit; font-family: inherit; padding: 6px 18px; border-radius: 999px; cursor: pointer; }
+.wg-editbar small { opacity: .8; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .wg-item.wg-editing { animation: none; } }

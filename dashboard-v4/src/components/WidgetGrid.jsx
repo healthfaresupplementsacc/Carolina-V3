@@ -85,7 +85,7 @@ const clampW = (w, min, max) => Math.max(min, Math.min(max, w));
  * @param children (id) => ReactNode     conteúdo de cada widget
  * @param narrow   bool                  força coluna única (tablet)
  */
-export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narrowProp }) {
+export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narrowProp, editRequest }) {
   const ref = React.useRef(null);
   const [colPx, setColPx] = React.useState(100);
   const [autoNarrow, setAutoNarrow] = React.useState(false);
@@ -95,6 +95,17 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
   const [preview, setPreview] = React.useState(null);
   // 09-11: popover de opções (zoom, ajuste ao espaço, presets) aberto pra qual widget
   const [opts, setOpts] = React.useState(null);
+  // MODO DE EDIÇÃO (Bruno 09-11: "que nem a tela inicial do iPhone"): fora dele, nada se move
+  // nem redimensiona por acidente. Entra com duplo clique num widget ou pelo botão Widgets →
+  // Ajustar; os blocos balançam; sai com Enter, Esc ou o botão OK no topo.
+  const [edit, setEdit] = React.useState(false);
+  React.useEffect(() => { if (editRequest) setEdit(true); }, [editRequest]);
+  React.useEffect(() => {
+    if (!edit) return undefined;
+    const onKey = (e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setEdit(false); } };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [edit]);
 
   const narrow = narrowProp != null ? narrowProp : autoNarrow;
 
@@ -144,6 +155,7 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
   /* ── pointer: arrastar (pela alça do cabeçalho) e redimensionar ── */
   const startDrag = (e, w, mode) => {
     if (narrow) return;                       // tablet: sem drag
+    if (!edit) return;                        // só no modo de edição (Bruno 09-11)
     if (e.button != null && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -208,8 +220,14 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
   }
 
   return (
-    <div className="wg-root" ref={ref} data-widget-grid
+    <div className={`wg-root ${edit ? 'wg-edit' : ''}`} ref={ref} data-widget-grid data-edit={edit ? '1' : '0'}
          style={{ height: rows > 0 ? px(rows) : 0 }}>
+      {edit && createPortal(
+        <div className="wg-editbar" data-widget-editbar>
+          <span>Ajustando os widgets: arraste pelo título pra mover, puxe o canto pra mudar o tamanho.</span>
+          <button className="ok" onClick={() => setEdit(false)}>OK</button>
+          <small>Enter ou Esc também saem</small>
+        </div>, document.body)}
       {/* sombra do lugar onde o bloco vai cair */}
       {drag && (() => {
         const g = on.find((w) => w.id === drag.id);
@@ -237,17 +255,19 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
         const bodyStyle = zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: '0 0', width: `${(100 / zoom).toFixed(2)}%`, height: `${(100 / zoom).toFixed(2)}%` } : undefined;
         return (
           <section key={w.id}
-                   className={`wg-item ${dragging ? 'wg-dragging' : ''}`}
+                   className={`wg-item ${dragging ? 'wg-dragging' : ''} ${edit ? 'wg-editing' : ''}`}
                    data-widget={w.id}
+                   onDoubleClick={(e) => { if (!edit && !e.target.closest('input, button, select, textarea, a, video, canvas')) setEdit(true); }}
                    data-x={w.x} data-y={w.y} data-w={w.w} data-h={w.h}
                    style={{
                      transform: `translate(${w.x * (colPx + GAP)}px, ${w.y * (ROW_H + GAP)}px)`,
+                     '--tx': `${w.x * (colPx + GAP)}px`, '--ty': `${w.y * (ROW_H + GAP)}px`,   // o balanço do modo de edição precisa manter a posição
                      width: w.w * colPx + (w.w - 1) * GAP,
                      height: px(w.h),
                    }}>
             {/* alça: arrasta pelo título, como o Bruno pediu */}
             <div className="wg-handle" data-widget-handle={w.id}
-                 title={`Arraste pra mover "${def.label || w.id}"`}
+                 title={edit ? `Arraste pra mover "${def.label || w.id}"` : 'Duplo clique pra ajustar os widgets (mover e redimensionar)'}
                  onPointerDown={(e) => startDrag(e, w, 'move')}>
               <span className="wg-grip" aria-hidden="true">⋮⋮</span>
               <span className="wg-title kit-mlabel">{def.label || w.id}</span>
@@ -261,9 +281,9 @@ export function WidgetGrid({ layout, onLayout, defs, renderWidget, narrow: narro
                              onResetAll={() => onLayout(layout.map((x) => ({ ...x, z: null, fit: false })))}/>
             )}
             {/* canto: muda o tamanho */}
-            <div className="wg-resize" data-widget-resize={w.id}
+            {edit && <div className="wg-resize" data-widget-resize={w.id}
                  title="Puxe pra mudar o tamanho"
-                 onPointerDown={(e) => startDrag(e, w, 'resize')}/>
+                 onPointerDown={(e) => startDrag(e, w, 'resize')}/>}
           </section>
         );
       })}

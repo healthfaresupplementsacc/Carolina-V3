@@ -360,6 +360,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   // e o popover diz isso com todas as letras.
   const [rawWstate, setWstate, prefMeta] = useAccountPref(PREF_KEY, loadLayout, { localKey: LAYOUT_KEY });
   const [widgetsOpen, setWidgetsOpen] = React.useState(false);
+  const [editRequest, setEditRequest] = React.useState(0);   // 09-11: Widgets → Ajustar entra no modo de edição da grade
   /* O layout que volta DA CONTA passa pelo MESMO saneamento do local: quem
      gravou numa versão anterior da página (widget que já não existe, largura
      fora da grade) não pode quebrar a tela por ter chegado pela rede. */
@@ -1092,6 +1093,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           <div className="kit-card pad" data-widgets-popover
                style={{ position: 'fixed', top: 96, right: 18, zIndex: 270, width: 288,
                         maxHeight: '76vh', overflowY: 'auto', boxShadow: 'var(--shadow-pop)' }}>
+            <button className="kit-btn sm primary" style={{ width: '100%', marginBottom: 10 }} data-widgets-adjust onClick={() => { setEditRequest((n) => n + 1); setWidgetsOpen(false); }}>Ajustar (mover e redimensionar)</button>
             <div className="kit-mlabel" style={{ marginBottom: 8 }}>Widgets da grade</div>
             {grid.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x)).map((w, i, arr) => {
               const def = DEFS_BY_ID[w.id]; if (!def) return null;
@@ -1157,6 +1159,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
           layout={grid}
           onLayout={onLayout}
           defs={DEFS_BY_ID}
+          editRequest={editRequest}
           renderWidget={renderGridWidget}/>
       </section>
 
