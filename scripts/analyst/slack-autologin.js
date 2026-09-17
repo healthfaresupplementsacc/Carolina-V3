@@ -113,6 +113,21 @@ async function tratarWorkspaceSignin(c, cfg) {
   return false;
 }
 
+
+// Windows Security (Windows Hello / PIN / passkey) = CredentialUIBroker.exe. Num
+// Chrome invisivel ele trava tudo em silencio. Bruno: "if WINDOWS SECURITY ever
+// shows up, close it, we dont need to enter pin". Mata o processo = fecha o dialogo.
+function fecharWindowsSecurity() {
+  try {
+    const { execFileSync } = require('child_process');
+    // args em array: sem aspas aninhadas (foi isso que quebrou a sintaxe antes)
+    const out = execFileSync('powershell', ['-NoProfile', '-Command',
+      "$p=Get-Process CredentialUIBroker -ErrorAction SilentlyContinue; if($p){$p|Stop-Process -Force; 'fechado'}"],
+      { timeout: 15000, windowsHide: true }).toString().trim();
+    if (out) log('Windows Security estava aberto: ' + out);
+  } catch (_) {}
+}
+
 async function enter(c) {
   for (const type of ['keyDown', 'char', 'keyUp']) {
     await c.raw('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: '\r' });
@@ -131,7 +146,7 @@ async function enter(c) {
 //   - depois da senha vem o consentimento "You're signing back in to Slack"
 //     (botao Continue) e depois /ssb/redirect ("Launching...") -> navegar pro
 //     client resolve.
-// Sequencia: workspace URL -> Google -> #identifierId + Next -> Passwd + Next
+// Sequencia (09-17, regra do Bruno): workspace URL -> CLIENT direto. Google NAO faz mais parte do fluxo.
 //            -> Continue -> app.slack.com/client/TEAM -> message_input.
 async function fluxo(c, cfg) {
   const TEAM = cfg.team_id || 'T020AHKP5D5';
@@ -152,41 +167,19 @@ async function fluxo(c, cfg) {
   // se caiu na tela "Find your workspace", digita e segue
   if (await tratarWorkspaceSignin(c, cfg)) { await sleep(3000); }
 
-  // 2) Google (abre na mesma aba)
-  if (!await clicar(c, 'Google')) throw new Error('botao Google nao apareceu em ' + (await url()).slice(0, 80) + ' :: ' + (await texto()).slice(0, 120));
-  log('clicou em Google');
-  await espera(async () => /accounts\.google\.com/.test(await url()) || await logado(c), 20000);
-  if (await logado(c)) return 'logado direto (google lembrou)';
-
-  // 3) conta lembrada? (lista de contas) ou pede email
-  if (await visivel('#identifierId')) {
-    await digitar(c, '#identifierId', cfg.google_email);
-    log('email digitado');
-    if (!await clicar(c, 'Next')) await enter(c);
-  } else if (await clicar(c, cfg.google_email)) {
-    log('escolheu a conta na lista');
+  // 2) REGRA DO BRUNO (09-17): NUNCA MAIS passar pelo Google. A conta sempre
+  //    esteve logada; o que faltava era ir pro CLIENT e esperar. Se cair na tela
+  //    de login mesmo assim, o dialogo do Windows Security (CredentialUIBroker)
+  //    e a causa mais provavel — fechar ele e tentar de novo, nunca digitar PIN.
+  for (let tent = 1; tent <= 3; tent++) {
+    fecharWindowsSecurity();
+    await c.raw('Page.navigate', { url: 'https://app.slack.com/client/' + (cfg.team_id || 'T020AHKP5D5') });
+    await sleep(15000);
+    fecharWindowsSecurity();
+    if (await logado(c)) return 'logado (client, tentativa ' + tent + ')';
+    log('tentativa ' + tent + ': client sem composer em ' + (await url()).slice(0, 70));
+    await sleep(8000);
   }
-  await espera(async () => await visivel('input[name=Passwd]') || /oauth\/id|slack\.com/.test(await url()) || /characters you see|text you hear|verify it.s you|verification code|2-step/i.test(await texto()), 20000);
-
-  // 4) senha
-  if (await visivel('input[name=Passwd]')) {
-    await digitar(c, 'input[name=Passwd]', cfg.google_password);
-    log('senha digitada');
-    if (!await clicar(c, 'Next')) await enter(c);
-    await espera(async () => /oauth\/id|slack\.com/.test(await url()) || /characters you see|text you hear|verify it.s you|verification code|2-step|wrong password/i.test(await texto()), 25000);
-  }
-
-  // 5) consentimento "You're signing back in to Slack"
-  if (/oauth\/id/.test(await url()) || /signing back in to Slack/i.test(await texto())) {
-    if (await clicar(c, 'Continue')) log('consentimento: Continue');
-    await espera(async () => /slack\.com/.test(await url()), 20000);
-  }
-
-  // 5b) DEPOIS do Google o Slack pode cair de novo em workspace-signin
-  //     (visto em 09-11: Google lembrou a conta e voltou pra "Sign in to your
-  //     workspace"). Digita o workspace e segue.
-  await sleep(3000);
-  if (await tratarWorkspaceSignin(c, cfg)) log('workspace-signin depois do Google: tratado');
 
   // 6) /ssb/redirect ("Launching...") -> client
   await sleep(3000);

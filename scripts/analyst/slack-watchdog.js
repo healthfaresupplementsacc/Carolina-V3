@@ -212,7 +212,19 @@ async function reciclarAbaSlack() {
   } catch (e) { console.log('[watchdog] reciclar aba falhou:', e.message); }
 }
 
+// Windows Security (CredentialUIBroker) aberto num Chrome invisivel trava o
+// login em silencio. Bruno 09-17: "if WINDOWS SECURITY ever shows up, close it".
+let ultimoCredCheck = 0;
+function fecharWindowsSecurity() {
+  if (Date.now() - ultimoCredCheck < 30000) return;
+  ultimoCredCheck = Date.now();
+  execFile('powershell', ['-NoProfile', '-Command', "$p=Get-Process CredentialUIBroker -ErrorAction SilentlyContinue; if($p){$p|Stop-Process -Force; 'fechado'}"], { timeout: 15000, windowsHide: true }, (e, out) => {
+    if (String(out || '').trim()) console.log('[watchdog] Windows Security estava aberto -> fechado');
+  });
+}
+
 async function tick() {
+  fecharWindowsSecurity();
   if (!(await ensureChrome())) { console.log('[watchdog] Chrome não subiu; tentando no próximo tick'); return; }
   fs.writeFileSync(HB, new Date().toISOString()); // batida no INÍCIO (tick longo não parece morte)
   // MUTEX com carolina-say: se a Carol está digitando/enviando NESTA MESMA aba,
