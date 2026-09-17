@@ -223,8 +223,41 @@ function fecharWindowsSecurity() {
   });
 }
 
+// ── vigia do APP do Slack (desktop) ───────────────────────────────────
+// Bruno 09-17: "sempre checar o APP, deixa o watchdog olhando o app tb".
+// So VIGIA e AVISA. NUNCA relanca: este processo roda em sessao invisivel
+// (S4U); um slack.exe aberto daqui subiria invisivel e brigaria com o do Bruno,
+// igual ao problema do Chrome. Aviso 1x por incidente, silencio quando volta.
+let ultimoAppCheck = 0;
+let appCaidoDesde = 0;
+let appAvisado = false;
+const APP_FLAG = path.join(DIR, 'app-slack-down.txt');
+function vigiarAppSlack() {
+  if (Date.now() - ultimoAppCheck < 60000) return;
+  ultimoAppCheck = Date.now();
+  execFile('powershell', ['-NoProfile', '-Command', "(Get-Process slack -ErrorAction SilentlyContinue | Measure-Object).Count"], { timeout: 15000, windowsHide: true }, (e, out) => {
+    const n = parseInt(String(out || '0').trim(), 10) || 0;
+    if (n > 0) {
+      if (appCaidoDesde) { console.log('[watchdog] app do Slack voltou'); try { fs.unlinkSync(APP_FLAG); } catch (_) {} }
+      appCaidoDesde = 0; appAvisado = false;
+      return;
+    }
+    if (!appCaidoDesde) { appCaidoDesde = Date.now(); console.log('[watchdog] app do Slack NAO esta rodando'); return; }
+    // so avisa depois de 2min caido (evita falso alarme num reinicio rapido)
+    if (!appAvisado && Date.now() - appCaidoDesde > 2 * 60 * 1000) {
+      appAvisado = true;
+      try { fs.writeFileSync(APP_FLAG, new Date().toISOString()); } catch (_) {}
+      console.log('[watchdog] app do Slack caido ha 2min -> avisando o Bruno na DM');
+      execFile(process.execPath, [path.join(__dirname, 'carolina-say.js'), 'channel', '--ch', CAROL_DM, '--text',
+        'O app do Slack fechou aqui no seu PC. Eu sigo pelo navegador, entao nada se perde, mas se voce quiser o app aberto e so abrir de novo.'],
+        { timeout: 180000, windowsHide: true }, () => {});
+    }
+  });
+}
+
 async function tick() {
   fecharWindowsSecurity();
+  vigiarAppSlack();
   if (!(await ensureChrome())) { console.log('[watchdog] Chrome não subiu; tentando no próximo tick'); return; }
   fs.writeFileSync(HB, new Date().toISOString()); // batida no INÍCIO (tick longo não parece morte)
   // MUTEX com carolina-say: se a Carol está digitando/enviando NESTA MESMA aba,
