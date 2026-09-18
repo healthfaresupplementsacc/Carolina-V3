@@ -562,11 +562,15 @@ describe('op API — events', () => {
     expect(slack.postAs).toHaveBeenCalled(); // genuinamente desconhecido → avisa
   });
 
-  test('Fase 0 — order_printing SEM orders_printed → 400; COM → 200 e grava', async () => {
+  // 09-14 (Bruno: "não tem mais necessidade") + 09-18 ("pode tirar"): quantidade
+  // de ordens é OPCIONAL; a Veeqo é a fonte. Sem ela o START aceita (200) e
+  // grava null; com ela, grava. O 400 antigo não existe mais.
+  test('order_printing SEM orders_printed → 200 e grava null; COM → 200 e grava', async () => {
     const s = await login(4);
     const r1 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', note: 'imprimindo' } });
-    expect(r1.status).toBe(400);
-    expect(r1.body.error).toBe('orders_printed_required');
+    expect(r1.status).toBe(200);
+    expect(r1.body.error).toBeUndefined();
+    expect(mem.events[mem.events.length - 1].orders_printed == null).toBe(true);
     const r2 = await post('/api/v3/op/event/start', { session: s, body: { activity_slug: 'order_printing', note: 'imprimindo', orders_printed: 206 } });
     expect(r2.status).toBe(200);
     expect(mem.events[mem.events.length - 1].orders_printed).toBe(206);

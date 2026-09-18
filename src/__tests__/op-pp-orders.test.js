@@ -96,9 +96,16 @@ describe('P&P — ordens contam do 1º-abre', () => {
   async function start(tok, body) { const r = await fetch(base + '/api/v3/op/event/start', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'X-Session-Token': tok, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch (_) {} return { status: r.status, body: j }; }
   async function end(tok, id, body) { const r = await fetch(base + '/api/v3/op/event/' + id + '/end', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'X-Session-Token': tok, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }); let j = null; try { j = await r.json(); } catch (_) {} return { status: r.status, body: j }; }
 
-  test('1º abre SEM quantidade → 400 orders_printed_required', async () => {
+  // 09-14 (Bruno: "não tem mais necessidade") + 09-18 ("pode tirar"): a Veeqo é a
+  // fonte de ordens; quantidade digitada é OPCIONAL. Sem ela o START aceita e
+  // não grava contagem. Este teste assertava o 400 antigo e ficou 4 dias
+  // vermelho sem ninguém olhar.
+  test('1º abre SEM quantidade → aceita (opcional) e NÃO grava contagem', async () => {
     const tok = await login();
-    expect((await start(tok, { activity_slug: 'order_printing' })).body.error).toBe('orders_printed_required');
+    const r = await start(tok, { activity_slug: 'order_printing' });
+    expect(r.body.error).toBeUndefined();
+    expect(r.body.ok).toBe(true);
+    expect(mem.counts).toHaveLength(0);
   });
   test('1º abre COM quantidade → grava production_counts kind=orders no START', async () => {
     const tok = await login();

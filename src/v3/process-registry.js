@@ -57,7 +57,7 @@ const PROCESSES = [
     key: 'attendance', name: 'Ponto (NGTeco)', where: 'railway', tickMs: 60000,
     heartbeat: true, staleMin: 15, critical: true, since: '2026-07-22',
     enabledEnv: { var: 'WORKER_ATTENDANCE_ENABLED', offValue: 'false', requires: ['NGTECO_USER', 'NGTECO_PASS'] },
-    short: 'Puxa batidas do relógio, marca chegada/almoço/saída, cobra ponto.',
+    short: 'Puxa batidas do relógio, marca chegada/almoço/saída, cobra ponto (espera 45 min pelo NGTeco; texto fixo "não bateu… já reportei", nunca "consertei" — Bruno 09-17).',
     detail: 'A cada 60s lê as batidas do relógio NGTeco NG-TC2, atualiza att_state (checkin/almoço/saída), fecha tarefas no checkout autoritativo, e cobra quem esqueceu batida/checkout. TODO aviso de ponto passa pelo GATE que reconfere a batida ao vivo antes de mandar (07-27). Horário do relógio NUNCA vai pro canal do operador.',
   },
   {
@@ -93,7 +93,7 @@ const PROCESSES = [
     heartbeat: true, staleMin: 30, critical: false, since: '2026-08-18',
     enabledEnv: { var: 'WORKER_STOCK_DRIFT_ENABLED', onValue: 'true' },
     short: 'A cada 10min compara nosso total com o da Veeqo; divergência nova → admin-orin, e resumo às 8h NY.',
-    detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador). Fase 0 (09-04): MODO QUIETO — armazém físico todo zerado (carga nunca feita) suprime os avisos por produto e o resumo vira 1 linha; volta sozinho no mesmo tick em que existir estoque. O resumo também acrescenta 1 linha se houve deduct_shortfall no dia. Às 17h NY roda o comparador P&P digitado (orders_printed das tasks de impressão) vs enviado na Veeqo (shipment_costs, fallback pnp_order_lines); |delta| > max(10, 15%) = 1 linha no admin-orin, dedupe audit_log pnp_typed_drift.',
+    detail: 'S15 Fase 3 (Bruno 08-18): reconciliação CONTÍNUA. A cada 10min chama computeDrift do warehouse router (direto, sem HTTP) — mesmo cálculo do hub, comparação sempre contra o SKU base. Divergência NOVA vira 1 aviso no admin-orin (dedupe 1×/produto/dia NY via audit_log stock_drift_alert); às 8h NY manda o resumo de tudo que está divergindo (dedupe stock_drift_digest). NUNCA sobrescreve estoque: importar ou ajustar é decisão de gente, no hub. Canal admin (não passa pelo alert-gate, que protege o canal do operador). Fase 0 (09-04): MODO QUIETO — armazém físico todo zerado (carga nunca feita) suprime os avisos por produto e o resumo vira 1 linha; volta sozinho no mesmo tick em que existir estoque. O resumo também acrescenta 1 linha se houve deduct_shortfall no dia. O comparador P&P digitado×enviado das 17h foi REMOVIDO em 09-18 (Bruno: ninguém digita mais quantidade; a Veeqo é a única fonte).',
   },
   {
     key: 'freight_watch', name: 'Vigia de custo de frete', where: 'railway', tickMs: 300000,
@@ -138,10 +138,24 @@ const PROCESSES = [
     detail: 'Regra do Bruno (08-06): a picklist imprime TUDO alocado no HealthFare Warehouse (até FBA quando cai lá) — NUNCA filtra. Mas SKU estranho (padrão FBA/WFS ou sem mapeamento em product_skus) na fila pendente gera aviso agrupado no admin-orin, 1x por SKU por dia (dedupe via audit_log unusual_sku).',
   },
   {
+    key: 'veeqo_history', name: 'Histórico da Veeqo → nosso livro', where: 'railway', tickMs: 900000,
+    heartbeat: true, staleMin: 40, critical: false, since: '2026-09-16',
+    enabledEnv: { var: 'WORKER_VEEQO_HISTORY_ENABLED', onValue: 'true', defaultOn: true, requires: ['VEEQO_API_KEY'] },
+    short: 'A cada 15 min lê o feed /stock_histories da Veeqo (quem editou, quanto, motivo, nota), espelha em v3.veeqo_stock_history e aplica no nosso estoque as edições manuais feitas depois da carga.',
+    detail: 'Bruno 09-16: "atualiza o sistema com as entradas do último mês, adiciona as anotações e os motivos". Endpoint não documentado da Veeqo (GET /stock_histories, filtros sellable_id/page/per_page; atrasa ~20 min). Regras em src/v3/services/veeqo-history-sync.js (decide/mapReason puros, testados): só edited_by_user, só armazém 108841, só SKU base de produto nosso (kits derivam; pedidos já entram pelo veeqo-order-sync), só depois da BASELINE 2026-09-14T03:00Z (a carga), nunca as nossas próprias edições ("Production Line System"). Aplica via StockService.adjust na caixa principal (source veeqo_history, source_ref veeqo_hist:<id>, reason_code mapeado: Return→devolucao_usavel, Damaged→dano, Item found/Other→contagem), nota = motivo + nota da Veeqo + autor. Cursor em v3.settings veeqo_history.cursor. Ficha do produto → aba Veeqo.',
+  },
+  {
+    key: 'label_autoclose', name: 'Impressão de Labels: fecha o que ficou aberto', where: 'railway', tickMs: 300000,
+    heartbeat: true, staleMin: 20, critical: false, since: '2026-09-12',
+    enabledEnv: { var: 'WORKER_LABEL_AUTOCLOSE_ENABLED', onValue: 'true', defaultOn: true },
+    short: 'A tarefa que nasce no login do PC de impressão fecha sozinha quando o logoff não chega: >12 h, fim do expediente (20:45 NY) ou Sandbox >30 min; ended_at = última impressão/heartbeat.',
+    detail: 'Bruno 09-12: "como alguém imprime labels por 732 horas?" O Sandbox ficou 30 dias aberto e as impressões sem operador logado eram ligadas a ele. Regra em src/workers/label-printing-autoclose.js (decide/endAtFor, testado): nunca fecha quem imprimiu/mexeu nos últimos 30 min; fecha no último sinal real, nunca em "agora"; audita event.auto_closed. Também: a contagem real da impressora agora soma em events.quantity (unit label).',
+  },
+  {
     key: 'print_divergence', name: 'Divergência de impressão (Veeqo)', where: 'railway', tickMs: 900000,
     heartbeat: true, staleMin: 60, critical: false, since: '2026-08-06',
     enabledEnv: { var: 'WORKER_PRINT_DIVERGENCE_ENABLED', onValue: 'true', requires: ['VEEQO_API_KEY'] },
-    short: '12pm NY: digitado (1ª+2ª impressão) vs Veeqo; divergiu → pergunta pra quem está no packing (cargo packing_operator; sem ninguém = "pessoal do packing"), só a diferença, e grava a resposta.',
+    short: 'DESLIGADO 09-14 (Bruno: ninguém digita mais quantidade na impressão; a Veeqo é a fonte) · 12pm NY: digitado (1ª+2ª impressão) vs Veeqo; divergiu → pergunta pra quem está no packing (cargo packing_operator; sem ninguém = "pessoal do packing"), só a diferença, e grava a resposta.',
     detail: 'Diário às 12pm NY (a impressão do dia já acabou): soma orders_printed de order_printing+order_printing_2 (não-teste) e compara com veeqo.shippedByDay. Divergiu → pergunta no #orders-and-inventory citando SÓ a diferença (nunca os totais — decisão do Bruno pra capturar o motivo real). Resposta da thread gravada em v3.print_divergence_log todo dia → histórico pra investigar. Respeita o mute do alert-gate.',
   },
   {

@@ -22,12 +22,6 @@
  *   - resumo de deduções parciais: o digest lê as rows audit_log
  *     'deduct_shortfall' do dia (gravadas pelo veeqo-order-sync em modo live)
  *     e acrescenta 1 linha quando houve furo. Nunca silencioso, nunca spam.
- *   - comparador P&P digitado vs enviado (Fase 0, tarefa 0.8): ~17h NY compara a
- *     soma de orders_printed digitada nas tasks de impressão com os pedidos
- *     REALMENTE enviados na Veeqo no dia (espelho local v3.shipment_costs,
- *     COUNT DISTINCT order_id; fallback v3.pnp_order_lines se o espelho estiver
- *     vazio). |digitado - enviado| > max(10, 15% do enviado) → 1 linha no
- *     admin-orin. Dedupe 1×/dia via audit_log 'pnp_typed_drift'.
  *
  * NUNCA sobrescreve nada. O número não se conserta sozinho — quem decide importar
  * ou ajustar é uma pessoa, no hub. O worker só conta o que viu.
@@ -57,8 +51,6 @@ class StockDriftAlert {
       : (process.env.WORKER_STOCK_DRIFT_ENABLED === 'true');
     this.heartbeat = deps.heartbeat || null;
     this.digestHour = deps.digestHour != null ? deps.digestHour : 8;
-    // comparador P&P digitado vs enviado: 17h NY, fim do expediente de impressão
-    this.pnpCompareHour = deps.pnpCompareHour != null ? deps.pnpCompareHour : 17;
     this.now = deps.now || (() => new Date());
     this._t = null; this._kick = null; this._ticking = false;
   }
@@ -153,55 +145,6 @@ class StockDriftAlert {
     } catch (e) { return { lines: 0, missing: 0 }; }
   }
 
-  /** Comparador já rodou hoje? (dedupe 1x/dia NY) */
-  async _pnpDriftDone(nyDate) {
-    const r = await this.db.query(
-      `SELECT 1 FROM v3.audit_log
-        WHERE action = 'pnp_typed_drift' AND metadata->>'ny_date' = $1 LIMIT 1`, [nyDate]);
-    return (r.rowCount || 0) > 0;
-  }
-
-  async _markPnpDrift(nyDate, info) {
-    await this.db.query(
-      `INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata)
-       VALUES ('system', NULL, 'pnp_typed_drift', 'stock', NULL, $1::jsonb)`,
-      [JSON.stringify({ ny_date: nyDate, ...info })]).catch(() => {});
-  }
-
-  /** Digitado: soma de orders_printed nas tasks de impressão do dia (não-teste). */
-  async _typedOrders(nyDate) {
-    const r = await this.db.query(
-      `SELECT COALESCE(SUM(e.orders_printed), 0)::int AS total
-         FROM v3.events e
-         JOIN v3.activity_types at ON at.id = e.activity_type_id
-        WHERE at.slug IN ('order_printing', 'order_printing_2')
-          AND e.orders_printed IS NOT NULL
-          AND COALESCE(e.is_test, false) = false
-          AND e.deleted_at IS NULL
-          AND to_char(e.started_at AT TIME ZONE '${EDT}', 'YYYY-MM-DD') = $1`, [nyDate]);
-    return r.rows[0].total;
-  }
-
-  /**
-   * Enviado de verdade na Veeqo no dia: espelho local v3.shipment_costs (1 row
-   * por shipment, freight-watch), COUNT DISTINCT order_id = PEDIDOS, não linhas.
-   * Espelho vazio (worker off, outage) → fallback pro espelho de linhas
-   * v3.pnp_order_lines (veeqo-order-sync), DISTINCT external_order_id shipped.
-   */
-  async _shippedOrders(nyDate) {
-    const a = await this.db.query(
-      `SELECT COUNT(DISTINCT order_id)::int AS n
-         FROM v3.shipment_costs WHERE ny_day = $1 AND order_id IS NOT NULL`, [nyDate]);
-    const n = a.rows[0] ? Number(a.rows[0].n) : 0;
-    if (n > 0) return n;
-    const b = await this.db.query(
-      `SELECT COUNT(DISTINCT external_order_id)::int AS n
-         FROM v3.pnp_order_lines
-        WHERE status = 'shipped' AND shipped_at IS NOT NULL
-          AND to_char(shipped_at AT TIME ZONE '${EDT}', 'YYYY-MM-DD') = $1`, [nyDate]);
-    return b.rows[0] ? Number(b.rows[0].n) : 0;
-  }
-
   /** "BENF-300: Veeqo 214, aqui 226, diferença de -12" (sem em dash, direto). */
   _line(d) {
     const name = d.nickname || d.name || ('produto ' + d.product_id);
@@ -271,21 +214,6 @@ class StockDriftAlert {
         out.digest = drift.length;
       }
 
-      // 3) comparador P&P digitado vs enviado (17h NY, 1x/dia). Independe do
-      //    modo quieto: usa números da Veeqo dos dois lados, não o armazém.
-      if (hour >= this.pnpCompareHour && !(await this._pnpDriftDone(date))) {
-        const typed = await this._typedOrders(date);
-        const shipped = await this._shippedOrders(date);
-        const delta = typed - shipped;
-        const tolerance = Math.max(10, Math.round(shipped * 0.15));
-        let posted = false;
-        if (Math.abs(delta) > tolerance) {
-          posted = await this._post(`P&P do dia: digitado ${typed}, enviado na Veeqo ${shipped}, `
-            + `diferenca de ${Math.abs(delta)}. Vale conferir os registros de impressao.`);
-        }
-        await this._markPnpDrift(date, { typed, shipped, delta, tolerance, posted });
-        out.pnp = { typed, shipped, delta, posted };
-      }
       return out;
     } finally { this._ticking = false; }
   }

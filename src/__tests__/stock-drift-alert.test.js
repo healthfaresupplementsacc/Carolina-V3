@@ -24,10 +24,6 @@ function makeDb(state) {
         const hit = state.marks.some((m) => m.action === 'stock_drift_digest' && m.ny_date === params[0]);
         return { rows: hit ? [{}] : [], rowCount: hit ? 1 : 0 };
       }
-      if (/action = 'pnp_typed_drift'/.test(q) && q.startsWith('SELECT')) {
-        const hit = state.marks.some((m) => m.action === 'pnp_typed_drift' && m.ny_date === params[0]);
-        return { rows: hit ? [{}] : [], rowCount: hit ? 1 : 0 };
-      }
       if (/action = 'deduct_shortfall'/.test(q) && q.startsWith('SELECT')) {
         return { rows: [state.shortfalls || { lines: 0, missing: 0 }], rowCount: 1 };
       }
@@ -35,19 +31,9 @@ function makeDb(state) {
         // total físico do armazém (modo quieto): número injetável pelo teste
         return { rows: [{ total: state.warehouseTotal != null ? state.warehouseTotal : 100 }] };
       }
-      if (/orders_printed/.test(q)) {
-        return { rows: [{ total: state.typed != null ? state.typed : 0 }] };
-      }
-      if (/FROM v3\.shipment_costs/.test(q)) {
-        return { rows: [{ n: state.shippedCosts != null ? state.shippedCosts : 0 }] };
-      }
-      if (/FROM v3\.pnp_order_lines/.test(q)) {
-        return { rows: [{ n: state.shippedLines != null ? state.shippedLines : 0 }] };
-      }
       if (/INSERT INTO v3\.audit_log/.test(q)) {
         const meta = JSON.parse(params[params.length - 1]);
-        const action = /pnp_typed_drift/.test(q) ? 'pnp_typed_drift'
-          : (/stock_drift_digest/.test(q) ? 'stock_drift_digest' : 'stock_drift_alert');
+        const action = /stock_drift_digest/.test(q) ? 'stock_drift_digest' : 'stock_drift_alert';
         state.marks.push({ action, ...meta });
         return { rows: [] };
       }
@@ -74,9 +60,8 @@ const alerts = (state) => state.posts.filter((p) => p.text.includes('Estoque div
 const digests = (state) => state.posts.filter((p) => p.text.includes('Resumo do estoque'));
 
 function boot({ drift = DRIFT, date = '2026-08-18', hour = 10,
-  warehouseTotal = 100, shortfalls = null, typed = 0, shippedCosts = 0, shippedLines = 0 } = {}) {
-  const state = { queries: [], marks: [], posts: [],
-    warehouseTotal, shortfalls, typed, shippedCosts, shippedLines };
+  warehouseTotal = 100, shortfalls = null } = {}) {
+  const state = { queries: [], marks: [], posts: [], warehouseTotal, shortfalls };
   const worker = new StockDriftAlert({
     db: makeDb(state),
     getDrift: jest.fn(async () => drift),
@@ -303,50 +288,3 @@ describe('furos de deducao no resumo (audit_log deduct_shortfall)', () => {
   });
 });
 
-describe('comparador P&P digitado vs enviado (17h NY)', () => {
-  test('fora da tolerancia: 1 linha no admin-orin com os numeros do dia real 09-03', async () => {
-    const { state, worker } = boot({ hour: 17, typed: 130, shippedCosts: 219 });
-    const out = await worker.tick();
-    expect(out.pnp).toEqual({ typed: 130, shipped: 219, delta: -89, posted: true });
-    const post = state.posts.find((p) => p.text.startsWith('P&P do dia'));
-    expect(post.text).toBe('P&P do dia: digitado 130, enviado na Veeqo 219, diferenca de 89. Vale conferir os registros de impressao.');
-    expect(post.channel).toBe('C_ADMIN');
-  });
-
-  test('dentro da tolerancia max(10, 15%): nada e postado, mas o dia fica marcado', async () => {
-    const { state, worker } = boot({ hour: 17, typed: 210, shippedCosts: 219 });
-    const out = await worker.tick();
-    expect(out.pnp.posted).toBe(false);
-    expect(state.posts.some((p) => p.text.startsWith('P&P do dia'))).toBe(false);
-    expect(state.marks.some((m) => m.action === 'pnp_typed_drift')).toBe(true);
-  });
-
-  test('dedupe 1x por dia: segundo tick nao recompara nem reposta', async () => {
-    const { state, worker } = boot({ hour: 17, typed: 130, shippedCosts: 219 });
-    await worker.tick();
-    const out = await worker.tick();
-    expect(out.pnp).toBeUndefined();
-    expect(state.posts.filter((p) => p.text.startsWith('P&P do dia')).length).toBe(1);
-  });
-
-  test('antes das 17h NY nao roda', async () => {
-    const { state, worker } = boot({ hour: 16, typed: 130, shippedCosts: 219 });
-    const out = await worker.tick();
-    expect(out.pnp).toBeUndefined();
-    expect(state.posts.some((p) => p.text.startsWith('P&P do dia'))).toBe(false);
-  });
-
-  test('espelho shipment_costs vazio: cai pro espelho de linhas pnp_order_lines', async () => {
-    const { state, worker } = boot({ hour: 17, typed: 130, shippedCosts: 0, shippedLines: 219 });
-    const out = await worker.tick();
-    expect(out.pnp.shipped).toBe(219);
-    expect(out.pnp.posted).toBe(true);
-  });
-
-  test('dia sem nada (fds): 0 digitado, 0 enviado, nenhum post', async () => {
-    const { state, worker } = boot({ hour: 17, drift: [], typed: 0, shippedCosts: 0 });
-    const out = await worker.tick();
-    expect(out.pnp.posted).toBe(false);
-    expect(state.posts.some((p) => p.text.startsWith('P&P do dia'))).toBe(false);
-  });
-});
