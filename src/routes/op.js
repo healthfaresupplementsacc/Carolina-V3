@@ -786,10 +786,14 @@ function createOpRouter(deps = {}) {
                  WHERE id = $1 AND deleted_at IS NULL`, [job.label_event_id, job.product_batch_id]);
             }
             const line = `[${effSheets != null ? effSheets + ' labels' : 'impressão'} — ${job.product || job.document || '?'}${job.batch ? ' · ' + job.batch : ''} · ${physSec}s físico]`;
+            // Bruno 09-12: a quantidade de labels vai pro CAMPO quantity (soma), não só pro texto.
             await db.query(
-              `UPDATE v3.events SET description = TRIM(BOTH ' ' FROM COALESCE(description,'') || ' ' || $2), updated_at = NOW()
+              `UPDATE v3.events SET description = TRIM(BOTH ' ' FROM COALESCE(description,'') || ' ' || $2),
+                      quantity = CASE WHEN $4::int IS NULL THEN quantity ELSE COALESCE(quantity, 0) + $4::int END,
+                      quantity_unit = CASE WHEN $4::int IS NULL THEN quantity_unit ELSE 'label' END,
+                      updated_at = NOW()
                WHERE id = $1 AND deleted_at IS NULL AND COALESCE(description,'') NOT LIKE '%' || $3 || '%'`,
-              [job.label_event_id, line, line.slice(0, 60)]);
+              [job.label_event_id, line, line.slice(0, 60), Number.isFinite(Number(effSheets)) ? Number(effSheets) : null]);
           } catch (e) { console.error('[printer-status] event sync:', e.message); }
         }
       }
@@ -1149,7 +1153,7 @@ function createOpRouter(deps = {}) {
   // ou SAI não precisa informar nada (nem motivo). NÃO pede mais no fim.
   const ORDER_PRINTING_SLUGS = new Set(['order_printing', 'order_printing_2']);
   // slugs que exigem quantidade de ordens no retroativo (mantém regra antiga lá)
-  const ORDERS_REQUIRED_SLUGS = ORDER_PRINTING_SLUGS;
+  const ORDERS_REQUIRED_SLUGS = new Set();   // 09-14 Bruno: quantidade não é mais pedida (a Veeqo sincroniza); se vier, grava
   // grava a contagem de ordens (P&P) a partir da abertura — fonte única do total.
   async function insertOrdersCount({ eventId, productId, batchId, orders, personId, kind = 'orders' }) {
     await db.query(
@@ -1569,7 +1573,7 @@ function createOpRouter(deps = {}) {
         [act.slug])).rows[0];
       isFirstOrderOpen = !openSame;
       const qty = parseInt(req.body && req.body.orders_printed, 10);
-      if (isFirstOrderOpen) {
+      if (isFirstOrderOpen && false) {   // 09-14 Bruno: "não tem mais necessidade" — quantidade opcional pra todo mundo (cai no else)
         if (!Number.isFinite(qty) || qty <= 0) {
           return res.status(400).json({ error: 'orders_printed_required', detail: 'Informe quantas ordens vão imprimir (número > 0).' });
         }
@@ -1864,7 +1868,7 @@ function createOpRouter(deps = {}) {
     if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'bad_id' }); return null; }
     const r = await db.query(
       `SELECT e.id, e.person_id, e.cowork_with, e.product_batch_id, e.ended_at, e.deleted_at,
-              e.is_long_running, e.cowork_group_id, at.slug, at.flow, at.requires_order_count, pb.product_id,
+              e.is_long_running, e.cowork_group_id, at.slug, at.flow, at.requires_order_count, COALESCE(at.requires_quantity, false) AS requires_quantity, pb.product_id,
               pb.batch_number, pb.target_bottles, pr.canonical_name AS product
        FROM v3.events e
        LEFT JOIN v3.activity_types at ON at.id = e.activity_type_id
@@ -1943,7 +1947,7 @@ function createOpRouter(deps = {}) {
     const s = await requireSession(req, res); if (!s) return;
     const ev = await loadOwnedOpenEvent(req, res, s); if (!ev) return;
     if (ev.ended_at) return res.status(409).json({ error: 'already_ended' });
-    const isProd = ev.slug === 'production_line';
+    const isProd = ev.slug === 'production_line' || !!ev.requires_quantity;   // 09-12: tiles com requires_quantity (Produção manual) pedem bottles no fim como a linha
     const isFnsku = ev.slug === 'fnsku_labeling';   // FNSKU: conta LABELS colados
     const isCowork = !!ev.cowork_group_id;
     let isLast = true, remaining = 1;
@@ -2010,7 +2014,7 @@ function createOpRouter(deps = {}) {
     const bottlesRaw = body.bottles != null ? body.bottles
       : (body.bottles_count != null ? body.bottles_count : body.fnsku_labels);
     const b = parseInt(bottlesRaw, 10);
-    const isProd = ev.slug === 'production_line';
+    const isProd = ev.slug === 'production_line' || !!ev.requires_quantity;   // 09-12: tiles com requires_quantity (Produção manual) pedem bottles no fim como a linha
     const isFnsku = ev.slug === 'fnsku_labeling';   // FNSKU: conta LABELS colados (kind='fnsku')
 
     // ── cowork: este é o ÚLTIMO a finalizar do grupo? ──

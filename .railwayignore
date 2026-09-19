@@ -1,0 +1,16 @@
+# O que o `railway up` NAO sobe (Bruno 09-17).
+#
+# POR QUE: o upload inteiro era 107 MB e 78 MB disso era docs/ (PNG/JPG de mapa
+# e design) que o servidor nunca le. Upload grande num link instavel morria no
+# meio (os error 10054, BadRecordMac) e deixava deployment preso em INITIALIZING
+# sem build. Sem essas pastas cai pra ~23 MB.
+#
+# SO entra aqui o que o RUNTIME (node src/index.js) comprovadamente nao toca:
+#   docs/analysis fica (src/analysis/compute-task-targets.js le de la);
+#   scripts/cleanup-ghost-workflows e expire-helpers ficam (src/scheduler.js);
+#   public/dashboard-v4 (o build do dashboard) FICA, e o que o Express serve.
+node_modules
+.git
+docs/architecture
+docs/design
+scripts/analyst

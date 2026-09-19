@@ -392,7 +392,9 @@ function createVeeqoClient(opts = {}) {
    * SEMPRE lê o atual antes (confirma o alvo + calcula 'add' + devolve before/after).
    * @returns {object} { sku, sellable_id, warehouse_id, before, after, mode, applied }
    */
-  async function setStock({ sku, mode = 'set', qty }) {
+  // 09-16 (Bruno): a Veeqo aceita reason_id + notes no PUT do stock_entry (nao documentado; testado:
+  // reason_id 1 = "Item found", 2 = "Return"; notes = texto livre). Aparece no historico da Veeqo.
+  async function setStock({ sku, mode = 'set', qty, reason_id, notes }) {
     const n = Number(qty);
     if (!Number.isFinite(n) || n < 0) { const e = new Error('quantidade inválida'); e.code = 'bad_qty'; throw e; }
     if (mode !== 'set' && mode !== 'add') { const e = new Error("mode deve ser 'set' ou 'add'"); e.code = 'bad_mode'; throw e; }
@@ -402,14 +404,29 @@ function createVeeqoClient(opts = {}) {
     const after = mode === 'add' ? before + n : n;
     // Veeqo: PUT do stock_entry por sellable+warehouse (probe 08-04: PUT=200, POST=404).
     await _req('PUT', `/sellables/${found.sellable_id}/warehouses/${found.warehouse_id}/stock_entry`,
-      { stock_entry: { physical_stock_level: after, infinite: false } });
+      { stock_entry: { physical_stock_level: after, infinite: false,
+        ...(Number.isInteger(reason_id) ? { reason_id } : {}), ...(notes ? { notes: String(notes).slice(0, 500) } : {}) } });
     return { sku: found.sku, sellable_id: found.sellable_id, warehouse_id: found.warehouse_id,
       before, after, mode, applied: after - before };
   }
 
+  /**
+   * HISTÓRICO DE ESTOQUE (Bruno 09-16). Endpoint NÃO documentado da Veeqo, `GET /stock_histories`
+   * (funcionário da Veeqo no fórum, 2017: "feed das últimas mudanças e as entidades que causaram").
+   * Devolve, mais novo primeiro: { id, increased, decreased, quantity, stock_level, created_at,
+   * action:{name,summary}, stock_entry:{sellable_id,warehouse_id,...}, sellable:{id,type,sku_code,...},
+   * reason, notes }. Filtros que funcionam: sellable_id, page, per_page. (since/action são ignorados.)
+   * O feed atrasa uns 20 min. Só leitura.
+   */
+  async function stockHistories({ sellable_id, page = 1, per_page = 100 } = {}) {
+    const qs = new URLSearchParams({ page: String(page), per_page: String(per_page) });
+    if (sellable_id) qs.set('sellable_id', String(sellable_id));
+    const j = await _req('GET', '/stock_histories?' + qs.toString());
+    return Array.isArray(j) ? j : [];
+  }
   return { configured, baseUrl, getOrdersPage, shippedByDay, ordersShippedOn, getLabelPdf,
     getProductsPage, listSellables, listProducts,
-    findSellableBySku, setStock, warehouseId: HEALTHFARE_WAREHOUSE_ID };
+    findSellableBySku, setStock, stockHistories, warehouseId: HEALTHFARE_WAREHOUSE_ID };
 }
 
 const veeqo = createVeeqoClient();

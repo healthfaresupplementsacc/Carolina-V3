@@ -940,7 +940,7 @@ const ENDPOINTS = [
         SELECT p.id, p.canonical_name, p.nickname, p.bottle_color, p.active,
                COALESCE((SELECT SUM(b.qty) FROM v3.stock_bins b WHERE b.product_id=p.id AND b.active),0) AS bin_qty,
                COALESCE((SELECT SUM(x.qty) FROM v3.stock_boxes x WHERE x.product_id=p.id AND x.status='in_storage'),0) AS box_qty,
-               COALESCE(array_agg(ps.sku) FILTER (WHERE ps.channel='veeqo'), '{}') AS veeqo_skus
+               COALESCE(array_agg(ps.sku) FILTER (WHERE ps.channel='veeqo' AND COALESCE(ps.units_per_pack,1) = 1 AND ps.sku NOT ILIKE '%-WFS' AND COALESCE(ps.veeqo_type,'') <> 'kit'), '{}') AS veeqo_skus  -- 09-16 Bruno: só o SKU base; C2/C3/C4 são kits das MESMAS garrafas (somar dava 700 no L-Carnitine)
           FROM v3.products p
           LEFT JOIN v3.product_skus ps ON ps.product_id = p.id
          GROUP BY p.id

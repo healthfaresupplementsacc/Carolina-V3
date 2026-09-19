@@ -7,8 +7,12 @@ import L from './timeline-layout.cjs';
    P&P: tempo de demora de cada pessoa, que horas imprimiu; expand nas
    impressões aparece os produtos"). Só leitura; dados que a página já tem. */
 
-export function FlowHistory({ events, operators, activities, products, now, pp, lotes, onOpenBatch, fmtClock }) {
-  const [open, setOpen] = React.useState(null);
+export function FlowHistory({ events, operators, activities, products, now, pp, lotes, onOpenBatch, fmtClock, only }) {
+  // `only` (Bruno 09-17): Set de fluxos ligados no Fluxo dos Filtros. Os cartões
+  // moraram em cima da linha do tempo, sempre os três; agora cada um só aparece
+  // quando o chip dele (Produção / P&P / Suporte) está clicado. Sem `only` = os três.
+  const [openRaw, setOpen] = React.useState(null);
+  const open = only && openRaw && !only.has(openRaw) ? null : openRaw;   // chip desligou → histórico fecha junto
   const eff = (e) => (e.ended_min == null ? now : e.ended_min);
   const nameOf = (opId) => (operators.find((o) => o.id === opId) || {}).name || '?';
   const flowOf = (e) => { const a = activities[e.activity]; if (L.RAIL_SLUGS.has(e.activity) && (!a || a.flow !== 'pnp')) return 'production'; return (a && a.flow) || 'support'; };
@@ -66,7 +70,7 @@ export function FlowHistory({ events, operators, activities, products, now, pp, 
   return (
     <div className="fh" data-flow-history>
       <div className="fh-cards">
-        {cards.map((c) => (
+        {cards.filter((c) => !only || only.has(c.key)).map((c) => (
           <div key={c.key} className={`fh-card ${c.cls} ${open === c.key ? 'on' : ''}`} onClick={() => setOpen(open === c.key ? null : c.key)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpen(open === c.key ? null : c.key); }}>
             <div className="t"><b>{c.title}</b><span>{c.sub}</span></div>
             <div className="k">{c.k.map(([l, v]) => (<div key={l}><b>{v}</b>{l}</div>))}</div>

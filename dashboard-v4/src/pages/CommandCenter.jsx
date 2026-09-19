@@ -322,6 +322,10 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
   const isToday = date === nyToday();
   // Veeqo do dia (Bruno 08-06): mostrar no card P&P o digitado vs Veeqo + diferença
   const vqToday = usePoll('/veeqo-today', [], 180000);
+  // 09-14 (Bruno): ninguém digita mais quantidade na impressão; "ordens do dia" = pedidos com etiqueta na Veeqo.
+  // O digitado (pp.orders) fica só como fallback quando a Veeqo não respondeu.
+  const vqOrders = (vqToday.data && vqToday.data.total_orders != null) ? Number(vqToday.data.total_orders) : null;
+  const ordersToday = vqOrders != null ? vqOrders : (pp.orders || 0);
   const packingRole = useRoleHolder('packing_operator');   // responsável pelo P&P (cargo, não nome — 09-09)
   const attData = attPoll.data;
   // markers + estado por person_id pra a Timeline (ícones + "saiu" em vez de idle)
@@ -897,8 +901,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
              foot={<>
                <div style={{ display: 'flex', gap: 16, marginTop: 4, flexWrap: 'wrap' }}>
                  <div>
-                   <div className="kit-mlabel">ordens</div>
-                   {pp.orders_reset ? (
+                   <div className="kit-mlabel">{vqOrders != null ? 'ordens (Veeqo)' : 'ordens'}</div>
+                   {vqOrders != null ? <b className="mono" title="pedidos com etiqueta impressa hoje na Veeqo">{vqOrders}</b> : pp.orders_reset ? (
                      // reajustado por operador: total antigo riscado + novo em vermelho
                      <span title={`Reajustado por ${pp.orders_reset.by || 'operador'}${pp.orders_reset.at ? ' às ' + pp.orders_reset.at : ''}`}>
                        <b className="mono" style={{ textDecoration: 'line-through', color: 'var(--ink-faint)', fontWeight: 500 }}>{pp.orders_reset.old_total}</b>
@@ -907,8 +911,8 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
                      </span>
                    ) : <b className="mono">{pp.orders || 0}</b>}
                  </div>
-                 {/* Veeqo do dia + diferença vs digitado (Bruno 08-06) */}
-                 {vqToday.data && vqToday.data.total_orders != null && (() => {
+                 {/* Veeqo do dia + diferença vs digitado (Bruno 08-06). 09-14: só quando alguém ainda digitou algo. */}
+                 {vqOrders != null && (pp.orders || 0) > 0 && (() => {
                    const v = vqToday.data.total_orders; const d = (pp.orders || 0) - v;
                    return (
                      <div><div className="kit-mlabel">Veeqo</div>
@@ -1088,7 +1092,7 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     const corteVencido = !!(correioNotif && correioNotif._minutes != null && window.HFH && window.HFH.liveNowMin() > correioNotif._minutes);
     const vqN = vqToday.data && vqToday.data.total_orders != null ? Number(vqToday.data.total_orders) : null;
     const ppDiff = vqN != null ? (Number(pp.orders) || 0) - vqN : 0;
-    out.push({ id: 'pp', icon: 'pp', label: 'P&P', value: String(pp.orders || 0), unit: (pp.orders || 0) === 1 ? 'ordem' : 'ordens',
+    out.push({ id: 'pp', icon: 'pp', label: 'P&P', value: String(ordersToday), unit: ordersToday === 1 ? 'ordem' : 'ordens',
       sub: pp.total_minutes ? fmtDur(pp.total_minutes) : null,
       tone: corteVencido ? 'bad' : (ppDiff < 0 ? 'warn' : null),
       title: corteVencido ? 'P&P do dia · corte do correio VENCIDO' : (ppDiff < 0 ? 'P&P do dia · faltou digitar ' + Math.abs(ppDiff) + ' vs Veeqo' : 'P&P do dia · clique pra ver tudo'),
@@ -1284,16 +1288,16 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
 
       {/* ── Filters ─────────────────────────────────────────── */}
       {wOn('filtros') && (<section style={{ order: wOrder('filtros') }}>
+      {/* Fluxo SUBIU pra esta linha (Bruno 09-17: "Fluxo should also be in the same line
+          as Filtros, right next to the filtro ativo area") — deixa a página mais
+          organizada e sobra só Pessoa na faixa de baixo. */}
       <div className="opa-section">
         <span className="kit-mlabel">Filtros</span>
         <span className={`kit-chip ${filterStats.active ? 'neutral' : ''}`} title="Stats do recorte atual (tudo, se nenhum filtro ativo)"
               style={filterStats.active ? undefined : { background: 'var(--kit-surface-2)', color: 'var(--ink-faint)', boxShadow: 'inset 0 0 0 1px var(--line)' }}>
           {filterStats.active ? 'filtro ativo' : 'tudo'} · {filterStats.n} evento{filterStats.n === 1 ? '' : 's'} · {fmtDur(filterStats.min)}
         </span>
-        <div className="rule"/>
-      </div>
-      <div className="filters">
-        <span className="kit-mlabel" style={{ marginRight: 4 }}>Fluxo</span>
+        <span className="kit-mlabel" style={{ marginLeft: 6 }}>Fluxo</span>
         {['production', 'pnp', 'support'].map((f) => {
           const on = filterFlows.has(f);
           return (
@@ -1303,7 +1307,9 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
             </button>
           );
         })}
-        <span style={{ width: 16 }}/>
+        <div className="rule"/>
+      </div>
+      <div className="filters">
         <span className="kit-mlabel" style={{ marginRight: 4 }}>Pessoa</span>
         {operators.map((o) => {
           const on = filterOps.has(o.id);
@@ -1379,15 +1385,22 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
         );
       })()}
 
+      {/* CARTÕES DO FLUXO (Bruno 09-17): os três cartões (Produção · P&P · Suporte) que
+          ficavam sempre em cima da linha do tempo agora moram AQUI, embaixo do Fluxo,
+          e cada um só aparece quando o chip dele está clicado — junto do tempo total. */}
+      {filterFlows.size > 0 && operators.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <FlowHistory events={state.events} operators={operators} activities={HFD.activities || {}} products={HFD.products || {}} now={now}
+                       pp={raw && raw.pp} lotes={(raw && raw.production && raw.production.lotes) || []} onOpenBatch={openBatch} fmtClock={fmtClock}
+                       only={filterFlows}/>
+        </div>
+      )}
+
       </section>)}
 
       {/* ── Timeline ────────────────────────────────────────── */}
       {wOn('timeline') && (<section style={{ order: wOrder('timeline') }}>
       <div style={{ marginTop: 12 }}>
-        {operators.length > 0 && (
-          <FlowHistory events={state.events} operators={operators} activities={HFD.activities || {}} products={HFD.products || {}} now={now}
-                       pp={raw && raw.pp} lotes={(raw && raw.production && raw.production.lotes) || []} onOpenBatch={openBatch} fmtClock={fmtClock}/>
-        )}
         {journeyKey && <BatchJourney batchId={(HFD.products || {})[journeyKey] && (HFD.products || {})[journeyKey]._batch_id} onClose={() => setJourneyKey(null)}/>}
         {operators.length === 0 ? (
           <div className="opa-empty">

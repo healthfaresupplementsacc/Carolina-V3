@@ -313,6 +313,12 @@ const PROCESSES = [
     short: 'Push em tempo real (<1s) do Slack pro Claude via Socket Mode (app "Claude Listener", bot claude_listener U0C00ECCBK2). LIGADO 09-02.',
     detail: '09-09: single-instance.js + self-reload.js + tee-log.js (_watch/listener.log). Roda no PC do Bruno (scripts/analyst/slack-socket-listener.js via run-listener.cmd, subindo junto do watchdog pela Scheduled Task "HealthFare Claude Autostart"). WebSocket Socket Mode (apps.connections.open) do app Slack SEPARADO "Claude Listener" (U0C00ECCBK2) — NUNCA ativar Socket Mode no app HealthFare Tracker (mataria a entrega HTTP pro Railway). Empurra cada msg do supplements-dashboard (e DMs com o bot) pro inbox.jsonl na hora; escreve _watch/covered.json (canais que o push cobre) pro watchdog raspar só o resto (DM da Carol D045L79UMME, admin-orin até convidarem o bot). Tokens em _watch/tokens.json (gitignored); vivo = _watch/listener-alive.txt fresco.',
   },
+  {
+    key: 'handoff_mirror', name: 'Espelho de handoff pro Google Drive (PC Bruno)', where: 'pc-bruno',
+    tickMs: 3600000, heartbeat: false, critical: false, since: '2026-09-18',
+    short: 'De hora em hora copia pro G:/.../HealthFare/Production Line Tracker/_handoff tudo que roda neste PC e nao esta no git (_watch, memoria do Claude, chave ssh, settings), pra outro PC assumir.',
+    detail: 'Bruno 09-18 (migracao do PC B pra outro PC): Scheduled Task "HealthFare handoff mirror" roda scripts/analyst/handoff-mirror.ps1 a cada hora; robocopy /MIR de scripts/analyst/_watch (sem log/png/jsonl/pid), da pasta de memoria do Claude deste projeto, settings.json, hf-tracker-cam(.pub), docs/MIGRATION-PC-BRUNO.md e setup-new-pc.ps1/.cmd. Se G: nao esta montado, sai sem fazer nada. Carimbo em _handoff/LAST-MIRROR.txt. No PC novo: setup-new-pc.cmd de dentro da _handoff, depois o prompt do MIGRATION-PC-BRUNO.md. REGRA: os satelites (watchdog/listener/scheduler) nunca rodam em dois PCs ao mesmo tempo (Carolyn responde em dobro); so este espelho pode.',
+  },
 ];
 
 // enabled() — resolve o estado LIGADO/DESLIGADO por config, na hora.

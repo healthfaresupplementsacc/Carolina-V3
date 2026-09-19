@@ -599,7 +599,7 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
   }
 
   const TABS = [
-    ['locais', 'Locais'], ['pedidos', 'Pedidos abertos'], ['mov', 'Movimentos'],
+    ['locais', 'Locais'], ['pedidos', 'Pedidos abertos'], ['mov', 'Movimentos'], ['veeqo', 'Veeqo'],
     ['separadas', 'Separadas'], ['pend', 'Pendências'], ['familia', 'Família'], ['config', 'Config'],
   ];
 
@@ -704,6 +704,33 @@ function ProductPanel({ row, onClose, onAction, onRowUpdate, ack, writable, allR
                     </tr>
                   ))}
                   {d && !((d.open_orders || []).length) && <tr><td colSpan={7} style={{ color: 'var(--ink-faint)' }}>Nenhum pedido aberto pra este produto.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tab === 'veeqo' && (
+            <div className="kit-card pad" data-veeqo-history>
+              {/* 09-16 (Bruno): o histórico de estoque da Veeqo, com quem, motivo e nota. Espelhado
+                  a cada 15 min pelo worker veeqo_history; o que era aplicável já virou movimento. */}
+              <div className="kit-mlabel" style={{ marginBottom: 8 }}>Histórico na Veeqo (mais novo primeiro) · edições manuais, contagens, devoluções</div>
+              <table className="kit-table">
+                <thead><tr><th>Quando</th><th>Quem</th><th className="num">Qtd</th><th className="num">Nível depois</th><th>Motivo</th><th>Nota</th><th>Aqui</th></tr></thead>
+                <tbody>
+                  {((d && d.veeqo_history) || []).map((h) => (
+                    <tr key={h.id}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{String(h.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                      <td style={{ color: 'var(--ink-dim)' }} title={h.summary || ''}>{h.actor || (h.action || '').replace(/_/g, ' ')}</td>
+                      <td className="num">{h.increased ? '+' : '-'}{fmt(h.quantity)}</td>
+                      <td className="num">{h.stock_level != null ? fmt(h.stock_level) : '—'}</td>
+                      <td style={{ fontSize: 12.5 }}>{h.reason || '—'}</td>
+                      <td style={{ fontSize: 12.5 }}>{h.notes || '—'}</td>
+                      <td>{h.apply_status === 'applied' ? <span className="kit-chip ok" title={'movimento ' + h.applied_movement_id}>aplicado {h.applied_qty > 0 ? '+' : ''}{h.applied_qty}</span>
+                        : h.apply_status === 'error' ? <span className="kit-chip bad" title={h.skip_reason || ''}>erro</span>
+                        : <span className="kit-chip neutral" title={h.skip_reason || ''}>{h.skip_reason === 'before_baseline' ? 'antes da carga' : h.skip_reason === 'our_own_edit' ? 'nosso ajuste' : 'só registro'}</span>}</td>
+                    </tr>
+                  ))}
+                  {d && !((d.veeqo_history || []).length) && <tr><td colSpan={7} style={{ color: 'var(--ink-faint)' }}>Nenhuma entrada da Veeqo espelhada ainda pra este produto.</td></tr>}
                 </tbody>
               </table>
             </div>

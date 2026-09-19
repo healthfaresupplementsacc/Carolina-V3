@@ -77,8 +77,10 @@ const NOTE_REQUIRED = new Set([
   'machine_downtime', // mudança #5: motivo da parada é obrigatório
   'repair',           // Fase 3.3: conserto de máquina exige nota (motivo)
 ]);
-// Slugs que exigem quantidade de ordens impressas
-const ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
+// Slugs que exigem quantidade de ordens impressas.
+// Bruno 09-14: "já que está sincronizando com a Veeqo, não tem mais necessidade, vamos parar"
+// → NINGUÉM digita quantidade na impressão; o número do dia vem da Veeqo (pedidos com etiqueta).
+const ORDERS_REQUIRED = new Set([]);
 // Mudança #3: Embalagem não pede lote no /op. requires_product no DB segue true
 // (Slack/LLM dependem disso); aqui só a PÁGINA do operador pula produto+lote.
 const NO_PRODUCT_OVERRIDE = new Set(['labeling', 'packaging', 'marketplace_prep']);
@@ -90,8 +92,14 @@ async function main() {
   const c = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await c.connect();
 
-  const acts = await c.query('SELECT slug, requires_product, requires_order_count, counts_as_pp FROM v3.activity_types WHERE active = true');
+  const acts = await c.query('SELECT slug, requires_product, requires_order_count, counts_as_pp, kiosk_group, kiosk_label, display_name, COALESCE(requires_quantity, false) AS requires_quantity FROM v3.activity_types WHERE active = true');
   const bySlug = new Map(acts.rows.map((r) => [r.slug, r]));
+  // TILES CRIADOS PELA TELA (09-12, migration 093): entram no grupo que o Bruno escolheu, no fim.
+  for (const r of acts.rows) {
+    if (!r.kiosk_group) continue;
+    const g = GROUPS.find((x) => x.key === r.kiosk_group); if (!g) continue;
+    if (!g.items.some(([slug]) => slug === r.slug)) g.items.push([r.slug, r.kiosk_label || r.display_name]);
+  }
 
   const groups = GROUPS.map((g) => ({
     key: g.key, icon: g.icon, label: g.label,
@@ -104,6 +112,7 @@ async function main() {
         orders_required: ORDERS_REQUIRED.has(slug),
         requires_order_count: !!bySlug.get(slug).requires_order_count, // FASE 5: pede contagem no FINISH
         counts_as_pp: !!bySlug.get(slug).counts_as_pp,
+        requires_quantity: !!bySlug.get(slug).requires_quantity,   // 09-12: quantidade obrigatória no fim (Produção manual)
       })),
   })).filter((g) => g.types.length);
 

@@ -542,7 +542,13 @@ function createWarehouseRouter(deps = {}) {
     const product = enrich(detail.product, bySku);
     await applyInterimDays([product], db);   // mesma definição de dias da lista
     const fam = await family.forProduct(id, product.available);
-    ok(res, { ...detail, product, family: fam });
+    // 09-16: histórico da Veeqo espelhado (quem, quanto, motivo, nota) — aba "Veeqo" da ficha
+    let veeqoHistory = [];
+    try {
+      veeqoHistory = (await db.query(`SELECT id, created_at, sku, action, summary, actor, quantity, increased, stock_level, reason, notes, apply_status, skip_reason, applied_movement_id, applied_qty
+                                        FROM v3.veeqo_stock_history WHERE product_id = $1 ORDER BY created_at DESC LIMIT 100`, [id])).rows;
+    } catch (_) { veeqoHistory = []; }
+    ok(res, { ...detail, product, family: fam, veeqo_history: veeqoHistory });
   });
 
   // ── ESCRITA de estoque ─────────────────────────────────────

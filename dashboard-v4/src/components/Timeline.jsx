@@ -116,6 +116,36 @@ function TimelineInner({ operators, events, attMarkers, attState, now, hourPx, s
     window.addEventListener('resize', upd);
     return () => { if (ro) ro.disconnect(); window.removeEventListener('resize', upd); };
   }, []);
+
+  // AGORA ANCORADO (Bruno 09-17): "the timeline should always stay with the now on the
+  // same position... the scroll bar should keep moving along... unless I move it manually".
+  // O dia inteiro desliza sozinho pra manter a linha do AGORA sempre no mesmo ponto da
+  // área visível. Assim que a pessoa arrasta a barra, a gente SOLTA e não briga com ela;
+  // volta a seguir sozinho quando ela reencosta no AGORA (tolerância de meia tela).
+  const NOW_ANCHOR = 0.68;             // fração da largura visível onde o AGORA fica parado
+  const followRef = React.useRef(true);   // true = seguindo o AGORA; false = a pessoa assumiu
+  const selfScrollRef = React.useRef(false);   // ignora o onScroll que nós mesmos causamos
+  React.useEffect(() => {
+    const sc = wrapRef.current && wrapRef.current.querySelector('.tl-scroller'); if (!sc) return undefined;
+    const onScroll = () => {
+      if (selfScrollRef.current) { selfScrollRef.current = false; return; }
+      // rolagem humana: só volta a seguir se ela parar perto de onde o AGORA deveria estar
+      const target = (NAME_W + X(now)) - sc.clientWidth * NOW_ANCHOR;
+      const want = Math.max(0, Math.min(sc.scrollWidth - sc.clientWidth, target));
+      followRef.current = Math.abs(sc.scrollLeft - want) <= sc.clientWidth * 0.5;
+    };
+    sc.addEventListener('scroll', onScroll, { passive: true });
+    return () => sc.removeEventListener('scroll', onScroll);
+  }, [now, hourPx, NAME_W, DAY_START]);
+  React.useEffect(() => {
+    if (!showNow || !followRef.current) return;
+    const sc = wrapRef.current && wrapRef.current.querySelector('.tl-scroller'); if (!sc) return;
+    const max = sc.scrollWidth - sc.clientWidth; if (max <= 0) return;
+    const want = Math.max(0, Math.min(max, (NAME_W + X(now)) - sc.clientWidth * NOW_ANCHOR));
+    if (Math.abs(sc.scrollLeft - want) < 1) return;
+    selfScrollRef.current = true;
+    sc.scrollLeft = want;
+  }, [now, hourPx, visW, showNow, trackW, NAME_W, DAY_START]);
   // CORES (Bruno 09-11): estilo global + cor por atividade, por conta (v3.user_prefs 'timeline.colors')
   const [colorsPref, setColorsPref] = useAccountPref('timeline.colors', { style: 'regular', colors: {}, styles: {}, expected: {}, heat: true, doneMark: true, presets: {} }, { localKey: 'hf-tl-colors' });
   const styleOf = (slug) => `bst-${(colorsPref && colorsPref.styles && colorsPref.styles[slug]) || (colorsPref && colorsPref.style) || 'regular'}`;

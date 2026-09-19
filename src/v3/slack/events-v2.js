@@ -122,7 +122,7 @@ async function handleEvent(payload, deps) {
           const post = commandHandler && commandHandler.slack && commandHandler.slack.postAs;
           if (yes && post) {
             const who = pay.slack_user_id ? `<@${pay.slack_user_id}>` : `*${pay.display_name}*`;
-            try { await post({ channel: productionChannelId, sender: { name: 'HealthFare Tracker', icon: ':memo:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text: `${who}, você esqueceu de bater o ponto hoje. Não esquece na próxima.` }); } catch (_) {}
+            try { await post({ channel: productionChannelId, sender: { name: 'HealthFare Tracker', icon: ':memo:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text: `${who}, você não bateu o ponto de entrada hoje. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.` }); } catch (_) {}
           }
           return { handled: true, action: 'noclockin_' + (yes ? 'callout' : 'dismissed') };
         }

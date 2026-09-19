@@ -165,7 +165,8 @@
 
 /* ── FlowHistory: cartões por fluxo com histórico do dia ── */
 .fh { margin-bottom: 12px; }
-.fh-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+/* 1, 2 ou 3 cartões conforme os chips do Fluxo ligados (09-17): auto-fit em vez de 3 fixos */
+.fh-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .fh-cards { grid-template-columns: 1fr; } }
 .fh-card { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--c); border-radius: 12px; padding: 10px 14px; cursor: pointer; }
 .fh-card.flow-production { --c: var(--flow-prod); } .fh-card.flow-pnp { --c: var(--flow-pnp); } .fh-card.flow-support { --c: var(--flow-support); }
@@ -354,3 +355,13 @@
 
 .sp-dur-bar { height: 6px; background: var(--border); border-radius: 999px; overflow: hidden; margin: 6px 0 2px; }
 .sp-dur-bar i { display: block; height: 100%; border-radius: 999px; }
+
+/* TILE NOVO pelo painel de Outros (Bruno 09-12) */
+.others-newtile { grid-column: 1 / -1; background: var(--surface-2); border: 1px dashed var(--primary-line, var(--border)); border-radius: 10px; padding: 10px 12px; margin: 4px 0 6px; }
+.others-newtile .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 12px; align-items: end; }
+.others-newtile label { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--text-2); }
+.others-newtile label.chk { flex-direction: row; align-items: center; gap: 6px; grid-column: span 1; }
+.others-newtile input[type=text], .others-newtile input:not([type]), .others-newtile select { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.others-newtile .err { color: var(--bad); font-size: 12px; margin-top: 6px; }
+.others-newtile .acts { display: flex; gap: 8px; margin-top: 8px; }
+@media (max-width: 800px) { .others-newtile .grid { grid-template-columns: 1fr; } }

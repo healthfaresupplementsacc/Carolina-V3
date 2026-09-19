@@ -11,12 +11,17 @@
  *        curto (IA com fallback nas primeiras palavras) → phase_label; description fica inteira.
  *   GET  /others                 (PIN) → "Outros" ainda não revisados (todos os dias, até resolver)
  *   POST /others/:id/resolve {activity_slug?}  (PIN) → reclassifica (opcional) e marca revisado.
+ *   POST /types {name, group, flow, background?, requires_product?, requires_quantity?, reclassify_event_id?}
+ *        (PIN + função config_page) → TILE NOVO (Bruno 09-12): cria a atividade com kiosk_group,
+ *        o kiosk passa a mostrar (via extra_types do /order, sem regenerar o catálogo) e, se
+ *        veio de um "Outros", já reclassifica aquele registro e marca revisado.
+ *   GET  /types                  (PIN) → tiles criados pela tela.
  *
  * Router pequeno: op.js não cresce. Nunca bloqueia o start; tudo aqui é depois.
  */
 const express = require('express');
 const opAuth = require('../../lib/op-auth');
-const { makeAuthMiddleware } = require('../data/auth');
+const { makeAuthMiddleware, hasFunction } = require('../data/auth');
 
 const BASE = '/api/v3/kiosk';
 const WINDOW_DAYS = 60;
@@ -25,6 +30,25 @@ const CLEAN_KINDS = { linha: 'Linha de produção', capsula: 'Máquina de cápsu
 // vira fila; só o que entrar daqui pra frente fica lá até alguém resolver.
 const OTHERS_SINCE = '2026-09-11';
 const OTHER_SLUGS = ['special_task', 'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other'];
+const KIOSK_GROUPS = ['linha', 'formulacao', 'limpeza', 'embalagem', 'envio', 'outros'];
+const FLOW_CATEGORY = { production: 'production_phase', pnp: 'pnp_phase', support: 'support' };
+
+/** Slug a partir do nome (sem acento, a-z0-9_), com sufixo numérico se já existir. */
+function slugify(name) {
+  return String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'tile';
+}
+/** Valida o pedido de tile novo; devolve {ok, error} ou {ok, type}. Puro. */
+function validateNewType(b) {
+  const name = String((b && b.name) || '').trim().replace(/\s+/g, ' ');
+  if (name.length < 3) return { ok: false, error: 'nome curto demais (mínimo 3 letras)' };
+  if (name.length > 48) return { ok: false, error: 'nome longo demais (máximo 48)' };
+  if (name.includes('�')) return { ok: false, error: 'nome com caractere inválido (codificação): digite de novo' };
+  const group = String((b && b.group) || '').trim();
+  if (!KIOSK_GROUPS.includes(group)) return { ok: false, error: 'grupo do kiosk inválido' };
+  const flow = String((b && b.flow) || 'support').trim();
+  if (!FLOW_CATEGORY[flow]) return { ok: false, error: 'fluxo inválido (production | pnp | support)' };
+  return { ok: true, type: { name, group, flow, category: FLOW_CATEGORY[flow], background: !!(b && b.background), requires_product: !!(b && b.requires_product), requires_quantity: !!(b && b.requires_quantity) } };
+}
 
 /** Primeiro dia do mês (NY) de `now`: a ordem vale o mês inteiro. */
 function monthStartNy(now) {
@@ -58,6 +82,7 @@ function createKioskRouter(deps = {}) {
   const db = deps.db; const provider = deps.provider || null;
   const operatorToken = deps.operatorToken !== undefined ? deps.operatorToken : process.env.OPERATOR_PAGE_TOKEN;
   const nowFn = deps.now || (() => new Date());
+  const notify = deps.notify || null;   // (text, meta) → Promise; wire.js liga no Slack
   const router = express.Router();
   router.use(BASE, express.json({ limit: '32kb' }));
   const ok = (res, data) => res.json({ data });
@@ -97,7 +122,13 @@ function createKioskRouter(deps = {}) {
       }
       let hidden = [];
       try { const kp = (await db.query('SELECT kiosk_prefs FROM v3.persons WHERE id = $1', [s.person_id])).rows[0]; hidden = (kp && kp.kiosk_prefs && Array.isArray(kp.kiosk_prefs.hidden_groups)) ? kp.kiosk_prefs.hidden_groups : []; } catch (_) { hidden = []; }
-      ok(res, { month, window_days: WINDOW_DAYS, types, clean_kinds, hidden_groups: hidden });
+      // TILES CRIADOS PELA TELA (09-12): o kiosk mistura no grupo sem regenerar fuse-data.js
+      let extra_types = [];
+      try {
+        extra_types = (await db.query(`SELECT slug, COALESCE(kiosk_label, display_name) AS label, kiosk_group AS "group", requires_product, is_background, COALESCE(requires_quantity, false) AS requires_quantity
+                                          FROM v3.activity_types WHERE active = true AND kiosk_group IS NOT NULL ORDER BY created_at, id`)).rows;
+      } catch (_) { extra_types = []; }
+      ok(res, { month, window_days: WINDOW_DAYS, types, clean_kinds, hidden_groups: hidden, extra_types });
     } catch (e) { console.error('[kiosk]', e.message); err(res, 'internal', e.message, 500); }
   });
 
@@ -156,7 +187,52 @@ function createKioskRouter(deps = {}) {
     } catch (e) { console.error('[kiosk]', e.message); err(res, 'internal', e.message, 500); }
   });
 
+  router.get(BASE + '/types', makeAuthMiddleware({ db }), async (req, res) => {
+    try {
+      const r = await db.query(`SELECT id, slug, display_name, kiosk_group, flow, is_background, requires_product, COALESCE(requires_quantity, false) AS requires_quantity, created_via, created_at
+                                  FROM v3.activity_types WHERE kiosk_group IS NOT NULL ORDER BY created_at DESC, id DESC`);
+      ok(res, { rows: r.rows, groups: KIOSK_GROUPS });
+    } catch (e) { console.error('[kiosk]', e.message); err(res, 'internal', e.message, 500); }
+  });
+
+  router.post(BASE + '/types', makeAuthMiddleware({ db }), async (req, res) => {
+    try {
+      if (!hasFunction(req.login, 'config_page')) return err(res, 'forbidden', 'Só quem tem a função Configurações cria tile novo.', 403);
+      const v = validateNewType(req.body || {});
+      if (!v.ok) return err(res, 'invalid', v.error);
+      const t = v.type;
+      const dup = (await db.query('SELECT id, slug, display_name, active FROM v3.activity_types WHERE LOWER(display_name) = LOWER($1)', [t.name])).rows[0];
+      if (dup) return err(res, 'duplicate_name', `já existe uma atividade chamada "${dup.display_name}" (${dup.slug}${dup.active ? '' : ', inativa'})`, 409);
+      let slug = slugify(t.name);
+      for (let i = 2; i < 50; i++) {
+        const taken = (await db.query('SELECT 1 FROM v3.activity_types WHERE slug = $1', [slug])).rows[0];
+        if (!taken) break; slug = slugify(t.name) + '_' + i;
+      }
+      const ins = (await db.query(`
+        INSERT INTO v3.activity_types (slug, display_name, category, requires_product, emoji, active, flow, is_background, kiosk_group, kiosk_label, created_via, created_at, requires_quantity)
+        VALUES ($1, $2, $3, $4, '✨', true, $5, $6, $7, $2, $8, NOW(), $9) RETURNING id, slug, display_name`,
+        [slug, t.name, t.category, t.requires_product, t.flow, t.background, t.group, 'dashboard:' + ((req.login && req.login.name) || '?'), t.requires_quantity])).rows[0];
+      let reclassified = null;
+      const evId = parseInt((req.body || {}).reclassify_event_id, 10);
+      if (evId) {
+        await db.query('UPDATE v3.events SET activity_type_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL', [evId, ins.id]);
+        await db.query('UPDATE v3.events SET other_reviewed_at = NOW(), other_reviewed_by = $2 WHERE id = $1 AND deleted_at IS NULL RETURNING id', [evId, (req.login && req.login.name) || null]);
+        reclassified = evId;
+      }
+      try { await db.query(`INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('admin', NULL, 'activity_type.created', 'activity_type', $1, $2::jsonb)`, [ins.id, JSON.stringify({ login: req.login && req.login.name, ...t, slug: ins.slug, reclassified })]); } catch (_) { /* nunca derruba */ }
+      // AVISA O CLAUDE DE PLANTÃO (Bruno 09-12): "whatever claude is running should be notified so it
+      // can fix it with me in case it's needed". Mensagem no supplements-dashboard (o watchdog/listener
+      // leva pro inbox do Claude). Fire-and-forget: nunca segura a resposta.
+      if (typeof notify === 'function') {
+        const who = (req.login && req.login.name) || '?';
+        const txt = `@claude tile novo no kiosk, criado por ${who}: *${ins.display_name}* (\`${ins.slug}\`, grupo ${t.group}, fluxo ${t.flow}${t.requires_product ? ', pede produto' : ''}${t.requires_quantity ? ', pede quantidade ao terminar' : ''}${t.background ? ', roda em paralelo' : ''})${reclassified ? `, registro ev${reclassified} já reclassificado` : ''}. Confere se precisa de algo a mais (subtipo, trilho na linha do tempo, regra especial) e ajusta com o Bruno se for o caso.`;
+        Promise.resolve().then(() => notify(txt, { slug: ins.slug, id: ins.id })).catch((e) => console.error('[kiosk types] notify:', e.message));
+      }
+      ok(res, { id: ins.id, slug: ins.slug, name: ins.display_name, group: t.group, flow: t.flow, reclassified });
+    } catch (e) { console.error('[kiosk types]', e.message); err(res, 'internal', e.message, 500); }
+  });
+
   return router;
 }
 
-module.exports = { createKioskRouter, monthStartNy, fallbackTitle, summarize, CLEAN_KINDS, OTHER_SLUGS, BASE };
+module.exports = { createKioskRouter, monthStartNy, fallbackTitle, summarize, slugify, validateNewType, CLEAN_KINDS, OTHER_SLUGS, KIOSK_GROUPS, BASE };

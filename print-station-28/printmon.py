@@ -68,10 +68,36 @@ def enable_log():
     ps("""$c=New-Object System.Diagnostics.Eventing.Reader.EventLogConfiguration('Microsoft-Windows-PrintService/Operational');
            if(-not $c.IsEnabled){ $c.IsEnabled=$true; $c.MaximumSizeInBytes=20MB; $c.SaveChanges() }""")
 
+_printers = {'names': [], 'ts': 0.0}
+PRINTERS_TTL = 60.0
+
+def printer_names():
+    """Printer list, CACHED. Get-Printer alone costs ~1.1s on .28; running it on every 2s poll made a
+    full cycle ~4s wide, so a job that printed in a couple of seconds could start AND finish between
+    two snapshots and never be seen. The printer list practically never changes -> refresh once a
+    minute instead. 2026-09-11."""
+    now = time.time()
+    if not _printers['names'] or (now - _printers['ts']) > PRINTERS_TTL:
+        out = ps("Get-Printer | Select-Object -ExpandProperty Name | ConvertTo-Json -Compress")
+        try:
+            data = json.loads(out) if out.strip() else []
+            if isinstance(data, str):
+                data = [data]
+            data = [d for d in data if d]
+            if data:
+                _printers['names'] = data
+                _printers['ts'] = now
+        except Exception:
+            pass
+    return _printers['names']
+
 def snapshot_jobs():
     """Current print jobs across ALL printers -> {jobid: {...}}. Includes 'Retained' (just-finished) jobs."""
-    out = ps(r"""
-$printers = Get-Printer | Select-Object -ExpandProperty Name
+    names = printer_names()
+    if not names:
+        return {}
+    plist = ','.join("'" + n.replace("'", "''") + "'" for n in names)
+    out = ps("$printers = @(" + plist + ")" + r"""
 $rows = foreach($p in $printers){
   Get-PrintJob -PrinterName $p -ErrorAction SilentlyContinue | ForEach-Object {
     [pscustomobject]@{
@@ -216,6 +242,148 @@ def _presence():
     except Exception:
         return {}
 
+# ---- EVENT-LOG BACKSTOP (2026-09-11) --------------------------------------------------------------
+# The queue poll can only see a job while it is actually sitting in the spooler. Each cycle costs a
+# PowerShell spawn plus the poll sleep, so a job that prints in a couple of seconds can start AND
+# finish between two snapshots. That is exactly what happened on 2026-09-11: jobs 2 (8s in queue) and
+# 3 (2s) printed and were never captured, and printlog.jsonl went two days without an entry while the
+# EPSON was being used. Every job the poll DID catch had lasted 18-31s.
+# PrintService/Operational event 307 (DocumentPrinted) records every completed job reliably, so we
+# reconcile against it once a minute and ship anything the live path missed. Field layout of 307 is
+# positional: Param1 JobId, Param2 document, Param3 user, Param5 printer, Param7 size, Param8 pages.
+BACKSTOP_EVERY = float(CFG.get('backstop_sec', 60))
+BACKSTOP_WINDOW_MIN = int(CFG.get('backstop_window_min', 180))
+BACKSTOP_STATE = os.path.join(BASE, 'backstop_seen.json')
+_last_backstop = [0.0]
+
+def _backstop_load():
+    try:
+        with open(BACKSTOP_STATE) as f:
+            return set(json.load(f))
+    except Exception:
+        return set()
+
+def _backstop_save(keys):
+    try:
+        with open(BACKSTOP_STATE, 'w') as f:
+            json.dump(sorted(keys)[-500:], f)
+    except Exception:
+        pass
+
+def _printlog_recent():
+    """(id, completed_ts) already in the durable log, so we never double-ship what the poll caught."""
+    rows = []
+    try:
+        with open(LOG_PATH, encoding='utf-8') as f:
+            for line in f.readlines()[-400:]:
+                try:
+                    j = json.loads(line)
+                    rows.append((int(j.get('id')), int(j.get('completed_ts') or 0)))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return rows
+
+def completed_events():
+    """Jobs PrintService says finished inside the window (event 307 = DocumentPrinted).
+    2026-09-12 (Tracker Claude): WhenTs era `Get-Date -UFormat %s`, que no Windows PowerShell 5.1
+    trata a hora LOCAL como UTC (4h a menos no verao). Os jobs do backstop chegavam ao dashboard
+    com completed_at errado. Agora DateTimeOffset.ToUnixTimeSeconds() = epoch verdadeiro."""
+    out = ps("$since = (Get-Date).AddMinutes(-" + str(BACKSTOP_WINDOW_MIN) + ")" + r"""
+$rows = Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PrintService/Operational'; Id=307; StartTime=$since} -ErrorAction SilentlyContinue | ForEach-Object {
+  $n=([xml]$_.ToXml()).Event.UserData.FirstChild
+  [pscustomobject]@{
+    JobId=$n.Param1; Document=$n.Param2; User=$n.Param3; Printer=$n.Param5;
+    Size=$n.Param7; Pages=$n.Param8; When=$_.TimeCreated.ToString('o');
+    WhenTs=[int][DateTimeOffset]::new($_.TimeCreated).ToUnixTimeSeconds()
+  }
+}
+$rows | ConvertTo-Json -Compress -Depth 3
+""")
+    try:
+        data = json.loads(out) if out.strip() else []
+        if isinstance(data, dict):
+            data = [data]
+        return data
+    except Exception:
+        return []
+
+def event_extras_at(jobid, ts):
+    """Same as event_extras(), but TIME-BOUNDED to the minutes around the job.
+    Windows RESETS the JobId counter on reboot (ids went 21 -> 2 on 2026-09-10), so an unbounded scan
+    of the last 200 events can match a stale 805/842 belonging to an OLDER job that reused this id.
+    That is exactly how the first backstop run recorded copies=999 for job 3 whose real value was 300.
+    2026-09-11."""
+    if not ts:
+        return event_extras(jobid)
+    out = ps("$c = [DateTimeOffset]::FromUnixTimeSeconds(" + str(int(ts)) + ").LocalDateTime" + r"""
+$copies=$null; $printer=$null; $err=$null
+Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-PrintService/Operational'; StartTime=$c.AddMinutes(-10); EndTime=$c.AddMinutes(2)} -ErrorAction SilentlyContinue | ForEach-Object {
+  $n=([xml]$_.ToXml()).Event.UserData.FirstChild
+  if("$($n.JobId)" -eq "__JID__"){
+    if($_.Id -eq 805){ $copies=$n.Copies }
+    if($_.Id -eq 842){ $printer=$n.Printer; $err=$n.ErrorCode }
+  }
+}
+[pscustomobject]@{Copies=$copies;Printer=$printer;Error=$err} | ConvertTo-Json -Compress
+""".replace('__JID__', str(jobid)))
+    try:
+        return json.loads(out) if out.strip() else {}
+    except Exception:
+        return {}
+
+def backstop_sweep():
+    """Ship any completed job the queue poll missed. Keyed by jobid+event time, so it stays correct
+    even though Windows RESETS the JobId counter after a reboot (ids went 21 -> 2 on 2026-09-10)."""
+    seen = _backstop_load()
+    logrows = _printlog_recent()
+    changed = False
+    for e in completed_events():
+        try:
+            jid = int(e.get('JobId'))
+        except Exception:
+            continue
+        key = str(jid) + '@' + str(e.get('When') or '')
+        if key in seen:
+            continue
+        ts = _int(e.get('WhenTs')) or 0
+        # already shipped by the live queue path? same id, finished around the same moment
+        if any(lid == jid and ts and abs(lts - ts) <= 900 for lid, lts in logrows):
+            seen.add(key)
+            changed = True
+            continue
+        ex = event_extras_at(jid, ts) or {}
+        pages = _int(e.get('Pages'))
+        copies = _int(ex.get('Copies')) or 1
+        job = {
+            'id': jid,
+            'computer': COMPUTER,
+            'document': e.get('Document'),
+            'printer': ex.get('Printer') or e.get('Printer'),
+            'user': e.get('User'),
+            'pages': pages,
+            'copies': copies,
+            'sheets': (pages or 0) * copies,
+            'size_bytes': _int(e.get('Size')),
+            'submitted': None,
+            'completed_ts': ts,
+            'duration_sec': None,
+            'app_opened': None,
+            'status': 'completed',
+            'error': ex.get('Error'),
+            'operator': 'Unknown',
+            'session_active_sec': None,
+            'ts': ts,
+            'source': 'event-backstop',
+        }
+        ship(job)
+        print('backstop shipped missed job', jid, job.get('document'), flush=True)
+        seen.add(key)
+        changed = True
+    if changed:
+        _backstop_save(seen)
+
 def main():
     enable_log()
     print(f'printmon watching all printers on {COMPUTER} (poll {POLL}s)', flush=True)
@@ -278,6 +446,10 @@ def main():
                 }
                 ship(job)
                 first_seen.pop(jid, None); app_open.pop(jid, None)
+            # reconcile against the event log so a job shorter than the poll cycle is never lost
+            if time.time() - _last_backstop[0] > BACKSTOP_EVERY:
+                _last_backstop[0] = time.time()
+                backstop_sweep()
         except Exception as e:
             print('printmon loop err:', e, flush=True)
         time.sleep(POLL)
@@ -294,14 +466,49 @@ def _iso_ts(s):
     except Exception:
         return None
 
+# Handle do mutex — DEVE ficar vivo pela vida do processo. O bug do spam (Bruno 07-27):
+# o handle era descartado logo apos CreateMutexW, o kernel liberava o mutex, e o PROXIMO
+# printmon (revivido pelo watchdog 4min depois) NAO via ERROR_ALREADY_EXISTS -> 2 rodando.
+_MUTEX_HANDLE = None
+
+def _other_printmon_running():
+    """Belt-and-suspenders alem do mutex: varre a lista de processos por OUTRO pythonw
+    rodando printmon.py (funciona entre sessoes SYSTEM x usuario, onde o mutex 'Global\\'
+    ja deveria bastar, mas garantimos). Retorna True se existe outro (PID != o nosso)."""
+    import ctypes, subprocess
+    me = os.getpid()
+    try:
+        out = subprocess.run(
+            ['wmic', 'process', 'where', "name='pythonw.exe'", 'get', 'ProcessId,CommandLine', '/format:csv'],
+            capture_output=True, text=True, timeout=10, creationflags=0x08000000).stdout
+    except Exception:
+        return False
+    n = 0
+    for line in out.splitlines():
+        if 'printmon.py' in line:
+            # ultima coluna do CSV = ProcessId
+            try:
+                pid = int(line.strip().rsplit(',', 1)[-1])
+            except Exception:
+                continue
+            if pid != me:
+                n += 1
+    return n > 0
+
 def _single_instance():
     """Guard de INSTANCIA UNICA (Bruno 07-27): impede 2 printmon rodando ao mesmo
     tempo (a causa do spam '3x Melatonin' — 2 processos notificando o mesmo job).
-    Se ja existe um, este SAI na hora. Mutex nomeado no kernel do Windows."""
+    Se ja existe um, este SAI na hora."""
+    global _MUTEX_HANDLE
     import ctypes
+    from ctypes import wintypes
     k32 = ctypes.windll.kernel32
-    k32.CreateMutexW(None, False, 'Global\\HF_Printmon_SingleInstance')
-    if k32.GetLastError() == 183:   # ERROR_ALREADY_EXISTS
+    k32.CreateMutexW.restype = wintypes.HANDLE
+    k32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    _MUTEX_HANDLE = k32.CreateMutexW(None, False, 'Global\\HF_Printmon_SingleInstance')
+    already = (k32.GetLastError() == 183)   # ERROR_ALREADY_EXISTS
+    # o mutex e a defesa primaria; a varredura de processos cobre qualquer brecha entre sessoes
+    if already or _other_printmon_running():
         try:
             with open(r'C:\ProgramData\MediaServer\logs\printmon.out.log', 'a', encoding='utf-8') as f:
                 f.write(time.strftime('%Y-%m-%d %H:%M:%S') + '  ja ha um printmon rodando -> saindo\n')

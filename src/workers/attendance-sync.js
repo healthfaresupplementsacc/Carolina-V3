@@ -23,11 +23,11 @@
  */
 const TZ = 'America/New_York';
 const NUDGE_MIN = 15;          // min sem tarefa depois de bater o ponto → cobrar
-const NOCLOCK_GRACE_MIN = 30;  // min de tarefa aberta sem ponto antes de perguntar (margem pro sync NGTeco — Bruno 07-28)
+const NOCLOCK_GRACE_MIN = 45;  // min de tarefa aberta sem ponto antes de perguntar (margem pro sync NGTeco — Bruno 07-28; 45 em 09-17: relógio demorando mais)
 // margem pro NGTeco entregar a batida (às vezes demora minutos). Antes de concluir
 // "esqueceu de bater", espera isso — senão marca quem BATEU mas o dado atrasou.
 // Caso Simone 07-27: bateu 15:04, batida chegou 15:09 (5min), worker disparou 15:06.
-const NGTECO_SYNC_GRACE_MIN = 15;
+const NGTECO_SYNC_GRACE_MIN = 45;   // Bruno 09-17: "espera 45 min, só pra garantir" — o NGTeco está demorando mais pra mostrar a batida
 // janela em que uma batida de saída é tratada como ALMOÇO (fora dela = saída do dia)
 const LUNCH_WIN = { from: 10 * 60, to: 15 * 60 + 30 };  // 10:00–15:30 NY
 // Batida a partir daqui (17:00 NY) = SAÍDA do dia, nunca volta de almoço (Bruno 08-01:
@@ -261,7 +261,7 @@ class AttendanceSync {
         `UPDATE v3.att_state SET manual_return_at=$3, state='in', last_in_at=$3, break_started_at=NULL, updated_at=NOW()
           WHERE person_id=$1 AND att_date=$2::date`, [r.person_id, today, ret]);
       const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
-      await this._operators(`${who}, você esqueceu de bater a volta do almoço. Considerei a volta pela hora que retomou a tarefa. Bate saída e volta na próxima.`);
+      await this._operators(`${who}, você não bateu o ponto da volta do almoço. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);   // Bruno 09-17: nunca dizer que consertei
       await this._admin(`${r.display_name} voltou do almoço sem bater a volta. Volta = início da tarefa (${this._fmtNY(ret)}).`);
       await this._audit('att.forgot_lunch_return_punch', r.person_id, { return_at: ret });
     }
@@ -290,9 +290,13 @@ class AttendanceSync {
            FROM v3.events e JOIN v3.activity_types at2 ON at2.id = e.activity_type_id
           WHERE e.deleted_at IS NULL AND at2.slug = ANY($2::text[])
             AND (e.started_at AT TIME ZONE '${TZ}')::date = $1::date
-            AND e.ended_at IS NOT NULL AND e.ended_at < NOW() - INTERVAL '30 minutes'
+            AND e.ended_at IS NOT NULL AND e.ended_at < NOW() - INTERVAL '45 minutes'   -- 09-17: 45 min de margem pro NGTeco
           GROUP BY e.person_id )
-       SELECT s.person_id, p.display_name, p.slack_user_id, p.clock_code
+       SELECT s.person_id, p.display_name, p.slack_user_id, p.clock_code,
+              EXISTS (SELECT 1 FROM v3.att_punch ap WHERE ap.person_id = s.person_id AND ap.att_date = $1::date
+                       AND ap.punch_time BETWEEN l.lunch_out - INTERVAL '20 minutes' AND l.lunch_out + INTERVAL '20 minutes') AS has_out,
+              EXISTS (SELECT 1 FROM v3.att_punch ap WHERE ap.person_id = s.person_id AND ap.att_date = $1::date
+                       AND ap.punch_time BETWEEN l.lunch_in - INTERVAL '20 minutes' AND l.lunch_in + INTERVAL '20 minutes') AS has_in
          FROM v3.att_state s
          JOIN v3.persons p ON p.id = s.person_id
          JOIN lunch l ON l.person_id = s.person_id
@@ -312,8 +316,11 @@ class AttendanceSync {
       if (!v.ok) { console.log(`[att-sync] lunch_punch_missing ${r.display_name} ABORTADO: ${v.reason}`); continue; }
       await this.db.query(`UPDATE v3.att_state SET lunch_punch_callout_at=NOW(), updated_at=NOW() WHERE person_id=$1 AND att_date=$2::date`, [r.person_id, today]);
       const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
-      await this._operators(`${who}, faltou bater o ponto no almoço hoje (saída e volta). Já ajustei aqui, mas capricha na próxima.`);
-      await this._audit('att.lunch_punch_missing', r.person_id, {});
+      // Bruno 09-17: dizer QUAL faltou, nunca "ajustei"; o operador só ouve "reportei".
+      const qual = (!r.has_out && !r.has_in) ? 'do almoço (saída e volta)' : (!r.has_out ? 'da saída do almoço' : 'da volta do almoço');
+      await this._operators(`${who}, você não bateu o ponto ${qual}. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);
+      await this._admin(`${r.display_name} não bateu o ponto ${qual} hoje. Confiram no NGTeco. (Avisei no grupo.)`);
+      await this._audit('att.lunch_punch_missing', r.person_id, { has_out: !!r.has_out, has_in: !!r.has_in });
     }
   }
 
@@ -393,7 +400,7 @@ class AttendanceSync {
       const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
       // SEM horário. Grave. Aviso que estou notificando pra consertar o clock-out.
       await this._operators(
-        `:rotating_light: ${who}, ontem você não bateu a saída no relógio. Isso é sério (folha, horas). Vou pedir pra corrigirem. Não esqueça de bater a saída ao ir embora.`);
+        `${who}, ontem você não bateu o ponto de saída. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);   // Bruno 09-17: texto fixo, sem "vou corrigir"
       // admin recebe COM o horário pra poder corrigir (interno)
       await this._admin(
         `:rotating_light: ${r.display_name} não bateu a saída ontem. Corrijam o clock-out dela no NGTeco. (Avisei no grupo, sem horário.)`);

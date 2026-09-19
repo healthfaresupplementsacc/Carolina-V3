@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from './Icons.jsx';
 import { OperatorAvatar, FlowPill, ProductChip } from './Primitives.jsx';
 import { getExpectations, getHistory } from '../adapters/duration-api.js';
+import { getLabelRecord } from '../adapters/journey-api.js';
 import L from './timeline-layout.cjs';
 
 /* Painel flutuante de evento — E7 substitui o "side panel" lateral com
@@ -95,6 +96,51 @@ function DurationStats({ event, dur, isLive, fmtDur }) {
           {hist.rows.map((r) => (<div key={r.id} className="sp-dur-row sub"><span>{stamp(r.ended_at)} · {(r.person || '').split(' ')[0]}{!productId && r.product ? ' · ' + r.product : ''}</span><b className="mono">{fmtDur(Number(r.duration_min))}</b></div>))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* PrintRecord (Bruno 09-12): "no histórico da tarefa deveria ter: imprimiu tantos labels pro
+   suplemento tal, batch tal, e quanto tempo a impressora demorou pra imprimir essa quantidade.
+   Isso é um sistema de gravar records." Lê /api/v3/journey/label-event/:id. Só leitura. */
+function PrintRecord({ event }) {
+  const [rec, setRec] = React.useState(undefined);
+  React.useEffect(() => {
+    let alive = true;
+    if (typeof event.id !== 'number') { setRec(null); return undefined; }
+    getLabelRecord(event.id).then((d) => { if (alive) setRec(d); }).catch(() => { if (alive) setRec(null); });
+    const t = event.end ? null : setInterval(() => { getLabelRecord(event.id).then((d) => { if (alive) setRec(d); }).catch(() => {}); }, 30000);
+    return () => { alive = false; if (t) clearInterval(t); };
+  }, [event.id, event.end]);
+  const hm = (iso) => { try { return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)); } catch (_) { return ''; } };
+  const secTxt = (s) => { s = Math.round(Number(s) || 0); if (!s) return '—'; return s < 90 ? s + 's' : Math.floor(s / 60) + 'min' + (s % 60 ? ' ' + (s % 60) + 's' : ''); };
+  if (rec === undefined) return <div className="sp-dur"><div className="sp-dur-h">Impressões</div><div className="muted">carregando…</div></div>;
+  if (!rec || !rec.jobs || rec.jobs.length === 0) return <div className="sp-dur"><div className="sp-dur-h">Impressões</div><div className="muted">Nenhuma impressão registrada neste período (a impressora ainda não reportou, ou a pessoa só ficou logada no PC).</div></div>;
+  const s = rec.summary;
+  return (
+    <div className="sp-dur" data-print-record>
+      <div className="sp-dur-h">Impressões · {s.jobs} {s.jobs === 1 ? 'arquivo' : 'arquivos'}</div>
+      <div className="sp-dur-row"><span>Labels</span><b className="mono">{s.labels.toLocaleString('pt-BR')}</b><small>{s.by_product.length} {s.by_product.length === 1 ? 'produto' : 'produtos'}</small></div>
+      <div className="sp-dur-row"><span>Impressora</span><b className="mono">{secTxt(s.print_seconds)}</b><small>{s.labels_per_min != null ? `${s.labels_per_min} labels/min` : 'tempo físico não medido'}</small></div>
+      {s.errors > 0 && <div className="sp-dur-row"><span>Erros</span><b style={{ color: 'var(--bad)' }}>{s.errors}</b></div>}
+      <div className="sp-dur-hist">
+        <div className="sp-dur-hh">Por produto</div>
+        {s.by_product.map((p, i) => (
+          <div key={i} className="sp-dur-row sub"><span>{p.product}{p.batch ? ' · lote ' + p.batch : ''}</span><b className="mono">{p.labels.toLocaleString('pt-BR')}</b><small>{p.jobs}× · {secTxt(p.print_seconds)}</small></div>
+        ))}
+        <div className="sp-dur-hh" style={{ marginTop: 6 }}>Cada impressão</div>
+        {rec.jobs.map((j) => {
+          const n = j.machine_labels != null ? j.machine_labels : j.sheets;
+          const bad = j.error || /err|fail|falh/i.test(String(j.status || ''));
+          return (
+            <div key={j.id} className="sp-dur-row sub" title={j.document || ''} style={bad ? { color: 'var(--bad)' } : undefined}>
+              <span>{hm(j.printed_at || j.completed_at || j.submitted_at)} · {j.product || j.document || '?'}{j.batch ? ' · ' + j.batch : ''}</span>
+              <b className="mono">{n != null ? Number(n).toLocaleString('pt-BR') : '?'}</b>
+              <small>{j.print_seconds ? secTxt(j.print_seconds) + (n ? ` · ${Math.round((n / j.print_seconds) * 60)}/min` : '') : 'sem tempo físico'}{j.machine_labels != null ? ' · máquina' : ''}{j.aggregated_jobs > 1 ? ` · ${j.aggregated_jobs} arquivos juntos` : ''}{bad ? ' · ' + (j.error || j.status) : ''}</small>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -482,6 +528,7 @@ function SidePanel({ event, onClose, onUpdate, onDelete, operators, now,
             {event.qty && (
               <Field label="Quantidade" en="Quantity"><b>{event.qty}</b> <span style={{ color: "var(--text-3)" }}>{event.unit}</span></Field>
             )}
+            {event.activity === 'label_printing' && <PrintRecord event={event}/>}
             {event.description && (
               <Field label="Descrição" en="Description"><span style={{ fontStyle: "italic", color: "var(--text-2)" }}>{event.description}</span></Field>
             )}

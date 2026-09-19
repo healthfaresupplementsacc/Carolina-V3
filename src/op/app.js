@@ -27,7 +27,19 @@
   // S.order = { types: {slug: n}, clean_kinds: {kind: n} } vindo de /api/v3/kiosk/order.
   function loadOrder() {
     if (!S.session || S._orderBusy) return; S._orderBusy = true;
-    api('/api/v3/kiosk/order').then(function (r) { S.order = (r && r.data) || null; S._orderBusy = false; if (S.flow) render(); }).catch(function () { S._orderBusy = false; });
+    api('/api/v3/kiosk/order').then(function (r) { S.order = (r && r.data) || null; S._orderBusy = false; mergeExtraTypes(); if (S.flow) render(); }).catch(function () { S._orderBusy = false; });
+  }
+  // TILES CRIADOS PELA TELA (Bruno 09-12): o dashboard cria a atividade com kiosk_group e ela
+  // entra aqui no grupo certo, sem regenerar fuse-data.js. Idempotente (não duplica slug).
+  function mergeExtraTypes() {
+    var xs = (S.order && S.order.extra_types) || [];
+    for (var i = 0; i < xs.length; i++) {
+      var x = xs[i]; if (!x || !x.slug) continue;
+      var g = (DATA.groups || []).find(function (gg) { return gg.key === x.group; });
+      if (!g) { g = { key: x.group || 'outros', icon: '✨', label: x.group || 'Outros', types: [] }; DATA.groups = (DATA.groups || []).concat([g]); }
+      if ((g.types || []).some(function (t) { return t.slug === x.slug; })) continue;
+      g.types = (g.types || []).concat([{ slug: x.slug, label: x.label, requires_product: !!x.requires_product, note_required: false, orders_required: false, requires_order_count: false, counts_as_pp: false, is_background: !!x.is_background, requires_quantity: !!x.requires_quantity, extra: true }]);
+    }
   }
   function useCount(slug) { return (S.order && S.order.types && S.order.types[slug]) || 0; }
   function sortedGroups() {
@@ -1172,7 +1184,7 @@
     if (o.type === 'reclassify') return reclassifyInner(o);
     if (o.type === 'detectWhen') return detectWhenInner(o);
     if (o.type === 'finish' && o.cowork && !o.lastFinisher) return finishCoworkInner(o);
-    if (o.type === 'finish' && (o.slug === 'production_line' || o.needsFnsku)) return finishProdInner(o);
+    if (o.type === 'finish' && (o.slug === 'production_line' || o.needsFnsku || o.requiresQty)) return finishProdInner(o);
     if (o.type === 'finish' && o.needsOrders) return finishOrdersInner(o); // FASE 5 — P&P
     if (o.type === 'finish') {
       var inner = cardOpen(460) + '<div style="display:flex; align-items:center; gap:13px; margin-bottom:18px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.1); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svg(iconPath(o.slug), 26, 1.7) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:700; font-size:19px; color:#0c2545;">Finalizar: ' + esc(o.label) + '</div></div>';
@@ -1793,7 +1805,7 @@
     var id = t.id;
     var isCw = !!t.cowork_group_id;
     var tm = typeMeta(t.slug) || {};
-    S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: t.label || labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0, needsFnsku: t.slug === 'fnsku_labeling', needsOrders: !!tm.requires_order_count && ['order_printing', 'order_printing_2'].indexOf(t.slug) < 0, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
+    S.overlay = { type: 'finish', eventId: id, slug: t.slug, label: t.label || labelOf(t.slug), product: t.product || t.supplement || t.supplement_name || null, batch: t.batch_number || null, needsCount: ['production_line', 'encapsulation'].indexOf(t.slug) >= 0 || !!tm.requires_quantity, requiresQty: !!tm.requires_quantity, needsFnsku: t.slug === 'fnsku_labeling', needsOrders: !!tm.requires_order_count && ['order_printing', 'order_printing_2'].indexOf(t.slug) < 0, bottles: '', orders: '', marketplace: '', note: '', exc: false, reason: '', cowork: isCw, coworkRemaining: Array.isArray(t.cowork_with) ? t.cowork_with.length : 0, lastFinisher: false, previewing: isCw };
     render();
     api('/api/v3/op/event/' + id + '/finish-preview').then(function (pv) {
       var o = S.overlay; if (!o || o.type !== 'finish' || String(o.eventId) !== String(id)) return;
@@ -1832,7 +1844,7 @@
     // cowork: membro NÃO-último fecha SÓ a parte dele (sem contagem). Se o backend
     // disser que ele é o último de production_line, abre a tela de contagem.
     if (o.cowork && !o.lastFinisher) { postFinishCowork(o); return; }
-    if (o.slug === 'production_line' || o.needsFnsku) {
+    if (o.slug === 'production_line' || o.needsFnsku || o.requiresQty) {   // requiresQty: tiles com quantidade obrigatória no fim (Produção manual, 09-12)
       var nounF = o.needsFnsku ? 'FNSKU / labels foram colados' : 'bottles foram produzidas';
       if (!o.exc) {
         if (!(parseInt(o.bottles, 10) >= 1)) {
@@ -1908,7 +1920,7 @@
   }
   function postFinish(o) {
     var body;
-    if (o.exc && (o.slug === 'production_line' || o.needsFnsku || o.needsOrders)) {
+    if (o.exc && (o.slug === 'production_line' || o.needsFnsku || o.needsOrders || o.requiresQty)) {
       body = { exception_no_count: true, exception_reason: (o.reason || '').trim(), note: (o.note || '').trim() || null };
     } else if (o.needsOrders) {
       body = { orders_count: parseInt(o.orders, 10), marketplace: o.marketplace || null, note: (o.note || '').trim() || null };

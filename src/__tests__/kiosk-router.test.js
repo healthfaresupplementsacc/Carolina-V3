@@ -26,7 +26,7 @@ describe('puro', () => {
 });
 
 const PAGE = 'page-fake'; const SESSION = 'sess-fake';
-const state = { phase: {}, reviewed: {}, reclass: {} };
+const state = { phase: {}, reviewed: {}, reclass: {}, notified: [] };
 const db = {
   async query(sql, params) {
     const q = String(sql).replace(/\s+/g, ' ');
@@ -40,11 +40,15 @@ const db = {
     if (q.startsWith('UPDATE v3.events SET activity_type_id')) { state.reclass[params[0]] = params[1]; return { rows: [] }; }
     if (q.startsWith('UPDATE v3.events SET other_reviewed_at')) { state.reviewed[params[0]] = params[1]; return { rows: [{ id: params[0] }] }; }
     if (q.startsWith('INSERT INTO v3.audit_log')) return { rows: [] };
+    if (q.includes('kiosk_group IS NOT NULL ORDER BY created_at, id')) return { rows: [{ slug: 'troca_de_bobina', label: 'Troca de bobina', group: 'linha', requires_product: false, is_background: false, requires_quantity: true }] };
+    if (q.startsWith('SELECT id, slug, display_name, active FROM v3.activity_types WHERE LOWER(display_name)')) return { rows: params[0].toLowerCase() === 'revisão' ? [{ id: 5, slug: 'review', display_name: 'Revisão', active: true }] : [] };
+    if (q.startsWith('SELECT 1 FROM v3.activity_types WHERE slug')) return { rows: params[0] === 'troca_de_bobina' ? [{ 1: 1 }] : [] };
+    if (q.includes('INSERT INTO v3.activity_types')) { state.created = params; return { rows: [{ id: 99, slug: params[0], display_name: params[1] }] }; }
     return { rows: [] };
   },
 };
 let server, base;
-beforeAll(async () => { const app = express(); app.use('/', K.createKioskRouter({ db, operatorToken: PAGE, provider: null })); server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); }); base = 'http://127.0.0.1:' + server.address().port; });
+beforeAll(async () => { const app = express(); app.use('/', K.createKioskRouter({ db, operatorToken: PAGE, provider: null, notify: async (text, meta) => { state.notified.push({ text, meta }); } })); server = await new Promise((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); }); base = 'http://127.0.0.1:' + server.address().port; });
 afterAll(async () => { await new Promise((r) => server.close(r)); });
 const kiosk = async (method, p, body) => { const r = await fetch(base + p, { method, headers: { authorization: 'Bearer ' + PAGE, 'x-session-token': SESSION, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
 const pin = async (method, p, body) => { const r = await fetch(base + p, { method, headers: { 'x-admin-pin': '111111', 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, body: await r.json().catch(() => null) }; };
@@ -74,4 +78,29 @@ test('painel: lista os Outros não revisados; resolver reclassifica (opcional) e
   expect(r.status).toBe(200); expect(r.body.data.reclassified).toBe('fnsku_labeling'); expect(state.reclass[700]).toBe(41); expect(state.reviewed[700]).toBe('Bruno');
   r = await pin('POST', '/api/v3/kiosk/others/700/resolve', { activity_slug: 'nao_existe' }); expect(r.status).toBe(400);
   r = await pin('POST', '/api/v3/kiosk/others/700/resolve', {}); expect(r.body.data.reclassified).toBeNull();
+});
+
+test('GET /order traz os tiles criados pela tela (extra_types) pro kiosk misturar no grupo', async () => {
+  const r = await kiosk('GET', '/api/v3/kiosk/order');
+  expect(r.body.data.extra_types).toEqual([{ slug: 'troca_de_bobina', label: 'Troca de bobina', group: 'linha', requires_product: false, is_background: false, requires_quantity: true }]);
+});
+test('POST /types: valida, gera slug único (sufixo se já existe), grava e reclassifica o Outros', async () => {
+  expect((await pin('POST', '/api/v3/kiosk/types', { name: 'ab', group: 'linha' })).status).toBe(400);
+  expect((await pin('POST', '/api/v3/kiosk/types', { name: 'Coisa nova', group: 'garagem' })).status).toBe(400);
+  expect((await pin('POST', '/api/v3/kiosk/types', { name: 'Revisão', group: 'linha' })).status).toBe(409);
+  const r = await pin('POST', '/api/v3/kiosk/types', { name: 'Troca de bobina', group: 'linha', flow: 'production', background: true, requires_product: true, requires_quantity: true, reclassify_event_id: 700 });
+  expect(r.status).toBe(200);
+  expect(r.body.data).toMatchObject({ id: 99, slug: 'troca_de_bobina_2', name: 'Troca de bobina', group: 'linha', reclassified: 700 });
+  expect(state.created.slice(0, 7)).toEqual(['troca_de_bobina_2', 'Troca de bobina', 'production_phase', true, 'production', true, 'linha']);
+  expect(state.reclass[700]).toBe(99); expect(state.reviewed[700]).toBe('Bruno');
+  expect(state.created[8]).toBe(true);   // requires_quantity
+  await new Promise((r) => setTimeout(r, 20));
+  expect(state.notified).toHaveLength(1); expect(state.notified[0].text).toMatch(/^@claude tile novo no kiosk, criado por Bruno: \*Troca de bobina\*/); expect(state.notified[0].text).toMatch(/pede quantidade ao terminar/); expect(state.notified[0].meta).toEqual({ slug: 'troca_de_bobina_2', id: 99 });
+  expect((await fetch(base + '/api/v3/kiosk/types', { method: 'POST' })).status).toBe(401);
+});
+test('slugify/validateNewType puros', () => {
+  expect(K.slugify('Peneira fina (nº 2)')).toBe('peneira_fina_n_2');
+  expect(K.validateNewType({ name: '  Troca   de bobina ', group: 'linha', flow: 'production' }).type).toMatchObject({ name: 'Troca de bobina', category: 'production_phase' });
+  expect(K.validateNewType({ name: 'X', group: 'linha' }).ok).toBe(false);
+  expect(K.validateNewType({ name: 'Revis�o', group: 'linha' }).ok).toBe(false);
 });

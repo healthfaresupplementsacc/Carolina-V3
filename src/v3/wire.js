@@ -291,7 +291,10 @@ function mount(app) {
   app.use('/', durationCheckApi.createDurationCheckRouter({ db: _pool }));
   // KIOSK (Bruno 09-11): ordem por uso mensal, limpeza com subtipo, Outros com titulo (IA), painel de reclassificacao
   const kioskApi = require('./kiosk/router');
-  app.use('/', kioskApi.createKioskRouter({ db: _pool, provider: (() => { try { return getProductionProvider(); } catch (_) { return null; } })() }));
+  // tile novo pela tela → aviso no supplements-dashboard (C0BUKK6EH98) pro Claude de plantão (Bruno 09-12)
+  const CLAUDE_CHANNEL = process.env.SLACK_CLAUDE_CHANNEL || 'C0BUKK6EH98';
+  const notifyClaude = async (text) => { if (!process.env.SLACK_BOT_TOKEN) return; await slackSender.postAs({ channel: CLAUDE_CHANNEL, text, sender: { name: 'HealthFare Tracker', icon: ':jigsaw:' } }); };
+  app.use('/', kioskApi.createKioskRouter({ db: _pool, provider: (() => { try { return getProductionProvider(); } catch (_) { return null; } })(), notify: notifyClaude }));
   // PLANEJAMENTO (Bruno 09-04, direção corrigida) — /api/v3/planning/*. A
   // página Planejamento mostra o FUNIL da produção do EMS em 7 colunas
   // (Formulando → Encaixotado; planning/model.js deriva do ems_activity_cache
@@ -621,6 +624,28 @@ async function startWorker() {
         channelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
         heartbeat: () => beat('mergeable_alert') }).start(30 * 60 * 1000);
     } catch (e) { console.error('[V3] veeqo-mergeable-alert não iniciou:', e.message); }
+  }
+
+  // HISTÓRICO DA VEEQO → nosso livro (Bruno 09-16): espelha /stock_histories (quem, quanto,
+  // motivo, nota) e aplica as edições manuais feitas depois da carga. Ligado por padrão.
+  if (process.env.WORKER_VEEQO_HISTORY_ENABLED !== 'false' && process.env.VEEQO_API_KEY) {
+    try {
+      const { VeeqoHistorySync } = require('./services/veeqo-history-sync');
+      const { veeqo: histVeeqo } = require('./services/veeqo-api');
+      const { StockService: HistStockService } = require('./services/StockService');
+      new VeeqoHistorySync({ db: _pool, veeqo: histVeeqo, stock: new HistStockService({ db: _pool }), heartbeat: () => beat('veeqo_history') }).start(15 * 60 * 1000);
+      console.log('[V3] veeqo-history-sync ligado (tick 15min)');
+    } catch (e) { console.error('[V3] veeqo-history-sync não iniciou:', e.message); }
+  }
+
+  // Impressão de Labels nunca mais aberta pra sempre (Bruno 09-12: "732 horas"): fecha no
+  // último sinal real quando o logoff da estação não chega. Ligado por padrão.
+  if (process.env.WORKER_LABEL_AUTOCLOSE_ENABLED !== 'false') {
+    try {
+      const { LabelPrintingAutoclose } = require('../workers/label-printing-autoclose');
+      new LabelPrintingAutoclose({ db: _pool, heartbeat: () => beat('label_autoclose') }).start(5 * 60 * 1000);
+      console.log('[V3] label-printing-autoclose ligado (tick 5min)');
+    } catch (e) { console.error('[V3] label-printing-autoclose não iniciou:', e.message); }
   }
 
   // Divergência de impressão (Bruno 08-06): 12pm NY compara (1ª+2ª impressão

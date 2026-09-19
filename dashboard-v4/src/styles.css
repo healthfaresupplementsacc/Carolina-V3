@@ -579,6 +579,9 @@ a { color: inherit; text-decoration: none; }
 .filter-chip.on .dot { background: rgba(255,255,255,0.7); }
 .filter-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
 .filter-chip.flow-prod .dot { background: var(--flow-prod); }
+/* o chip do Fluxo é montado com a chave do fluxo (production), não com o apelido
+   curto (prod) — sem esta regra a bolinha da Produção ficava cinza. */
+.filter-chip.flow-production .dot { background: var(--flow-prod); }
 .filter-chip.flow-pnp .dot { background: var(--flow-pnp); }
 .filter-chip.flow-support .dot { background: var(--flow-support); }
 

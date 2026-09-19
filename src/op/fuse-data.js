@@ -1,5 +1,5 @@
 window.HF_DATA = {
- "generated_at": "2026-09-11T20:04:55.780Z",
+ "generated_at": "2026-09-15T00:33:01.353Z",
  "groups": [
   {
    "key": "linha",
@@ -13,7 +13,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "review",
@@ -22,7 +23,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "labeling",
@@ -31,7 +33,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "fnsku_labeling",
@@ -40,7 +43,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "counting",
@@ -49,7 +53,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "line_changeover",
@@ -58,7 +63,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "cleaning",
@@ -67,7 +73,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "production_line_other",
@@ -76,7 +83,18 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
+    },
+    {
+     "slug": "producao_manual",
+     "label": "Produção manual",
+     "requires_product": true,
+     "note_required": false,
+     "orders_required": false,
+     "requires_order_count": false,
+     "counts_as_pp": false,
+     "requires_quantity": true
     }
    ]
   },
@@ -92,7 +110,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "weighing",
@@ -101,7 +120,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "mixing",
@@ -110,7 +130,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "encapsulation",
@@ -119,7 +140,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "sieving",
@@ -128,7 +150,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "powder_receiving",
@@ -137,7 +160,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "cleaning",
@@ -146,7 +170,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "formulation_other",
@@ -155,7 +180,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     }
    ]
   },
@@ -171,7 +197,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "repair",
@@ -180,7 +207,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "facility_maintenance",
@@ -189,7 +217,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "organization",
@@ -198,7 +227,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "stock_organization",
@@ -207,7 +237,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "machine_downtime",
@@ -216,7 +247,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "label_change",
@@ -225,7 +257,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "cleaning_other",
@@ -234,7 +267,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     }
    ]
   },
@@ -248,18 +282,20 @@ window.HF_DATA = {
      "label": "Impressão de ordens",
      "requires_product": false,
      "note_required": false,
-     "orders_required": true,
+     "orders_required": false,
      "requires_order_count": true,
-     "counts_as_pp": true
+     "counts_as_pp": true,
+     "requires_quantity": false
     },
     {
      "slug": "order_printing_2",
      "label": "2ª impressão",
      "requires_product": false,
      "note_required": false,
-     "orders_required": true,
+     "orders_required": false,
      "requires_order_count": true,
-     "counts_as_pp": true
+     "counts_as_pp": true,
+     "requires_quantity": false
     },
     {
      "slug": "stock_organization",
@@ -268,7 +304,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "packaging",
@@ -277,7 +314,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": true
+     "counts_as_pp": true,
+     "requires_quantity": false
     },
     {
      "slug": "marketplace_prep",
@@ -286,7 +324,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": true,
-     "counts_as_pp": true
+     "counts_as_pp": true,
+     "requires_quantity": false
     },
     {
      "slug": "clinic_shipment",
@@ -295,7 +334,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": true,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "packaging_other",
@@ -304,7 +344,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": true
+     "counts_as_pp": true,
+     "requires_quantity": false
     }
    ]
   },
@@ -320,7 +361,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "fnsku_labeling",
@@ -329,7 +371,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "shipping_walmart",
@@ -338,7 +381,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "shipping_amazon",
@@ -347,7 +391,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "dc_shipment",
@@ -356,7 +401,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "clinic_shipment",
@@ -365,7 +411,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": true,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "shipping_other",
@@ -374,7 +421,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     }
    ]
   },
@@ -390,7 +438,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "powder_receiving",
@@ -399,7 +448,8 @@ window.HF_DATA = {
      "note_required": false,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "break",
@@ -408,7 +458,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "meeting",
@@ -417,7 +468,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     },
     {
      "slug": "training",
@@ -426,7 +478,8 @@ window.HF_DATA = {
      "note_required": true,
      "orders_required": false,
      "requires_order_count": false,
-     "counts_as_pp": false
+     "counts_as_pp": false,
+     "requires_quantity": false
     }
    ]
   }
@@ -743,7 +796,7 @@ window.HF_DATA = {
     "berberin",
     "berberine cinnamon ceylon"
    ],
-   "last_used_at": "2026-09-09T19:55:40.487Z"
+   "last_used_at": "2026-09-14T17:03:54.789Z"
   },
   {
    "id": 82,
@@ -773,7 +826,7 @@ window.HF_DATA = {
     "HEAFA-2076-120-FBA",
     "HF-HCL-5000-WFS"
    ],
-   "last_used_at": "2026-08-14T21:14:56.172Z"
+   "last_used_at": null
   },
   {
    "id": 226,
@@ -980,7 +1033,7 @@ window.HF_DATA = {
     "chromium picolinate",
     "picolinato de cromo"
    ],
-   "last_used_at": "2026-09-11T19:28:12.253Z"
+   "last_used_at": "2026-09-12T19:15:07.768Z"
   },
   {
    "id": 94,
@@ -1532,13 +1585,13 @@ window.HF_DATA = {
     "acido hialuronico",
     "hyaluronic acid"
    ],
-   "last_used_at": "2026-09-11T16:05:59.359Z"
+   "last_used_at": "2026-09-12T17:11:04.687Z"
   },
   {
    "id": 202,
    "canonical_name": "Hyaluronic Acid - 200mg 200 Capsules",
    "aliases": [],
-   "last_used_at": "2026-09-11T18:13:51.893Z"
+   "last_used_at": "2026-09-11T21:17:21.226Z"
   },
   {
    "id": 116,
@@ -1683,6 +1736,15 @@ window.HF_DATA = {
    "last_used_at": "2026-08-26T14:53:36.607Z"
   },
   {
+   "id": 316,
+   "canonical_name": "Lithium Orotate 130mg 60tabs",
+   "aliases": [
+    "Lithium Orotate 60",
+    "Lithium 130mg 60tab"
+   ],
+   "last_used_at": null
+  },
+  {
    "id": 121,
    "canonical_name": "Lithium Orotate 5mg",
    "aliases": [
@@ -1700,16 +1762,6 @@ window.HF_DATA = {
     "HF-LTHE-400-WFS"
    ],
    "last_used_at": null
-  },
-  {
-   "id": 47,
-   "canonical_name": "Magnesium",
-   "aliases": [
-    "magnesio",
-    "magnesium",
-    "mag"
-   ],
-   "last_used_at": "2026-08-20T15:48:50.713Z"
   },
   {
    "id": 48,
@@ -1749,8 +1801,21 @@ window.HF_DATA = {
    "last_used_at": null
   },
   {
-   "id": 123,
+   "id": 47,
    "canonical_name": "Magnesium Glycinate 500mg",
+   "aliases": [
+    "magnesio",
+    "magnesium",
+    "mag",
+    "Magnesium",
+    "Magnesium Glycinate",
+    "Magnésio Glicinato"
+   ],
+   "last_used_at": "2026-08-20T15:48:50.713Z"
+  },
+  {
+   "id": 123,
+   "canonical_name": "Magnesium Glycinate 500mg [absorvido no 47]",
    "aliases": [
     "HF-GLYC-500",
     "HEAFA-2062-240-FBA",
@@ -1770,11 +1835,11 @@ window.HF_DATA = {
   },
   {
    "id": 197,
-   "canonical_name": "Magnesium Taurate",
+   "canonical_name": "Magnesium Taurate 1500mg",
    "aliases": [
-    "HF-TAUR-1500",
-    "HEAFA-2088-240-FBA",
-    "HF-TAUR-1500-WFS"
+    "Magnesium Taurate",
+    "Magnésio Taurato",
+    "Taurate"
    ],
    "last_used_at": null
   },
@@ -2077,7 +2142,7 @@ window.HF_DATA = {
    "aliases": [
     "HFC-NAD-CELLUVANCE"
    ],
-   "last_used_at": "2026-08-14T20:23:01.361Z"
+   "last_used_at": null
   },
   {
    "id": 137,
@@ -2301,7 +2366,7 @@ window.HF_DATA = {
     "iodo de potassio",
     "potassium iodide 130"
    ],
-   "last_used_at": "2026-08-13T02:11:13.595Z"
+   "last_used_at": null
   },
   {
    "id": 201,
@@ -2412,7 +2477,7 @@ window.HF_DATA = {
     "rutim",
     "rutina"
    ],
-   "last_used_at": "2026-09-11T19:53:55.946Z"
+   "last_used_at": "2026-09-11T20:24:43.097Z"
   },
   {
    "id": 149,
@@ -2884,7 +2949,7 @@ window.HF_DATA = {
     "urolithin",
     "urolithin a"
    ],
-   "last_used_at": "2026-08-14T19:29:12.831Z"
+   "last_used_at": null
   },
   {
    "id": 195,
@@ -2973,7 +3038,7 @@ window.HF_DATA = {
     "vita b2",
     "vitab2"
    ],
-   "last_used_at": "2026-08-15T19:19:43.888Z"
+   "last_used_at": "2026-09-14T19:13:12.736Z"
   },
   {
    "id": 157,
@@ -2983,7 +3048,7 @@ window.HF_DATA = {
     "HEAFA-2008-180-FBA",
     "HF-VTB2-180-WFS"
    ],
-   "last_used_at": "2026-09-02T14:49:48.142Z"
+   "last_used_at": "2026-09-14T20:17:33.379Z"
   },
   {
    "id": 158,
@@ -3060,14 +3125,44 @@ window.HF_DATA = {
  ],
  "recent_batches": [
   {
-   "batch_number": "BR-2026-0392",
-   "product_id": 14,
-   "last_used": "2026-09-11T19:53:55.946Z"
+   "batch_number": "BR-2026-0388",
+   "product_id": 157,
+   "last_used": "2026-09-14T20:17:33.379Z"
+  },
+  {
+   "batch_number": "0388",
+   "product_id": 67,
+   "last_used": "2026-09-14T19:13:12.736Z"
+  },
+  {
+   "batch_number": "BR-2026-0385",
+   "product_id": 23,
+   "last_used": "2026-09-14T17:03:54.789Z"
+  },
+  {
+   "batch_number": "BR-2026-0389",
+   "product_id": 157,
+   "last_used": "2026-09-14T15:58:17.286Z"
   },
   {
    "batch_number": "BR-2026-0292",
    "product_id": 28,
-   "last_used": "2026-09-11T19:28:12.253Z"
+   "last_used": "2026-09-12T19:15:07.768Z"
+  },
+  {
+   "batch_number": "0391",
+   "product_id": 43,
+   "last_used": "2026-09-12T17:11:04.687Z"
+  },
+  {
+   "batch_number": "BR-2026-0391",
+   "product_id": 202,
+   "last_used": "2026-09-11T21:17:21.226Z"
+  },
+  {
+   "batch_number": "BR-2026-0392",
+   "product_id": 14,
+   "last_used": "2026-09-11T20:24:43.097Z"
   },
   {
    "batch_number": "BR-2026-0355",
@@ -3075,19 +3170,9 @@ window.HF_DATA = {
    "last_used": "2026-09-11T18:26:33.932Z"
   },
   {
-   "batch_number": "BR-2026-0391",
-   "product_id": 202,
-   "last_used": "2026-09-11T18:13:51.893Z"
-  },
-  {
    "batch_number": "BR-2026-0387",
    "product_id": 31,
    "last_used": "2026-09-11T17:46:27.515Z"
-  },
-  {
-   "batch_number": "0391",
-   "product_id": 43,
-   "last_used": "2026-09-11T16:05:59.359Z"
   },
   {
    "batch_number": "BR-2026-0381",
@@ -3113,11 +3198,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0384",
    "product_id": 50,
    "last_used": "2026-09-10T16:13:27.382Z"
-  },
-  {
-   "batch_number": "BR-2026-0385",
-   "product_id": 23,
-   "last_used": "2026-09-09T19:55:40.487Z"
   },
   {
    "batch_number": "BR-2026-0382",
@@ -3243,21 +3323,6 @@ window.HF_DATA = {
    "batch_number": "BR-2026-0306",
    "product_id": 56,
    "last_used": "2026-08-28T19:15:43.703Z"
-  },
-  {
-   "batch_number": "BR-2026-0322",
-   "product_id": 161,
-   "last_used": "2026-08-28T15:05:35.280Z"
-  },
-  {
-   "batch_number": "BR-2026-0354",
-   "product_id": 45,
-   "last_used": "2026-08-27T17:30:57.597Z"
-  },
-  {
-   "batch_number": "BR-2026-0347",
-   "product_id": 152,
-   "last_used": "2026-08-27T15:38:14.614Z"
   }
  ]
 };

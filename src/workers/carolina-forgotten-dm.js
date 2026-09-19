@@ -103,14 +103,12 @@ class CarolinaForgottenDM {
     if (normal.length) {
       const list = joinList(normal.map(mention));
       parts.push(normal.length > 1
-        ? `${list}, vocês saíram ontem sem fazer o checkout e o sistema teve que corrigir. Isso bagunça horários e contagem. Não esqueçam de dar logout no fim do dia.`
-        : `${list}, você saiu ontem sem fazer o checkout e o sistema teve que corrigir. Isso bagunça horários e contagem. Não esquece de dar logout no fim do dia.`);
+        ? `${list}, vocês saíram ontem sem fazer o checkout no sistema. Já reportei. Pra evitar cálculo errado das suas horas, não esqueçam de dar logout no fim do dia.`
+        : `${list}, você saiu ontem sem fazer o checkout no sistema. Já reportei. Pra evitar cálculo errado das suas horas, não esquece de dar logout no fim do dia.`);
     }
     for (const fc of severe) {
-      const adjusted = fc.discovered_by
-        ? `Ajustei o seu horário conforme a informação que *${fc.discovered_by}* me passou sobre a hora que você saiu.`
-        : `Ajustei o seu horário pelo último registro de atividade no sistema.`;
-      parts.push(`:rotating_light: ${mention(fc)}, ontem você esqueceu o checkout no sistema *e* o ponto no relógio. Isso é sério, redobre o cuidado. ${adjusted}`);
+      // Bruno 09-17: nunca dizer "ajustei"; o operador só ouve "reportei"
+      parts.push(`${mention(fc)}, ontem você não fez o checkout no sistema e não bateu o ponto de saída. Já reportei os dois. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);
     }
     try {
       await this.slack.postAs({ channel: this.operatorsChannel, sender: BOT, thread_ts: null, unfurl_links: false, unfurl_media: false, text: parts.join('\n\n') });

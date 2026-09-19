@@ -72,20 +72,17 @@ class StockGapAlert {
     return (Date.now() - new Date(t).getTime()) / 60000;   // minutos
   }
 
+  /** Bruno 09-14: "essa informação tá muito spam... tem que ser uma coisa curta e rápida:
+   *    Status do inventory / Hyaluronic Acid 10 in stock, precisa de 5". Uma linha por produto,
+   *  o que falta primeiro, sem seções, sem conselho, sem emoji. */
   _format(gaps, title) {
-    const items = (gaps.items || []);
-    let text = title + '\n';
-    const crit = items.filter((x) => x.severity === 'critical');
-    const warn = items.filter((x) => x.severity !== 'critical');
-    if (crit.length) {
-      text += '\n:red_circle: *PRECISA RESOLVER JÁ:*\n';
-      crit.forEach((x) => { text += '• *' + x.product + '* (precisa ' + x.needed + ', tem ' + x.stock + '). ' + x.advice + '\n'; });
-    }
-    if (warn.length) {
-      text += '\n:warning: *Dá pra resolver hoje:*\n';
-      warn.forEach((x) => { text += '• *' + x.product + '* (precisa ' + x.needed + ', tem ' + x.stock + '). ' + x.advice + '\n'; });
-    }
-    return text;
+    const items = (gaps.items || []).slice().sort((a, b) => {
+      const fa = (Number(a.stock) || 0) < (Number(a.needed) || 0) ? 0 : 1;
+      const fb = (Number(b.stock) || 0) < (Number(b.needed) || 0) ? 0 : 1;
+      return fa - fb || ((Number(b.needed) || 0) - (Number(b.stock) || 0)) - ((Number(a.needed) || 0) - (Number(a.stock) || 0));
+    });
+    const lines = items.map((x) => `${x.product}: tem ${x.stock}, precisa de ${x.needed}`);
+    return '*' + title + '*' + String.fromCharCode(10) + lines.join(String.fromCharCode(10));
   }
 
   async _post(channel, text) {
@@ -111,7 +108,7 @@ class StockGapAlert {
         if (ago != null && ago >= this.delayMin) {
           const gaps = await this.getGaps();
           if (gaps && (gaps.items || []).length) {
-            const text = this._format(gaps, ':package: *Falta de estoque pro P&P de hoje* (impressão começou há ' + Math.round(ago) + ' min):');
+            const text = this._format(gaps, 'Status do estoque pro P&P');
             await this._post(this.adminChannel, text);
             // Bruno 09-09: o canal dos operadores so recebe o que FALTA DE VERDADE
             // pra fechar hoje (zerado, ou menos do que a picklist precisa). Item
@@ -120,8 +117,7 @@ class StockGapAlert {
             const urgentes = (gaps.items || []).filter((i) => i.status === 'out' || i.stock < i.needed);
             if (urgentes.length) {
               const muted = await isMuted(this.db, new Date()).catch(() => false);
-              const textoOps = this._format({ ...gaps, items: urgentes },
-                ':package: *Falta de estoque pro P&P de hoje* (impressão começou há ' + Math.round(ago) + ' min):');
+              const textoOps = this._format({ ...gaps, items: urgentes }, 'Status do estoque pro P&P');
               if (!muted) await this._post(this.opsChannel, textoOps);
             }
             await this._mark('after_printing', date, { items: gaps.items.length, critical: gaps.critical_count });
@@ -139,7 +135,7 @@ class StockGapAlert {
         const items = (gaps && gaps.items) || [];
         if (items.length) {
           await this._post(this.adminChannel,
-            this._format(gaps, ':sunrise: *Estoque que vamos precisar pro P&P hoje* (' + items.length + ' produto(s)):'));
+            this._format(gaps, 'Status do estoque pro P&P de hoje'));
         }
         await this._mark('morning', date, { items: items.length });
         out.morning = items.length;

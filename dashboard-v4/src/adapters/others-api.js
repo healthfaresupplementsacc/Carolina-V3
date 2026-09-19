@@ -11,3 +11,8 @@ async function call(method, path, body) {
 }
 export const getOthers = () => call('GET', '/others');
 export const resolveOther = (id, activity_slug, note) => call('POST', '/others/' + id + '/resolve', { activity_slug: activity_slug || null, note: note || null });
+/* TILE NOVO pela tela (Bruno 09-12): cria a atividade e (opcional) reclassifica um "Outros". */
+export const createType = (payload) => call('POST', '/types', payload);
+export const getCustomTypes = () => call('GET', '/types');
+export const KIOSK_GROUP_OPTIONS = [['linha', 'Linha de Produção'], ['formulacao', 'Formulação'], ['limpeza', 'Limpeza / Organização'], ['embalagem', 'Envio de Pacotes'], ['envio', 'Envio de Caixas'], ['outros', 'Outros']];
+export const FLOW_OPTIONS = [['production', 'Produção (garrafas)'], ['pnp', 'P&P (pedidos)'], ['support', 'Apoio / geral']];

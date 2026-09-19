@@ -155,6 +155,7 @@ describe('drift: writer sets for tracked tables match the verified findings', ()
         'src/v3/services/EventService.js',
         'src/workers/attendance-sync.js',
         'src/workers/ems-activity-sync.js',
+        'src/workers/label-printing-autoclose.js',   // 09-12: fecha label_printing esquecida (ended_at = último sinal real)
       ],
     },
     {

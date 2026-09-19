@@ -63,6 +63,8 @@ S04_34["S04.34 · Streaming teardown res.on(close) ×3 · architect-audit res.on
 S04_35["S04.35 · signal-registry.js · lista unica dos sinais externos · machine_state, print_event, ems_sync, veeqo_sync, ngteco_clock"]:::verified
 S04_37["S04.37 · incident.js · v3.incidents + dossie Markdown + 1 linha no admin-orin · fs INJETADO"]:::verified
 S04_38["S04.38 · encap-monitor CORRIGIDO 08-25 · casa a encapsuladora especifica · matched=false nao suprime"]:::verified
+S04_41["S04.41 · label-printing-autoclose · 5 min · fecha label_printing esquecida (ended_at = ultimo sinal real)"]:::verified
+S04_42["S04.42 · veeqo-history-sync · 15 min · /stock_histories (autor, motivo, nota) → v3.veeqo_stock_history → StockService.adjust"]:::verified
 S04_39["S04.39 · GET /api/v3/health/signals · router proprio, data/router.js nao pode crescer"]:::verified
 S04_33 -.-> OPTIN
 S04_33 -.-> S04_17
@@ -81,6 +83,8 @@ S08_06["S08.06 att_punch/att_state (no migration)"]:::partial
 S08_08["S08.08 events_enriched"]:::verified
 
 S04_01 -->|R055 watch list| S04_29
+S04_42 --> S04_29
+S04_41 --> S04_29
 S04_02 --> S10_05
 S04_02 --> S08_05
 S04_07 --> S10_02

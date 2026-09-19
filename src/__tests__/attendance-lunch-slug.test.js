@@ -63,6 +63,8 @@ describe('pausa não é almoço (caso Vitor 08-20)', () => {
   });
 
   test('a mensagem acusatória continua existindo (não foi só apagada)', () => {
-    expect(src).toContain('faltou bater o ponto no almoço hoje');
+    // Bruno 09-17: texto novo, diz QUAL batida faltou e nunca "ajustei"
+    expect(src).toContain('você não bateu o ponto ${qual}. Já reportei.');
+    expect(src).not.toContain('Já ajustei aqui');
   });
 });
