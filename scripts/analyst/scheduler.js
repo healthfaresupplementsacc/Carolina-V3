@@ -49,14 +49,20 @@ const hhmmToMin = (s) => { const [h, m] = String(s).split(':').map(Number); retu
 // ("unknown option '--ch'") e o meio-dia chegou como uma palavra so ("VIGIA"),
 // que o Claude respondeu pedindo esclarecimento. Nenhum toque saiu em 09-09.
 const CLAUDE_TIMEOUT_MS = 25 * 60 * 1000;
-function runClaude(prompt, onDone) {
+// 09-19: cada tarefa roda com o SEU modelo (tasks.json "model"; default sonnet)
+// e, se o modelo estourar o limite de uso, tenta o proximo da lista. Em 09-18
+// as tres tarefas do dia morreram em 10s com "You've reached your Fable limit"
+// porque o headless usava o modelo padrao da sessao. Fable nunca mais aqui.
+const MODELOS_FALLBACK = ['sonnet', 'opus', 'haiku'];
+const LIMITE_RE = /reached your .*limit|usage limit|rate.?limit|limit reached/i;
+function runClaude(prompt, model, onDone) {
   // Qual claude: o NATIVO (~/.local/bin/claude.exe, instalador oficial, se
   // atualiza sozinho) tem prioridade; o npm global ficou preso em 2.1.142
   // porque o npm deste PC esta quebrado, e 2.1.142 recusa o modelo padrao
   // ("version 2.1.251 or newer is required", visto em 09-09). Exe direto, sem
   // shell; o .cmd do npm so como ultimo recurso via cmd.exe.
   const nativo = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
-  const flags = ['-p', '--permission-mode', 'bypassPermissions'];
+  const flags = ['-p', '--permission-mode', 'bypassPermissions', '--model', model || 'sonnet'];
   const child = fs.existsSync(nativo)
     ? spawn(nativo, flags, { cwd: REPO, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     : spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'claude ' + flags.join(' ')], { cwd: REPO, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -85,16 +91,28 @@ function runTask(task, why) {
   saveState(state);
   log('DISPARANDO', task.id, '(' + why + ')');
   rodando++;
-  runClaude(task.prompt, (code, out) => {
-    rodando--;
-    const st = loadJson(STATE, {});
-    st[task.id] = st[task.id] || {};
-    st[task.id].exit = code;
-    st[task.id].finishedAt = new Date().toISOString();
-    st[task.id].tail = out.slice(-400);
-    saveState(st);
-    log('FIM', task.id, 'exit=' + code, out.slice(-160).replace(/\s+/g, ' '));
-  });
+  const cadeia = [task.model || 'sonnet'].concat(MODELOS_FALLBACK.filter((m) => m !== (task.model || 'sonnet')));
+  let tentativa = 0;
+  const tentar = () => {
+    const modelo = cadeia[tentativa];
+    if (tentativa > 0) log('RETRY', task.id, 'com', modelo, '(anterior estourou o limite)');
+    runClaude(task.prompt, modelo, (code, out) => {
+      if (code !== 0 && LIMITE_RE.test(out) && tentativa < cadeia.length - 1) {
+        tentativa++;
+        return tentar();
+      }
+      rodando--;
+      const st = loadJson(STATE, {});
+      st[task.id] = st[task.id] || {};
+      st[task.id].exit = code;
+      st[task.id].model = modelo;
+      st[task.id].finishedAt = new Date().toISOString();
+      st[task.id].tail = out.slice(-400);
+      saveState(st);
+      log('FIM', task.id, 'exit=' + code, 'modelo=' + modelo, out.slice(-160).replace(/\s+/g, ' '));
+    });
+  };
+  tentar();
 }
 
 function tick(isBoot) {
