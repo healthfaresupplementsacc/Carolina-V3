@@ -399,6 +399,15 @@ function processAutoAck() {
   // no admin-orin. E nunca pra bot/sistema.
   if (!newest.sender || /^(carolyn|carol|carolina|healthfare )/i.test(newest.sender)) return;
   if (newest.channel !== PRIMARY && !newest.channel.startsWith('D')) return;
+  // Bruno 09-19: "se vc ja respondeu, nao tem necessidade de ficar falando q ja
+  // volta". Se a Carolyn ja disse ALGUMA coisa neste canal DEPOIS dessa msg do
+  // Bruno, ela ja respondeu (ou ja avisou) — nao repete o "ja volto". Olha o
+  // ultimo say confirmado por canal em _watch/last-say.json.
+  try {
+    const ls = JSON.parse(fs.readFileSync(path.join(DIR, 'last-say.json'), 'utf8'));
+    const meuUltimo = ls[newest.channel] || 0;
+    if (meuUltimo > new Date(newest.at).getTime() - 5000) return; // ja falei depois (ou quase junto) dessa msg
+  } catch (_) {}
   const phrase = ACK_PHRASES[(st.idx || 0) % ACK_PHRASES.length];
   const r = require('child_process').spawnSync('node', [path.join(__dirname, 'carolina-say.js'), 'channel', '--ch', newest.channel, '--text', phrase], { timeout: 180000 });
   if (r.status === 0) {

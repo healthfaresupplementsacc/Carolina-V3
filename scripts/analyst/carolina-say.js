@@ -102,6 +102,9 @@ async function main() {
   // recapturar minha propria msg como se fosse nova (na DM o Slack manda o
   // remetente vazio nas msgs agrupadas e o filtro de "ignora Carolyn" escapava).
   if (dedupe) { try { dedupe.marcar(CH, 'Carolyn', TEXT); dedupe.marcar(CH, '', TEXT); } catch (_) {} }
+  // 09-19: registra que a Carolyn falou neste canal AGORA, pra o auto-ack do
+  // watchdog nao mandar "ja volto" depois de eu ja ter respondido.
+  try { const lp = WATCH_DIR + 'last-say.json'; let ls = {}; try { ls = JSON.parse(fs.readFileSync(lp, 'utf8')); } catch (_) {} ls[CH] = Date.now(); fs.writeFileSync(lp, JSON.stringify(ls)); } catch (_) {}
   console.log('CAROL ENVIOU (' + MODE + ') ✓ confirmado' + (landed ? ' (msg visível na conversa)' : ' (composer vazio)'));
   ws.close();
 }
