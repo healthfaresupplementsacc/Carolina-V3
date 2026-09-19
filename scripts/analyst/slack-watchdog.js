@@ -30,7 +30,7 @@ const LAUNCHER = path.join(__dirname, 'carolina-chrome.ps1');
 const POLL_MS = parseInt(process.env.POLL_MS || '10000', 10);
 const TEAM = process.env.SLACK_TEAM || 'T020AHKP5D5';
 const BRUNO = 'U03URLL1D4L';                 // Bruno Camp
-const CLAUDE_ID = process.env.CLAUDE_ID || 'D045L79UMME'; // id da CONVERSA (DM), nao serve pra mencao
+const CLAUDE_ID = process.env.CLAUDE_ID || 'U044WG04UMQ'; // USER id da Carolyn (mencao <@U044WG04UMQ>)
 // BUG achado 09-10: mencao no Slack chega como <@U044WG04UMQ> (USER id). Usar o
 // id da DM aqui deixava o filtro de @carolyn SEMPRE falso.
 const CAROLYN_USER = 'U044WG04UMQ';          // @carolyn de verdade
@@ -38,7 +38,7 @@ const CAROLYN_USER = 'U044WG04UMQ';          // @carolyn de verdade
 // Regra do Bruno: qualquer msg que (a) esteja no supplements-dashboard, OU (b) marque o Claude, OU
 // (c) marque o Bruno, OU (d) pareça pergunta → vai pro inbox.
 const PRIMARY = 'C0BUKK6EH98';               // supplements-dashboard (PRINCIPAL)
-const CAROL_DM = 'D045L79UMME';              // DM Bruno↔Carol — só a sessão da Carol vê (listener NUNCA cobre)
+const CAROL_DM = 'D045L7A1ZH6';              // 09-19 BUG: era D045L79UMME (DM da Carolyn c/ ela mesma!). A DM real com o Bruno (U03URLL1D4L) e esta. Perdi 3 msgs do Bruno por dias.
 // orders-and-inventory entra na vigia: operadoras respondem contagens pra Carol lá
 // Bruno 09-10: admin-orin SAIU da vigia (e canal de relatorio de bot; eu tenho
 // acesso e leio quando ele pedir). orders-and-inventory fica, mas SO pra @carolyn:
