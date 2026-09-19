@@ -7,6 +7,7 @@
      node carolina-say.js <channel|thread> [thread_root_ts] --file <path>  -> texto de arquivo específico */
 const fs = require('fs');
 const path = require('path');
+let dedupe = null; try { dedupe = require('./_watch/dedupe-compartilhado'); } catch (_) { try { dedupe = require('./dedupe-compartilhado'); } catch (__) {} }
 const DIR = __dirname + path.sep;
 const TEAM = 'T020AHKP5D5';
 // Canais: admin-orin (default) | orders/ops = orders-and-inventory (operadores)
@@ -97,6 +98,10 @@ async function main() {
   const s2 = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(DIR + 'say-after.png', Buffer.from(s2.data, 'base64'));
   if (left && !landed) throw new Error('NÃO CONFIRMADO: composer ainda tem texto e a msg não apareceu — ver say-after.png');
+  // 09-19: marca no dedupe compartilhado o que EU enviei, pra o watchdog nao
+  // recapturar minha propria msg como se fosse nova (na DM o Slack manda o
+  // remetente vazio nas msgs agrupadas e o filtro de "ignora Carolyn" escapava).
+  if (dedupe) { try { dedupe.marcar(CH, 'Carolyn', TEXT); dedupe.marcar(CH, '', TEXT); } catch (_) {} }
   console.log('CAROL ENVIOU (' + MODE + ') ✓ confirmado' + (landed ? ' (msg visível na conversa)' : ' (composer vazio)'));
   ws.close();
 }

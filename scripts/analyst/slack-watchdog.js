@@ -311,6 +311,10 @@ async function tick() {
         if (!m.text || seen.has(key) || compartilhado.jaVisto(chan, m.sender, m.text)) continue;
         // ignora o que o próprio Claude/Carol/bots da casa postaram (qualquer "HealthFare *")
         if (/^(carolyn|carol|carolina|healthfare )/i.test(m.sender)) { seen.add(key); continue; } // eu (nome novo e antigos) + bots da casa
+        // 09-19: numa DM, msg agrupada vem com sender VAZIO. Se ja esta no dedupe
+        // (carolina-say marca o que EU envio), e minha propria msg: ignora. Sem
+        // isso minhas respostas na DM voltavam pro inbox e me acordavam.
+        if (chan.startsWith('D') && !m.sender && compartilhado.jaVisto(chan, 'Carolyn', m.text)) { seen.add(key); continue; }
         // ignora avisos de sistema do Slack (entrou/saiu do canal, etc.)
         if (/\b(joined|left|has joined|has left|set the channel|pinned a message|added an integration|renamed the channel)\b/i.test(m.text)) { seen.add(key); continue; }
         // no canal PRINCIPAL (supplements-dashboard) TUDO é pra mim.
