@@ -18,7 +18,8 @@ const { execFile } = require('child_process');
 require('./tee-log')('watchdog.log');                       // 09-09: log de verdade de novo
 require('./single-instance')('watchdog', 'heartbeat.txt');  // 09-09: nunca dois watchdogs
 const compartilhado = require('./dedupe-compartilhado');
-require('./self-reload')(['slack-watchdog.js', 'single-instance.js', 'tee-log.js', 'self-reload.js'], { busy: () => autologinRodando });  // 09-09: atualiza sem UAC
+const { processAutoResponder } = require('./auto-responder');   // 09-27: acorda claude -p headless quando ninguem responde
+require('./self-reload')(['slack-watchdog.js', 'single-instance.js', 'tee-log.js', 'self-reload.js', 'auto-responder.js'], { busy: () => autologinRodando });  // 09-09: atualiza sem UAC
 
 const DIR = path.join(__dirname, '_watch');
 try { fs.mkdirSync(DIR, { recursive: true }); } catch (_) {}
@@ -438,6 +439,7 @@ setInterval(() => {
     try { aplicarObsidianPendente(); } catch (e) { console.log('[watchdog] obsidian pendente erro:', e.message); }
     try { processOutbox(); } catch (e) { console.log('[watchdog] outbox erro:', e.message); }
     try { processAutoAck(); } catch (e) { console.log('[watchdog] autoack erro:', e.message); }
+    try { processAutoResponder((m) => console.log(m)); } catch (e) { console.log('[watchdog] auto-responder erro:', e.message); }
     try { await tick(); } catch (e) { console.log('[watchdog] tick erro:', e.message); }
     await sleep(POLL_MS);
   }
