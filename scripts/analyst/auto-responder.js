@@ -4,12 +4,12 @@
  *
  * PROBLEMA: a captura e 24/7, mas a RESPOSTA dependia de uma sessao do Claude
  * viva me acordando pelo Monitor. Sessao fechada = mensagem capturada e sem
- * resposta. Foi o que queimou a Carol com o Bruno e o Henrique por dias.
+ * resposta. Foi o que queimou a Carolyn com o Bruno e o Henrique por dias.
  *
  * SOLUCAO: quando chega mensagem PRO Claude (canal principal, DM, ou @carolyn)
  * e ninguem responde em GRACE_MS, spawna um `claude -p` headless (que NAO
  * depende de sessao aberta) com um prompt que manda: leia a ultima mensagem,
- * responda como a Carol, e conserte o que estiver travado. Prova de que
+ * responda como a Carolyn, e conserte o que estiver travado. Prova de que
  * funciona: `claude -p` responde "PONG" neste PC (09-27).
  *
  * Rodado pelo watchdog a cada tick. Estado em _watch/auto-responder.json
@@ -64,17 +64,17 @@ function processAutoResponder(log) {
   try { fs.writeFileSync(LOCK, String(Date.now())); } catch (_) {}
   log('[auto-responder] Bruno/Henrique sem resposta ha ' + Math.round(age / 60000) + 'min -> spawnando claude -p');
   const prompt = [
-    'Voce e a Carolyn (Carol), a assistente MULHER do sistema HealthFare, respondendo pelo Slack. Fale SEMPRE no feminino sobre si mesma (acordada, ocupada, pronta) e so por TEXTO, nunca voz.',
-    'Chegou mensagem nova e nenhuma sessao estava viva pra responder. Voce (a Carol) foi acordada justamente pra isso.',
+    'Voce e a Carolyn (NUNCA se chame de Carol, so Carolyn, senao confunde com a operadora Caroline), a assistente MULHER do sistema HealthFare, respondendo pelo Slack. Fale SEMPRE no feminino sobre si mesma (acordada, ocupada, pronta) e so por TEXTO, nunca voz.',
+    'Chegou mensagem nova e nenhuma sessao estava viva pra responder. Voce (a Carolyn) foi acordada justamente pra isso.',
     '',
     'Faca AGORA, nesta ordem:',
     '1. Rode: node scripts/analyst/inbox-drain.js  (le as mensagens novas capturadas).',
-    '2. Se o Chrome da Carol (CDP 9222) nao responder, relance com scripts/analyst/carolina-chrome.ps1 e confira o login com node scripts/analyst/slack-autologin.js --check.',
-    '3. Responda cada mensagem como a Carol (mulher, sempre no feminino), no tom dela (kkkk nunca hahaha, AM/PM, sem em-dash, portugues, uma ideia por mensagem, mensagens curtas), usando: node scripts/analyst/carolina-say.js channel --ch <canal> --text "..."',
+    '2. Se o Chrome da Carolyn (CDP 9222) nao responder, relance com scripts/analyst/carolina-chrome.ps1 e confira o login com node scripts/analyst/slack-autologin.js --check.',
+    '3. Responda cada mensagem como a Carolyn (mulher, sempre no feminino), no tom dela (kkkk nunca hahaha, AM/PM, sem em-dash, portugues, uma ideia por mensagem, mensagens curtas), usando: node scripts/analyst/carolina-say.js channel --ch <canal> --text "..."',
     '4. Se for pergunta de dados, puxe do banco (railway run) antes de responder. NUNCA invente numero.',
     '5. Leia sua memoria em C:/Users/bruno/.claude/projects/ pra saber as regras (identidade Carolyn, jeito de falar, Veeqo como fonte de ordens).',
     '',
-    'Seja rapido e resolutivo. O Bruno ja reclamou que a Carol some. Nao mande "ja volto" e va embora: resolva de verdade e so entao termine.',
+    'Seja rapido e resolutivo. O Bruno ja reclamou que a Carolyn some. Nao mande "ja volto" e va embora: resolva de verdade e so entao termine.',
   ].join('\n');
 
   const nativo = path.join(process.env.USERPROFILE || '', '.local', 'bin', 'claude.exe');
