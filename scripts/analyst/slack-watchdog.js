@@ -244,14 +244,13 @@ function vigiarAppSlack() {
       return;
     }
     if (!appCaidoDesde) { appCaidoDesde = Date.now(); console.log('[watchdog] app do Slack NAO esta rodando'); return; }
-    // so avisa depois de 2min caido (evita falso alarme num reinicio rapido)
+    // 09-28 (Bruno: "de novo??"): NAO avisa mais o Bruno na DM quando o app cai.
+    // A Carolyn funciona pelo NAVEGADOR dela, nao pelo app do PC do Bruno — o app
+    // cair nao afeta em nada, entao avisar so gera ruido (igual ao "ja volto").
+    // Mantem so o log interno, pra eu saber se o app anda instavel.
     if (!appAvisado && Date.now() - appCaidoDesde > 2 * 60 * 1000) {
       appAvisado = true;
-      try { fs.writeFileSync(APP_FLAG, new Date().toISOString()); } catch (_) {}
-      console.log('[watchdog] app do Slack caido ha 2min -> avisando o Bruno na DM');
-      execFile(process.execPath, [path.join(__dirname, 'carolina-say.js'), 'channel', '--ch', CAROL_DM, '--text',
-        'O app do Slack fechou aqui no seu PC. Eu sigo pelo navegador, entao nada se perde, mas se voce quiser o app aberto e so abrir de novo.'],
-        { timeout: 180000, windowsHide: true }, () => {});
+      console.log('[watchdog] app do Slack caido ha 2min (nao aviso o Bruno; a Carolyn usa o navegador)');
     }
   });
 }
