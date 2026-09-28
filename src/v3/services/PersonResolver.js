@@ -190,9 +190,12 @@ class PersonResolver {
               p.display_name, p.role
        FROM v3.shared_account_users sau
        JOIN v3.persons p ON p.id = sau.person_id
-       WHERE sau.active = true`)).rows;
+       WHERE sau.active = true AND p.active AND p.deleted_at IS NULL`)).rows;
+    // 09-28 (Bruno): pessoa INATIVA nunca vira candidata a autor. A Simone saiu,
+    // ficou active=false mas o resolver ainda a escolhia (ex.: tarefa de ordem
+    // atribuida a ela em vez da Caroline que faz). active + deleted_at IS NULL.
     const persons = (await this.db.query(
-      'SELECT id, display_name, role, slack_user_id FROM v3.persons WHERE deleted_at IS NULL')).rows;
+      'SELECT id, display_name, role, slack_user_id FROM v3.persons WHERE deleted_at IS NULL AND active')).rows;
 
     const sharedAccounts = new Map();
     for (const a of accounts) sharedAccounts.set(a.slack_user_id, a);

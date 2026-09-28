@@ -456,7 +456,7 @@ View-only PIN-gated proxy to the camera-PC gateway + machine-motion signal.
 - `src/v3/llm/LLMProvider.js` — provider abstraction. `getProductionProvider:133` = Gemini-primary QuotaChain (Flash→Flash-Lite→extra keys→OpenRouter, `:146-164`); Anthropic explicit-only (`:117,137`). Header notes "Anthropic out, 100% Gemini" (`:127`).
 - `src/v3/llm/note-analyzer.js` — `NoteAnalyzer:27`, `classifyRaw:48`, gated `NOTE_LLM_ENABLED:33`, wired `wire.js:145`.
 - `src/v3/llm/prompt-builder.js` — read-only context builder, no LLM call (`:8-9`).
-- `src/v3/services/PersonResolver.js` — `resolve:279` (LLM for shared accounts).
+- `src/v3/services/PersonResolver.js` — `resolve:279` (LLM for shared accounts). **2026-09-28: candidate queries filter `active` (not just `deleted_at IS NULL`)** — an inactive person (e.g. Simone, who left) was still being resolved as a task author; now inactive people are never candidates.
 - `src/v3/services/CommandHandler.js` — admin @Carolina command parser/executor. `_parseCommand:271-403` (`classifyRaw:403`), `tryRoute:83`, `confirmAndExecute:188`.
 - Legacy `src/ai/` (detect.js, note-classifier.js, persona.js, proposals.js, admin-tools.js) — separate from V3 path.
 - Pre-filter (deterministic pre-LLM): `src/v3/llm/pre-filter.js` (`Observer.js:25`).
