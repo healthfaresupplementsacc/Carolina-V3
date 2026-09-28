@@ -438,7 +438,11 @@ setInterval(() => {
     try { checarLogin(); } catch (e) { console.log('[watchdog] checarLogin erro:', e.message); }
     try { aplicarObsidianPendente(); } catch (e) { console.log('[watchdog] obsidian pendente erro:', e.message); }
     try { processOutbox(); } catch (e) { console.log('[watchdog] outbox erro:', e.message); }
-    try { processAutoAck(); } catch (e) { console.log('[watchdog] autoack erro:', e.message); }
+    // 09-28: auto-ack ("ja volto") DESLIGADO. Com o auto-responder respondendo de
+    // verdade, o "ja volto" virou so promessa vazia que o Bruno reclamou: "pq q vc
+    // ta me mandando essa msg se ja deu um jeito disso nao acontecer mais?". Agora
+    // o sistema RESPONDE (auto-responder) em vez de prometer. Codigo mantido, so nao chamado.
+    // try { processAutoAck(); } catch (e) { console.log('[watchdog] autoack erro:', e.message); }
     try { processAutoResponder((m) => console.log(m)); } catch (e) { console.log('[watchdog] auto-responder erro:', e.message); }
     try { await tick(); } catch (e) { console.log('[watchdog] tick erro:', e.message); }
     await sleep(POLL_MS);
