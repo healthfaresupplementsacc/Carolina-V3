@@ -367,56 +367,9 @@ function processOutbox() {
   if (changed) { try { fs.writeFileSync(OB, JSON.stringify(list, null, 1)); } catch (_) {} }
 }
 
-// ── auto-ack "sinal de vida": msg não pega pelo Claude em 60s → Carol avisa que viu ──
-const ACK_PHRASES = [
-  'pera que to no meio de uma coisa aqui, ja te respondo',
-  'vi aqui, to terminando um negocio e ja volto',
-  'to aqui, so ocupada com outra coisa, ja te atendo',
-  'recebi, me da uns minutinhos que eu ja olho',
-];
-function processAutoAck() {
-  // se o agente haiku (camada rápida) está vivo, ele cuida dos acks — não duplica
-  try { const st = fs.statSync(path.join(DIR, 'haiku-alive.txt')); if (Date.now() - st.mtimeMs < 60000) return; } catch (_) {}
-  let lines = []; try { lines = fs.readFileSync(INBOX, 'utf8').split('\n').filter(Boolean); } catch (_) { return; }
-  let cursor = 0; try { cursor = parseInt(fs.readFileSync(path.join(DIR, 'cursor.txt'), 'utf8'), 10) || 0; } catch (_) {}
-  if (lines.length <= cursor) return; // Claude ja drenou: vivo e respondendo
-  let st = { ackedUpTo: 0, lastAt: 0, idx: 0 };
-  try { st = JSON.parse(fs.readFileSync(path.join(DIR, 'autoack.json'), 'utf8')); } catch (_) {}
-  if (lines.length <= st.ackedUpTo) return;               // ja dei sinal pra esse lote
-  if (Date.now() - st.lastAt < 5 * 60 * 1000) return;     // no maximo 1 sinal a cada 5min
-  let newest; try { newest = JSON.parse(lines[lines.length - 1]); } catch (_) { return; }
-  const age = Date.now() - new Date(newest.at).getTime();
-  if (age < 60 * 1000 || age > 15 * 60 * 1000) return;    // nova demais (Claude pega) ou velha demais (ack tardio e pior)
-  // 09-09: recaptura de historico chega com `at` de AGORA mas ts do Slack antigo.
-  // Se o ts real tem mais de 30min, e conversa velha relida: nunca responder.
-  if (newest.ts) {
-    const idadeReal = Date.now() - (parseFloat(newest.ts) * 1000);
-    if (idadeReal > 30 * 60 * 1000) return;
-  }
-  if (!/^[CD]/.test(newest.channel || '')) return;
-  // sinal de vida SÓ onde falam COMIGO: supplements-dashboard e DMs. NUNCA no
-  // orders-and-inventory (operadores falando entre si; 09-07 a Carol "respondeu"
-  // o Henrique falando com a Simone e pareceu resposta ao bot de Totais) e NUNCA
-  // no admin-orin. E nunca pra bot/sistema.
-  if (!newest.sender || /^(carolyn|carol|carolina|healthfare )/i.test(newest.sender)) return;
-  if (newest.channel !== PRIMARY && !newest.channel.startsWith('D')) return;
-  // Bruno 09-19: "se vc ja respondeu, nao tem necessidade de ficar falando q ja
-  // volta". Se a Carolyn ja disse ALGUMA coisa neste canal DEPOIS dessa msg do
-  // Bruno, ela ja respondeu (ou ja avisou) — nao repete o "ja volto". Olha o
-  // ultimo say confirmado por canal em _watch/last-say.json.
-  try {
-    const ls = JSON.parse(fs.readFileSync(path.join(DIR, 'last-say.json'), 'utf8'));
-    const meuUltimo = ls[newest.channel] || 0;
-    if (meuUltimo > new Date(newest.at).getTime() - 5000) return; // ja falei depois (ou quase junto) dessa msg
-  } catch (_) {}
-  const phrase = ACK_PHRASES[(st.idx || 0) % ACK_PHRASES.length];
-  const r = require('child_process').spawnSync('node', [path.join(__dirname, 'carolina-say.js'), 'channel', '--ch', newest.channel, '--text', phrase], { timeout: 180000 });
-  if (r.status === 0) {
-    st.ackedUpTo = lines.length; st.lastAt = Date.now(); st.idx = (st.idx || 0) + 1;
-    try { fs.writeFileSync(path.join(DIR, 'autoack.json'), JSON.stringify(st)); } catch (_) {}
-    console.log('[watchdog] auto-ack (sinal de vida) enviado em', newest.channel);
-  }
-}
+// 09-28: auto-ack REMOVIDO de vez (Bruno: "isso eh mto fake"). As frases "vi
+// aqui ja volto / to terminando um negocio" eram promessas vazias. Agora o
+// auto-responder RESPONDE de verdade, ou o sistema fica quieto. Nada de fake.
 
 // ── anti-travamento: tick pendurado (CDP sem resposta) NÃO pode matar a outbox.
 // Se o loop não progredir em 4min, o processo se mata e o run-watchdog.cmd revive
@@ -438,11 +391,6 @@ setInterval(() => {
     try { checarLogin(); } catch (e) { console.log('[watchdog] checarLogin erro:', e.message); }
     try { aplicarObsidianPendente(); } catch (e) { console.log('[watchdog] obsidian pendente erro:', e.message); }
     try { processOutbox(); } catch (e) { console.log('[watchdog] outbox erro:', e.message); }
-    // 09-28: auto-ack ("ja volto") DESLIGADO. Com o auto-responder respondendo de
-    // verdade, o "ja volto" virou so promessa vazia que o Bruno reclamou: "pq q vc
-    // ta me mandando essa msg se ja deu um jeito disso nao acontecer mais?". Agora
-    // o sistema RESPONDE (auto-responder) em vez de prometer. Codigo mantido, so nao chamado.
-    // try { processAutoAck(); } catch (e) { console.log('[watchdog] autoack erro:', e.message); }
     try { processAutoResponder((m) => console.log(m)); } catch (e) { console.log('[watchdog] auto-responder erro:', e.message); }
     try { await tick(); } catch (e) { console.log('[watchdog] tick erro:', e.message); }
     await sleep(POLL_MS);
