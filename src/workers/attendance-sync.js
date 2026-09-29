@@ -118,7 +118,14 @@ class AttendanceSync {
       // quem TRABALHOU nesse dia de verdade (tarefa real, nao-teste, nao EMS, dia com >= 1h de atividade)
       const people = (await this.db.query(
         `SELECT p.id, p.display_name, p.clock_code, p.slack_user_id,
-                MIN(e.started_at) AS first_start, MAX(COALESCE(e.ended_at, e.started_at)) AS last_end
+                MIN(e.started_at) AS first_start,
+                -- fim REAL do dia: so tarefas fechadas no mesmo dia por gente (nunca
+                -- auto_closed_eod / sweep / expiry, que fecham as 21h+ e fariam a batida
+                -- de saida real das 19:08 parecer "faltando" — caso Vitor 09-29)
+                MAX(CASE WHEN e.ended_at IS NOT NULL
+                          AND (e.ended_at AT TIME ZONE '${TZ}')::date = (e.started_at AT TIME ZONE '${TZ}')::date
+                          AND COALESCE(e.closed_reason, '') !~ '(auto|sweep|eod|expir)'
+                         THEN e.ended_at END) AS last_real_end
            FROM v3.events e JOIN v3.persons p ON p.id = e.person_id
           WHERE e.deleted_at IS NULL AND COALESCE(e.is_test, false) = false AND e.source NOT IN ('ems_auto')
             AND p.active = true AND p.deleted_at IS NULL AND p.clock_code IS NOT NULL AND p.clock_code <> ''
@@ -141,7 +148,11 @@ class AttendanceSync {
             .rows.map((r) => new Date(r.punch_time).getTime());
           const near = (t, mins) => punches.some((x) => Math.abs(x - t) <= mins * 60000);
           const first = new Date(p.first_start).getTime();
-          const last = new Date(p.last_end).getTime();
+          const lastReal = p.last_real_end ? new Date(p.last_real_end).getTime() : null;
+          // 2+ batidas e a ultima depois das 17:00 NY = bateu a saida, ponto final
+          // (a batida de saida e autoritativa; nao depende de tarefa nenhuma)
+          const lastPunchMin = punches.length ? this._nyMinutes(new Date(punches[punches.length - 1])) : -1;
+          const hasCheckoutPunch = punches.length >= 2 && lastPunchMin >= CHECKOUT_MIN;
           const faltas = [];
           // entrada da manha: alguma batida ate 60min depois da 1a tarefa (mesma regra do no_clockin)
           if (!punches.some((x) => x <= first + 60 * 60000)) faltas.push({ k: 'in', d: 'entrada da manha' });
@@ -155,8 +166,10 @@ class AttendanceSync {
             if (!near(new Date(lunch.o).getTime(), 20)) faltas.push({ k: 'out', d: 'saida do almoco' });
             if (!near(new Date(lunch.i).getTime(), 20)) faltas.push({ k: 'in', d: 'volta do almoco' });
           }
-          // saida do dia: alguma batida de 45min antes do fim da ultima tarefa em diante
-          if (!punches.some((x) => x >= last - 45 * 60000)) faltas.push({ k: 'out', d: 'saida do dia' });
+          // saida do dia: so acusa se (a) nao tem batida de saida clara (2+ batidas, ultima >= 17:00)
+          // E (b) da pra medir um fim real do dia E (c) nao ha batida de 45min antes desse fim em diante.
+          // Sem fim real mensuravel (so fechamentos automaticos) = nao da pra julgar = NAO acusa.
+          if (!hasCheckoutPunch && lastReal && !punches.some((x) => x >= lastReal - 45 * 60000)) faltas.push({ k: 'out', d: 'saida do dia' });
           if (!faltas.length) continue;
           const missing = { in: faltas.some((f) => f.k === 'in'), out: faltas.some((f) => f.k === 'out'), detail: faltas.map((f) => f.d).join(' e ') };
           const r = await punchWarning.recordAndWarn({
