@@ -260,8 +260,7 @@ class AttendanceSync {
       await this.db.query(
         `UPDATE v3.att_state SET manual_return_at=$3, state='in', last_in_at=$3, break_started_at=NULL, updated_at=NOW()
           WHERE person_id=$1 AND att_date=$2::date`, [r.person_id, today, ret]);
-      const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
-      await this._operators(`${who}, você não bateu o ponto da volta do almoço. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);   // Bruno 09-17: nunca dizer que consertei
+      // Bruno 09-28: NAO avisa mais no mesmo dia (o atraso do NGTeco causava falso "nao bateu"). O aviso vai pro DIA SEGUINTE, so se confirmado. Aqui so registra pra o worker do dia seguinte pegar.
       await this._admin(`${r.display_name} voltou do almoço sem bater a volta. Volta = início da tarefa (${this._fmtNY(ret)}).`);
       await this._audit('att.forgot_lunch_return_punch', r.person_id, { return_at: ret });
     }
@@ -315,10 +314,8 @@ class AttendanceSync {
       const v = await this._verifyClaim({ id: r.person_id, clock_code: r.clock_code, display_name: r.display_name }, today, 'lunch_punch_missing');
       if (!v.ok) { console.log(`[att-sync] lunch_punch_missing ${r.display_name} ABORTADO: ${v.reason}`); continue; }
       await this.db.query(`UPDATE v3.att_state SET lunch_punch_callout_at=NOW(), updated_at=NOW() WHERE person_id=$1 AND att_date=$2::date`, [r.person_id, today]);
-      const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
-      // Bruno 09-17: dizer QUAL faltou, nunca "ajustei"; o operador só ouve "reportei".
       const qual = (!r.has_out && !r.has_in) ? 'do almoço (saída e volta)' : (!r.has_out ? 'da saída do almoço' : 'da volta do almoço');
-      await this._operators(`${who}, você não bateu o ponto ${qual}. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);
+      // Bruno 09-28: NAO avisa no mesmo dia. Registra e o aviso sai no dia seguinte (att-nextday-warning), so se confirmado.
       await this._admin(`${r.display_name} não bateu o ponto ${qual} hoje. Confiram no NGTeco. (Avisei no grupo.)`);
       await this._audit('att.lunch_punch_missing', r.person_id, { has_out: !!r.has_out, has_in: !!r.has_in });
     }
@@ -397,10 +394,7 @@ class AttendanceSync {
       const v = await this._verifyClaim({ id: r.person_id, clock_code: r.clock_code, display_name: r.display_name }, today, 'missed_clockout');
       if (!v.ok) { console.log(`[att-sync] missed_clockout ${r.display_name} ABORTADO: ${v.reason}`); continue; }
       await this.db.query(`UPDATE v3.att_state SET missed_clockout_alerted_at = NOW() WHERE person_id=$1 AND att_date=(($2::date)-1)`, [r.person_id, today]);
-      const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
-      // SEM horário. Grave. Aviso que estou notificando pra consertar o clock-out.
-      await this._operators(
-        `${who}, ontem você não bateu o ponto de saída. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);   // Bruno 09-17: texto fixo, sem "vou corrigir"
+      // Bruno 09-28: NAO avisa no grupo no mesmo dia. O aviso serio do dia seguinte (att-nextday-warning) cobre isto.
       // admin recebe COM o horário pra poder corrigir (interno)
       await this._admin(
         `:rotating_light: ${r.display_name} não bateu a saída ontem. Corrijam o clock-out dela no NGTeco. (Avisei no grupo, sem horário.)`);
