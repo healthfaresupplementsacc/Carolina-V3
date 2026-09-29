@@ -216,6 +216,7 @@ function createAdminRouter(deps = {}) {
     return next();
   };
   router.use('/api/adminpanel/operators', requireAdmin);
+  router.use('/api/adminpanel/punch-occurrences', requireAdmin);   // 09-28: card de ponto (Operadores)
   router.use('/api/adminpanel/notifications', requireAdmin, makeRateLimit({ limit: 30 }));
   router.use('/api/adminpanel/admins', requireAdmin, requireRole('owner'));
   // CARGOS + pessoas com Slack (09-09). O gate aqui é POR PREFIXO: rota nova
@@ -579,7 +580,7 @@ function createAdminRouter(deps = {}) {
   // Permite até 7 dias atrás (G8). Exige justificativa (transparência, G5).
   const ADMIN_NOTE_REQUIRED = new Set(['break', 'order_printing', 'order_printing_2', 'special_task', 'meeting', 'training',
     'production_line_other', 'formulation_other', 'cleaning_other', 'packaging_other', 'shipping_other', 'label_change', 'label_repair']);
-  const ADMIN_ORDERS_REQUIRED = new Set(['order_printing', 'order_printing_2']);
+  const ADMIN_ORDERS_REQUIRED = new Set();   // 09-28 Bruno: ordens vêm do Veeqo, campo nunca é pedido (igual ao /op desde 09-14)
   router.post('/api/adminpanel/operators/:id/retroactive-event', h(async (req, res) => {
     const personId = parseInt(req.params.id, 10);
     if (!Number.isFinite(personId)) return res.status(400).json({ error: 'bad_id' });
@@ -591,11 +592,10 @@ function createAdminRouter(deps = {}) {
     if (!actr.rows[0]) return res.status(400).json({ error: 'unknown_activity_slug' });
     const act = actr.rows[0];
     if (ADMIN_NOTE_REQUIRED.has(act.slug) && !(b.note && String(b.note).trim())) return res.status(400).json({ error: 'note_required' });
-    let ordersPrinted = null;
-    if (ADMIN_ORDERS_REQUIRED.has(act.slug)) {
-      ordersPrinted = parseInt(b.orders_printed, 10);
-      if (!Number.isFinite(ordersPrinted) || ordersPrinted <= 0) return res.status(400).json({ error: 'orders_printed_required' });
-    }
+    // 09-28 Bruno: a quantidade de ordens vem do VEEQO; o campo digitado é só
+    // registro secundário (nunca obrigatório, nunca fonte de contagem).
+    const opQty = parseInt(b.orders_printed, 10);
+    const ordersPrinted = (Number.isFinite(opQty) && opQty > 0) ? opQty : null;
     const tv = await db.query(
       `SELECT ($1::timestamptz <= NOW()) AS not_future,
               ($1::timestamptz >= NOW() - INTERVAL '7 days') AS within_7d,
@@ -804,15 +804,22 @@ function createAdminRouter(deps = {}) {
         FROM v3.events e WHERE e.deleted_at IS NULL AND e.started_at > ${since}
         GROUP BY day ORDER BY day`),
     ]);
-    // Fase B addition: tempo médio por ordem impressa + uso de voz 7d
+    // Min por ordem = tempo de P&P do dia (impressão+empacotamento, counts_as_pp) /
+    // ordens ENVIADAS no dia pelo VEEQO (espelho pnp_order_lines). Bruno 09-28: o
+    // campo orders_printed digitado NUNCA é fonte de contagem (vinha vazio/errado).
     const [ordersEff, voiceUse] = await Promise.all([
       db.query(`
-        SELECT at.slug, COUNT(*)::int n, SUM(e.orders_printed)::int total_orders,
-               ROUND(SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL)) total_min,
-               ROUND((SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL)) / NULLIF(SUM(e.orders_printed),0), 2) AS min_por_ordem
-        FROM v3.events e JOIN v3.activity_types at ON at.id=e.activity_type_id
-        WHERE e.deleted_at IS NULL AND e.started_at > ${since} AND e.orders_printed > 0
-        GROUP BY at.slug`),
+        WITH ship AS (
+          SELECT (shipped_at AT TIME ZONE '${EDT}')::date AS d, COUNT(DISTINCT order_number)::int AS ordens
+            FROM v3.pnp_order_lines WHERE shipped_at IS NOT NULL AND shipped_at > ${since} GROUP BY 1),
+        pp AS (
+          SELECT (e.started_at AT TIME ZONE '${EDT}')::date AS d, SUM(${DUR_MIN}) FILTER (WHERE e.ended_at IS NOT NULL) AS min
+            FROM v3.events e JOIN v3.activity_types at ON at.id=e.activity_type_id
+           WHERE e.deleted_at IS NULL AND e.started_at > ${since} AND at.counts_as_pp = true GROUP BY 1)
+        SELECT 'pnp_veeqo' AS slug, COUNT(*)::int AS n, COALESCE(SUM(ship.ordens),0)::int AS total_orders,
+               ROUND(COALESCE(SUM(pp.min),0)) AS total_min,
+               ROUND(SUM(pp.min) / NULLIF(SUM(ship.ordens),0), 2) AS min_por_ordem
+          FROM ship JOIN pp ON pp.d = ship.d`),
       db.query(`SELECT COUNT(*)::int n, COALESCE(SUM(audio_duration_seconds),0)::int total_s
                 FROM v3.voice_recordings WHERE deleted_at IS NULL AND created_at > ${since}`),
     ]);
@@ -834,6 +841,15 @@ function createAdminRouter(deps = {}) {
       voice_usage: { count: voiceUse.rows[0].n, total_seconds: voiceUse.rows[0].total_s },
       daily_breakdown,
     });
+  }));
+
+  // PONTO — batidas faltando confirmadas (aviso do dia seguinte, Bruno 09-28).
+  // Só leitura: contagem em 30 dias + nível da escala por pessoa, e a lista recente.
+  // A remoção real do benefício é manual (Bruno); aqui só se vê o registro.
+  router.get('/api/adminpanel/punch-occurrences', h(async (req, res) => {
+    const pw = require('../workers/punch-warning');
+    const [people, recent] = await Promise.all([pw.occurrences30(db), pw.recent30(db)]);
+    res.json({ people, recent, levels: { 1: 'benefício do dia', 2: 'benefício do dia', 3: 'semana inteira', 4: '+ semana seguinte', 5: '+ mais uma semana', 6: 'reunião + 2 meses' } });
   }));
 
   router.get('/api/adminpanel/analytics/operator/:id', h(async (req, res) => {

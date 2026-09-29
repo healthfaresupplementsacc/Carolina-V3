@@ -21,6 +21,7 @@
  *  - Começou tarefa no sistema SEM ter batido o ponto → chama atenção no canal
  *    ("esqueceu de bater o ponto; considero o início da tarefa como seu início").
  */
+const punchWarning = require('./punch-warning');   // Bruno 09-28: aviso serio do DIA SEGUINTE + escala de 30 dias
 const TZ = 'America/New_York';
 const NUDGE_MIN = 15;          // min sem tarefa depois de bater o ponto → cobrar
 const NOCLOCK_GRACE_MIN = 45;  // min de tarefa aberta sem ponto antes de perguntar (margem pro sync NGTeco — Bruno 07-28; 45 em 09-17: relógio demorando mais)
@@ -84,6 +85,91 @@ class AttendanceSync {
       if (this.alertGate && await this.alertGate.isMuted(this.db)) return;   // kill-switch
       await this.slack.postAs({ channel: this.operatorChannelId, sender: { name: 'HealthFare Tracker', icon: ':alarm_clock:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
     } catch (e) { console.error('[att-sync] op slack:', e.message); }
+  }
+  /** Aviso SERIO de ponto (dia seguinte, confirmado). Devolve o ts pra registrar
+   *  na ocorrencia. NAO passa pelo mute do alert-gate: e cobranca formal, mesma
+   *  regra do forgotten-checkout (Bruno: "sera 100% aplicado"). */
+  async _operatorsTs(text) {
+    if (!this.slack || !this.slack.postAs) return null;
+    try {
+      const r = await this.slack.postAs({ channel: this.operatorChannelId, sender: { name: 'HealthFare Tracker', icon: ':alarm_clock:' }, thread_ts: null, unfurl_links: false, unfurl_media: false, text });
+      return (r && (r.ts || r.message_ts)) || null;
+    } catch (e) { console.error('[att-sync] op slack (nextday):', e.message); return null; }
+  }
+
+  /** AVISO DO DIA SEGUINTE (Bruno 09-28). O mesmo dia NAO acusa mais ninguem: o
+   *  NGTeco atrasa e o falso "voce nao bateu" fez o pessoal desconfiar do sistema.
+   *  Aqui, a partir das 9:40am, com o relogio ja sincronizado, olha os dias
+   *  anteriores (ate 3 dias atras: sexta so e conferida na segunda), RE-PUXA o
+   *  NGTeco daquele dia mais uma vez e, so pra quem trabalhou (tem tarefa real) e
+   *  FALTOU batida de verdade, registra UMA ocorrencia por dia e posta o aviso
+   *  serio no grupo com o nivel da escala de 30 dias (punch-warning.js).
+   *  Nao remove beneficio nenhum: so avisa e registra (a remocao e do Bruno). */
+  async _nextDayPunchWarnings(today) {
+    const nyMin = this._nyMinutes(new Date());
+    if (nyMin < 9 * 60 + 40 || nyMin >= 12 * 60) return;   // 9:40am-12pm NY
+    if (this._nextDayDone === today) return;
+    const dayISO = (iso, back) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - back); return d.toISOString().slice(0, 10); };
+    const DOW = ['DOMINGO', 'SEGUNDA-FEIRA', 'TERCA-FEIRA', 'QUARTA-FEIRA', 'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SABADO'];
+    let allOk = true;
+    for (let back = 1; back <= 3; back++) {
+      const yISO = dayISO(today, back);
+      const whenLabel = back === 1 ? 'ONTEM' : DOW[new Date(yISO + 'T12:00:00Z').getUTCDay()];
+      // quem TRABALHOU nesse dia de verdade (tarefa real, nao-teste, nao EMS, dia com >= 1h de atividade)
+      const people = (await this.db.query(
+        `SELECT p.id, p.display_name, p.clock_code, p.slack_user_id,
+                MIN(e.started_at) AS first_start, MAX(COALESCE(e.ended_at, e.started_at)) AS last_end
+           FROM v3.events e JOIN v3.persons p ON p.id = e.person_id
+          WHERE e.deleted_at IS NULL AND COALESCE(e.is_test, false) = false AND e.source NOT IN ('ems_auto')
+            AND p.active = true AND p.deleted_at IS NULL AND p.clock_code IS NOT NULL AND p.clock_code <> ''
+            AND (e.started_at AT TIME ZONE '${TZ}')::date = $1::date
+          GROUP BY p.id, p.display_name, p.clock_code, p.slack_user_id
+         HAVING EXTRACT(EPOCH FROM (MAX(COALESCE(e.ended_at, e.started_at)) - MIN(e.started_at))) >= 3600`, [yISO])).rows;
+      if (!people.length) continue;
+      // RE-PUXA o relogio daquele dia (a batida atrasada ja chegou a essa altura). Falhou = nao acusa, tenta no proximo tick.
+      let agg = null;
+      try { agg = await this.ngteco.aggregationDay(yISO); }
+      catch (e) { console.error('[att-sync] nextday ' + yISO + ': ngteco re-fetch falhou, adiando:', e.message); allOk = false; continue; }
+      for (const rec of (agg || [])) {
+        const p = people.find((x) => this._norm(x.clock_code) === this._norm(rec.employee_code));
+        if (p) { try { await this._syncPerson(p, yISO, rec, Array.isArray(rec.attendance_status) ? rec.attendance_status : []); } catch (_) {} }
+      }
+      for (const p of people) {
+        try {
+          const punches = (await this.db.query(
+            `SELECT punch_time FROM v3.att_punch WHERE person_id=$1 AND att_date=$2::date ORDER BY punch_time`, [p.id, yISO]))
+            .rows.map((r) => new Date(r.punch_time).getTime());
+          const near = (t, mins) => punches.some((x) => Math.abs(x - t) <= mins * 60000);
+          const first = new Date(p.first_start).getTime();
+          const last = new Date(p.last_end).getTime();
+          const faltas = [];
+          // entrada da manha: alguma batida ate 60min depois da 1a tarefa (mesma regra do no_clockin)
+          if (!punches.some((x) => x <= first + 60 * 60000)) faltas.push({ k: 'in', d: 'entrada da manha' });
+          // almoco REAL (so 'lunch', nunca pausa curta): batida perto da saida e da volta (±20min)
+          const lunch = (await this.db.query(
+            `SELECT MIN(e.started_at) AS o, MAX(e.ended_at) AS i
+               FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
+              WHERE e.person_id=$1 AND e.deleted_at IS NULL AND at.slug = ANY($2::text[]) AND e.ended_at IS NOT NULL
+                AND (e.started_at AT TIME ZONE '${TZ}')::date = $3::date`, [p.id, ONLY_LUNCH, yISO])).rows[0];
+          if (lunch && lunch.o && lunch.i) {
+            if (!near(new Date(lunch.o).getTime(), 20)) faltas.push({ k: 'out', d: 'saida do almoco' });
+            if (!near(new Date(lunch.i).getTime(), 20)) faltas.push({ k: 'in', d: 'volta do almoco' });
+          }
+          // saida do dia: alguma batida de 45min antes do fim da ultima tarefa em diante
+          if (!punches.some((x) => x >= last - 45 * 60000)) faltas.push({ k: 'out', d: 'saida do dia' });
+          if (!faltas.length) continue;
+          const missing = { in: faltas.some((f) => f.k === 'in'), out: faltas.some((f) => f.k === 'out'), detail: faltas.map((f) => f.d).join(' e ') };
+          const r = await punchWarning.recordAndWarn({
+            db: this.db, person: p, missing, occDateISO: yISO, whenLabel,
+            postOperators: (t) => this._operatorsTs(t),
+            audit: (a, pid, m) => this._audit(a, pid, m),
+          });
+          if (r.posted) await this._admin(`${p.display_name}: faltou ${missing.detail} em ${yISO}. Ocorrencia ${r.count30} em 30 dias, nivel ${r.level}. Aviso serio postado no grupo.`);
+          else console.log(`[att-sync] nextday ${p.display_name} ${yISO}: ${r.reason}`);
+        } catch (e) { console.error('[att-sync] nextday ' + p.display_name + ':', e.message); allOk = false; }
+      }
+    }
+    if (allOk) this._nextDayDone = today;
   }
 
   /** GATE DE VERIFICAÇÃO (Bruno 07-27): NENHUM aviso de ponto pro operador sai sem
@@ -219,6 +305,7 @@ class AttendanceSync {
       await this._checkLunchPunchPair(today);     // almoço com batida faltando (precisa das 2)
       await this._nightSweep(today);              // 22h+: quem "ficou aberto" já foi embora
       await this._alertMissedClockout(today);     // dia seguinte: não bateu SAÍDA no relógio (Bruno 07-23)
+      await this._nextDayPunchWarnings(today);    // 9:40am: aviso SERIO confirmado + escala 30 dias (Bruno 09-28)
       await this._checkDevice();   // TC2 caiu? (Bruno 07-22 — a cada 5min)
       return { ok: true };
     } finally { this._ticking = false; }
@@ -316,7 +403,7 @@ class AttendanceSync {
       await this.db.query(`UPDATE v3.att_state SET lunch_punch_callout_at=NOW(), updated_at=NOW() WHERE person_id=$1 AND att_date=$2::date`, [r.person_id, today]);
       const qual = (!r.has_out && !r.has_in) ? 'do almoço (saída e volta)' : (!r.has_out ? 'da saída do almoço' : 'da volta do almoço');
       // Bruno 09-28: NAO avisa no mesmo dia. Registra e o aviso sai no dia seguinte (att-nextday-warning), so se confirmado.
-      await this._admin(`${r.display_name} não bateu o ponto ${qual} hoje. Confiram no NGTeco. (Avisei no grupo.)`);
+      await this._admin(`${r.display_name} não bateu o ponto ${qual} hoje. Confiram no NGTeco. (Sem aviso no grupo hoje: o aviso sério sai amanhã 9:40, se confirmado.)`);
       await this._audit('att.lunch_punch_missing', r.person_id, { has_out: !!r.has_out, has_in: !!r.has_in });
     }
   }
@@ -397,7 +484,7 @@ class AttendanceSync {
       // Bruno 09-28: NAO avisa no grupo no mesmo dia. O aviso serio do dia seguinte (att-nextday-warning) cobre isto.
       // admin recebe COM o horário pra poder corrigir (interno)
       await this._admin(
-        `:rotating_light: ${r.display_name} não bateu a saída ontem. Corrijam o clock-out dela no NGTeco. (Avisei no grupo, sem horário.)`);
+        `:rotating_light: ${r.display_name} não bateu a saída ontem. Corrijam o clock-out dela no NGTeco. (O aviso sério no grupo sai pelo worker das 9:40.)`);
       await this._audit('att.missed_clockout_alert', r.person_id, { for_date: 'yesterday' });
     }
   }

@@ -1440,6 +1440,14 @@ function createOpRouter(deps = {}) {
         await audit('machine.unattended', 'person', personId, { slugs: slugsAll }, personId);
         return;
       }
+      // Bruno 09-28: a pessoa respondeu que a máquina está PARADA → só fecha a
+      // tarefa da máquina e deixa ir. Sem substituto, sem aviso no grupo; o admin
+      // recebe uma linha pra registro (src/v3/machine-stopped.js).
+      if (appointee === 'stopped') {
+        const st = await require('../v3/machine-stopped').closeStoppedMachines({ db, audit, personId, mine, leaveLabel });
+        if (!silentSlack) await adminSlack(`${me.display_name} saiu (${leaveLabel}) com a máquina parada. Fechei ${st.slugs.join(', ')}, sem substituto.`);
+        return { stopped: true, slugs: st.slugs };
+      }
       let recv = null; let inexperienced = false;
       if (Number.isFinite(appointee)) {
         recv = (await db.query('SELECT id, display_name, slack_user_id, is_machine_operator FROM v3.persons WHERE id = $1 AND active = true AND deleted_at IS NULL', [appointee])).rows[0] || null;
@@ -1766,8 +1774,8 @@ function createOpRouter(deps = {}) {
     // operador de máquina indo pro almoço/pausa → passa as máquinas ANTES de congelar
     // (handoff reatribui o background; o que sobra dele é que congela).
     if (LUNCH_SLUGS.has(act.slug) || PAUSE_SLUGS.has(act.slug)) {
-      // apontado pelo operador ('none' = ninguém → alerta FORMULAÇÃO PARA)
-      const ap = apRaw === 'none' ? 'none' : (Number.isFinite(parseInt(apRaw, 10)) ? parseInt(apRaw, 10) : null);
+      // apontado pelo operador ('none' = ninguém → alerta ALTO; 'stopped' = máquina parada → só fecha, Bruno 09-28)
+      const ap = (apRaw === 'none' || apRaw === 'stopped') ? apRaw : (Number.isFinite(parseInt(apRaw, 10)) ? parseInt(apRaw, 10) : null);
       await handoffMachineWork(s.person_id, s.is_sandbox, ap);
     }
     if (PAUSE_SLUGS.has(act.slug)) await freezeActiveFor(s.person_id, ev.id); // FASE PAUSA: congela o resto
@@ -3241,8 +3249,11 @@ function createOpRouter(deps = {}) {
             }
           } else {
             const reason = (body.machine_leave_reason || '').toString().slice(0, 500);
-            const ap = apRaw === 'none' ? 'none' : parseInt(apRaw, 10);
-            if (ap === 'none' || !Number.isFinite(ap)) {
+            const ap = (apRaw === 'none' || apRaw === 'stopped') ? apRaw : parseInt(apRaw, 10);
+            if (ap === 'stopped') {
+              // máquina PARADA (Bruno 09-28) → só fecha a tarefa; nada de substituto nem alerta
+              await handoffMachineWork(s.person_id, false, 'stopped', 'fim do expediente (bateu ponto)');
+            } else if (ap === 'none' || !Number.isFinite(ap)) {
               // ninguém disponível → máquina SEGUE RODANDO + alerta ALTO (nunca para)
               await handoffMachineWork(s.person_id, false, 'none', 'saída urgente (bateu ponto)');
             } else {

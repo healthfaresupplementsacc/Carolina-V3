@@ -67,11 +67,11 @@ describe('Fase G — ProactiveAlerts', () => {
     expect(db.mem.notifications).toHaveLength(0);
   });
 
-  test('high_orders_printed_anomaly: >3x média → notifica; ≤3x → não', async () => {
-    const big = makeDb({ ordersRows: [{ id: 5, orders_printed: 400, person_id: 4, display_name: 'Simone', avg_orders: 50 }] });
-    expect((await mk(big).tick()).orders).toBe(1); // 400 > 50*3
-    const small = makeDb({ ordersRows: [{ id: 6, orders_printed: 120, person_id: 4, display_name: 'Simone', avg_orders: 50 }] });
-    expect((await mk(small).tick()).orders).toBe(0); // 120 < 150
+  test('orders_printed NÃO é vigiado (09-28: ordens vêm do Veeqo, campo digitado é secundário)', async () => {
+    const db = makeDb({ ordersRows: [{ id: 5, orders_printed: 400, person_id: 4, display_name: 'Simone', avg_orders: 50 }] });
+    const r = await mk(db).tick();
+    expect(r.orders).toBeUndefined();
+    expect(db.mem.notifications).toHaveLength(0);
   });
 
   test('voice_storage_quota_warning: >=400MB → notifica; abaixo → não', async () => {

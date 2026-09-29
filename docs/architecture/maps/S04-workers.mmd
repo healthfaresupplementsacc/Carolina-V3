@@ -13,6 +13,7 @@ subgraph ALWAYS["Default ON (opt-out !== 'false' or none)"]
   S04_06["S04.06 · sandbox-cleanup · 5s · HARD DELETE (heartbeat decoupled)"]:::verified
   S04_07["S04.07 · ems-activity-sync · 45s"]:::verified
   S04_15["S04.15 · attendance-sync NGTeco · 60s"]:::verified
+  S04_43["S04.43 · punch-warning · dia seguinte 9:40 · escala 30d (09-28)"]:::verified
   S04_16["S04.16 · production-total-worker · 30s · own GeminiProvider"]:::verified
   S04_17["S04.17 · absence-alert · 5 min (ABSENCE_ALERT_ENABLED)"]:::verified
   S04_18["S04.18 · encap-monitor · 10 min (ENCAP_MONITOR_ENABLED)"]:::verified
@@ -91,6 +92,9 @@ S04_07 --> S10_02
 S04_07 --> S08_05
 S04_15 --> S10_04
 S04_15 --> S08_06
+S04_15 --> S04_43
+S04_43 --> S08_10
+S04_43 --> S04_30
 S04_16 ==>|R051 bypass QuotaChain| S10_05
 S04_25 ==>|R052 bypass QuotaChain| S10_05
 S04_08 --> S10_03

@@ -1115,7 +1115,16 @@
   // antes de ir pro almoço/pausa, APONTE quem fica de olho na(s) máquina(s).
   function appointMachineInner(o) {
     var h = cardOpen(480);
-    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:14px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.12); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svgr(WARN, 26, 2) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:19px; color:#b3261e;">Quem cuida da máquina?</div></div>';
+    var asking = o.step !== 'appoint';
+    h += '<div style="display:flex; align-items:center; gap:13px; margin-bottom:14px;"><span style="flex:none; width:48px; height:48px; border-radius:15px; background:rgba(179,38,30,.12); color:#b3261e; display:flex; align-items:center; justify-content:center;">' + svgr(WARN, 26, 2) + '</span><div style="font-family:\'Sora\',sans-serif; font-weight:800; font-size:19px; color:#b3261e;">' + (asking ? 'A máquina está rodando?' : 'Quem cuida da máquina?') + '</div></div>';
+    if (asking) {
+      // Bruno 09-28: primeiro pergunta se a máquina está rodando. PARADA = só fecha a tarefa e vai (sem apontar ninguém).
+      h += '<div style="font-size:14.5px; color:#42566f; font-weight:600; margin-bottom:14px; line-height:1.5;">Você tem <b>' + esc((o.machines || []).join(', ')) + '</b> aberta. A máquina está <b>rodando agora</b>?</div>';
+      h += '<button data-act="appointRunning" style="width:100%; border:0; background:linear-gradient(135deg,#3a86ee,#1f5fd0); color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; cursor:pointer; margin-bottom:10px;">Sim, está rodando — vou apontar quem cuida</button>';
+      h += '<button data-act="appointStopped" style="width:100%; border:1px solid rgba(15,40,90,.18); background:rgba(255,255,255,.85); color:#0c2545; border-radius:15px; padding:15px; font-weight:800; font-size:16px; cursor:pointer; margin-bottom:10px;">Não, está parada — só fechar e sair</button>';
+      h += '<div style="display:flex; gap:11px;">' + ghostBtn('closeOverlay', 'Voltar (não vou sair agora)') + '</div></div>';
+      return h;
+    }
     h += '<div style="font-size:14.5px; color:#42566f; font-weight:600; margin-bottom:14px; line-height:1.5;">O outro operador de máquina JÁ SAIU. A(s) máquina(s) <b>' + esc((o.machines || []).join(', ')) + '</b> não pode(m) ficar sozinha(s). <b>Aponte quem fica responsável enquanto você estiver fora:</b></div>';
     if ((o.candidates || []).length) {
       h += '<div class="hf-scroll" style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto; margin-bottom:12px;">';
@@ -1171,6 +1180,7 @@
     }
     h += '<button data-act="emConfirm" ' + (o.appointee ? '' : 'disabled') + ' style="width:100%; border:0; background:' + (o.appointee ? 'linear-gradient(135deg,#3a86ee,#1f5fd0)' : '#b9c4d4') + '; color:#fff; border-radius:15px; padding:15px; font-weight:800; font-size:16px; cursor:' + (o.appointee ? 'pointer' : 'not-allowed') + '; margin-bottom:10px;">Confirmar saída — a máquina SEGUE RODANDO</button>';
     h += '<button data-act="emNobody" style="width:100%; border:1px solid rgba(179,38,30,.35); background:rgba(179,38,30,.07); color:#b3261e; border-radius:14px; padding:12px; font-weight:800; font-size:13.5px; cursor:pointer;">Não tem NINGUÉM disponível — deixar rodando e AVISAR TODOS</button>';
+    h += '<button data-act="emStopped" style="width:100%; border:1px solid rgba(15,40,90,.18); background:rgba(255,255,255,.85); color:#0c2545; border-radius:14px; padding:12px; font-weight:800; font-size:13.5px; cursor:pointer; margin-top:10px;">A máquina está PARADA — só fechar a tarefa e sair</button>';
     h += '<div style="margin-top:10px;">' + ghostBtn('closeOverlay', 'Voltar (não vou sair ainda)') + '</div>';
     h += '</div>';
     return h;
@@ -1535,6 +1545,13 @@
       if (fn) fn(parseInt(arg, 10));
       toast((name || 'Colega') + ' vai ficar de olho na máquina');
     },
+    // Bruno 09-28: "a máquina está rodando?" antes de apontar. Parada = fecha e vai.
+    appointRunning: function () { if (S.overlay) { S.overlay.step = 'appoint'; render(); } },
+    appointStopped: function () {
+      var fn = S.appointResend; S.overlay = null; S.appointResend = null; render();
+      if (fn) fn('stopped');
+      toast('Máquina parada: tarefa fechada. Pode ir!');
+    },
     appointNone: function () {
       showAlert({ title: 'Ninguém pra cuidar da máquina?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pra alguém assumir o mais rápido possível. Confirma que não tem ninguém disponível agora?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })
         .then(function (ok) {
@@ -1566,6 +1583,8 @@
       if (!(o.reason || '').trim()) { showAlert({ title: 'Explique o motivo', message: 'Escreva rapidinho por que precisa sair deixando a máquina — é importante pro registro.', okLabel: 'Entendi' }); S._focus = 'emReason'; render(); return; }
       doClockOut(o);
     },
+    // Bruno 09-28: máquina parada no clock-out → só fecha a tarefa, sem apontar nem alertar
+    emStopped: function () { var o = S.overlay; if (!o) return; doClockOut(Object.assign({}, o, { appointee: 'stopped', reason: o.reason || 'máquina parada' })); },
     emNobody: function () {
       var o = S.overlay; if (!o) return;
       showAlert({ title: 'Ninguém disponível?', message: 'A máquina VAI CONTINUAR RODANDO — a gente nunca para a linha. Vou mandar um alerta ALTO pra alguém assumir. Confirma?', okLabel: 'Confirmo — avisar todos', cancel: 'Voltar' })

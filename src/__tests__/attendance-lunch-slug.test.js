@@ -62,9 +62,15 @@ describe('pausa não é almoço (caso Vitor 08-20)', () => {
     expect(body).toMatch(/lunch_punch_missing'\s*\?\s*ONLY_LUNCH\s*:\s*LUNCH_SLUGS/);
   });
 
-  test('a mensagem acusatória continua existindo (não foi só apagada)', () => {
-    // Bruno 09-17: texto novo, diz QUAL batida faltou e nunca "ajustei"
-    expect(src).toContain('você não bateu o ponto ${qual}. Já reportei.');
+  test('a cobrança do MESMO dia não vai mais pro operador; o dia seguinte cobra (Bruno 09-28)', () => {
+    // 09-28: o NGTeco atrasa ~45min e o "você não bateu" do mesmo dia acusava inocente.
+    // O texto acusatório do mesmo dia SAIU do canal do operador (fica só admin + audit)...
+    expect(src).not.toContain('você não bateu o ponto ${qual}. Já reportei.');
     expect(src).not.toContain('Já ajustei aqui');
+    // ...e a cobrança séria existe no dia seguinte, confirmada, com a escala de 30 dias.
+    expect(src).toContain('_nextDayPunchWarnings');
+    expect(src).toContain("require('./punch-warning')");
+    const body = methodBody('_checkLunchPunchPair');
+    expect(body).not.toMatch(/this\._operators\(/);
   });
 });

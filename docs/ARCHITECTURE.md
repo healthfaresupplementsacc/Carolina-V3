@@ -108,6 +108,8 @@ Clock punches (NGTeco), check-in/out, breaks/lunch, idle/absence, forgotten-chec
 - `src/workers/attendance-sync.js` — core worker: pulls NGTeco punches, drives the day state machine (`attendance-sync.js:6`; NGTeco pull `:104`; punch insert `:428`).
 - `src/workers/absence-alert.js` — logged-in-but-idle alert + auto-idle logout (`:3`, `:146`).
 - `src/workers/carolina-forgotten-dm.js` — next-day forgotten-checkout reminder (`:17`, reads `forgotten_checkouts` `:51`).
+- `src/workers/punch-warning.js` — (09-28) NEXT-DAY punch warning: level picker (1–2 = day, 3 = week, 4–5 = +weeks, 6+ = meeting + 2 months, rolling 30 days), message composer (bold/all-caps, PT), `recordAndWarn` (1 occurrence per person/day, idempotent), read helpers for the admin card. Called from `attendance-sync.js` `_nextDayPunchWarnings` (9:40am–12pm NY, re-fetches NGTeco for the previous 1–3 days, only people with ≥1h of real tasks that day). Same-day operator warnings (`forgot_lunch_return`, `lunch_punch_missing`, `missed_clockout`) no longer post to the operators channel — admin + audit only. Benefit removal itself is MANUAL (Bruno); the system only warns and records.
+- `src/v3/machine-stopped.js` — (09-28) when an operator leaves (lunch/pause/clock-out) with an open machine task and answers "machine is NOT running", closes the machine events (`closed_reason='machine_stopped'`) with no substitute and no operator-channel post; called from `op.js handoffMachineWork(appointee='stopped')`.
 - `src/v3/services/ngteco.js` — NGTeco Office API client (`:100` aggregationDay, `:107` currentDay, `:114` devices).
 - `src/v3/presence.js` — reusable "really present today" SQL/JS, excludes EMS phantom (`:29`, `:57`, `:78`).
 - `src/v3/attendance-markers.js` — pure function labeling punch pairs (`:32` computeMarkers).
@@ -119,6 +121,7 @@ Clock punches (NGTeco), check-in/out, breaks/lunch, idle/absence, forgotten-chec
 - `v3.att_state` — WRITE upsert `attendance-sync.js:514` + updates (`:258,303,342,382,535,562,575,601`) and `router.js:1906-1909`; READ widely.
 - `v3.operator_sessions` — WRITE update (logout) `attendance-sync.js:341,568`, `absence-alert.js:146`, `router.js:1917`; READ `presence.js:40,61,84`.
 - `v3.forgotten_checkouts` — WRITE insert `attendance-sync.js:347`; WRITE update `carolina-forgotten-dm.js:65,84`; READ `:51`.
+- `v3.punch_occurrence` — (migration 096, 09-28) one row per person/day with a CONFIRMED missing punch: `missing_in`, `missing_out`, `detail`, `occ_index` (n-th in 30 days), `level`, `notified_at`, `notify_ts`. WRITE insert/update `punch-warning.js recordAndWarn`; READ `punch-warning.js occurrences30/recent30` → `GET /api/adminpanel/punch-occurrences` (`admin.js`) → Operadores card (dashboard-v4 `OperatorsTab.jsx PunchOccurrencesCard`).
 - `v3.persons` — READ only (clock_code, slack_user_id, display_name). `v3.operator_schedules` — READ only (`absence-alert.js:61`, `op.js:2174`).
 - Also writes: `v3.audit_log` (`carolina-forgotten-dm.js:86`), `v3.operator_action_log` (`absence-alert.js:160,185,211,303`), `v3.notifications` (`absence-alert.js:182`), `v3.ngteco_sync_study` (`attendance-sync.js:447`, observability only).
 
@@ -530,6 +533,7 @@ State written in two places that could disagree, or edges emitted with no consum
    - `src/routes/op.js` — ~9 raw closes: `:1395,1419,1519` (machine_return), `:1540,1550` (overnight expiry), `:1662,1669,1680` (lunch/new-task), `:3388` (forgotten-checkout cascade).
    - `src/v3/services/EventService.js:211` (`_patch`, the only parameterized path).
    - `src/routes/admin.js:654,1187`; `src/v3/data/router.js:1860,1913`; `src/v3/services/CommandHandler.js:783,798`; `src/workers/attendance-sync.js:339,548,564`; `src/workers/ems-activity-sync.js:228,244`.
+   - `src/v3/machine-stopped.js` (09-28) — closes the leaver's open machine events (`closed_reason='machine_stopped'`) when they answer "machine is NOT running" on lunch/pause/clock-out; guarded `WHERE ended_at IS NULL`; called only from `op.js handoffMachineWork(appointee='stopped')`.
    - **Correction to the earlier draft:** `BatchService.js:159,195` do NOT write `ended_at` (they write `product_batch_id`). `src/admin/merge.js:74` and `src/workflow/engine.js:283,520` DO write `ended_at`, but on the **legacy `public.tasks`/`phase_instances`/`ad_hoc_task_instances` tables, NOT `v3.events`** — so they are out of scope for this claim.
    - **Guard reality:** most closers include `WHERE ended_at IS NULL` (attendance-sync `:339,548,564`; CommandHandler `:783,798`; op.js bulk closers), which makes a concurrent double-close a no-op. Split the rest:
      - **Genuinely unguarded** (close by id / `ANY(ids)` with NO `ended_at IS NULL` on the UPDATE): `op.js:1662,1669,1680`.

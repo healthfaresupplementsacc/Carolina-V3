@@ -107,10 +107,10 @@ async function main() {
   const slugs = {};
   for (const r of rows) {
     const k = r.slug || 'unknown';
-    (slugs[k] = slugs[k] || { all: [], clean: [], byOp: {}, task_name: r.task_name, category: r.category, bottles: 0, orders: 0 });
+    (slugs[k] = slugs[k] || { all: [], clean: [], byOp: {}, task_name: r.task_name, category: r.category, bottles: 0 });
     slugs[k].all.push(r);
     slugs[k].bottles += r.bottles;
-    slugs[k].orders += r.orders_printed || 0;
+    // 09-28 Bruno: orders_printed NÃO é somado (ordens vêm do Veeqo, não do campo digitado)
     if (r.is_clean) {
       slugs[k].clean.push(r.duration_min);
       (slugs[k].byOp[r.person_name] = slugs[k].byOp[r.person_name] || []).push(r.duration_min);
@@ -138,7 +138,7 @@ async function main() {
       task_name: d.task_name, category: d.category,
       total_events: d.all.length, clean_events: d.clean.length, filtered_events: d.all.length - d.clean.length,
       ...agg,
-      bottles_total: d.bottles, orders_printed_total: d.orders,
+      bottles_total: d.bottles,
       method_1_target_minutes: m1,
       method_2_target_minutes: m2,
       method_3_target_minutes: m3,

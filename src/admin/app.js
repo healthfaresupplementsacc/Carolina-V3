@@ -601,7 +601,7 @@
     let html = '<table class="dt"><tr><th>Dia</th><th>Eventos</th><th>Bottles</th><th>Horas</th></tr>';
     s.daily_breakdown.slice().reverse().forEach((d) => { html += `<tr><td>${d.day}</td><td>${d.events}</td><td>${d.bottles}</td><td>${d.hours}</td></tr>`; });
     if (s.minutes_per_order && s.minutes_per_order.length) {
-      html += '</table><h2>⏱️ Min por ordem impressa</h2><table class="dt"><tr><th>Tipo</th><th>Ordens</th><th>Min/ordem</th></tr>';
+      html += '</table><h2>⏱️ Min por ordem (Veeqo × tempo de P&P)</h2><table class="dt"><tr><th>Fonte</th><th>Ordens enviadas</th><th>Min/ordem</th></tr>';
       s.minutes_per_order.forEach((o) => { html += `<tr><td>${o.slug}</td><td>${o.total_orders}</td><td>${o.min_por_ordem || '—'}</td></tr>`; });
     }
     $('a-table').innerHTML = html + '</table>';

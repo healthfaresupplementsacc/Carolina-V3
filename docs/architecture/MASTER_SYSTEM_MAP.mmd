@@ -152,6 +152,7 @@ subgraph S08["S08 · Postgres (Railway)"]
   S08_04["S08.04 · legacy pool"]:::verified
   S08_05["S08.05 · v3 tables by domain (persons/events/batches/counts/stock/orders/print/admin/ai/slack/ems/roadmap)"]:::verified
   S08_06["S08.06 · Tables WITHOUT migration (att_punch, att_state, data_incidents, print_*)"]:::partial
+  S08_10["S08.10 · punch_occurrence (mig 096) · aviso de ponto dia seguinte"]:::verified
   S08_07["S08.07 · Legacy public.* tables (27)"]:::verified
   S08_08["S08.08 · events_enriched matview"]:::verified
   S08_ORPH["S08.05.08a/09a/03b · ORPHANED tables: admin_chats · carolina_* ×6 (017) · raw_material_coas (no writer in src)"]:::orphaned
@@ -342,6 +343,7 @@ S07_04 -->|R083| S08_07
 S08_07 -.->|R084 name collision| S08_05
 S08_02 -.->|R085 no runner| S08_01
 S08_06 -.->|R086 DDL only in scripts| S08_01
+S04_15 -->|R148 09-28 punch-warning 9:40 · escala 30d| S08_10
 S08_03 --> S08_01
 S08_04 --> S08_07
 S11_04 -->|R088 imports repos| S02_10

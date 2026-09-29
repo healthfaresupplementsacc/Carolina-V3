@@ -156,6 +156,7 @@ describe('drift: writer sets for tracked tables match the verified findings', ()
         'src/workers/attendance-sync.js',
         'src/workers/ems-activity-sync.js',
         'src/workers/label-printing-autoclose.js',   // 09-12: fecha label_printing esquecida (ended_at = último sinal real)
+        'src/v3/machine-stopped.js',                 // 09-28: máquina PARADA na saída → fecha a tarefa da máquina (guarded ended_at IS NULL)
       ],
     },
     {

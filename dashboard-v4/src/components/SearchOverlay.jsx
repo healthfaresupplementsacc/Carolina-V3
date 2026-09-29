@@ -286,7 +286,6 @@ function BatchHistory({ d }) {
             </div>
             <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
               {fmtWhen(e.started_at)} → {e.open ? 'agora' : fmtWhen(e.ended_at)} · ev {e.event_id}
-              {e.orders_printed != null ? ' · ' + e.orders_printed + ' ordens' : ''}
             </div>
             {(e.description || e.exception_reason) && (
               <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4, fontStyle: 'italic' }}>

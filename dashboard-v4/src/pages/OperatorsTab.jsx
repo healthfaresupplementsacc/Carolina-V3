@@ -60,6 +60,50 @@ const rel = (iso) => {
   return `há ${Math.round(min / 1440)}d`;
 };
 
+/* PONTO (Bruno 09-28): batidas faltando CONFIRMADAS nos últimos 30 dias + nível da
+   escala (1ª/2ª = dia, 3ª = semana, 4ª/5ª = semanas seguintes, 6ª+ = reunião + 2
+   meses). Só leitura: quem avisa e conta é o worker (src/workers/punch-warning.js,
+   9:40am do dia seguinte); a remoção real do benefício é manual, do Bruno. */
+function PunchOccurrencesCard({ nonce }) {
+  const { data, loading, error } = useAdmin('/punch-occurrences', [nonce]);
+  const people = (data && data.people) || [];
+  const recent = (data && data.recent) || [];
+  const LV = (data && data.levels) || {};
+  const tone = (l) => (l >= 6 ? 'bad' : l >= 3 ? 'info' : 'neutral');
+  return (
+    <div className="kit-card pad" style={{ marginTop: 12 }}>
+      <SecTitle>Ponto: batidas faltando (últimos 30 dias)</SecTitle>
+      <div className="adm-note" style={{ marginBottom: 8 }}>
+        1ª e 2ª = benefício do dia · 3ª = semana inteira · 4ª/5ª = semanas seguintes · 6ª+ = reunião + 2 meses. O sistema só avisa e registra; a remoção é manual.
+      </div>
+      {loading && !data ? <Loading/> : error && !data ? <ErrBox error={error}/> : people.length === 0
+        ? <Empty msg="Ninguém com batida faltando confirmada nos últimos 30 dias"/> : (
+        <>
+          <div className="adm-grid tiles">
+            {people.map((p) => (
+              <div key={p.person_id} className="kit-card" style={{ padding: '11px 13px' }}>
+                <b style={{ fontSize: 13.5, color: 'var(--primary-deep)' }}>{p.name}</b>
+                <div className="adm-note" style={{ marginTop: 6, lineHeight: 1.6 }}>
+                  <span className={'kit-chip ' + tone(p.level)}>{p.count30}× em 30d · nível {p.level}</span>
+                  {' '}{LV[p.level] || ''} · última: {p.last_date ? String(p.last_date).slice(0, 10) : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+          <table className="kit-table" style={{ marginTop: 10 }}>
+            <thead><tr><th>Dia</th><th>Quem</th><th>Faltou</th><th>Nº</th><th>Nível</th></tr></thead>
+            <tbody>
+              {recent.map((r) => (
+                <tr key={r.id}><td>{r.occ_date}</td><td>{r.display_name}</td><td>{r.detail}</td><td>{r.occ_index}</td><td>{r.level}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function OperatorsTab() {
   // nonce = força o refetch depois de cada escrita (mesmo padrão de deps das outras abas)
   const [nonce, setNonce] = React.useState(0);
@@ -96,6 +140,8 @@ export function OperatorsTab() {
         <MiniKPI label="Ativos" value={actives} suffix="ativos"/>
         <MiniKPI label="Com sessão aberta" value={online} suffix="agora"/>
       </div>
+
+      <PunchOccurrencesCard nonce={nonce}/>
 
       {creating && (
         <CreateForm ro={ro} ack={ack}

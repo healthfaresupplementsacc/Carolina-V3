@@ -57,8 +57,8 @@ const PROCESSES = [
     key: 'attendance', name: 'Ponto (NGTeco)', where: 'railway', tickMs: 60000,
     heartbeat: true, staleMin: 15, critical: true, since: '2026-07-22',
     enabledEnv: { var: 'WORKER_ATTENDANCE_ENABLED', offValue: 'false', requires: ['NGTECO_USER', 'NGTECO_PASS'] },
-    short: 'Puxa batidas do relógio, marca chegada/almoço/saída, cobra ponto (espera 45 min pelo NGTeco; texto fixo "não bateu… já reportei", nunca "consertei" — Bruno 09-17).',
-    detail: 'A cada 60s lê as batidas do relógio NGTeco NG-TC2, atualiza att_state (checkin/almoço/saída), fecha tarefas no checkout autoritativo, e cobra quem esqueceu batida/checkout. TODO aviso de ponto passa pelo GATE que reconfere a batida ao vivo antes de mandar (07-27). Horário do relógio NUNCA vai pro canal do operador.',
+    short: 'Puxa batidas do relógio, marca chegada/almoço/saída. Bruno 09-28: NÃO cobra mais no mesmo dia (NGTeco atrasa e acusava inocente); às 9:40 do dia seguinte reconfere o relógio e, só se confirmado, posta o aviso SÉRIO no grupo com o nível da escala de 30 dias (1–2 dia, 3 semana, 4–5 +semanas, 6+ reunião + 2 meses).',
+    detail: 'A cada 60s lê as batidas do relógio NGTeco NG-TC2, atualiza att_state (checkin/almoço/saída), fecha tarefas no checkout autoritativo. Cobrança de ponto: os avisos do MESMO dia vão só pro admin + audit (nunca mais pro operador). Das 9:40 às 12:00 NY o _nextDayPunchWarnings olha os 1–3 dias anteriores (sexta só na segunda), re-puxa o NGTeco daquele dia, e pra quem trabalhou (≥1h de tarefa real) e FALTOU entrada/almoço/saída de verdade, grava 1 ocorrência/dia em v3.punch_occurrence e posta o aviso em MAIÚSCULA no #orders-and-inventory (src/workers/punch-warning.js; exempt do mute). O sistema só avisa e registra; a remoção do benefício é manual (Bruno). Card no admin → Operadores. Horário do relógio NUNCA vai pro canal do operador.',
   },
   {
     key: 'total', name: 'Total de produção', where: 'railway', tickMs: 30000,
