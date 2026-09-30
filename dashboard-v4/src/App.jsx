@@ -331,7 +331,19 @@ function AuthedApp({ onLogout }) {
     // PATCH
     const original = state.events.find((e) => e.id === next.id);
     if (!original) { ack(`Evento ev${next.id} sumiu do estado — refresh`); snapshot.refresh(); return; }
-    const res = await writes.patchEventFromV4(next, original, snapshot.hfdata, date);
+    let res = await writes.patchEventFromV4(next, original, snapshot.hfdata, date);
+    // Tarefa de menos de um minuto: o sistema não registra sozinho, PERGUNTA.
+    // Confirmou = grava como está; não confirmou = o admin ajusta/reclassifica (Bruno 09-30).
+    if (!res.ok && res.error && res.error.code === 'short_duration_needs_confirm') {
+      const sim = window.confirm(
+        `Essa tarefa durou menos de um minuto.\n\n`
+        + `O sistema não registra isso sozinho porque quase sempre é engano.\n\n`
+        + `Confirma que foi uma tarefa REAL?\n\n`
+        + `OK = sim, registra como está.\nCancelar = não, eu vou corrigir o horário ou reclassificar.`);
+      if (!sim) { ack(`ev${next.id} não confirmado — ajuste o horário ou reclassifique`); return; }
+      res = await writes.patchEventFromV4(next, original, snapshot.hfdata, date,
+        'tarefa curta confirmada pelo admin', { confirmShort: true });
+    }
     if (!res.ok) { ack(`Erro ao salvar: ${res.error.message || res.error}`); return; }
     clearPending(next.id); draftRef.current = null;
     setPanelEvent(null); setPanelPos(null);

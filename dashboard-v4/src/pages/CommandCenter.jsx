@@ -645,11 +645,17 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     if (!window.confirm(`Confirme: isso vai mudar a linha do tempo de verdade. Sim/Não`)) return;
     let okCount = 0, errCount = 0;
     for (const pd of pendingDrags) {
+      const ev = (state.events || []).find((e) => e.id === pd.id);
       const changes = {
-        started_at: nyTime.minutesToNyIso(date, pd.started_min),
-        ended_at:   pd.ended_min == null ? null : nyTime.minutesToNyIso(date, pd.ended_min),
+        // minuto igual ao original = mantém os segundos reais (Bruno 09-30)
+        started_at: keepSeconds(ev, pd.started_min, 'started_at'),
+        ended_at: pd.ended_min == null ? null : keepSeconds(ev, pd.ended_min, 'ended_at'),
       };
-      const res = await writes.patchEvent(pd.id, changes, 'drag/resize batch via /dashboard-v4');
+      let res = await writes.patchEvent(pd.id, changes, 'drag/resize batch via /dashboard-v4');
+      if (!res.ok && res.error && res.error.code === 'short_duration_needs_confirm') {
+        res = await askShortAndRetry(pd.id, changes, 'tarefa curta confirmada pelo admin (drag/resize)');
+        if (res._declined) { errCount++; continue; }
+      }
       if (res.ok) okCount++;
       else { errCount++; ack(`ev${pd.id} erro: ${res.error.message || res.error}`); }
     }
@@ -693,12 +699,37 @@ function CommandCenter({ state, setState, openPanel, ack, loading, error, hfdata
     }
     if (okN) { if (refresh) refresh(); ack(`Salvo ✓ ${act.name} pra ${members.map((m) => m.name.split(' ')[0]).join(', ')}${lastId ? ' (ev' + lastId + ')' : ''}`); }
   };
+  // A linha do tempo fala em MINUTOS, mas o registro tem SEGUNDOS. Se o minuto
+  // mostrado não mudou, devolve o horário ORIGINAL (com os segundos) em vez do
+  // minuto redondo — senão uma tarefa de 2s virava 09:45→09:45 sozinha (Bruno 09-30).
+  const keepSeconds = (ev, min, field) => {
+    const origMin = field === 'started_at' ? (ev && ev.started_min) : (ev && ev.ended_min);
+    const origIso = ev && (field === 'started_at' ? ev._started_at : ev._ended_at);
+    if (origIso && origMin === min) return origIso;
+    return isoAt(min);
+  };
+  // "Essa tarefa durou menos de um minuto. Foi real?" — o admin decide; se confirmar,
+  // reenvia com confirm_short e o sistema registra como está (Bruno 09-30).
+  const askShortAndRetry = async (id, changes, note) => {
+    const sim = window.confirm(
+      `Essa tarefa durou menos de um minuto.\n\n`
+      + `O sistema não registra isso sozinho porque quase sempre é engano.\n\n`
+      + `Confirma que foi uma tarefa REAL?\n\n`
+      + `OK = sim, registra como está.\nCancelar = não, eu vou corrigir o horário ou reclassificar.`);
+    if (!sim) { ack(`ev${id} não confirmado — ajuste o horário ou reclassifique`); return { ok: false, _declined: true }; }
+    return writes.patchEvent(id, changes, note, null, { confirmShort: true });
+  };
   const quickPatch = async (id, patch) => {
     if (!V4_ALLOW_WRITES || !writes) { ack('preview · V4_ALLOW_WRITES=0'); return; }
+    const ev = (state.events || []).find((e) => e.id === id);
     const changes = {};
-    if ('started_min' in patch) changes.started_at = isoAt(patch.started_min);
-    if ('ended_min' in patch) changes.ended_at = isoAt(patch.ended_min);
-    const res = await writes.patchEvent(id, changes, 'ajuste rápido na linha do tempo');
+    if ('started_min' in patch) changes.started_at = keepSeconds(ev, patch.started_min, 'started_at');
+    if ('ended_min' in patch) changes.ended_at = patch.ended_min == null ? null : keepSeconds(ev, patch.ended_min, 'ended_at');
+    let res = await writes.patchEvent(id, changes, 'ajuste rápido na linha do tempo');
+    if (!res.ok && res.error && res.error.code === 'short_duration_needs_confirm') {
+      res = await askShortAndRetry(id, changes, 'tarefa curta confirmada pelo admin na linha do tempo');
+      if (res._declined) return;
+    }
     if (!res.ok) { ack(`Erro ao ajustar ev${id}: ${res.error.message || res.error}`); return; }
     if (refresh) refresh(); ack(`Horário ajustado ✓ ev${id}`);
   };

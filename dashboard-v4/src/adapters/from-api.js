@@ -69,7 +69,15 @@ async function apiCall(method, path, body) {
     throw e;
   }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j.error && j.error.message) || ('erro ' + r.status));
+  if (!r.ok) {
+    const e = new Error((j.error && j.error.message) || ('erro ' + r.status));
+    // 09-30: o CÓDIGO do erro sobrevive até a tela (ex.: short_duration_needs_confirm),
+    // pra ela poder perguntar em vez de só mostrar o texto cru.
+    if (j.error && j.error.code) e.code = j.error.code;
+    if (j.error && j.error.event_id != null) e.event_id = j.error.event_id;
+    e.status = r.status;
+    throw e;
+  }
   return j;
 }
 

@@ -155,7 +155,26 @@ class EventService {
       const eq = startedAt && fields.ended_at
         && new Date(fields.ended_at).getTime() === new Date(startedAt).getTime();
       const isEod = await this._isEndOfDay(c, activityTypeId);
-      if (eq && !isEod) {
+      // Bruno 09-30: o admin PODE registrar uma tarefa de duração zero/sub-minuto,
+      // desde que CONFIRME que foi real (opts.confirmShort). A pergunta é feita na
+      // tela; aqui só obedecemos e deixamos o rastro de quem confirmou. Sem a
+      // confirmação o guard segue barrando (protege contra registro fantasma).
+      if (eq && !isEod && opts.confirmShort) {
+        await this._audit(c, {
+          actorType: 'admin', actorPersonId: opts.confirmedByPersonId || null,
+          action: 'event.short_duration_confirmed', targetId: id,
+          before: null, after: null,
+          metadata: {
+            guard: 'ended_at == started_at e slug != end_of_day',
+            confirmado_por: opts.confirmedBy || null,
+            nota: opts.confirmNote || null,
+            started_at: startedAt,
+            ended_at: fields.ended_at,
+            activity_type_id: activityTypeId,
+          },
+        });
+        // continua — admin confirmou que a tarefa curta é real
+      } else if (eq && !isEod) {
         await this._audit(c, {
           actorType: 'system', action: 'event.close_blocked_dur_zero', targetId: id,
           before: null, after: null,
@@ -782,7 +801,9 @@ class EventService {
     });
   }
 
-  async correct(eventId, changes = {}, byPersonId, note, actorTypeRaw = 'admin') {
+  /** opts.confirmShort=true  → o admin confirmou NA TELA que a tarefa de menos de
+   *  um minuto é real; o guard dur=0 deixa passar e grava quem confirmou. */
+  async correct(eventId, changes = {}, byPersonId, note, actorTypeRaw = 'admin', opts = {}) {
     const actorType = this._actor(actorTypeRaw);
     const fields = {};
     for (const k of Object.keys(changes)) {
@@ -795,11 +816,22 @@ class EventService {
       if (!before) throw new Error('correct: event ' + eventId + ' não existe');
       // Bloco 30/mai — admin pode forçar patch em end_of_day (com audit
       // warning); outros guards (dur=0 non-eod) continuam bloqueando.
-      const after = await this._patch(c, eventId, fields, { forceEodPatch: true });
+      const after = await this._patch(c, eventId, fields, {
+        forceEodPatch: true,
+        confirmShort: !!opts.confirmShort,
+        confirmedBy: opts.confirmedBy || null,
+        confirmedByPersonId: byPersonId || null,
+        confirmNote: note || null,
+      });
       // Bloco 29/mai-noite #3: _patch retorna null se guard bloqueou dur=0 non-eod.
-      // Em correct (admin-driven), lança erro claro pra admin saber.
+      // Bruno 09-30: em vez de despejar jargão, devolve um erro COM CÓDIGO pra tela
+      // poder perguntar "essa tarefa durou menos de um minuto; foi real?" e reenviar
+      // com confirm_short. O texto é o que o gerente lê, então fala a língua dele.
       if (!after) {
-        throw new Error('correct: bloqueado pelo guard dur=0 — ended_at == started_at requer slug=end_of_day. Veja audit_log action=event.close_blocked_dur_zero.');
+        const e = new Error('Essa tarefa durou menos de um minuto. O sistema não registra isso sozinho porque quase sempre é engano. Confirme se foi real.');
+        e.code = 'short_duration_needs_confirm';
+        e.event_id = eventId;
+        throw e;
       }
       await this._audit(c, {
         actorType, actorPersonId: byPersonId, action: 'event.corrected',

@@ -682,15 +682,34 @@ describe('V3 §2.4 — guard dur=0 non-eod (bloco 29/mai-noite #3)', () => {
     expect(actions(db)).toContain('event.close_blocked_dur_zero');
   });
 
-  test('correct(ended_at=started_at) lança erro claro em non-eod', async () => {
+  test('correct(ended_at=started_at) PERGUNTA em vez de bloquear (erro com código, non-eod)', async () => {
     const db = makeFakeDb();
     const s = svc(db);
     const ev = await s.upsert({
       person_id: 1, activity_type_id: WORK, started_at: T(9),
       actor_type: 'llm_observer',
     });
+    // Bruno 09-30: a mensagem é pro GERENTE ler, e leva código pra tela perguntar
     await expect(s.correct(ev.id, { ended_at: T(9) }, null, 'tentativa', 'admin'))
-      .rejects.toThrow(/dur=0/);
+      .rejects.toThrow(/menos de um minuto/);
+    await expect(s.correct(ev.id, { ended_at: T(9) }, null, 'tentativa', 'admin'))
+      .rejects.toMatchObject({ code: 'short_duration_needs_confirm' });
+    // sem confirmação, NADA foi gravado
+    expect(db.events.find((e) => e.id === ev.id).ended_at).toBeNull();
+  });
+
+  test('correct com confirmShort: admin confirmou que a tarefa curta é real → grava + audita quem confirmou', async () => {
+    const db = makeFakeDb();
+    const s = svc(db);
+    const ev = await s.upsert({
+      person_id: 1, activity_type_id: WORK, started_at: T(9),
+      actor_type: 'llm_observer',
+    });
+    const after = await s.correct(ev.id, { ended_at: T(9) }, 42, 'foi real sim', 'admin',
+      { confirmShort: true, confirmedBy: 'Henrique' });
+    expect(after.ended_at).toBe(T(9));                                   // gravou como está
+    expect(actions(db)).toContain('event.short_duration_confirmed');     // deixou rastro
+    expect(actions(db)).not.toContain('event.close_blocked_dur_zero');   // não bloqueou
   });
 
   test('correct(ended_at=started_at) PERMITE em end_of_day', async () => {

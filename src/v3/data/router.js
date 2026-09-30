@@ -625,7 +625,10 @@ const ENDPOINTS = [
   { method: 'patch', path: '/api/v3/data/events/:id',
     handler: async (req, r, s) => {
       const b = body(req);
-      return { data: await s.event.correct(intParam(req.params.id), b.changes || {}, b.by_person_id, b.note) };
+      // confirm_short (Bruno 09-30): o admin respondeu "sim, foi real" pra tarefa
+      // de menos de um minuto — deixa passar o guard e registra quem confirmou.
+      return { data: await s.event.correct(intParam(req.params.id), b.changes || {}, b.by_person_id, b.note, 'admin',
+        { confirmShort: !!b.confirm_short, confirmedBy: (req.login && req.login.name) || null }) };
     } },
   { method: 'delete', path: '/api/v3/data/events/:id',
     handler: async (req, r, s) => ({
@@ -2094,6 +2097,12 @@ function createDataRouter(deps = {}) {
         res.json(envelope(out.data, out.meta));
       } catch (e) {
         console.error('[v3-data]', method.toUpperCase(), ep.path, '-', e.message);
+        // erro COM CÓDIGO próprio (ex.: short_duration_needs_confirm) chega inteiro
+        // na tela, que decide o que perguntar. Sem isso o front teria que adivinhar
+        // pelo texto da mensagem.
+        if (e.code) {
+          return res.status(409).json({ error: { code: e.code, message: e.message, event_id: e.event_id || null } });
+        }
         const notFound = /não existe/.test(e.message);
         const bad = /obrigatóri|inválid|não-(corrigível|editável)|precisa de/.test(e.message);
         const code = notFound ? 404 : (bad ? 400 : 500);

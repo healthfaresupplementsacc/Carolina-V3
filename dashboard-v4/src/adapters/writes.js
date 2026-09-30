@@ -38,8 +38,15 @@ function wrap(promise) {
 
 /* ── EVENTS ─────────────────────────────────────────────── */
 
-export function patchEvent(id, changes, note, byPersonId) {
-  return wrap(apiPatch('/events/' + id, { changes, by_person_id: byPersonId || null, note: note || null }));
+/* opts.confirmShort=true → admin já respondeu "sim, foi real" pra tarefa de menos
+   de um minuto (Bruno 09-30). */
+export function patchEvent(id, changes, note, byPersonId, opts = {}) {
+  return wrap(apiPatch('/events/' + id, {
+    changes,
+    by_person_id: byPersonId || null,
+    note: note || null,
+    ...(opts.confirmShort ? { confirm_short: true } : {}),
+  }));
 }
 
 export function createEvent(payload) {
@@ -62,8 +69,9 @@ export function splitEvent(id, splitAtIso, byPersonId) {
   return wrap(apiPost('/events/' + id + '/split', { split_at: splitAtIso, by_person_id: byPersonId || null }));
 }
 
-/* High-level: PATCH evento a partir de objeto V4 + hfdata + date. */
-export async function patchEventFromV4(event, originalEvent, hfdata, date, note) {
+/* High-level: PATCH evento a partir de objeto V4 + hfdata + date.
+   opts.confirmShort=true → admin confirmou a tarefa de menos de um minuto. */
+export async function patchEventFromV4(event, originalEvent, hfdata, date, note, opts = {}) {
   // Constrói só os campos QUE MUDARAM
   const cur = resolveRefs(event, hfdata, date);
   const orig = resolveRefs(originalEvent, hfdata, date);
@@ -71,6 +79,10 @@ export async function patchEventFromV4(event, originalEvent, hfdata, date, note)
   for (const k of ['person_id', 'activity_type_id', 'product_batch_id', 'started_at', 'ended_at']) {
     if (cur[k] !== orig[k]) changes[k] = cur[k];
   }
+  // a tela fala em minutos; se o minuto não mudou, devolve o horário ORIGINAL com
+  // os segundos, pra tarefa de 2s não virar 09:45→09:45 sozinha (Bruno 09-30)
+  if (changes.started_at && originalEvent._started_at && event.started_min === originalEvent.started_min) changes.started_at = originalEvent._started_at;
+  if (changes.ended_at && originalEvent._ended_at && event.ended_min === originalEvent.ended_min) changes.ended_at = originalEvent._ended_at;
   if (JSON.stringify(cur.cowork_with.slice().sort()) !== JSON.stringify(orig.cowork_with.slice().sort())) {
     changes.cowork_with = cur.cowork_with;
   }
@@ -81,7 +93,7 @@ export async function patchEventFromV4(event, originalEvent, hfdata, date, note)
   if (Object.keys(changes).length === 0) {
     return { ok: true, data: { _noop: true } };
   }
-  return patchEvent(event.id, changes, note);
+  return patchEvent(event.id, changes, note, null, opts);
 }
 
 /* High-level: cria evento a partir de objeto V4. */
