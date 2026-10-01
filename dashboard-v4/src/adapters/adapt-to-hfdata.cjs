@@ -151,6 +151,7 @@ function adaptToHFData(input) {
       _id: a.id,
       _phase_order: a.phase_order,
       _category: a.category || null,
+      _active: a.active !== false,
     };
   }
 
@@ -170,6 +171,10 @@ function adaptToHFData(input) {
           _id: a ? a.id : null,
           _phase_order: a ? a.phase_order : null,
           _category: a ? (a.category || null) : null,
+          // 09-30: atividade que só existe por evento ANTIGO (fora do catálogo) é
+          // desativada — sem isto ela voltava no dropdown de reclassificar e o
+          // backend recusava ("atividade não existe: orders", Henrique 09-30).
+          _active: a ? a.active !== false : false,
         };
       } else if (a && a.expected_seconds != null && activities[slug].expected == null) {
         // catálogo não tinha expected; preenche do event
