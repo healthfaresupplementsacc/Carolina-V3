@@ -1151,7 +1151,7 @@ function createOpRouter(deps = {}) {
   // já é gravada como production_counts kind='orders' no START — não depende mais
   // do fim (que perdia conta em exceção / esquecimento). Quem ENTRA depois (joiner)
   // ou SAI não precisa informar nada (nem motivo). NÃO pede mais no fim.
-  const ORDER_PRINTING_SLUGS = new Set(['order_printing', 'order_printing_2']);
+  const ORDER_PRINTING_SLUGS = new Set(require('../v3/pnp-slugs').ORDER_PRINTING);
   // slugs que exigem quantidade de ordens no retroativo (mantém regra antiga lá)
   const ORDERS_REQUIRED_SLUGS = new Set();   // 09-14 Bruno: quantidade não é mais pedida (a Veeqo sincroniza); se vier, grava
   // grava a contagem de ordens (P&P) a partir da abertura — fonte única do total.

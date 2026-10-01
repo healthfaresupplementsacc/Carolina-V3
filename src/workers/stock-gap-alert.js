@@ -15,6 +15,7 @@
  * OPT-IN: WORKER_STOCK_GAP_ALERT_ENABLED=true.
  */
 const { isMuted } = require('../v3/alert-gate');
+const { ORDER_PRINTING } = require('../v3/pnp-slugs');   // 09-30: impressao de ordens e UMA so
 const EDT = 'America/New_York';
 
 class StockGapAlert {
@@ -63,10 +64,10 @@ class StockGapAlert {
     const r = await this.db.query(`
       SELECT MIN(e.started_at) AS first_start
         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
-       WHERE at.slug IN ('order_printing','order_printing_2')
+       WHERE at.slug = ANY($1::text[])
          AND COALESCE(e.is_test,false) = false
          AND to_char(e.started_at AT TIME ZONE '${EDT}','YYYY-MM-DD')
-             = to_char(NOW() AT TIME ZONE '${EDT}','YYYY-MM-DD')`);
+             = to_char(NOW() AT TIME ZONE '${EDT}','YYYY-MM-DD')`, [ORDER_PRINTING]);
     const t = r.rows[0] && r.rows[0].first_start;
     if (!t) return null;
     return (Date.now() - new Date(t).getTime()) / 60000;   // minutos

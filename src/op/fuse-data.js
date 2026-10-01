@@ -288,16 +288,6 @@ window.HF_DATA = {
      "requires_quantity": false
     },
     {
-     "slug": "order_printing_2",
-     "label": "2ª impressão",
-     "requires_product": false,
-     "note_required": false,
-     "orders_required": false,
-     "requires_order_count": true,
-     "counts_as_pp": true,
-     "requires_quantity": false
-    },
-    {
      "slug": "stock_organization",
      "label": "Organização de Stock (Inventário)",
      "requires_product": false,

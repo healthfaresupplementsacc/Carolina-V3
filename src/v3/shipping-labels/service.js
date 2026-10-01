@@ -44,7 +44,8 @@ class ShippingLabelsError extends Error {
 }
 
 /** Tarefas de P&P abertas = quem está separando/imprimindo agora. */
-const PICKER_SLUGS = ['order_printing', 'order_printing_2', 'stock_organization'];
+const { ORDER_PRINTING } = require('../pnp-slugs');
+const PICKER_SLUGS = [...ORDER_PRINTING, 'stock_organization'];
 
 const nyToday = (tz) => new Date().toLocaleDateString('en-CA', { timeZone: tz || 'America/New_York' });
 

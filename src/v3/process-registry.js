@@ -156,7 +156,7 @@ const PROCESSES = [
     heartbeat: true, staleMin: 60, critical: false, since: '2026-08-06',
     enabledEnv: { var: 'WORKER_PRINT_DIVERGENCE_ENABLED', onValue: 'true', requires: ['VEEQO_API_KEY'] },
     short: 'DESLIGADO 09-14 (Bruno: ninguém digita mais quantidade na impressão; a Veeqo é a fonte) · 12pm NY: digitado (1ª+2ª impressão) vs Veeqo; divergiu → pergunta pra quem está no packing (cargo packing_operator; sem ninguém = "pessoal do packing"), só a diferença, e grava a resposta.',
-    detail: 'Diário às 12pm NY (a impressão do dia já acabou): soma orders_printed de order_printing+order_printing_2 (não-teste) e compara com veeqo.shippedByDay. Divergiu → pergunta no #orders-and-inventory citando SÓ a diferença (nunca os totais — decisão do Bruno pra capturar o motivo real). Resposta da thread gravada em v3.print_divergence_log todo dia → histórico pra investigar. Respeita o mute do alert-gate.',
+    detail: 'Diário às 12pm NY (a impressão do dia já acabou): soma orders_printed das tarefas de impressão de ordens (src/v3/pnp-slugs.js; a 2ª impressão antiga conta como impressão, foi desativada 09-30) e compara com veeqo.shippedByDay. Divergiu → pergunta no #orders-and-inventory citando SÓ a diferença (nunca os totais — decisão do Bruno pra capturar o motivo real). Resposta da thread gravada em v3.print_divergence_log todo dia → histórico pra investigar. Respeita o mute do alert-gate.',
   },
   {
     key: 'dup_shipment', name: 'Duplicatas de envio (Veeqo)', where: 'railway', tickMs: 3600000,

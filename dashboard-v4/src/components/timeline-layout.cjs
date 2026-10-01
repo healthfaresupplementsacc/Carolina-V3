@@ -22,7 +22,7 @@
    este mapa vira fallback. */
 const SHORT = {
   production_line: 'Linha', encapsulation: 'Encaps.', label_printing: 'Labels', order_printing: 'Ordens',
-  order_printing_2: '2ª Ordens', packaging: 'Empacot.', stock_organization: 'Estoque', line_changeover: 'Setup',
+  order_printing_2: 'Ordens', packaging: 'Empacot.', stock_organization: 'Estoque', line_changeover: 'Setup',
   formulation_other: 'Outro (form.)', production_line_other: 'Outro (linha)', cleaning_other: 'Outro (limp.)',
   packaging_other: 'Outro (emb.)', shipping_other: 'Outro (envio)', cleaning: 'Limpeza', review: 'Revisão',
   weighing: 'Pesagem', separating: 'Separando', mixing: 'Mix', lunch: 'Almoço', break: 'Pausa', counting: 'Contagem',

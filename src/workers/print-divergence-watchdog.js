@@ -2,19 +2,20 @@
 /**
  * HEALTHFARE V3 — print-divergence-watchdog (Bruno 08-06)
  *
- * Todo dia às 12pm NY (Simone já terminou de imprimir): compara o total digitado
- * nas tasks de impressão (1ª + 2ª, order_printing + order_printing_2, não-teste)
- * com o que o Veeqo registrou como impresso no dia. Se divergir, PERGUNTA pra
- * Simone no #orders-and-inventory citando **SÓ A DIFERENÇA** — nunca os totais
- * (pedido explícito do Bruno: assim ela conta o motivo real em vez de ajustar
- * o número). A resposta dela na thread é gravada TODO dia em
- * v3.print_divergence_log → histórico pra investigar com calma.
+ * Todo dia às 12pm NY (a impressão do dia já acabou): compara o total digitado
+ * nas tasks de impressão (slugs em src/v3/pnp-slugs.js — a 2ª impressão antiga
+ * conta como impressão, é o mesmo trabalho) com o que o Veeqo registrou como
+ * impresso no dia. Se divergir, PERGUNTA pra quem está no packing no
+ * #orders-and-inventory citando **SÓ A DIFERENÇA** — nunca os totais, pra a
+ * pessoa contar o motivo real em vez de ajustar o número. A resposta na thread
+ * é gravada TODO dia em v3.print_divergence_log → histórico pra investigar.
  *
  * Kill-switch: respeita o mute de alertas do canal do operador (alert-gate).
  * OPT-IN: WORKER_PRINT_DIVERGENCE_ENABLED=true. Canal: #orders-and-inventory.
  */
 const { isMuted } = require('../v3/alert-gate');
 const { addressRole } = require('../v3/roles');   // cargo packing_operator (Bruno 09-09)
+const { ORDER_PRINTING } = require('../v3/pnp-slugs');   // 09-30: impressao de ordens e UMA so
 const EDT = 'America/New_York';
 
 class PrintDivergenceWatchdog {
@@ -47,14 +48,14 @@ class PrintDivergenceWatchdog {
     return { hour, date };
   }
 
-  /** Totais do dia: digitado (1ª+2ª impressão, não-teste) vs Veeqo impresso. */
+  /** Totais do dia: digitado (impressão de ordens, não-teste) vs Veeqo impresso. */
   async computeDay(nyDate) {
     const op = await this.db.query(`
       SELECT COALESCE(SUM(e.orders_printed),0)::int AS total
         FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
-       WHERE at.slug IN ('order_printing','order_printing_2')
+       WHERE at.slug = ANY($2::text[])
          AND e.orders_printed IS NOT NULL AND COALESCE(e.is_test,false) = false
-         AND to_char(e.started_at AT TIME ZONE '${EDT}','YYYY-MM-DD') = $1`, [nyDate]);
+         AND to_char(e.started_at AT TIME ZONE '${EDT}','YYYY-MM-DD') = $1`, [nyDate, ORDER_PRINTING]);
     const operator_total = op.rows[0].total;
     const v = await this.veeqo.shippedByDay(nyDate);
     return { operator_total, veeqo_total: v.total_orders || 0 };
