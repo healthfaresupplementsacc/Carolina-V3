@@ -64,6 +64,13 @@ const NAV = [
     { id: "falar",        pt: "Falar",          en: "Speak",           icon: "chat" },
     { id: "suporte",      pt: "Suporte",        en: "Support",         icon: "support" },
   ]},
+  // CLINIC (10-02): outro NEGÓCIO, não outro setor. Banco próprio
+  // (CLINIC_DATABASE_URL), telas em pages/clinic/, cuidado por um projeto Claude
+  // separado — ver "c:\Claude Projects\HealthFare Clinic\CONTRATO-CLINIC.md".
+  // Daqui sai só a casca: menu + gate. O conteúdo é de lá.
+  { section: "CLINIC", en: "Clinic", icon: "people", fn: "clinic_page", clinic: true, items: [
+    { id: "clinic", pt: "Clínica", en: "Clinic", icon: "people" },
+  ]},
   // Admin: só quem tem a função aparece (manager NÃO vê — Bruno 08-03).
   // Roadmap = plano do sistema inteiro, é assunto de admin, não de operação
   // (Bruno 08-21: "deveria estar dentro do menu do ADMIN").
@@ -171,7 +178,7 @@ const Sidebar = ({ route, onRoute, collapsed, opLink, open, onClose }) => {
             <div key={sec.section} className={`nav-group ${isOpen ? 'open' : ''}`}>
               {!collapsed && (
                 <button type="button"
-                  className={`nav-section nav-section-btn ${hasActive ? 'has-active' : ''}`}
+                  className={`nav-section nav-section-btn ${hasActive ? 'has-active' : ''} ${sec.clinic ? 'nav-section-clinic' : ''}`}
                   onClick={() => toggle(sec.section)}
                   aria-expanded={isOpen}>
                   <span className="nav-ico" style={{ marginRight: 8, opacity: 0.8 }}><Icon name={sec.icon} size={15}/></span>

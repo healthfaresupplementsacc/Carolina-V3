@@ -52,6 +52,7 @@ import { LocationsPage } from './pages/LocationsPage.jsx';
 import { LabelsPrintPage } from './pages/LabelsPrintPage.jsx';
 import { StockLoadPage } from './pages/StockLoadPage.jsx';
 import { RoadmapPage } from './pages/RoadmapPage.jsx';
+import { ClinicPage } from './pages/clinic/ClinicPage.jsx';   // 10-02: casca; conteudo e de outro projeto
 import { SystemHealthPage } from './pages/SystemHealthPage.jsx';
 import {
   ProductionPage, GoalsPage, PeoplePage, PickPackPage, SupportPage,
@@ -440,6 +441,7 @@ function AuthedApp({ onLogout }) {
     case "impressao":     pageNode = <PrintingPage date={date}/>; break;
     case "picklist":      pageNode = <PicklistPage/>; break;
     case "roadmap":       pageNode = <RoadmapPage/>; break;
+    case "clinic":        pageNode = <ClinicPage/>; break;
     // S15 — hub de estoque
     case "estoque":            pageNode = <WarehousePage/>; break;
     case "estoque-montar":     pageNode = <StockLoadPage/>; break;

@@ -1045,3 +1045,28 @@ a { color: inherit; text-decoration: none; }
 
 /* ===== Tweaks (custom) ===== */
 .tw-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+
+/* ── CLINIC (10-02): outro NEGÓCIO dentro da mesma página ──────────────────
+   Navy forte, maiúscula, bold: a cor já diz "aqui não é o armazém" sem precisar
+   de aviso escrito. Precisa vencer o override do tema claro (.nav-section-btn
+   em :root:not([data-theme="dark"])), por isso repete nos dois temas.
+   O banco e as telas desta seção são de outro projeto — ver CONTRATO-CLINIC.md. */
+.nav-section-btn.nav-section-clinic,
+:root:not([data-theme="dark"]) .nav-section-btn.nav-section-clinic,
+:root[data-theme="light"] .nav-section-btn.nav-section-clinic {
+  font-family: inherit;
+  color: #3D4FA1;              /* navy da clínica */
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+:root:not([data-theme="dark"]) .nav-section-btn.nav-section-clinic .nav-section-label,
+:root[data-theme="light"] .nav-section-btn.nav-section-clinic .nav-section-label { font-weight: 800; }
+/* um fio navy à esquerda separa visualmente do resto do menu */
+.nav-section-btn.nav-section-clinic { border-left: 3px solid #3D4FA1; padding-left: 8px; }
+.nav-section-btn.nav-section-clinic:hover { background: rgba(61, 79, 161, 0.07); }
+.nav-section-btn.nav-section-clinic.has-active { color: #2C3A7A; }
+/* dark: o mesmo navy clareado pra manter contraste */
+:root[data-theme="dark"] .nav-section-btn.nav-section-clinic { color: #93a6f0; border-left-color: #93a6f0; }
+:root[data-theme="dark"] .nav-section-btn.nav-section-clinic.has-active { color: #b6c4ff; }
