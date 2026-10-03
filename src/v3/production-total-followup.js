@@ -25,9 +25,44 @@
 const MAX_OPERATOR_PROMPTS = 2;        // pergunta inicial + no MÁX 1 insistência antes de escalar
 const REPROMPT_AFTER_MIN = 20;         // só re-cobra o operador depois de 20min de silêncio
 
-/** Cria o followup + inicia a conversa no Slack. Chamado no close sem total. */
+/* O MOTIVO JA EXPLICA A FALTA DO TOTAL? (Bruno 10-03: "stop this warning, he
+ * already said it was made by mistake"). Historico: 8 cobrancas desde agosto,
+ * ZERO viraram numero, todas descartadas, porque o operador ja tinha dito que a
+ * tarefa foi aberta por engano (produto/lote/tarefa errada), que nao foi ele,
+ * que a linha ainda esta rodando ou que outra pessoa fechou/contou. Perguntar
+ * "quantas unidades?" pra quem disse "nao fui eu" so parece bot confuso.
+ * Motivo vazio ou lixo ("aaaaaaa") continua sendo cobrado: ai sim falta tudo. */
+const REASON_EXPLAINS_RE = new RegExp([
+  'errad[oa]', 'engano', 'sem querer', 'erroneament', 'atrapalh',
+  'n[aã]o (estou|estava|fui|era|foi|fiquei|iniciad|comec|come[cç]ou|passou|passad|termin|finaliz|colocad)',
+  'nem estava', 'n[aã]o (estou|estava) (em|na) linha',
+  'ainda (est[aá]|ta|t[aá] )', 'ainda n[aã]o', 'continua(r|ndo)?', 'dando continuidade', 'assumiu', 'assumiram',
+  'outra pessoa', 'j[aá] (coloquei|lancei|registrei|est[aá] na aba)', 'na aba anterior', 'lan[cç]ou no login',
+  'almo[cç]o', 'pausa', 'fnsku', 'fnusku', 'revis(ao|ão|ando)', 'tarefa (aberta )?errada', 'lote errado', 'produto errado',
+  'abri (a )?tarefa', 'abertura errada', 'abriu duas vezes', 'n[aã]o consegui',
+  'parando', 'saindo', 'vou para', 'fui (pegar|falar)', 'depois so quando', 'nao finalizado',
+].join('|'), 'i');
+function reasonExplainsNoTotal(reason) {
+  const r = String(reason || '').trim();
+  if (r.length < 10) return false;                              // vazio/curto: nao explica nada
+  const compact = r.replace(/\s/g, '');
+  if (/^(.)\1{5,}$/.test(compact)) return false;                // "aaaaaaaa": lixo, cobra
+  if (!/[aeiouáéíóúãõ]/i.test(r) || !/\s/.test(r)) return false; // sem vogal ou palavra unica: lixo
+  return REASON_EXPLAINS_RE.test(r);
+}
+
+/** Cria o followup + inicia a conversa no Slack. Chamado no close sem total.
+ *  Devolve null SEM postar nada quando o motivo ja explica (ver acima): a
+ *  excecao continua gravada no evento (exception_reason) e visivel no admin. */
 async function openFollowup({ db, slack, productionChannel, ev, reason, s, detail }) {
   if (!db) return null;
+  if (reasonExplainsNoTotal(reason)) {
+    try {
+      await db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'production.total_followup.skipped', 'event', $1, $2::jsonb)",
+        [ev.id, JSON.stringify({ reason: String(reason).slice(0, 300), why: 'motivo ja explica a falta do total (Bruno 10-03)' })]);
+    } catch (_) { /* audit nunca derruba */ }
+    return null;
+  }
   // já existe followup aberto pra esse evento? (idempotente)
   const existing = await db.query(
     `SELECT id, thread_ts FROM v3.production_total_followups WHERE event_id=$1`, [ev.id]);
@@ -127,4 +162,4 @@ async function interpretReply({ provider, text, productName, batchNumber }) {
   return { kind: 'unclear' };
 }
 
-module.exports = { openFollowup, interpretReply, MAX_OPERATOR_PROMPTS, REPROMPT_AFTER_MIN };
+module.exports = { openFollowup, interpretReply, reasonExplainsNoTotal, MAX_OPERATOR_PROMPTS, REPROMPT_AFTER_MIN };

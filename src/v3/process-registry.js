@@ -65,7 +65,7 @@ const PROCESSES = [
     heartbeat: true, staleMin: 5, critical: true, since: '2026-07-27',
     enabledEnv: { var: 'WORKER_TOTAL_ENABLED', offValue: 'false' },
     short: 'Linha fechada sem total → conversa no Slack até ter o número ou escala.',
-    detail: 'A cada 30s olha os followups abertos (linha de produção fechada sem quantidade). Lê a resposta do operador na thread, entende via LLM: número → registra o total; motivo sem número → insiste 1×; nada claro/silêncio → escala pro admin-orin. Garante que TODA linha termina com um total.',
+    detail: 'A cada 30s olha os followups abertos (linha de produção fechada sem quantidade). Lê a resposta do operador na thread, entende via LLM: número → registra o total; motivo sem número → insiste 1×; nada claro/silêncio → escala pro admin-orin. Garante que TODA linha termina com um total. EXCECAO (Bruno 10-03, caso Vitor/Austisol): se o MOTIVO digitado no kiosk ja explica a falta do total (produto/lote/tarefa errada, nao fui eu, ainda rodando, outra pessoa fechou, almoco), NAO abre conversa nenhuma: a excecao fica no evento (exception_reason) e no admin, audit production.total_followup.skipped. Historico 08-04..10-03: 8 cobrancas, 0 numeros, 8 descartadas. Motivo vazio/lixo continua sendo cobrado.',
   },
   {
     key: 'ems_sync', name: 'EMS activity sync', where: 'railway', tickMs: 45000,
