@@ -120,7 +120,8 @@ async function alreadyRecorded(db, personId, occDateISO) {
  *  audit(action, personId, meta) -> Promise (opcional)
  * Retorna { posted:bool, level, count30, occ_index } ou { posted:false, reason }.
  */
-async function recordAndWarn({ db, person, missing, occDateISO, postOperators, audit, whenLabel = 'ONTEM' }) {
+async function recordAndWarn({ db, person, missing, occDateISO, hold, postOperators, audit, whenLabel = 'ONTEM' }) {
+  void postOperators; // legado: nao e mais usado (trava de admin)
   if (await alreadyRecorded(db, person.id, occDateISO)) {
     return { posted: false, reason: 'ja registrado hoje pra ontem' };
   }
@@ -140,15 +141,22 @@ async function recordAndWarn({ db, person, missing, occDateISO, postOperators, a
   if (!ins.rows.length) return { posted: false, reason: 'corrida: outro tick ja inseriu' };
 
   const text = composeMessage(person, missing, level, occDateISO, whenLabel);
-  let ts = null;
-  try { ts = postOperators ? await postOperators(text) : null; } catch (e) { /* nao bloqueia o registro */ }
-
-  await db.query(
-    `UPDATE v3.punch_occurrence SET notified_at=NOW(), notify_ts=$2 WHERE person_id=$1 AND occ_date=$3::date`,
-    [person.id, ts, occDateISO]);
-
-  if (audit) { try { await audit('att.nextday_warning', person.id, { occ_date: occDateISO, missing, level, count30, notify_ts: ts }); } catch (_) {} }
-  return { posted: true, level, count30, occ_index: count30, text, ts };
+  // TRAVA (Bruno 10-04): o aviso NAO vai pro grupo daqui. Vai pro admin-orin
+  // com a prova; a ocorrencia fica gravada SEM notified_at e so recebe o ts
+  // (ou e apagada) quando um admin reagir ✅/❌ (accusation-gate.resolveHold).
+  // `hold` e obrigatorio; sem ele nao sai nada (nunca mais postOperators direto).
+  if (!hold) {
+    await db.query(`DELETE FROM v3.punch_occurrence WHERE person_id=$1 AND occ_date=$2::date AND notified_at IS NULL`, [person.id, occDateISO]);
+    return { posted: false, reason: 'sem trava de admin configurada: nao acusa' };
+  }
+  let held = null;
+  try { held = await hold({ text, person, missing, level, count30, occDateISO }); } catch (e) { held = { held: false, reason: e.message }; }
+  if (!held || !held.held) {
+    await db.query(`DELETE FROM v3.punch_occurrence WHERE person_id=$1 AND occ_date=$2::date AND notified_at IS NULL`, [person.id, occDateISO]);
+    return { posted: false, reason: 'trava falhou: ' + ((held && held.reason) || '?') };
+  }
+  if (audit) { try { await audit('att.nextday_warning.held', person.id, { occ_date: occDateISO, missing, level, count30, admin_msg_ts: held.msg_ts }); } catch (_) {} }
+  return { posted: false, held: true, level, count30, occ_index: count30, text, admin_msg_ts: held.msg_ts };
 }
 
 /** Leitura pro card do admin: ocorrencias dos ultimos 30 dias agrupadas por pessoa. */

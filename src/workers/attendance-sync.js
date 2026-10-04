@@ -21,7 +21,8 @@
  *  - Começou tarefa no sistema SEM ter batido o ponto → chama atenção no canal
  *    ("esqueceu de bater o ponto; considero o início da tarefa como seu início").
  */
-const punchWarning = require('./punch-warning');   // Bruno 09-28: aviso serio do DIA SEGUINTE + escala de 30 dias
+const punchWarning = require('./punch-warning');
+const accusationGate = require('../v3/accusation-gate');   // Bruno 09-28: aviso serio do DIA SEGUINTE + escala de 30 dias
 const TZ = 'America/New_York';
 const NUDGE_MIN = 15;          // min sem tarefa depois de bater o ponto → cobrar
 const NOCLOCK_GRACE_MIN = 45;  // min de tarefa aberta sem ponto antes de perguntar (margem pro sync NGTeco — Bruno 07-28; 45 em 09-17: relógio demorando mais)
@@ -169,16 +170,25 @@ class AttendanceSync {
           // positivo). ATT_NEXTDAY_MODE=dry => so admin-orin, prefixo DRY, sem
           // ocorrencia e sem grupo. Voltou pra dry em 10-04 depois do caso Vitor.
           if (this.nextDayMode === 'dry') {
-            await this._admin(`(DRY, nao postado) ${p.display_name}: faltaria ${faltas.map((f) => f.d).join(' e ')} em ${yISO}. Batidas: ${punches.map((x) => this._fmtNy(x)).join(', ') || 'nenhuma'}; ultimo fim humano ${lastReal ? this._fmtNy(lastReal) : '-'}; checkout do sistema ${checkoutAt ? this._fmtNy(checkoutAt) : '-'}.`);
+            // so audit (Bruno 10-04: admin-orin e spam). Eu confiro o dry-run pelo audit_log.
+            await this._audit('att.nextday_dry', p.id, { occ_date: yISO, faltas: faltas.map((f) => f.d), punches: punches.map((x) => this._fmtNy(x)), last_real_end: lastReal ? this._fmtNy(lastReal) : null, checkout_at: checkoutAt ? this._fmtNy(checkoutAt) : null });
+            console.log(`[att-sync] nextday DRY ${p.display_name} ${yISO}: faltaria ${faltas.map((f) => f.d).join(' e ')}`);
             continue;
           }
           const missing = { in: faltas.some((f) => f.k === 'in'), out: faltas.some((f) => f.k === 'out'), detail: faltas.map((f) => f.d).join(' e ') };
+          const proof = `batidas ${punches.map((x) => this._fmtNy(x)).join(', ') || 'nenhuma'}; 1a tarefa ${this._fmtNy(first)}; ultimo fim humano ${lastReal ? this._fmtNy(lastReal) : '-'}; checkout do sistema ${checkoutAt ? this._fmtNy(checkoutAt) : '-'}; fonte NGTeco re-puxado agora`;
           const r = await punchWarning.recordAndWarn({
             db: this.db, person: p, missing, occDateISO: yISO, whenLabel,
-            postOperators: (t) => this._operatorsTs(t),
+            // TRAVA (Bruno 10-04): nunca mais direto no grupo. Admin ve a prova e reage ✅.
+            hold: ({ text, level, count30 }) => accusationGate.holdForAdmin({
+              db: this.db, slack: this.slack, adminChannelId: this.adminChannelId, productionChannelId: this.operatorChannelId,
+              kind: 'ponto dia seguinte (ocorrencia ' + count30 + '/30d, nivel ' + level + ')', person: p, groupText: text, proof,
+              onApprove: { type: 'punch_occurrence', person_id: p.id, occ_date: yISO },
+              audit: (a, pid, m) => this._audit(a, pid, m),
+            }),
             audit: (a, pid, m) => this._audit(a, pid, m),
           });
-          if (r.posted) await this._admin(`${p.display_name}: faltou ${missing.detail} em ${yISO}. Ocorrencia ${r.count30} em 30 dias, nivel ${r.level}. Aviso serio postado no grupo.`);
+          if (r.held) console.log(`[att-sync] nextday ${p.display_name} ${yISO}: RETIDO no admin-orin (${r.admin_msg_ts})`);
           else console.log(`[att-sync] nextday ${p.display_name} ${yISO}: ${r.reason}`);
         } catch (e) { console.error('[att-sync] nextday ' + p.display_name + ':', e.message); allOk = false; }
       }
@@ -748,20 +758,18 @@ class AttendanceSync {
          VALUES ($1, $2::date, 'in', $3, $3, NOW(), NOW())
          ON CONFLICT (person_id, att_date) DO UPDATE SET noclockin_callout_at=NOW(), updated_at=NOW()`,
         [r.id, today, r.first_task]);
-      // Bruno 07-28: NÃO cobra o operador direto. PERGUNTA no admin-orin se pode cobrar;
-      // só cobra no grupo se um admin REAGIR ✅ (processado em events-v2). Dá controle
-      // à gestão e evita constranger quem talvez tenha um problema de relógio (caso Ana).
-      const msgTs = await this._admin(
-        `:warning: ${r.display_name} está trabalhando sem bater o ponto hoje (confirmei no NGTeco). ` +
-        `Reaja :white_check_mark: pra eu cobrar no grupo, ou confiram o relógio dela.`);
-      if (msgTs) {
-        try {
-          await this.db.query(
-            `INSERT INTO v3.notifications (type, payload, status) VALUES ('noclockin_ask', $1::jsonb, 'pending')`,
-            [JSON.stringify({ msg_ts: msgTs, person_id: r.id, display_name: r.display_name, slack_user_id: r.slack_user_id || null })]);
-        } catch (_) {}
-      }
-      await this._audit('att.no_clockin_ask', r.id, { first_task: r.first_task, msg_ts: msgTs });
+      // Bruno 07-28: NÃO cobra o operador direto. 10-04: a pergunta vai pra DM DO
+      // BRUNO pela trava (admin-orin virou spam, ninguém olha); só ✅ dele cobra no grupo.
+      const who = r.slack_user_id ? `<@${r.slack_user_id}>` : `*${r.display_name}*`;
+      const held = await accusationGate.holdForAdmin({
+        db: this.db, slack: this.slack, adminChannelId: this.adminChannelId, productionChannelId: this.operatorChannelId,
+        kind: 'entrada sem ponto (hoje)', person: { id: r.id, display_name: r.display_name, slack_user_id: r.slack_user_id || null },
+        groupText: `${who}, você não bateu o ponto de entrada hoje. Já reportei. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`,
+        proof: `1a tarefa ${this._fmtNy(new Date(r.first_task).getTime())}; NGTeco re-puxado agora: nenhuma batida ate 60min depois; relogio #${r.clock_code}`,
+        audit: (a, pid, m) => this._audit(a, pid, m),
+      });
+      const msgTs = held && held.msg_ts ? held.msg_ts : null;
+      await this._audit('att.no_clockin_ask', r.id, { first_task: r.first_task, msg_ts: msgTs, held: !!(held && held.held) });
     }
   }
 

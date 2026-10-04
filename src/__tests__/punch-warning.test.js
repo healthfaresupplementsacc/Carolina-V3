@@ -64,21 +64,25 @@ describe('punch-warning — recordAndWarn (1 ocorrência por pessoa/dia)', () =>
   const person = { id: 4, display_name: 'Vitor' };
   const missing = { in: false, out: true, detail: 'saida do dia' };
 
-  test('primeira falta em 30 dias → nível 1, posta e registra o ts', async () => {
+  // TRAVA (Bruno 10-04): recordAndWarn nao posta mais no grupo; SEGURA na DM do
+  // Bruno (hold) e a ocorrencia fica sem notified_at ate ele reagir ✅.
+  test('primeira falta em 30 dias → nível 1, RETIDA (hold), nao postada, sem notify_ts', async () => {
     const db = makeDb({ before: 0 });
-    const posted = [];
-    const r = await pw.recordAndWarn({ db, person, missing, occDateISO: '2026-09-27', postOperators: async (t) => { posted.push(t); return '111.222'; } });
-    expect(r.posted).toBe(true);
+    const held = [];
+    const r = await pw.recordAndWarn({ db, person, missing, occDateISO: '2026-09-27', hold: async (h) => { held.push(h); return { held: true, msg_ts: '111.222' }; } });
+    expect(r.posted).toBe(false);
+    expect(r.held).toBe(true);
     expect(r.level).toBe(1);
     expect(r.count30).toBe(1);
-    expect(posted).toHaveLength(1);
+    expect(held).toHaveLength(1);
+    expect(held[0].text).toContain('VITOR');
     expect(db.mem.inserted[0][6]).toBe(1);           // level gravado
-    expect(db.mem.updated[0][1]).toBe('111.222');    // notify_ts
+    expect(db.mem.updated).toHaveLength(0);          // notify_ts so depois do ✅
   });
 
   test('terceira falta em 30 dias → nível 3 (semana inteira)', async () => {
     const db = makeDb({ before: 2 });
-    const r = await pw.recordAndWarn({ db, person, missing, occDateISO: '2026-09-27', postOperators: async () => 'x' });
+    const r = await pw.recordAndWarn({ db, person, missing, occDateISO: '2026-09-27', hold: async () => ({ held: true, msg_ts: 'x' }) });
     expect(r.level).toBe(3);
     expect(r.text).toContain('SEMANA INTEIRA');
   });
@@ -86,7 +90,7 @@ describe('punch-warning — recordAndWarn (1 ocorrência por pessoa/dia)', () =>
   test('já registrado pra esse dia → não posta de novo (idempotente)', async () => {
     const db = makeDb({ existing: true });
     const posted = [];
-    const r = await pw.recordAndWarn({ db, person, missing, occDateISO: '2026-09-27', postOperators: async (t) => { posted.push(t); return 'x'; } });
+    const r = await pw.recordAndWarn({ db, person, missing, occDateISO: '2026-09-27', hold: async (h) => { posted.push(h); return { held: true, msg_ts: 'x' }; } });
     expect(r.posted).toBe(false);
     expect(posted).toHaveLength(0);
     expect(db.mem.inserted).toHaveLength(0);

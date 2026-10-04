@@ -66,6 +66,27 @@ async function handleEvent(payload, deps) {
     if (!commandHandler) return { handled: false, reason: 'no_command_handler' };
     const item = ev.item || {};
     if (item.type !== 'message') return { handled: false, reason: 'reaction_not_on_message' };
+    // ── TRAVA DE ACUSAÇÃO (Bruno 10-04, caso Vitor): qualquer aviso que nomeie
+    // funcionário fica retido na DM do Bruno; só ele (admin) reagindo ✅ manda pro
+    // grupo, ❌ descarta. Ver src/v3/accusation-gate.js.
+    try {
+      const gate = require('../accusation-gate');
+      const emoji = ev.reaction; const reactorSlackUserId = ev.user; const carolinaMsgTs = item.ts;
+      const hold = await gate.findPendingByTs(db, carolinaMsgTs);
+      if (hold) {
+        const yes = gate.isYes(emoji); const no = gate.isNo(emoji);
+        if (yes || no) {
+          const adminR = await db.query(
+            `SELECT 1 FROM v3.persons WHERE slack_user_id = $1 AND role IN ('owner','manager') AND deleted_at IS NULL`,
+            [reactorSlackUserId]);
+          if (adminR.rows.length === 0) return { handled: false, reason: 'accusation_reactor_not_admin' };
+          if ((hold.payload || {}).approver && reactorSlackUserId !== hold.payload.approver && !String(item.channel).startsWith('D')) { /* fora da DM, qualquer admin vale */ }
+          const slackPost = commandHandler && commandHandler.slack && commandHandler.slack.postAs ? commandHandler.slack : null;
+          const r = await gate.resolveHold({ db, slack: slackPost, notification: hold, approved: yes, reactorSlackUserId });
+          return { handled: true, action: 'accusation_' + (r.approved ? 'approved' : 'dismissed') };
+        }
+      }
+    } catch (e) { console.error('[events-v2] accusation_hold erro:', e.message); }
     // Reação de confirmação ✅/❌ vale no canal de produção OU no admin-orin (Frente 1).
     if (item.channel !== productionChannelId && item.channel !== adminChannelId) {
       return { handled: false, reason: 'reaction_other_channel' };

@@ -21,6 +21,7 @@ class CarolinaForgottenDM {
     // canal dos OPERADORES (produção) — é onde a cobrança tem que aparecer.
     this.operatorsChannel = deps.operatorsChannel || process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
     this.ordersChannel = deps.ordersChannel || process.env.V3_ORDERS_CHANNEL || deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+    this.adminChannelId = deps.adminChannelId || process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
     this.heartbeat = deps.heartbeat || null; // vigia (wire.js) — prova que o tick roda
     this._timer = null; this._kick = null; this._ticking = false;
   }
@@ -110,10 +111,22 @@ class CarolinaForgottenDM {
       // Bruno 09-17: nunca dizer "ajustei"; o operador só ouve "reportei"
       parts.push(`${mention(fc)}, ontem você não fez o checkout no sistema e não bateu o ponto de saída. Já reportei os dois. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`);
     }
-    try {
-      await this.slack.postAs({ channel: this.operatorsChannel, sender: BOT, thread_ts: null, unfurl_links: false, unfurl_media: false, text: parts.join('\n\n') });
-      return true;
-    } catch (e) { console.error('[forgotten-dm] envio falhou:', e.message); return false; }
+    // TRAVA (Bruno 10-04): nomeia gente por falta => vai pro admin-orin com a prova,
+    // so sai no grupo com ✅ de admin. Uma retencao por pessoa (prova individual).
+    const gate = require('../v3/accusation-gate');
+    let any = false;
+    for (const fc of rows) {
+      const text = fc.forgot_clock_too
+        ? `${mention(fc)}, ontem você não fez o checkout no sistema e não bateu o ponto de saída. Já reportei os dois. Pra evitar desconto ou cálculo errado das suas horas, não deixe de bater.`
+        : `${mention(fc)}, você saiu ontem sem fazer o checkout no sistema. Já reportei. Pra evitar cálculo errado das suas horas, não esquece de dar logout no fim do dia.`;
+      const proof = `sessao do kiosk sem logout; ultima tarefa ${fc.last_end || fc.last_task_end || '?'}; relogio: ${fc.forgot_clock_too ? 'SEM batida de saida' : 'batida de saida ok'}${fc.clock_out_at ? ' ' + fc.clock_out_at : ''}`;
+      try {
+        const r = await gate.holdForAdmin({ db: this.db, slack: this.slack, adminChannelId: this.adminChannelId, productionChannelId: this.operatorsChannel,
+          kind: 'checkout esquecido', person: { id: fc.person_id || fc.id, display_name: fc.display_name, slack_user_id: fc.slack_user_id || null }, groupText: text, proof });
+        if (r.held) any = true;
+      } catch (e) { console.error('[forgotten-dm] trava falhou:', e.message); }
+    }
+    return any;
   }
 }
 

@@ -27,23 +27,26 @@ describe('Fase 4 — CarolinaForgottenDM worker', () => {
   // Bruno 07-02: a cobrança vai NO CANAL DOS OPERADORES (mencionando a pessoa).
   // Bruno 07-08: mensagem do BOT (NÃO assinada pela Carolina) e, se vários
   // esqueceram, UMA mensagem só mencionando todos (não spamar uma por pessoa).
-  test('cobra NO CANAL, mensagem do BOT (sem Carolina), menciona quem tem slack + dedup', async () => {
+  test('cobra via TRAVA (DM do Bruno), mensagem do BOT (sem Carolina), menciona quem tem slack + dedup', async () => {
     const rows = [{ id: 1, person_id: 5, display_name: 'Ana', slack_user_id: 'U_ANA', last_task_description: 'linha' }];
     const db = makeWorkerDb(rows);
     const posts = []; const dms = [];
-    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; }, postDm: async (o) => { dms.push(o); return {}; } }, operatorsChannel: 'C_OPS' });
+    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; }, postDm: async (o) => { dms.push(o); return { ts: 'h1', channel: 'D1' }; } }, operatorsChannel: 'C_OPS' });
     await w.tick();
-    expect(posts).toHaveLength(1);
-    expect(posts[0].channel).toBe('C_OPS');
-    expect(posts[0].text).toContain('<@U_ANA>');
-    expect(posts[0].sender.name).toBe('HealthFare Tracker');   // BOT, não Carolina
-    expect(posts[0].text).not.toContain('Carolina');           // sem assinatura da Carolina
-    expect(dms[0] && dms[0].sender.name).toBe('HealthFare Tracker'); // DM também é do bot
+    // TRAVA (Bruno 10-04): nada vai pro canal; a cobranca fica RETIDA na DM do Bruno
+    expect(posts).toHaveLength(0);
+    const hold = dms.find((d) => /AVISO RETIDO/.test(d.text));
+    expect(hold).toBeTruthy();
+    expect(hold.userId).toBe('U03URLL1D4L');
+    expect(hold.text).toContain('<@U_ANA>');
+    expect(hold.sender.name).toBe('HealthFare Tracker');       // BOT, não Carolina
+    expect(hold.text).not.toContain('Carolina');
     expect(db.updated).toEqual([1]);
     expect(db.audits).toContain('carolina_forgotten_dm_sent');
-    posts.length = 0;
+    const n = dms.length;
     await w.tick();
-    expect(posts).toHaveLength(0);                             // 2ª tick não reenvia
+    expect(posts).toHaveLength(0);
+    expect(dms).toHaveLength(n);                               // 2ª tick não re-retém (dedup)
   });
   test('VÁRIOS esqueceram → UMA mensagem só mencionando todos (não uma por pessoa)', async () => {
     const rows = [
@@ -53,26 +56,29 @@ describe('Fase 4 — CarolinaForgottenDM worker', () => {
     ];
     const db = makeWorkerDb(rows);
     const posts = [];
-    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; } }, operatorsChannel: 'C_OPS' });
+    const dms = [];
+    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return { ts: 'x' }; }, postDm: async (o) => { dms.push(o); return { ts: 'y', channel: 'D1' }; } }, operatorsChannel: 'C_OPS' });
     await w.tick();
-    expect(posts).toHaveLength(1);                             // UMA só, não 3
-    expect(posts[0].text).toContain('<@U_VIT>');
-    expect(posts[0].text).toContain('<@U_ANA>');
-    expect(posts[0].text).toContain('Simone');
-    expect(posts[0].text).toContain(' e ');                    // lista "A, B e C"
-    expect(posts[0].text.toLowerCase()).toContain('vocês');    // plural
+    // TRAVA (Bruno 10-04): nada no canal; UMA retencao por pessoa na DM do Bruno (prova individual)
+    expect(posts).toHaveLength(0);
+    const holds = dms.filter((d) => /AVISO RETIDO/.test(d.text));
+    expect(holds).toHaveLength(3);
+    expect(holds.map((h) => h.text).join('\n')).toContain('<@U_VIT>');
+    expect(holds.map((h) => h.text).join('\n')).toContain('<@U_ANA>');
+    expect(holds.map((h) => h.text).join('\n')).toContain('Simone');
     expect(db.updated.sort()).toEqual([1, 2, 3]);              // marca TODOS enviados
   });
   test('sem slack_user_id → mesmo canal, com o nome', async () => {
     const rows = [{ id: 2, person_id: 7, display_name: 'Bruno Sarmento', slack_user_id: null, last_task_description: 'cleaning' }];
     const db = makeWorkerDb(rows);
     const posts = [];
-    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return {}; } }, operatorsChannel: 'C_OPS' });
+    const dms = [];
+    const w = new CarolinaForgottenDM({ db, slack: { postAs: async (o) => { posts.push(o); return {}; }, postDm: async (o) => { dms.push(o); return { ts: 'y', channel: 'D1' }; } }, operatorsChannel: 'C_OPS' });
     await w.tick();
-    expect(posts).toHaveLength(1);
-    expect(posts[0].channel).toBe('C_OPS');
-    expect(posts[0].text).toContain('Bruno Sarmento');
-    expect(posts[0].text.toLowerCase()).toContain('você');     // singular
+    expect(posts).toHaveLength(0);                             // trava: nada no canal
+    const hold = dms.find((d) => /AVISO RETIDO/.test(d.text));
+    expect(hold.text).toContain('Bruno Sarmento');
+    expect(hold.text.toLowerCase()).toContain('você');         // singular
   });
 });
 

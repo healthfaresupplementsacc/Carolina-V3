@@ -739,7 +739,7 @@ async function startWorker() {
       const ngteco = require('./services/ngteco');
       const attAlertGate = require('./alert-gate');
       new AttendanceSync({ db: _pool, ngteco, heartbeat: () => beat('attendance'),
-        slack: { postAs: slackSender.postAs }, alertGate: { isMuted: (db) => attAlertGate.isMuted(db) },
+        slack: { postAs: slackSender.postAs, postDm: slackSender.postDm }, alertGate: { isMuted: (db) => attAlertGate.isMuted(db) },
         adminChannelId: process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1',
         operatorChannelId: process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK' }).start(60000);
     } catch (e) { console.error('[V3] attendance-sync não iniciou:', e.message); }

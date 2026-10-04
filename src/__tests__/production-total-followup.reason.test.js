@@ -60,12 +60,15 @@ describe('production-total-followup: motivo que ja explica nao abre cobranca (Br
     expect(audit.args[0]).toBe(5208);
   });
 
-  test('openFollowup com motivo lixo: segue o fluxo antigo (posta e insere)', async () => {
-    const calls = []; let posted = 0;
+  test('openFollowup com motivo lixo: RETIDO na DM do Bruno (trava 10-04), nao posta no grupo nem insere followup', async () => {
+    const calls = []; let posted = 0; const dms = [];
     const db = { query: async (sql, args) => { calls.push({ sql, args }); return { rows: [] }; } };
-    const slack = { postAs: async () => { posted++; return { ts: '1.2' }; } };
+    const slack = { postAs: async () => { posted++; return { ts: '1.2' }; }, postDm: async (o) => { dms.push(o); return { ts: '3.3', channel: 'D1' }; } };
     await openFollowup({ db, slack, productionChannel: 'C1', ev: { id: 1 }, reason: 'aaaaaaaaaaaaaaa', s: { person_id: 4, display_name: 'Vitor' }, detail: {} });
-    expect(posted).toBe(1);
-    expect(calls.some((c) => /INSERT INTO v3.production_total_followups/.test(c.sql))).toBe(true);
+    expect(posted).toBe(0);
+    expect(dms).toHaveLength(1);
+    expect(dms[0].text).toMatch(/AVISO RETIDO/);
+    expect(calls.some((c) => /INSERT INTO v3.production_total_followups/.test(c.sql))).toBe(false);
+    expect(calls.some((c) => /INSERT INTO v3.notifications/.test(c.sql) && /accusation_hold/.test(c.sql))).toBe(true);
   });
 });

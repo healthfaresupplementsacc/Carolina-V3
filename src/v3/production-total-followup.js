@@ -70,7 +70,6 @@ async function openFollowup({ db, slack, productionChannel, ev, reason, s, detai
 
   const productName = detail.product || null;
   const batchNumber = detail.batch_number || null;
-  const firstName = (detail.operator || s.display_name || '').split(/\s+/)[0] || 'você';
 
   // pergunta conversacional — calorosa mas firme, pedindo o NÚMERO.
   const question =
@@ -79,26 +78,24 @@ async function openFollowup({ db, slack, productionChannel, ev, reason, s, detai
     (reason ? `Vi o motivo "${reason}". ` : '') +
     `Quantas unidades você completou? Só o número. Se não souber agora, confere e me fala.`;
 
-  let threadTs = null;
+  // TRAVA (Bruno 10-04): a pergunta NAO vai pro grupo daqui. Fica retida no
+  // admin-orin com a prova; se um admin reagir ✅, o gate posta e abre o followup
+  // (thread_ts = a msg aprovada). Sem ✅ nao existe cobranca.
+  const gate = require('./accusation-gate');
+  const adminChannelId = process.env.V3_ADMIN_CHANNEL || 'C0B36DR5MP1';
+  const proof = `evento ${ev.id} fechado sem total; motivo digitado: "${reason || '(nenhum)'}"; produto ${productName || '?'}; lote ${batchNumber || '?'}`;
+  const held = await gate.holdForAdmin({
+    db, slack, adminChannelId, productionChannelId: productionChannel,
+    kind: 'total de producao', person: { id: s.person_id, display_name: detail.operator || s.display_name || null, slack_user_id: s.slack_user_id || null },
+    groupText: question, proof,
+    onApprove: { type: 'total_followup', event_id: ev.id, person_id: s.person_id, person_name: detail.operator || s.display_name || null,
+                 slack_user_id: s.slack_user_id || null, product_id: ev.product_id || null, product_name: productName, batch_number: batchNumber, close_reason: reason || null },
+  });
   try {
-    const posted = await slack.postAs({
-      channel: productionChannel,
-      sender: { name: 'HealthFare Tracker', icon: ':package:' },
-      thread_ts: null, text: question, unfurl_links: false, unfurl_media: false,
-    });
-    threadTs = (posted && (posted.ts || posted.message_ts)) || null;
-  } catch (e) { console.error('[total-followup] pergunta inicial falhou:', e.message); }
-
-  const ins = await db.query(
-    `INSERT INTO v3.production_total_followups
-       (event_id, person_id, person_name, slack_user_id, product_id, product_name,
-        batch_number, close_reason, status, thread_ts, state, attempts, last_prompt_at, last_seen_ts)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,'awaiting_number',1,NOW(),$10)
-     ON CONFLICT (event_id) DO NOTHING
-     RETURNING *`,
-    [ev.id, s.person_id, detail.operator || s.display_name || null, s.slack_user_id || null,
-     ev.product_id || null, productName, batchNumber, reason || null, threadTs, threadTs]);
-  return ins.rows[0] || existing.rows[0] || null;
+    await db.query("INSERT INTO v3.audit_log (actor_type, actor_person_id, action, target_type, target_id, metadata) VALUES ('system', NULL, 'production.total_followup.held', 'event', $1, $2::jsonb)",
+      [ev.id, JSON.stringify({ held: !!held.held, admin_msg_ts: held.msg_ts || null, reason: held.reason || null })]);
+  } catch (_) {}
+  return null;
 }
 
 function slackWho(s, detail) {
