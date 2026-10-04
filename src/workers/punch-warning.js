@@ -183,4 +183,38 @@ async function recent30(db) {
   return r.rows;
 }
 
-module.exports = { pickLevel, composeMessage, countLast30, recordAndWarn, occurrences30, recent30, describeMissing, brDate, firstName };
+/* JULGAMENTO PURO (10-04, caso Vitor 10-03 — FALSO POSITIVO que fez o Bruno
+ * desmentir uma foto verdadeira): decide o que faltou a partir de dados ja
+ * carregados, sem banco, pra ser testavel com o caso real.
+ *   punches      : epoch ms das batidas do dia (ordenadas)
+ *   firstStart   : epoch ms da 1a tarefa
+ *   lastRealEnd  : epoch ms do ultimo fim HUMANO do dia (null = nao da pra medir)
+ *   lunch        : {o, i} epoch ms da saida/volta do almoco (ou null)
+ *   checkoutAt   : epoch ms do checkout que o PROPRIO sistema registrou (att_state)
+ * Regras:
+ *   - checkoutAt presente = o sistema ja reconheceu a saida: NUNCA acusa saida
+ *     (foi exatamente o furo: att_state tinha checkout 16:32 e o aviso saiu).
+ *   - batida de saida vale se for a ultima de 2+ e (>= 17:00 NY OU depois do
+ *     ultimo fim humano menos 45min). 16:32 com ultima tarefa 15:58 = saida.
+ *   - sem fim humano mensuravel = nao julga saida. */
+const CHECKOUT_MIN_NY = 17 * 60;
+function judgeMissing({ punches = [], firstStart, lastRealEnd = null, lunch = null, checkoutAt = null, nyMinutesOf }) {
+  const near = (t, mins) => punches.some((x) => Math.abs(x - t) <= mins * 60000);
+  const faltas = [];
+  if (firstStart != null && !punches.some((x) => x <= firstStart + 60 * 60000)) faltas.push({ k: 'in', d: 'entrada da manha' });
+  if (lunch && lunch.o && lunch.i) {
+    if (!near(lunch.o, 20)) faltas.push({ k: 'out', d: 'saida do almoco' });
+    if (!near(lunch.i, 20)) faltas.push({ k: 'in', d: 'volta do almoco' });
+  }
+  const last = punches.length ? punches[punches.length - 1] : null;
+  const lastMin = last != null && nyMinutesOf ? nyMinutesOf(new Date(last)) : -1;
+  const afterWork = last != null && lastRealEnd != null && last >= lastRealEnd - 45 * 60000;
+  const hasCheckoutPunch = punches.length >= 2 && (lastMin >= CHECKOUT_MIN_NY || afterWork);
+  const systemSawCheckout = checkoutAt != null;
+  if (!systemSawCheckout && !hasCheckoutPunch && lastRealEnd != null && !punches.some((x) => x >= lastRealEnd - 45 * 60000)) {
+    faltas.push({ k: 'out', d: 'saida do dia' });
+  }
+  return faltas;
+}
+
+module.exports = { pickLevel, composeMessage, countLast30, recordAndWarn, occurrences30, recent30, describeMissing, brDate, firstName, judgeMissing };

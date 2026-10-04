@@ -51,6 +51,8 @@ class AttendanceSync {
     this.operatorChannelId = deps.operatorChannelId || process.env.V3_PRODUCTION_CHANNEL || 'C09UNBXFRKK';
     this.alertGate = deps.alertGate || null;
     this.heartbeat = deps.heartbeat || null;
+    // 'live' posta no grupo e registra ocorrencia; 'dry' so conta pro admin-orin (10-04)
+    this.nextDayMode = deps.nextDayMode || process.env.ATT_NEXTDAY_MODE || 'live';
     this._timer = null;
     this._ticking = false;
     this._devCheckAt = 0;       // último check de saúde do TC2 (a cada 5min)
@@ -72,6 +74,7 @@ class AttendanceSync {
     return new Date(ts).toLocaleTimeString('pt-BR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
   }
 
+  _fmtNy(ms) { try { return new Date(ms).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }); } catch (_) { return String(ms); } }
   async _admin(text) {
     if (!this.slack || !this.slack.postAs) return null;
     try {
@@ -121,10 +124,12 @@ class AttendanceSync {
                 MIN(e.started_at) AS first_start,
                 -- fim REAL do dia: so tarefas fechadas no mesmo dia por gente (nunca
                 -- auto_closed_eod / sweep / expiry, que fecham as 21h+ e fariam a batida
-                -- de saida real das 19:08 parecer "faltando" — caso Vitor 09-29)
+                -- de saida real das 19:08 parecer "faltando" — caso Vitor 09-29;
+                -- nem ems_stage_completed: o sync do EMS fechou o ev 5204 as 19:11
+                -- e o Vitor tinha batido a saida as 16:32 — caso Vitor 10-03)
                 MAX(CASE WHEN e.ended_at IS NOT NULL
                           AND (e.ended_at AT TIME ZONE '${TZ}')::date = (e.started_at AT TIME ZONE '${TZ}')::date
-                          AND COALESCE(e.closed_reason, '') !~ '(auto|sweep|eod|expir)'
+                          AND COALESCE(e.closed_reason, '') !~ '(auto|sweep|eod|expir|ems)'
                          THEN e.ended_at END) AS last_real_end
            FROM v3.events e JOIN v3.persons p ON p.id = e.person_id
           WHERE e.deleted_at IS NULL AND COALESCE(e.is_test, false) = false AND e.source NOT IN ('ems_auto')
@@ -146,31 +151,27 @@ class AttendanceSync {
           const punches = (await this.db.query(
             `SELECT punch_time FROM v3.att_punch WHERE person_id=$1 AND att_date=$2::date ORDER BY punch_time`, [p.id, yISO]))
             .rows.map((r) => new Date(r.punch_time).getTime());
-          const near = (t, mins) => punches.some((x) => Math.abs(x - t) <= mins * 60000);
           const first = new Date(p.first_start).getTime();
           const lastReal = p.last_real_end ? new Date(p.last_real_end).getTime() : null;
-          // 2+ batidas e a ultima depois das 17:00 NY = bateu a saida, ponto final
-          // (a batida de saida e autoritativa; nao depende de tarefa nenhuma)
-          const lastPunchMin = punches.length ? this._nyMinutes(new Date(punches[punches.length - 1])) : -1;
-          const hasCheckoutPunch = punches.length >= 2 && lastPunchMin >= CHECKOUT_MIN;
-          const faltas = [];
-          // entrada da manha: alguma batida ate 60min depois da 1a tarefa (mesma regra do no_clockin)
-          if (!punches.some((x) => x <= first + 60 * 60000)) faltas.push({ k: 'in', d: 'entrada da manha' });
-          // almoco REAL (so 'lunch', nunca pausa curta): batida perto da saida e da volta (±20min)
-          const lunch = (await this.db.query(
+          // almoco REAL (so 'lunch', nunca pausa curta)
+          const lunchRow = (await this.db.query(
             `SELECT MIN(e.started_at) AS o, MAX(e.ended_at) AS i
                FROM v3.events e JOIN v3.activity_types at ON at.id = e.activity_type_id
               WHERE e.person_id=$1 AND e.deleted_at IS NULL AND at.slug = ANY($2::text[]) AND e.ended_at IS NOT NULL
                 AND (e.started_at AT TIME ZONE '${TZ}')::date = $3::date`, [p.id, ONLY_LUNCH, yISO])).rows[0];
-          if (lunch && lunch.o && lunch.i) {
-            if (!near(new Date(lunch.o).getTime(), 20)) faltas.push({ k: 'out', d: 'saida do almoco' });
-            if (!near(new Date(lunch.i).getTime(), 20)) faltas.push({ k: 'in', d: 'volta do almoco' });
-          }
-          // saida do dia: so acusa se (a) nao tem batida de saida clara (2+ batidas, ultima >= 17:00)
-          // E (b) da pra medir um fim real do dia E (c) nao ha batida de 45min antes desse fim em diante.
-          // Sem fim real mensuravel (so fechamentos automaticos) = nao da pra julgar = NAO acusa.
-          if (!hasCheckoutPunch && lastReal && !punches.some((x) => x >= lastReal - 45 * 60000)) faltas.push({ k: 'out', d: 'saida do dia' });
+          const lunch = (lunchRow && lunchRow.o && lunchRow.i) ? { o: new Date(lunchRow.o).getTime(), i: new Date(lunchRow.i).getTime() } : null;
+          // o que o PROPRIO sistema registrou naquele dia (checkout reconhecido = nao acusa saida)
+          const st = (await this.db.query(`SELECT checkout_at FROM v3.att_state WHERE person_id=$1 AND att_date=$2::date`, [p.id, yISO])).rows[0];
+          const checkoutAt = st && st.checkout_at ? new Date(st.checkout_at).getTime() : null;
+          const faltas = punchWarning.judgeMissing({ punches, firstStart: first, lastRealEnd: lastReal, lunch, checkoutAt, nyMinutesOf: (d) => this._nyMinutes(d) });
           if (!faltas.length) continue;
+          // MODO DRY (Bruno: worker que acusa so liga depois de 10+ dias sem falso
+          // positivo). ATT_NEXTDAY_MODE=dry => so admin-orin, prefixo DRY, sem
+          // ocorrencia e sem grupo. Voltou pra dry em 10-04 depois do caso Vitor.
+          if (this.nextDayMode === 'dry') {
+            await this._admin(`(DRY, nao postado) ${p.display_name}: faltaria ${faltas.map((f) => f.d).join(' e ')} em ${yISO}. Batidas: ${punches.map((x) => this._fmtNy(x)).join(', ') || 'nenhuma'}; ultimo fim humano ${lastReal ? this._fmtNy(lastReal) : '-'}; checkout do sistema ${checkoutAt ? this._fmtNy(checkoutAt) : '-'}.`);
+            continue;
+          }
           const missing = { in: faltas.some((f) => f.k === 'in'), out: faltas.some((f) => f.k === 'out'), detail: faltas.map((f) => f.d).join(' e ') };
           const r = await punchWarning.recordAndWarn({
             db: this.db, person: p, missing, occDateISO: yISO, whenLabel,
