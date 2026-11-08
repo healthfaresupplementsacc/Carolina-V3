@@ -65,7 +65,8 @@ async function refreshGatewayCams() {
 const CAMS = { has: (name) => STATIC_CAMS.has(name) || gatewayCams.names.has(name) };
 // Rótulos das páginas /cameras e /cameras/tag (o dashboard tem os dele em CameraGrid.jsx).
 const CAM_LABELS_SRV = { warehouse: '🏭 Warehouse Floor', packaging: '📦 Packaging Line', formulation: '🧪 Formulation Cam 1',
-  storage: '📦 Storage (Cam 2)', cam2: '🏭 Warehouse Back (Cam 2)', warehouse2: '🏭 Warehouse Back (Cam 2)', cam7: '🧪 Formulation Cam 2', formulation2: '🧪 Formulation Cam 2' };
+  storage: '📦 Storage (Cam 2)', cam2: '🏭 Warehouse Back (Cam 2)', warehouse2: '🏭 Warehouse Back (Cam 2)', cam7: '🧪 Formulation Cam 2', formulation2: '🧪 Formulation Cam 2',
+  orders2: '📦 Orders 2', wh511left: '🏭 Warehouse 511 Left', camera4: '📷 Camera 4', packaging2: '📦 Packaging Line 2', mixer: '🌀 Mixer Camera' };
 // Lista viva: as 3 fixas + o que o gateway expõe agora (Bruno 09-11: a cam2 entra com o
 // MESMO PIN, o MESMO horário, o mesmo PIP/tela cheia e no mesmo lugar, sem deploy).
 async function camList() {
